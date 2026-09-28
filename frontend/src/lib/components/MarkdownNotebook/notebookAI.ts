@@ -4,6 +4,28 @@ import { getNodeFingerprint, getNodeSignature, getNodeText } from './utils'
 
 export const NOTEBOOK_AI_WRITING_PLACEHOLDER = 'Thinking...'
 
+export function preserveNotebookAIQuestion(markdown: string, retainedQuestionMarkdown?: string): string {
+    if (!retainedQuestionMarkdown) {
+        return markdown
+    }
+    const document = parseMarkdownNotebook(markdown)
+    const questionNodes = parseMarkdownNotebook(retainedQuestionMarkdown).nodes
+    const existingFingerprints = new Set(document.nodes.map(getNodeFingerprint))
+    const missingQuestionNodes = questionNodes.filter((node) => !existingFingerprints.has(getNodeFingerprint(node)))
+    if (!missingQuestionNodes.length) {
+        return markdown
+    }
+    const insertionIndex = document.nodes[0]?.type === 'heading' ? 1 : 0
+    return serializeMarkdownNotebook({
+        ...document,
+        nodes: [
+            ...document.nodes.slice(0, insertionIndex),
+            ...missingQuestionNodes,
+            ...document.nodes.slice(insertionIndex),
+        ],
+    })
+}
+
 export type NotebookAIResponseMarkdownResult = {
     markdown: string
     responseNodeIndex: number

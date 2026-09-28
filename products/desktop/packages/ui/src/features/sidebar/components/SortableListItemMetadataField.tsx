@@ -4,6 +4,7 @@ import {
   DotsSixVertical,
   GitBranch,
   GitFork,
+  Hash,
   User,
 } from "@phosphor-icons/react";
 import { Checkbox, cn, Label } from "@posthog/quill";
@@ -17,6 +18,7 @@ const FIELD_ICONS: Record<
   ListItemMetadataField,
   ComponentType<{ size?: number | string }>
 > = {
+  space: Hash,
   repository: GitFork,
   branch: GitBranch,
   creator: User,

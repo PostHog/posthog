@@ -7,6 +7,9 @@ interpolated into mrkdwn text.
 
 from django.conf import settings
 
+from posthog.slack.formatting import escape_slack_mrkdwn
+
+from products.error_tracking.backend.logic import build_issue_permalink_path
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 ROOT_HEADLINES = {
@@ -23,16 +26,20 @@ MAX_HEADER_LENGTH = 150
 MAX_DESCRIPTION_LENGTH = 500
 
 
-def escape_slack_text(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def issue_url(team_id: int, issue_id: str) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/error_tracking/{issue_id}"
+def issue_url(inputs: AlertDeliveryWorkflowInputs) -> str:
+    # Slack keeps the root forever and a merge deletes the source issue, so the link
+    # follows the fingerprint to whichever issue owns it now. The path segment takes
+    # the environment id, which is what the workflow inputs carry.
+    return settings.SITE_URL + build_issue_permalink_path(
+        # Cymbal persists an explicitly empty manual fingerprint; that has no route.
+        project_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        fingerprint=inputs.fingerprint or None,
+    )
 
 
 def root_headline(event: str) -> str:
@@ -67,7 +74,7 @@ def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
             {
                 "type": "button",
                 "text": {"type": "plain_text", "text": "View issue", "emoji": True},
-                "url": issue_url(inputs.team_id, inputs.issue_id),
+                "url": issue_url(inputs),
             }
         ],
     }
@@ -96,7 +103,7 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
         blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_text(inputs.status)}"}],
+                "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_mrkdwn(inputs.status)}"}],
             }
         )
     if inputs.event == "$error_tracking_issue_spiking":
@@ -111,7 +118,7 @@ def build_root_message(inputs: AlertDeliveryWorkflowInputs) -> dict:
     headline = root_headline(inputs.event)
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": escape_slack_text(_header_text(inputs, headline)),
+        "text": escape_slack_mrkdwn(_header_text(inputs, headline)),
         "headline": headline,
     }
 
@@ -120,12 +127,12 @@ def build_root_edit(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> di
     # The headline never changes on edit: it is the thread's identity.
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": escape_slack_text(_header_text(inputs, headline)),
+        "text": escape_slack_mrkdwn(_header_text(inputs, headline)),
     }
 
 
 def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
-    by = f" by {escape_slack_text(inputs.actor_email)}" if inputs.actor_email else ""
+    by = f" by {escape_slack_mrkdwn(inputs.actor_email)}" if inputs.actor_email else ""
     extra = inputs.extra or {}
     match inputs.event:
         case "$error_tracking_issue_resolved":

@@ -94,6 +94,7 @@ export interface PatchedEdgeApi {
  * * `view` - View
  * * `matview` - Mat View
  * * `endpoint` - Endpoint
+ * * `metric` - Metric
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -102,7 +103,34 @@ export const NodeTypeEnumApi = {
     View: 'view',
     Matview: 'matview',
     Endpoint: 'endpoint',
+    Metric: 'metric',
 } as const
+
+/**
+ * * `sync_failed` - Sync Failed
+ * * `unresolved` - Unresolved
+ */
+export type LineageIssueKindEnumApi = (typeof LineageIssueKindEnumApi)[keyof typeof LineageIssueKindEnumApi]
+
+export const LineageIssueKindEnumApi = {
+    SyncFailed: 'sync_failed',
+    Unresolved: 'unresolved',
+} as const
+
+export interface LineageIssueApi {
+    /** sync_failed when the last attempt to rebuild this node's edges ended in an error. unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.
+     *
+     * * `sync_failed` - Sync Failed
+     * * `unresolved` - Unresolved */
+    kind: LineageIssueKindEnumApi
+    /** The error for sync_failed, or the comma-separated names that did not resolve for unresolved. */
+    detail: string
+    /**
+     * When the issue was recorded.
+     * @nullable
+     */
+    at: string | null
+}
 
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
@@ -136,6 +164,9 @@ export interface NodeApi {
     description?: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /** @nullable */
+    readonly metric_id: string | null
+    readonly lineage_issue: LineageIssueApi | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -189,6 +220,9 @@ export interface PatchedNodeApi {
     description?: string
     /** @nullable */
     readonly saved_query_id?: string | null
+    /** @nullable */
+    readonly metric_id?: string | null
+    readonly lineage_issue?: LineageIssueApi | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -222,6 +256,13 @@ export interface NodeResumeApi {
     resumed: boolean
 }
 
+export interface LineageResponseApi {
+    /** Every node reachable from the requested one, plus the node itself. */
+    nodes: NodeApi[]
+    /** Every edge between two of those nodes. */
+    edges: EdgeApi[]
+}
+
 export type DataModelingDagsListParams = {
     /**
      * Number of results to return per page.
@@ -235,6 +276,10 @@ export type DataModelingDagsListParams = {
 
 export type DataModelingEdgesListParams = {
     /**
+     * Return only the edges of this DAG.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -246,6 +291,10 @@ export type DataModelingEdgesListParams = {
 
 export type DataModelingNodesListParams = {
     /**
+     * Scope the lineage counts to this DAG.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -256,6 +305,10 @@ export type DataModelingNodesListParams = {
 }
 
 export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    metric_id?: string
     /**
      * Node to build lineage for.
      */

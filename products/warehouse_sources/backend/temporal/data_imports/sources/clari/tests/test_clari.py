@@ -10,10 +10,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clar
     ClariRetryableError,
     _extract_result_rows,
     _format_timestamp,
+    _to_datetime,
     clari_source,
+    get_activity,
     get_audit_events,
     get_forecast,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import (
+    ACTIVITY_INITIAL_LOOKBACK_DAYS,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari"
@@ -56,12 +61,31 @@ class TestExtractResultRows:
             ([{"a": 1}, "junk"], [{"a": 1}]),
             ({"data": [{"a": 1}]}, [{"a": 1}]),
             ({"rows": [{"a": 1}]}, [{"a": 1}]),
+            ({"activities": [{"a": 1}]}, [{"a": 1}]),
+            ({"activities": []}, []),
             ({"unknown_key": "x"}, [{"unknown_key": "x"}]),
             ("junk", []),
         ],
     )
     def test_extracts_rows(self, data, expected):
         assert _extract_result_rows(data) == expected
+
+
+class TestToDatetime:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (1702906200000, datetime(2023, 12, 18, 13, 30, tzinfo=UTC)),
+            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)),
+            (datetime(2024, 1, 2, 3, 4, 5), datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)),
+            (date(2024, 1, 2), datetime(2024, 1, 2, tzinfo=UTC)),
+            ("2024-01-02T03:04:05Z", datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)),
+            ("not a date", None),
+            (None, None),
+        ],
+    )
+    def test_converts_watermarks(self, value, expected):
+        assert _to_datetime(value) == expected
 
 
 class TestValidateCredentials:
@@ -209,6 +233,67 @@ class TestGetForecast:
             list(get_forecast("key", "fc-1", mock.MagicMock(), _make_manager()))
 
 
+class TestGetActivity:
+    def _run(self, mock_session, mock_sleep, **kwargs) -> list[list[dict[str, Any]]]:
+        mock_session.return_value.request.side_effect = [
+            _response({"jobId": "job-a"}),
+            _response({"job": {"id": "job-a", "status": "DONE"}}),
+            _response({"activities": [{"activityId": "act-1", "activityType": "MEETING"}]}),
+        ]
+        return list(get_activity("key", mock.MagicMock(), _make_manager(), **kwargs))
+
+    def _create_body(self, mock_session) -> dict[str, Any]:
+        return mock_session.return_value.request.call_args_list[0].kwargs["json"]
+
+    @mock.patch(f"{_MODULE}.time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_exports_every_activity_type_and_reads_the_activities_key(self, mock_session, mock_sleep):
+        batches = self._run(mock_session, mock_sleep)
+
+        assert batches == [[{"activityId": "act-1", "activityType": "MEETING"}]]
+        create_call = mock_session.return_value.request.call_args_list[0]
+        assert create_call.args == ("POST", "https://api.clari.com/v4/export/activity")
+        assert self._create_body(mock_session)["activityTypes"] == [
+            "MEETING",
+            "EMAIL_SENT",
+            "EMAIL_RECEIVED",
+            "ATTACHMENT_SENT",
+            "ATTACHMENT_RECEIVED",
+        ]
+
+    @mock.patch(f"{_MODULE}.time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_full_refresh_exports_the_initial_lookback_window(self, mock_session, mock_sleep):
+        self._run(mock_session, mock_sleep, should_use_incremental_field=False, db_incremental_field_last_value=123)
+
+        body = self._create_body(mock_session)
+        start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%SZ")
+        end = datetime.strptime(body["endDate"], "%Y-%m-%dT%H:%M:%SZ")
+        assert (end - start).days == ACTIVITY_INITIAL_LOOKBACK_DAYS
+
+    @mock.patch(f"{_MODULE}.time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_incremental_starts_from_the_epoch_millisecond_watermark(self, mock_session, mock_sleep):
+        self._run(
+            mock_session,
+            mock_sleep,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1702906200000,
+        )
+
+        assert self._create_body(mock_session)["startDate"] == "2023-12-18T13:30:00Z"
+
+    @mock.patch(f"{_MODULE}.time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_first_incremental_sync_falls_back_to_the_lookback_window(self, mock_session, mock_sleep):
+        self._run(mock_session, mock_sleep, should_use_incremental_field=True, db_incremental_field_last_value=None)
+
+        body = self._create_body(mock_session)
+        start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%SZ")
+        end = datetime.strptime(body["endDate"], "%Y-%m-%dT%H:%M:%SZ")
+        assert (end - start).days == ACTIVITY_INITIAL_LOOKBACK_DAYS
+
+
 class TestClariSourceResponse:
     def test_audit_events_metadata(self):
         response = clari_source("key", "fc-1", "audit_events", mock.MagicMock(), _make_manager())
@@ -220,6 +305,14 @@ class TestClariSourceResponse:
         # incremental syncing - regression test for the schema-wide incremental sync outage this
         # caused when has_duplicate_primary_keys was set unconditionally.
         assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
+
+    def test_activity_metadata(self):
+        response = clari_source("key", "fc-1", "activity", mock.MagicMock(), _make_manager())
+
+        assert response.name == "activity"
+        assert response.primary_keys == ["activityId"]
+        assert response.sort_mode == "desc"
         validate_incremental_sync(True, response)
 
     def test_forecast_metadata(self):

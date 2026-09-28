@@ -6,9 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSelect, LemonS
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { suggestionsForSection } from 'scenes/marketing-analytics/Setup/sectionRouting'
 import { SuggestionRow } from 'scenes/marketing-analytics/Setup/SuggestionRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +15,6 @@ import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
-    MarketingAnalyticsTab,
     SetupSection,
     marketingAnalyticsLogic,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -36,11 +33,13 @@ import {
     WebOverviewQueryResponse,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { MarketingQueryError } from './MarketingQueryError'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
+import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
 const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialChannelType, label: 'Channel' },
@@ -51,77 +50,70 @@ const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialPage, label: 'Landing page' },
 ]
 
+const SECTIONS = [
+    {
+        key: 'acquisition',
+        title: 'Acquisition',
+        description: 'Visitors, sessions and pageviews',
+        icon: <IconPeople />,
+    },
+    {
+        key: 'engagement',
+        title: 'Engagement',
+        description: 'Session duration and bounce rate',
+        icon: <IconCursor />,
+    },
+    {
+        key: 'retention',
+        title: 'Retention',
+        description: 'Returning visitors by cohort',
+        icon: <IconRetention />,
+    },
+    {
+        key: 'conversion',
+        title: 'Conversion',
+        description: 'Goals and conversion paths',
+        icon: <IconTarget />,
+    },
+    {
+        key: 'revenue',
+        title: 'Revenue',
+        description: 'Revenue by attribution model',
+        icon: <IconTrends />,
+    },
+]
+
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const [selectedSection, setSelectedSection] = useState('acquisition')
     const [trafficBreakdown, setTrafficBreakdown] = useState(WebStatsBreakdown.InitialChannelType)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const sections = [
-        {
-            key: 'acquisition',
-            title: 'Acquisition',
-            description: 'Visitors, sessions and pageviews',
-            icon: <IconPeople />,
-        },
-        {
-            key: 'engagement',
-            title: 'Engagement',
-            description: 'Session duration and bounce rate',
-            icon: <IconCursor />,
-        },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
-            ? [
-                  {
-                      key: 'retention',
-                      title: 'Retention',
-                      description: 'Returning visitors by cohort',
-                      icon: <IconRetention />,
-                  },
-              ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
-            ? [
-                  {
-                      key: 'conversion',
-                      title: 'Conversion',
-                      description: 'Goals and conversion paths',
-                      icon: <IconTarget />,
-                  },
-                  {
-                      key: 'revenue',
-                      title: 'Revenue',
-                      description: 'Revenue by attribution model',
-                      icon: <IconTrends />,
-                  },
-              ]
-            : []),
-    ]
-    const activeSection = sections.some(({ key }) => key === selectedSection) ? selectedSection : 'acquisition'
+    const activeSection = SECTIONS.some(({ key }) => key === selectedSection) ? selectedSection : 'acquisition'
     const isTraffic = activeSection === 'acquisition' || activeSection === 'engagement'
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
-    const { customerGoals, selectedCustomerGoal, customerConversionGoal, trafficOrderBy } =
-        useValues(marketingAcquisitionLogic)
-    const { setCustomerGoalId, toggleTrafficSort } = useActions(marketingAcquisitionLogic)
+    const {
+        customerGoals,
+        selectedCustomerGoal,
+        customerConversionGoal,
+        trafficOrderBy,
+        trafficChartMetric,
+        trafficChartSeries,
+    } = useValues(marketingAcquisitionLogic)
+    const { setCustomerGoalId, toggleTrafficSort, setTrafficChartMetric } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
-    const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setDates, setCompareFilter, openSetup, reportDashboardSectionViewed, reportDashboardControlUsed } =
+        useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
     const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
-    const reviewSources = (): void => {
-        setSetupSection(SetupSection.SOURCES)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewSources = (): void => openSetup(SetupSection.SOURCES, 'dashboard_source_suggestions')
 
     const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', false)
     const goalSuggestions = suggestionsForSection(visibleSuggestions, SetupSection.CONVERSION_GOALS)
-    const reviewGoals = (): void => {
-        setSetupSection(SetupSection.CONVERSION_GOALS)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_goal_suggestions')
 
     const requestedSetupPlan = useRef(false)
     useEffect(() => {
@@ -130,6 +122,20 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             loadSetupPlan()
         }
     }, [setupPlan, setupPlanLoading, loadSetupPlan])
+
+    const reportedSection = useRef<string | null>(null)
+    useEffect(() => {
+        if (currentTeamLoading || reportedSection.current === activeSection) {
+            return
+        }
+        reportedSection.current = activeSection
+        reportDashboardSectionViewed(activeSection, {
+            customerGoal: !!customerConversionGoal,
+            revenueGoal: !!revenueQuery,
+        })
+    }, [activeSection, currentTeamLoading, customerConversionGoal, revenueQuery, reportDashboardSectionViewed])
+    const reportControl = (control: string, value?: string | boolean): void =>
+        reportDashboardControlUsed(activeSection, control, value)
 
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {
@@ -141,7 +147,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
     }
     const overviewLogic = dataNodeLogic({ query, key: 'marketing-acquisition-overview' })
-    const { response, responseLoading, responseError } = useValues(overviewLogic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
     const customerOverviewLogic = dataNodeLogic({
@@ -153,13 +159,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         response: customerResponse,
         responseLoading: customersLoading,
         responseError: customersError,
+        responseErrorObject: customersErrorObject,
+        queryId: customersQueryId,
     } = useValues(customerOverviewLogic)
     const { loadData: loadCustomers } = useActions(customerOverviewLogic)
     const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
-    const reviewCustomerGoals = (): void => {
-        setSetupSection(SetupSection.CONVERSION_GOALS)
-        setActiveTab(MarketingAnalyticsTab.SETUP)
-    }
+    const reviewCustomerGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -175,6 +180,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 (activeSection === 'acquisition' && !!customerConversionGoal && customersLoading)
                             }
                             onClick={() => {
+                                reportControl('reload_summary')
                                 loadData('force_async')
                                 if (activeSection === 'acquisition' && customerConversionGoal) {
                                     loadCustomers('force_async')
@@ -196,7 +202,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             embedded
                             size="small"
                             activeKey={sourcesExpanded ? 'sources' : null}
-                            onChange={(key) => setSourcesExpanded(key !== null)}
+                            onChange={(key) => {
+                                reportControl('source_suggestions', key !== null)
+                                setSourcesExpanded(key !== null)
+                            }}
                             panels={[
                                 {
                                     key: 'sources',
@@ -229,7 +238,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             embedded
                             size="small"
                             activeKey={goalsExpanded ? 'goals' : null}
-                            onChange={(key) => setGoalsExpanded(key !== null)}
+                            onChange={(key) => {
+                                reportControl('goal_suggestions', key !== null)
+                                setGoalsExpanded(key !== null)
+                            }}
                             panels={[
                                 {
                                     key: 'goals',
@@ -255,7 +267,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 )}
             </div>
             <nav aria-label="Dashboard sections" className="flex flex-wrap gap-1 rounded border p-1 w-fit max-w-full">
-                {sections.map(({ key, title, icon }) => (
+                {SECTIONS.map(({ key, title, icon }) => (
                     <LemonButton
                         key={key}
                         type="tertiary"
@@ -275,12 +287,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             <div id="marketing-dashboard-section" className="flex flex-col gap-4">
                 {isTraffic &&
                     (responseError ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Retry', onClick: () => loadData('force_async') }}
-                        >
-                            Could not load traffic metrics. Try again.
-                        </LemonBanner>
+                        <MarketingQueryError
+                            message="Could not load traffic metrics. Try again."
+                            queryId={responseErrorObject?.queryId ?? queryId}
+                            onRetry={() => loadData('force_async')}
+                            loading={responseLoading}
+                        />
                     ) : (
                         [
                             { key: 'acquisition', title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
@@ -291,7 +303,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 <section key={title} className="flex flex-col gap-2" aria-label={title}>
                                     <h2 className="mb-0">{title}</h2>
                                     <p className="text-secondary mb-2">
-                                        {sections.find(({ key }) => key === activeSection)?.description}
+                                        {SECTIONS.find(({ key }) => key === activeSection)?.description}
                                     </p>
                                     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] auto-rows-fr gap-2">
                                         <div className="contents">
@@ -318,6 +330,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 configured={!!customerConversionGoal}
                                                 loading={customersLoading || responseLoading}
                                                 error={!!customersError}
+                                                queryId={customersErrorObject?.queryId ?? customersQueryId}
                                                 customerResults={customerOverview?.results}
                                                 trafficResults={overview?.results}
                                                 samplingRate={customerOverview?.samplingRate}
@@ -332,7 +345,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                             <LemonSelect
                                                 aria-label="Customer goal"
                                                 value={selectedCustomerGoal?.conversion_goal_id}
-                                                onChange={setCustomerGoalId}
+                                                onChange={(value) => {
+                                                    reportControl('customer_goal')
+                                                    setCustomerGoalId(value)
+                                                }}
                                                 options={customerGoals.map((goal) => ({
                                                     value: goal.conversion_goal_id,
                                                     label: goal.conversion_goal_name,
@@ -351,7 +367,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     <section aria-label="Conversion" className="flex flex-col gap-2">
                         <h2 className="mb-0">Conversion</h2>
                         <p className="text-secondary mb-2">
-                            {sections.find(({ key }) => key === activeSection)?.description}
+                            {SECTIONS.find(({ key }) => key === activeSection)?.description}
                         </p>
                         <AttributionTab />
                     </section>
@@ -380,7 +396,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     />
                                     <LemonSelect
                                         value={selectedRevenueGoalId}
-                                        onChange={(value) => value && setRevenueGoalId(value)}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                reportControl('revenue_goal')
+                                                setRevenueGoalId(value)
+                                            }
+                                        }}
                                         options={revenueGoals.map((goal) => ({
                                             value: goal.conversion_goal_id,
                                             label: goal.conversion_goal_name,
@@ -389,7 +410,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     />
                                     <LemonSelect
                                         value={breakdownBy}
-                                        onChange={setBreakdownBy}
+                                        onChange={(value) => {
+                                            reportControl('revenue_breakdown', value)
+                                            setBreakdownBy(value)
+                                        }}
                                         options={Object.values(MarketingAnalyticsAttributionBreakdown).map((value) => ({
                                             value,
                                             label: BREAKDOWN_LABELS[value],
@@ -411,10 +435,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 type="info"
                                 action={{
                                     children: 'Review in Setup',
-                                    onClick: () => {
-                                        setSetupSection(SetupSection.CONVERSION_GOALS)
-                                        setActiveTab(MarketingAnalyticsTab.SETUP)
-                                    },
+                                    onClick: () => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_revenue_banner'),
                                 }}
                             >
                                 Choose an event or action goal that sums an amount and mark it as Revenue in Setup.
@@ -426,11 +447,35 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     <>
                         {activeSection === 'acquisition' && (
                             <LemonCard hoverEffect={false}>
-                                <h3>Visitors over time</h3>
+                                <div className="flex flex-wrap justify-between items-center gap-2">
+                                    <h3 className="mb-0">
+                                        {`${TRAFFIC_CHART_METRICS.find(({ value }) => value === trafficChartMetric)?.label} over time`}
+                                    </h3>
+                                    <LemonSelect
+                                        size="small"
+                                        value={trafficChartMetric}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                reportControl('chart_metric', value)
+                                                setTrafficChartMetric(value)
+                                            }
+                                        }}
+                                        options={TRAFFIC_CHART_METRICS.map(({ value, label }) => ({
+                                            value,
+                                            label,
+                                            disabledReason:
+                                                value === 'new_customers' && !customerConversionGoal
+                                                    ? 'Mark a conversion goal as a new customer goal in Setup first.'
+                                                    : undefined,
+                                        }))}
+                                        aria-label="Chart metric"
+                                        data-attr="marketing-traffic-chart-metric"
+                                    />
+                                </div>
                                 <p className="text-secondary text-sm">All traffic in the selected period.</p>
                                 <div className="flex flex-col h-80">
                                     <Query
-                                        key={activeSection}
+                                        key={`${activeSection}-${trafficChartMetric}`}
                                         query={{
                                             kind: NodeKind.InsightVizNode,
                                             source: {
@@ -440,22 +485,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 filterTestAccounts: shouldFilterTestAccounts,
                                                 interval: 'day',
                                                 tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                                series: [
-                                                    {
-                                                        kind: NodeKind.EventsNode,
-                                                        event: null,
-                                                        properties: [
-                                                            {
-                                                                key: 'event',
-                                                                type: PropertyFilterType.EventMetadata,
-                                                                operator: PropertyOperator.Exact,
-                                                                value: ['$pageview', '$screen'],
-                                                            },
-                                                        ],
-                                                        math: BaseMathType.UniqueUsers,
-                                                        custom_name: 'Visitors',
-                                                    },
-                                                ],
+                                                series: [trafficChartSeries],
                                                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                             },
                                             embedded: true,
@@ -476,7 +506,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                     <span>Breakdown by</span>
                                     <LemonSelect
                                         value={trafficBreakdown}
-                                        onChange={setTrafficBreakdown}
+                                        onChange={(value) => {
+                                            reportControl('traffic_breakdown', value)
+                                            setTrafficBreakdown(value)
+                                        }}
                                         options={TRAFFIC_BREAKDOWNS}
                                         aria-label="Traffic breakdown"
                                     />

@@ -10,12 +10,15 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxValue,
+    Spinner,
     useComboboxAnchor,
 } from '@posthog/quill'
 
 type TagsComboboxProps = {
     value: string[]
     onChange: (next: string[]) => void
+    onOpen?: () => void
+    loading?: boolean
     options?: string[]
     placeholder?: string
     autoFocus?: boolean
@@ -41,6 +44,8 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 function TagsComboboxInner({
     value,
     onChange,
+    onOpen,
+    loading,
     options = [],
     placeholder,
     autoFocus,
@@ -78,6 +83,11 @@ function TagsComboboxInner({
             }}
             inputValue={inputValue}
             onInputValueChange={(v: string) => setInputValue(v)}
+            onOpenChange={(open) => {
+                if (open) {
+                    onOpen?.()
+                }
+            }}
         >
             <TagsComboboxBody
                 placeholder={placeholder}
@@ -88,6 +98,7 @@ function TagsComboboxInner({
                 createSentinel={showCreateItem ? createSentinel : null}
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
+                loading={loading}
             />
         </Combobox>
     )
@@ -102,6 +113,7 @@ function TagsComboboxBody({
     createSentinel,
     customValueNoun,
     trimmed,
+    loading,
 }: {
     placeholder?: string
     autoFocus?: boolean
@@ -111,6 +123,7 @@ function TagsComboboxBody({
     createSentinel: string | null
     customValueNoun: string
     trimmed: string
+    loading?: boolean
 }): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
@@ -138,7 +151,16 @@ function TagsComboboxBody({
             </ComboboxChips>
             <ComboboxContent anchor={anchor}>
                 <ComboboxEmpty>
-                    {trimmed ? `No matching ${customValueNoun}` : `No ${customValueNoun}s yet`}
+                    {loading ? (
+                        <span className="flex items-center gap-2">
+                            <Spinner />
+                            Loading {customValueNoun}s...
+                        </span>
+                    ) : trimmed ? (
+                        `No matching ${customValueNoun}`
+                    ) : (
+                        `No ${customValueNoun}s yet`
+                    )}
                 </ComboboxEmpty>
                 <ComboboxList>
                     {(item: string) => {

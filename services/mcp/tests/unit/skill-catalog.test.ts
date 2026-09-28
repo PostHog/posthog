@@ -6,6 +6,7 @@ import {
     formatLearnFile,
     LEARN_OUTPUT_CHAR_LIMIT,
     makeSkillFile,
+    MAX_GLOBAL_SKILLS,
     readLearnLines,
     searchLearnFile,
     SkillCatalog,
@@ -89,14 +90,65 @@ describe('SkillCatalog and exec learn', () => {
         )
     })
 
+    it('uses the strongest companion file match for its score and snippets', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'team-guide/SKILL.md': makeSkill('team-guide', 'Internal workflow.', '# Team guide'),
+                'team-guide/references/a.md': '# Guide\n\nSupport only.',
+                'team-guide/references/z.md': '# Guide\n\nSupport queue.',
+            })
+        )
+
+        expect(catalog.searchResults('support queue')[0]).toMatchObject({
+            score: 120,
+            snippets: [{ path: 'references/z.md' }],
+        })
+    })
+
+    it('ranks an exact name before substring matches at the result limit', () => {
+        const names = [
+            ...Array.from({ length: MAX_GLOBAL_SKILLS }, (_, index) => `${String.fromCharCode(97 + index)}-support`),
+            'support',
+        ]
+        const catalog = SkillCatalog.fromZip(
+            makeArchive(
+                Object.fromEntries(
+                    names.map((name) => [`${name}/SKILL.md`, makeSkill(name, 'Internal workflow.', '# Guide')])
+                )
+            )
+        )
+
+        expect(catalog.searchResults('support')[0]?.identifier).toBe('support')
+    })
+
+    it('bounds token expansion while preserving informative matches', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'first-token-match/SKILL.md': makeSkill('first-token-match', 'Contains alpha.', '# First'),
+                'long-token-match/SKILL.md': makeSkill('long-token-match', 'Contains ninthtoken.', '# Long'),
+                'overflow-match/SKILL.md': makeSkill('overflow-match', 'Contains golf.', '# Overflow'),
+            })
+        )
+
+        expect(
+            catalog
+                .searchResults('a alpha bravo charlie delta echo foxtrot golf hotel ninthtoken')
+                .map((result) => result.identifier)
+        ).toEqual(['first-token-match', 'long-token-match'])
+    })
+
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], { posthog: catalog })
-        const result = catalog.read('retention-analysis')
+        const result = await learn.execute('posthog:retention-analysis')
 
         expect(result).toContain('Files:')
         expect(result).toContain('- SKILL.md (8 lines,')
         expect(result).toContain('- references/functions.md (3 lines,')
+        expect(result).toContain('Read a file with `learn posthog:retention-analysis <path>`.')
+        expect(await learn.execute('posthog:retention-analysis references/functions.md')).toContain(
+            '# Available functions'
+        )
         expect(result).toContain('# Retention analysis')
         expect(result).not.toContain('name: retention-analysis')
         expect(catalog.searchFile('retention-analysis', 'references/functions.md', 'dateDiff')).toContain(
@@ -234,26 +286,42 @@ describe('SkillCatalog and exec learn', () => {
     })
 
     it.each([
-        ['analyzing', 'trends', true], // analyzing → analy ⊂ "analysis"
+        ['analyzing', 'trends', true], // analyzing → analyz ⊂ "analyze"
         ['funnels', 'conversion', true], // funnels → funnel
+        ['queries', 'querying', true], // queries → query
+        ['bayous', 'wetlands', true], // bayous → bayou
+        ['types', 'classification', false], // four-character derived stems remain excluded
         ['sessions', 'assessment', false], // min-5 guard: "sessions" must not reach "assessing"
+        ['states', 'statistics', false], // "states" must not lose the distinct final e in "state"
     ])('light stemming links query "%s" to %s content (match=%s)', (query, skill, shouldMatch) => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({
                 'trends/SKILL.md': makeSkill(
                     'trends',
                     'Chart product metrics over time.',
-                    '# Trends\n\nRun a cohort analysis.'
+                    '# Trends\n\nAnalyze a cohort.'
                 ),
                 'conversion/SKILL.md': makeSkill(
                     'conversion',
                     'Chart product metrics over time.',
                     '# Conversion\n\nBuild a conversion funnel.'
                 ),
+                'querying/SKILL.md': makeSkill('querying', 'Run database lookups.', '# Querying\n\nRun a query.'),
+                'wetlands/SKILL.md': makeSkill('wetlands', 'Explore waterways.', '# Wetlands\n\nExplore a bayou.'),
+                'classification/SKILL.md': makeSkill(
+                    'classification',
+                    'Review classification labels.',
+                    '# Classification\n\nReview a stereotype.'
+                ),
                 'assessment/SKILL.md': makeSkill(
                     'assessment',
                     'Review internal controls.',
                     '# Assessment\n\nStart by assessing exposure.'
+                ),
+                'statistics/SKILL.md': makeSkill(
+                    'statistics',
+                    'Calculate descriptive measures.',
+                    '# Statistics\n\nSummarize the sample.'
                 ),
             })
         )
@@ -263,6 +331,21 @@ describe('SkillCatalog and exec learn', () => {
         } else {
             expect(catalog.search(query)).not.toContain(skill)
         }
+    })
+
+    it('does not stem singular words ending in s', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'statue/SKILL.md': makeSkill('statue', 'Sculpture reference.', '# Statue'),
+                'support-workflow/SKILL.md': makeSkill(
+                    'support-workflow',
+                    'Track support status.',
+                    '# Support workflow'
+                ),
+            })
+        )
+
+        expect(catalog.searchResults('status').map((result) => result.identifier)).toEqual(['support-workflow'])
     })
 
     it('excludes SKILL.md frontmatter from snippets while keeping raw line numbers', () => {
@@ -304,13 +387,19 @@ describe('SkillCatalog and exec learn', () => {
         expect(results[0]!.score!).toBeGreaterThan(results[1]!.score!)
     })
 
-    it('offers a read and line-range recovery hint when a file search finds nothing', () => {
-        const output = makeCatalog().searchFile('retention-analysis', 'references/functions.md', 'nonexistentxyz')
+    it.each(['nonexistentxyz', '--file'])(
+        'offers a read and line-range recovery hint when a file search for %s finds nothing',
+        async (query) => {
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+            const output = await learn.execute(`posthog:retention-analysis references/functions.md -s "${query}"`)
 
-        expect(output).toContain('No matches for "nonexistentxyz" in retention-analysis/references/functions.md.')
-        expect(output).toContain('Read it with `learn retention-analysis references/functions.md` (3 lines,')
-        expect(output).toContain('--lines <start>:<end>')
-    })
+            expect(output).toContain(`No matches for "${query}" in posthog:retention-analysis/references/functions.md.`)
+            expect(output).toContain(
+                'Read it with `learn posthog:retention-analysis references/functions.md` (3 lines,'
+            )
+            expect(output).toContain('--lines <start>:<end>')
+        }
+    )
 
     it('describes a batch of qualified names, tolerating unknown names without failing the batch', async () => {
         const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: makeProjectSkills() })

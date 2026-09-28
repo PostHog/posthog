@@ -53,6 +53,18 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         return {
             "401 Client Error: Unauthorized for url": "Matomo authentication failed. Please check your API token.",
             "403 Client Error: Forbidden for url": "Matomo denied access. Please check your API token's permissions for this site.",
+            # The instance's own HTTPS certificate has expired. This is a problem with the
+            # customer's Matomo host, not PostHog's request, and every retry hits the same
+            # expired cert until they renew it.
+            "certificate has expired": "PostHog could not connect to your Matomo instance because its SSL certificate has expired. Renew the certificate on your Matomo host, then try again.",
+            # Every call goes to the one reporting endpoint, and Matomo answers a method it does
+            # not know with a 200 error envelope, so a 404 means the instance URL points at
+            # something that is not a Matomo instance, or at one that is gone. The URL is fixed
+            # until the customer edits it, so every retry replays the same 404.
+            "404 Client Error: Not Found for url": (
+                "PostHog couldn't find a Matomo instance at the URL configured for this source. "
+                "Check the instance URL, then reconnect."
+            ),
             "Matomo API error:": None,
         }
 
@@ -61,6 +73,16 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         # transient and self-recovering, so let Temporal retry the activity without surfacing
         # it as tracked exception noise.
         return {"Matomo API error (retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Once Temporal's retries are spent too, the job keeps the internal marker above as its
+        # customer-facing error, down to the raw HTTP status. Name the failure instead.
+        return {
+            "Matomo API error (retryable)": (
+                "Matomo kept returning temporary errors, such as rate limits, so this sync run did "
+                "not finish. This usually clears on its own and the next sync runs on schedule."
+            ),
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

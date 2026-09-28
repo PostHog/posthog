@@ -360,9 +360,10 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                             'opacity-50 cursor-not-allowed': !!item.disabledReason,
+                            'h-auto min-h-[var(--lemon-tree-button-height)] items-center py-0': isEmptyFolder,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
-                                size !== 'narrow',
+                                size !== 'narrow' && !isEmptyFolder,
                         }
                     ),
                 }}
@@ -400,7 +401,12 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 )}
 
                 {size === 'default' && (
-                    <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
+                    <span
+                        className={cn(
+                            'relative text-left w-full text-secondary group-hover/lemon-tree-button:text-primary',
+                            isEmptyFolder ? 'whitespace-normal' : 'truncate'
+                        )}
+                    >
                         {renderItem ? (
                             renderItem(
                                 item,
@@ -505,11 +511,15 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 disabled={!!item.disabledReason}
                 className="flex flex-col w-full gap-y-px"
             >
-                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                <AccordionPrimitive.Trigger
+                    className={cn('flex items-center gap-2 w-full', isEmptyFolder ? 'h-auto' : 'h-8')}
+                    asChild
+                >
                     <ButtonGroupPrimitive
                         fullWidth
                         className={cn(
-                            'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
+                            'group/lemon-tree-button-group relative bg-transparent',
+                            isEmptyFolder ? 'h-auto' : 'h-[var(--lemon-tree-button-height)]',
                             className
                         )}
                     >
@@ -1531,7 +1541,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const sortedRenderedIndexes = useMemo(() => {
             const renderedIndexes = new Set<number>()
 
-            for (let index = virtualizedStartIndex; index < virtualizedEndIndex; index++) {
+            for (
+                let index = virtualizedStartIndex;
+                index < Math.min(virtualizedEndIndex, parentIndexesByIndex.length);
+                index++
+            ) {
                 renderedIndexes.add(index)
 
                 let parentIndex = parentIndexesByIndex[index]
@@ -1546,40 +1560,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
             return [...renderedIndexes].sort((left, right) => left - right)
         }, [parentIndexesByIndex, virtualizedEndIndex, virtualizedStartIndex])
-
-        const virtualizedSegments = useMemo((): { startIndex: number; items: FlattenedTreeItem[] }[] => {
-            const segments: { startIndex: number; items: FlattenedTreeItem[] }[] = []
-
-            if (sortedRenderedIndexes.length === 0) {
-                return segments
-            }
-
-            let segmentStart = sortedRenderedIndexes[0]
-            let previousIndex = sortedRenderedIndexes[0]
-
-            for (let index = 1; index < sortedRenderedIndexes.length; index++) {
-                const currentIndex = sortedRenderedIndexes[index]
-                if (currentIndex === previousIndex + 1) {
-                    previousIndex = currentIndex
-                    continue
-                }
-
-                segments.push({
-                    startIndex: segmentStart,
-                    items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
-                })
-
-                segmentStart = currentIndex
-                previousIndex = currentIndex
-            }
-
-            segments.push({
-                startIndex: segmentStart,
-                items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
-            })
-
-            return segments
-        }, [flattenedVisibleItems, sortedRenderedIndexes])
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
@@ -1680,54 +1660,54 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                             height: `${flattenedVisibleItems.length * virtualizedRowHeight}px`,
                                         }}
                                     >
-                                        {virtualizedSegments.map((segment) => {
+                                        {/* Stable row parents preserve the click target when focus changes the virtual window. */}
+                                        {sortedRenderedIndexes.map((index) => {
+                                            const { item, depth, ariaSetSize, ariaPosInSet } =
+                                                flattenedVisibleItems[index]
                                             return (
                                                 <div
-                                                    key={`segment-${segment.startIndex}`}
+                                                    key={item.id}
                                                     className="absolute inset-x-0 top-0"
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     style={{
-                                                        transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
+                                                        transform: `translateY(${index * virtualizedRowHeight}px)`,
                                                     }}
                                                 >
-                                                    {segment.items.map(({ item, depth, ariaSetSize, ariaPosInSet }) => (
-                                                        <LemonTreeItemRow
-                                                            key={item.id}
-                                                            item={item}
-                                                            ariaSetSize={ariaSetSize}
-                                                            ariaPosInSet={ariaPosInSet}
-                                                            selectedId={selectedId}
-                                                            handleClick={handleClick}
-                                                            expandedItemIds={expandedItemIdsState}
-                                                            onSetExpandedItemIds={(ids) => {
-                                                                setExpandedItemIdsState(ids)
-                                                                onSetExpandedItemIds?.(ids)
-                                                            }}
-                                                            defaultNodeIcon={defaultNodeIcon}
-                                                            showFolderActiveState={showFolderActiveState}
-                                                            itemSideAction={itemSideAction}
-                                                            isItemEditing={isItemEditing}
-                                                            onItemNameChange={onItemNameChange}
-                                                            isItemDraggable={isItemDraggable}
-                                                            isItemDroppable={isItemDroppable}
-                                                            getItemDropMode={getItemDropMode}
-                                                            onReorderPositionChange={handleReorderPositionChange}
-                                                            enableDragAndDrop={enableDragAndDrop}
-                                                            disableKeyboardInput={(disable) => {
-                                                                setDisableKeyboardInput(disable)
-                                                            }}
-                                                            itemContextMenu={itemContextMenu}
-                                                            selectMode={selectMode}
-                                                            onItemChecked={onItemChecked}
-                                                            isDragging={isDragging}
-                                                            checkedItemCount={checkedItemCount}
-                                                            setFocusToElementFromId={focusElementFromId}
-                                                            depth={depth}
-                                                            size={size}
-                                                            virtualizedRowHeight={virtualizedRowHeight}
-                                                            {...props}
-                                                        />
-                                                    ))}
+                                                    <LemonTreeItemRow
+                                                        item={item}
+                                                        ariaSetSize={ariaSetSize}
+                                                        ariaPosInSet={ariaPosInSet}
+                                                        selectedId={selectedId}
+                                                        handleClick={handleClick}
+                                                        expandedItemIds={expandedItemIdsState}
+                                                        onSetExpandedItemIds={(ids) => {
+                                                            setExpandedItemIdsState(ids)
+                                                            onSetExpandedItemIds?.(ids)
+                                                        }}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        showFolderActiveState={showFolderActiveState}
+                                                        itemSideAction={itemSideAction}
+                                                        isItemEditing={isItemEditing}
+                                                        onItemNameChange={onItemNameChange}
+                                                        isItemDraggable={isItemDraggable}
+                                                        isItemDroppable={isItemDroppable}
+                                                        getItemDropMode={getItemDropMode}
+                                                        onReorderPositionChange={handleReorderPositionChange}
+                                                        enableDragAndDrop={enableDragAndDrop}
+                                                        disableKeyboardInput={(disable) => {
+                                                            setDisableKeyboardInput(disable)
+                                                        }}
+                                                        itemContextMenu={itemContextMenu}
+                                                        selectMode={selectMode}
+                                                        onItemChecked={onItemChecked}
+                                                        isDragging={isDragging}
+                                                        checkedItemCount={checkedItemCount}
+                                                        setFocusToElementFromId={focusElementFromId}
+                                                        depth={depth}
+                                                        size={size}
+                                                        virtualizedRowHeight={virtualizedRowHeight}
+                                                        {...props}
+                                                    />
                                                 </div>
                                             )
                                         })}

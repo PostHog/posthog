@@ -20,6 +20,8 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
@@ -54,7 +56,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
 
@@ -2179,6 +2181,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
             "dateRange": {"date_from": "-7d"},
         }
+
+        # The HogQL database build reads team.revenue_analytics_config, which creates the row on a team's
+        # first access. Create it first so the capture measures only build_endpoint_hogql.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
 
         with CaptureQueriesContext(connection) as ctx:
             build_endpoint_hogql(insight_query, self.team)

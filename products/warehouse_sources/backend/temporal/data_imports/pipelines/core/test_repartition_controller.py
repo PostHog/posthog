@@ -215,23 +215,50 @@ class TestRepartitionDetection:
         schema.refresh_from_db()
         assert schema.repartition_pending is None
 
-    def test_unpartitionable_over_budget_skips_with_reason(self, team):
-        # An unpartitioned table with no usable key can't be repartitioned — we must surface the specific
-        # reason (so a human is alerted) rather than silently flag a target that would fail.
-        schema = _make_schema(team, {})
+    @pytest.mark.parametrize(
+        "sync_type_config,expected_reason,alerts",
+        [
+            ({}, "unpartitionable_no_keys", False),
+            (
+                {
+                    "partitioning_enabled": True,
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partitioning_keys": ["ts"],
+                },
+                "datetime_at_finest_tier",
+                False,
+            ),
+            (
+                {"partitioning_enabled": True, "partition_mode": "numerical", "partitioning_keys": ["id"]},
+                "numerical_no_size",
+                True,
+            ),
+        ],
+    )
+    def test_over_budget_without_target_skips_and_alerts_only_when_unexpected(
+        self, team, sync_type_config, expected_reason, alerts
+    ):
+        # A table with no usable key, and one already at the finest datetime tier, are facts about the
+        # customer's data that nobody can act on, so they must stay out of error tracking while still
+        # being counted on the skip event. A numerical schema with no partition_size is our own row
+        # contradicting itself, so that one must still alert.
+        schema = _make_schema(team, sync_type_config)
         with tempfile.TemporaryDirectory() as d:
             delta = _write_unpartitioned_delta(f"{d}/u")
             with (
                 patch.object(ctrl, "target_partition_bytes", return_value=1),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event") as capture,
+                patch.object(ctrl, "capture_exception") as mock_capture_exception,
             ):
                 self._detect(team, schema, delta)
 
         schema.refresh_from_db()
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
-        assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+        assert capture.call_args.args[1]["reason"] == expected_reason
+        assert mock_capture_exception.call_count == (1 if alerts else 0)
         # A table with no usable partition target must engage the cooldown, otherwise detection
         # re-measures and re-emits the skip on every 5-minute sync forever (the loop we're fixing).
         assert schema.last_repartition_at is not None

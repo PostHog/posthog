@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
@@ -47,6 +48,17 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'alert_subscription_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Added subscriber {logItem.detail.context?.subscriber_name} (
+                        {logItem.detail.context?.subscriber_email})
+                    </>,
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> added{' '}
@@ -61,6 +73,14 @@ export function alertConfigurationActivityDescriber(
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the alert',
+                <>
+                    {formattedName(logItem.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the alert {formattedName(logItem?.detail.name)}
@@ -75,6 +95,17 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'alert_subscription_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Removed subscriber {logItem.detail.context?.subscriber_name} (
+                        {logItem.detail.context?.subscriber_email})
+                    </>,
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> removed{' '}
@@ -90,6 +121,14 @@ export function alertConfigurationActivityDescriber(
 
         const displayName = logItem.detail.name || 'Alert Configuration'
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the alert',
+                <>
+                    {displayName}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the alert: {displayName}
@@ -104,6 +143,14 @@ export function alertConfigurationActivityDescriber(
 
         if (logItem.detail?.type === 'threshold_change') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Updated the threshold',
+                    <>
+                        {formattedName(logItem.detail.context?.alert_name)}
+                        {contextDesc}
+                    </>
+                ),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> updated the <strong>threshold</strong> for alert{' '}
@@ -115,6 +162,14 @@ export function alertConfigurationActivityDescriber(
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the alert',
+                <>
+                    {formattedName(logItem.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated the alert {formattedName(logItem?.detail.name)}

@@ -9,7 +9,7 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
-import { canCreateImplementationPr } from '../utils/reportActions'
+import { canCreateImplementationPr, hasOpenImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
@@ -360,6 +360,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 }
                 openDismissReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    hasOpenPr: hasOpenImplementationPr(report),
                     hotkeys: true,
                     onConfirm: (dismissal) => {
                         // The structured reason plus the user's note, matching the list-card dismiss
@@ -386,9 +387,9 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report) {
                     return
                 }
-                // Triage walks Needs decision, so no report here has an open PR to close.
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    hasOpenPr: hasOpenImplementationPr(report),
                     hotkeys: true,
                     onConfirm: ({ reason, note }) => {
                         // Only the structured reason — the free-form note can carry proprietary text.

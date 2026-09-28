@@ -119,7 +119,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
                 <span className="AuthScene__inviteHeader-mark inline-flex opacity-90">
-                    <Logomark variant="gradient" size="md" />
+                    <Logomark size="md" />
                 </span>
             </div>
             <div className="text-center">

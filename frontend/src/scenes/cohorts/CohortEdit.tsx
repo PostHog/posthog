@@ -54,6 +54,7 @@ import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -544,6 +545,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 {!cohort.is_static && (
                                                     <div className="flex items-center gap-x-2 my-0">
                                                         <strong>Last calculated:</strong>
+                                                        {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
+                                                            <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
+                                                                <IconInfo className="text-secondary text-base" />
+                                                            </Tooltip>
+                                                        )}
                                                         {isCalculatingOrPending ? (
                                                             <div className="flex items-center gap-x-2">
                                                                 <Spinner size="small" />
@@ -601,6 +607,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     </LemonBanner>
                                                 ) : null}
                                             </div>
+                                        )}
+
+                                        {!isNewCohort && !cohort.is_static && (
+                                            <CohortRealtimeStatus realtime={cohort.realtime} />
                                         )}
 
                                         {!isNewCohort && usedIn && (
