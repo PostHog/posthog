@@ -14,6 +14,7 @@ import signal
 import tempfile
 import ipaddress
 import subprocess
+from collections.abc import Callable
 from dataclasses import field
 from pathlib import Path
 from typing import IO, Literal
@@ -113,6 +114,8 @@ class GitRemote:
 class GitFetchTarget:
     remote: GitRemote
     commit: str
+    # Caps the fetched objects and, separately, the listing. Full paths repeat every directory name,
+    # so the listing of a deep tree can be much larger than the compressed trees that git fetched.
     max_bytes: int
     timeout_seconds: float
 
@@ -179,7 +182,10 @@ def list_repository_files(target: GitFetchTarget) -> RepoFileList:
                 watch_dir=repo / "objects",
                 max_bytes=target.max_bytes,
             )
-            listing = run(["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", target.commit])
+            listing = run(
+                ["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", target.commit],
+                max_stdout_bytes=target.max_bytes,
+            )
         paths = tuple(sorted(_decode_paths(listing)))
         outcome = "listed"
         return RepoFileList(
@@ -288,8 +294,24 @@ class _GitRunner:
         self._deadline = deadline
         self.watched_bytes = 0
 
-    def __call__(self, args: list[str], *, watch_dir: Path | None = None, max_bytes: int = 0) -> bytes:
+    def __call__(
+        self,
+        args: list[str],
+        *,
+        watch_dir: Path | None = None,
+        max_bytes: int = 0,
+        max_stdout_bytes: int | None = None,
+    ) -> bytes:
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+
+            def check_limits() -> None:
+                if watch_dir is not None and _dir_size(watch_dir) > max_bytes:
+                    raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
+                if max_stdout_bytes is not None and _file_size(stdout) > max_stdout_bytes:
+                    raise GitTooLarge(f"The output passed the cap of {max_stdout_bytes} bytes")
+                if _file_size(stderr) > _STDERR_MAX_BYTES:
+                    raise GitFailed(f"git wrote more than {_STDERR_MAX_BYTES} bytes to stderr")
+
             # A new session makes git and its transport helper one process group, so a kill stops both.
             process = subprocess.Popen(
                 args,
@@ -301,24 +323,21 @@ class _GitRunner:
                 start_new_session=True,
             )
             try:
-                self._wait(process, stderr, watch_dir, max_bytes)
+                self._wait(process, check_limits)
             finally:
                 if process.poll() is None:
                     _kill(process)
                 if watch_dir is not None:
                     self.watched_bytes = _dir_size(watch_dir)
-            # A fast fetch can finish between two checks, so check the size once more at the end.
+            # A fast command can finish between two checks, so check the limits once more at the end.
             # This also catches a server that ignores the blob filter and sends every file.
-            if watch_dir is not None and self.watched_bytes > max_bytes:
-                raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
+            check_limits()
             if process.returncode != 0:
                 raise _classify(self._redacted_tail(stderr))
             stdout.seek(0)
             return stdout.read()
 
-    def _wait(
-        self, process: subprocess.Popen[bytes], stderr: IO[bytes], watch_dir: Path | None, max_bytes: int
-    ) -> None:
+    def _wait(self, process: subprocess.Popen[bytes], check_limits: Callable[[], None]) -> None:
         while True:
             remaining = self._deadline - time.monotonic()
             if remaining <= 0:
@@ -328,10 +347,7 @@ class _GitRunner:
                 return
             except subprocess.TimeoutExpired:
                 pass
-            if os.fstat(stderr.fileno()).st_size > _STDERR_MAX_BYTES:
-                raise GitFailed(f"git wrote more than {_STDERR_MAX_BYTES} bytes to stderr")
-            if watch_dir is not None and _dir_size(watch_dir) > max_bytes:
-                raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
+            check_limits()
 
     def _redacted_tail(self, stderr: IO[bytes]) -> str:
         text = _read_tail(stderr)
@@ -349,8 +365,12 @@ def _kill(process: subprocess.Popen[bytes]) -> None:
 
 
 def _read_tail(file: IO[bytes]) -> str:
-    file.seek(max(0, os.fstat(file.fileno()).st_size - _STDERR_TAIL_BYTES))
+    file.seek(max(0, _file_size(file) - _STDERR_TAIL_BYTES))
     return file.read(_STDERR_TAIL_BYTES).decode("utf-8", errors="replace")
+
+
+def _file_size(file: IO[bytes]) -> int:
+    return os.fstat(file.fileno()).st_size
 
 
 _AUTH_FAILURES = (

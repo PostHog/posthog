@@ -38,7 +38,7 @@ FILES = ["README.md", "services/api/acme_api/orders/views.py", "apps/web/src/zaÅ
 PINNED_HOST = "git.example.invalid"
 
 
-def _git(*args: str, cwd: Path) -> str:
+def _git(*args: str, cwd: Path, stdin: str | None = None) -> str:
     # The developer's own git config (commit signing, credential helpers) must not reach the fixture.
     env = {
         "PATH": os.environ["PATH"],
@@ -50,7 +50,9 @@ def _git(*args: str, cwd: Path) -> str:
         "GIT_COMMITTER_NAME": "acme",
         "GIT_COMMITTER_EMAIL": "dev@example.com",
     }
-    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", *args], cwd=cwd, env=env, input=stdin, check=True, capture_output=True, text=True
+    ).stdout.strip()
 
 
 @pytest.fixture
@@ -76,6 +78,22 @@ def served_repo(tmp_path: Path, local_remotes: None) -> tuple[str, str]:
     _git("config", "uploadpack.allowFilter", "true", cwd=repo)
     _git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=repo)
     return f"file://{repo}", _git("rev-parse", "HEAD", cwd=repo)
+
+
+@pytest.fixture
+def deep_repo(tmp_path: Path, local_remotes: None) -> tuple[str, str]:
+    repo = tmp_path / "deep"
+    repo.mkdir()
+    _git("init", "-q", cwd=repo)
+    blob = _git("hash-object", "-w", "--stdin", cwd=repo, stdin="")
+    tree = _git("mktree", cwd=repo, stdin="".join(f"100644 blob {blob}\tf{i}\n" for i in range(1000)))
+    for depth in range(4):
+        tree = _git("mktree", cwd=repo, stdin=f"040000 tree {tree}\t{'d' * 250}{depth}\n")
+    commit = _git("commit-tree", tree, "-m", "deep", cwd=repo)
+    _git("update-ref", "refs/heads/main", commit, cwd=repo)
+    _git("config", "uploadpack.allowFilter", "true", cwd=repo)
+    _git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=repo)
+    return f"file://{repo}", commit
 
 
 class _RecordingHandler(BaseHTTPRequestHandler):
@@ -155,12 +173,17 @@ def test_missing_commit_raises_commit_not_found(served_repo: tuple[str, str]) ->
         list_repository_files(_target(url, "1" * 40))
 
 
-def test_fetch_above_the_byte_cap_raises_too_large_and_records_its_size(served_repo: tuple[str, str]) -> None:
-    url, commit = served_repo
+@pytest.mark.parametrize(
+    "repo_fixture,max_bytes", [("served_repo", 1), ("deep_repo", 200_000)], ids=["fetch", "listing"]
+)
+def test_above_the_byte_cap_raises_too_large_and_records_its_size(
+    repo_fixture: str, max_bytes: int, request: pytest.FixtureRequest
+) -> None:
+    url, commit = request.getfixturevalue(repo_fixture)
     recorded_before = _recorded_fetch_bytes("too_large")
 
     with pytest.raises(GitTooLarge):
-        list_repository_files(_target(url, commit, max_bytes=1))
+        list_repository_files(_target(url, commit, max_bytes=max_bytes))
 
     assert _recorded_fetch_bytes("too_large") > recorded_before
 
