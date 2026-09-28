@@ -76,8 +76,15 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         let flag = read(document.clone());
         let parsed = flag.filters.non_v1.as_ref().unwrap().parsed_v2.as_ref();
         if fixture["expected"] == "valid" {
-            if path.ends_with("version_float_literal.json")
-                || path.ends_with("boolean_targeted_and_percentage_rollout.json")
+            if [
+                "version_float_literal.json",
+                "boolean_targeted_and_percentage_rollout.json",
+                "reserved_number_value.json",
+                "reserved_object_value.json",
+                "object_value_max_depth.json",
+            ]
+            .iter()
+            .any(|name| path.ends_with(name))
             {
                 assert!(parsed.unwrap().is_ok(), "{path}: {parsed:?}");
                 totals.supported += 1;
@@ -124,10 +131,10 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
     assert_eq!(
         totals,
         Totals {
-            supported: 2,
-            valid_but_unsupported: 6,
-            malformed: 18,
-            unsupported: 11,
+            supported: 5,
+            valid_but_unsupported: 3,
+            malformed: 20,
+            unsupported: 9,
             rejected_before_parsing: 3,
         }
     );
@@ -141,7 +148,10 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "empty_seed" | "missing_rollout_seed" => Malformed("seed"),
         "missing_on_rollout_miss" => Malformed("on_rollout_miss"),
         "non_uuid_rule_id" => Malformed("rule.id"),
-        "null_rule_value" | "return_value_type_mismatch" => Malformed("value"),
+        "null_rule_value"
+        | "return_value_type_mismatch"
+        | "empty_string_value"
+        | "object_value_too_deep" => Malformed("value"),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             Malformed("rollout_percentage")
         }
@@ -152,7 +162,6 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "unknown_property_operator" => Malformed("property.operator"),
         "unknown_property_type" => Malformed("property.type"),
         "unknown_rollout_miss_policy" => Malformed("on_rollout_miss"),
-        "empty_string_value" | "object_value_too_deep" => Unsupported("return_type"),
         "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
             Unsupported("aggregation_group_type_index")
         }
@@ -184,6 +193,8 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
         "null_rule_value" | "return_value_type_mismatch" => {
             document["rules"][0]["value"] = json!(false)
         }
+        "empty_string_value" => document["rules"][0]["value"] = json!("compact"),
+        "object_value_too_deep" => document["rules"][0]["value"] = json!({}),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             document["rules"][0]["rollout_percentage"] = json!(33.33)
         }
@@ -405,18 +416,17 @@ fn released_schema_and_registry_match_the_parser_contract() {
             assert!(result(&flag).is_ok());
         }
     }
-    for entry in registry["return_types"].as_array().unwrap() {
+    for (entry, value) in registry["return_types"].as_array().unwrap().iter().zip([
+        json!(true),
+        json!("compact"),
+        json!(1.25),
+        json!({"layout": "compact"}),
+    ]) {
         let mut document = config();
         document["return_type"] = entry["value"].clone();
-        let flag = read(document);
-        if entry["value"] == "boolean" {
-            assert!(result(&flag).is_ok());
-        } else {
-            assert_eq!(
-                result(&flag).as_ref().unwrap_err(),
-                &ParseError::Unsupported("return_type")
-            );
-        }
+        document["default_value"] = Value::Null;
+        document["rules"][0]["value"] = value;
+        assert!(result(&read(document)).is_ok(), "{entry}");
     }
     for entry in registry["rule_types"].as_array().unwrap() {
         let mut document = config();

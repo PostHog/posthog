@@ -202,7 +202,10 @@ fn supported_values_and_order_survive_the_reader() {
                 }));
                 let flag = read(document.clone());
                 let parsed = result(&flag).as_ref().unwrap();
-                assert_eq!(parsed.default_value, default.as_bool());
+                assert_eq!(
+                    parsed.default_value,
+                    (!default.is_null()).then(|| default.clone())
+                );
                 assert_eq!(parsed.rules.len(), 2);
                 assert_eq!(parsed.rules[0].id.to_string(), document["rules"][0]["id"]);
                 match &parsed.rules[0].outcome {
@@ -212,7 +215,7 @@ fn supported_values_and_order_survive_the_reader() {
                         on_rollout_miss,
                         seed,
                     } => {
-                        assert!(*value);
+                        assert_eq!(*value, json!(true));
                         assert_eq!(*rollout_percentage, percentage);
                         assert_eq!(
                             *on_rollout_miss,
@@ -228,7 +231,9 @@ fn supported_values_and_order_survive_the_reader() {
                 }
                 assert!(matches!(
                     parsed.rules[1].outcome,
-                    Outcome::TargetedRelease { value: false }
+                    Outcome::TargetedRelease {
+                        value: Value::Bool(false)
+                    }
                 ));
                 assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
             }
@@ -539,19 +544,12 @@ fn unsupported_members_reject_the_whole_flag_and_debug_redacts_config() {
             &ParseError::Unsupported("property.type")
         );
     }
-    for (field, value) in [
-        ("return_type", json!("string")),
-        ("return_type", json!("number")),
-        ("return_type", json!("object")),
-        ("aggregation_group_type_index", json!(0)),
-    ] {
-        let mut document = config();
-        document[field] = value;
-        assert!(matches!(
-            result(&read(document)),
-            Err(ParseError::Unsupported(_))
-        ));
-    }
+    let mut document = config();
+    document["aggregation_group_type_index"] = json!(0);
+    assert_eq!(
+        result(&read(document)).as_ref().unwrap_err(),
+        &ParseError::Unsupported("aggregation_group_type_index")
+    );
     let mut document = config();
     document["rules"]
         .as_array_mut()

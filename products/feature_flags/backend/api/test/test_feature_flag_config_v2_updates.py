@@ -315,6 +315,36 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert flag.filters == document
 
+    @parameterized.expand(
+        [
+            ("string", "compact", "compact"),
+            ("number", 2, 2.0),
+            ("object", {"a": 1, "b": [True]}, {"b": [True], "a": 1}),
+        ]
+    )
+    def test_typed_documents_replace_and_report_warnings(self, return_type: str, upper: Any, lower: Any) -> None:
+        flag = self.flag(
+            config(targeted(value=upper), rollout(value=upper), return_type=return_type, default_value=None)
+        )
+        # The same JSON value, spelled differently, below a partial rollout that continues on a miss.
+        document = config(rollout(value=upper), targeted(value=lower), return_type=return_type, default_value=None)
+        with patch("products.feature_flags.backend.api.feature_flag.logger.info") as info:
+            response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == document
+        assert info.call_args.kwargs["extra"]["codes"] == ["ROLLOUT_MISS_CAN_ENTER_LOWER_RULE"]
+
+    def test_return_type_cannot_change(self) -> None:
+        flag = self.flag()
+        stored = copy.deepcopy(flag.filters)
+        document = config(targeted(value="compact"), return_type="string", default_value=None)
+        response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "filters.return_type: Cannot be changed after the flag is created."
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (stored, 3)
+
     @parameterized.expand([("zero", 0), ("hundred", 100), ("two_decimals", 33.33)])
     def test_percentages_round_trip(self, _name: str, percentage: Any) -> None:
         flag = self.flag()
@@ -549,7 +579,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         [
             ("malformed", {"version": 2, "rules": "broken"}),
             ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
-            ("deferred_string", config(return_type="string")),
+            ("string_with_boolean_default", config(return_type="string")),
         ]
     )
     def test_unsupported_stored_configs_are_not_replaced(self, _name: str, stored: dict) -> None:

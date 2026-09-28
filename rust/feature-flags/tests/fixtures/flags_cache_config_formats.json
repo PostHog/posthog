@@ -97,6 +97,50 @@
       "expect": "kept"
     },
     {
+      "key": "v2-string-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [{ "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", "rule_type": "targeted_release", "targeting": { "properties": [] }, "value": "compact" }]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "v2-number-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": null,
+        "rules": [{ "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", "rule_type": "targeted_release", "targeting": { "properties": [] }, "value": -2.5 }]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "v2-object-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {},
+        "rules": [{ "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", "rule_type": "targeted_release", "targeting": { "properties": [] }, "value": { "layout": "compact", "options": [1, true, null] } }]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "v2-string-empty-value-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [{ "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", "rule_type": "targeted_release", "targeting": { "properties": [] }, "value": "" }]
+      },
+      "expect": "unsupported"
+    },
+    {
       "key": "v2-malformed-active",
       "active": true,
       "filters": { "version": 2, "groups": [{ "properties": [], "rollout_percentage": 100 }] },

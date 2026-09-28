@@ -31,18 +31,19 @@ pub struct MatchedRule {
     pub kind: RuleKind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `value` is the parsed JSON of the flag's return type; `None` is a null default.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Evaluation {
     TargetingMatch {
-        value: bool,
+        value: Value,
         rule: MatchedRule,
     },
     RolloutMiss {
-        value: Option<bool>,
+        value: Option<Value>,
         rule: MatchedRule,
     },
     NoRuleMatch {
-        value: Option<bool>,
+        value: Option<Value>,
     },
 }
 
@@ -135,7 +136,7 @@ impl<'a> Evaluator<'a> {
                 kind,
             };
             let (kind, value) = match &rule.outcome {
-                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, *value),
+                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, value),
                 Outcome::PercentageRollout {
                     value,
                     rollout_percentage,
@@ -156,22 +157,22 @@ impl<'a> Evaluator<'a> {
                             RolloutMiss::Continue => continue,
                             RolloutMiss::ReturnDefault => {
                                 return Ok(Evaluation::RolloutMiss {
-                                    value: self.config.default_value,
+                                    value: self.config.default_value.clone(),
                                     rule: matched_rule(RuleKind::PercentageRollout),
                                 })
                             }
                         }
                     }
-                    (RuleKind::PercentageRollout, *value)
+                    (RuleKind::PercentageRollout, value)
                 }
             };
             return Ok(Evaluation::TargetingMatch {
-                value,
+                value: value.clone(),
                 rule: matched_rule(kind),
             });
         }
         Ok(Evaluation::NoRuleMatch {
-            value: self.config.default_value,
+            value: self.config.default_value.clone(),
         })
     }
 }

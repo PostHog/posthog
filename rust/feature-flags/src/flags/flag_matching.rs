@@ -1703,8 +1703,8 @@ impl FeatureFlagMatcher {
         })
     }
 
-    /// Projects a v2 outcome onto the v1 match shape: `enabled` is the boolean value (null
-    /// default is false), never a variant or payload; the subject is the request distinct ID.
+    /// Projects a v2 outcome onto the v1 match shape: a null value is disabled, a boolean is
+    /// `enabled`, a string is the variant; the subject is the request distinct ID.
     fn get_match_v2(
         &self,
         config: &Config,
@@ -1734,29 +1734,35 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (matches, reason, condition_index) = match evaluation {
+        let (value, reason, condition_index) = match evaluation {
             Evaluation::TargetingMatch { value, rule } => (
-                value,
+                Some(value),
                 FeatureFlagMatchReason::ConditionMatch,
                 Some(rule.index),
             ),
             Evaluation::RolloutMiss { value, rule } => (
-                value.unwrap_or(false),
+                value,
                 FeatureFlagMatchReason::OutOfRolloutBound,
                 Some(rule.index),
             ),
-            Evaluation::NoRuleMatch { value } => (
-                value.unwrap_or(false),
-                FeatureFlagMatchReason::NoConditionMatch,
-                None,
-            ),
+            Evaluation::NoRuleMatch { value } => {
+                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+            }
+        };
+        // Legacy rendering: a string is the variant, and a number or object is an enabled
+        // flag whose value travels as a JSON-encoded payload, like a v1 payload.
+        let (matches, variant, payload) = match value {
+            None => (false, None, None),
+            Some(Value::Bool(value)) => (value, None, None),
+            Some(Value::String(value)) => (true, Some(value), None),
+            Some(value) => (true, None, Some(Value::String(value.to_string()))),
         };
         Ok(FeatureFlagMatch {
             matches,
-            variant: None,
+            variant,
             reason,
             condition_index,
-            payload: None,
+            payload,
         })
     }
 

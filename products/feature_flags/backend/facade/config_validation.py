@@ -12,10 +12,10 @@ request input into the final document, calls ``rule_warnings.review_config`` (wh
 validates through this module and reports warnings) and persists under the existing row
 lock. No production caller exists yet.
 
-Admitted family: person-assigned boolean flags with targeted_release and
+Admitted family: person-assigned flags of every return type with targeted_release and
 percentage_rollout rules whose targeting uses person properties. Everything else the
-published contract describes (string/number/object values, experiment rules, group
-assignment, cohort/group/flag properties) is rejected with the ``unsupported`` code, so a
+published contract describes (experiment rules, group assignment, cohort/group/flag
+properties) is rejected with the ``unsupported`` code, so a
 canonical fixture is never relabelled as malformed and no partially checked document is
 accepted. Shape errors use the other codes. The canonical shape is the harness config
 schema 1.0.0 in contract package 2.0.0; the semantic constraints (unique rule ids, two
@@ -43,6 +43,8 @@ MAX_RULES = 100
 MAX_PREDICATES_PER_RULE = 100
 MAX_SEED_LENGTH = 400
 MAX_PERCENTAGE_DECIMALS = 2
+MAX_SAFE_INTEGER = 2**53 - 1
+MAX_OBJECT_DEPTH = 20
 
 ConfigErrorCode = Literal["required", "invalid", "unknown_field", "not_unique", "unsupported", "limit_exceeded"]
 RolloutMissPolicy = Literal["continue", "return_default"]
@@ -185,7 +187,7 @@ class ValidatedRule:
     id: str
     rule_type: AdmittedRuleType
     predicates: frozenset[Predicate]
-    value: bool
+    value: str  # canonical JSON text, see ``canonical_value``
     rollout_percentage: Decimal | None = None
     on_rollout_miss: RolloutMissPolicy | None = None
     # Assignment seeds must not reach logs or tracebacks; the detectors only compare them.
@@ -194,9 +196,9 @@ class ValidatedRule:
 
 @frozen
 class ValidatedConfig:
-    """An admitted person-assigned boolean config; the family is fixed, so only the evaluated fields vary."""
+    """An admitted person-assigned config; the family is fixed, so only the evaluated fields vary."""
 
-    default_value: bool | None
+    default_value: str | None  # canonical JSON text; None is a null default
     rules: tuple[ValidatedRule, ...]  # stored order, which is evaluation order
 
 
@@ -227,20 +229,15 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         v1_detail = "Config version 1 fields are not allowed in a config version 2 document."
         errors.append(_unknown_field(f"filters.{name}", v1_detail if name in _V1_ONLY_ROOT_FIELDS else None))
 
-    return_type_ok = _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES))
-    boolean_family = return_type_ok and document["return_type"] == "boolean"
-    if return_type_ok and not boolean_family:
-        errors.append(
-            ConfigError(
-                code="unsupported",
-                detail=f"Flags returning a {document['return_type']} are not available yet. Only boolean is available.",
-                attr="filters.return_type",
-            )
-        )
+    value_check = None
+    if _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES)):
+        value_check = _VALUE_CHECKS[document["return_type"]]
     if "default_value" not in document:
         errors.append(_required("filters.default_value"))
-    elif boolean_family and not _is_bool_or_none(document["default_value"]):
-        errors.append(ConfigError(code="invalid", detail="Must be true, false or null.", attr="filters.default_value"))
+    elif value_check is not None and document["default_value"] is not None:
+        accepts, detail = value_check
+        if not accepts(document["default_value"]):
+            errors.append(ConfigError(code="invalid", detail=f"{detail[:-1]}, or null.", attr="filters.default_value"))
     if _field(document, "aggregation_group_type_index", "filters", errors, (_is_int, "Must be an integer."), False):
         errors.append(
             ConfigError(
@@ -261,7 +258,7 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         else:
             seen_ids: set[str] = set()
             for index, rule in enumerate(document["rules"]):
-                validated = _validate_rule(rule, f"filters.rules[{index}]", boolean_family, limits, errors)
+                validated = _validate_rule(rule, f"filters.rules[{index}]", value_check, limits, errors)
                 if validated is None:
                     continue
                 if validated.id in seen_ids:
@@ -275,11 +272,32 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
 
     if errors:
         raise ConfigValidationError(errors)
-    return ValidatedConfig(default_value=document["default_value"], rules=tuple(rules))
+    default = document["default_value"]
+    return ValidatedConfig(default_value=None if default is None else canonical_value(default), rules=tuple(rules))
+
+
+def canonical_value(value: object) -> str:
+    """JSON text that is equal for two values exactly when they are equal JSON values.
+
+    Plain Python equality is not JSON equality (``True == 1``) and objects are unhashable,
+    so validated values carry this form. Integral floats print as integers, so ``1.0`` and
+    ``-0.0`` read as ``1`` and ``0``.
+    """
+    return json.dumps(_integral_floats_as_ints(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _integral_floats_as_ints(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, Mapping):
+        return {key: _integral_floats_as_ints(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_integral_floats_as_ints(item) for item in value]
+    return value
 
 
 def _validate_rule(
-    rule: object, path: str, boolean_family: bool, limits: ValidationLimits, errors: list[ConfigError]
+    rule: object, path: str, value_check: "_Check | None", limits: ValidationLimits, errors: list[ConfigError]
 ) -> ValidatedRule | None:
     if not isinstance(rule, Mapping):
         errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
@@ -303,8 +321,8 @@ def _validate_rule(
     _field(rule, "description", path, errors, (lambda v: isinstance(v, str), "Must be a string."), False)
     if "metadata" in rule:
         _validate_metadata(rule["metadata"], f"{path}.metadata", limits, errors)
-    if boolean_family:
-        _field(rule, "value", path, errors, (lambda v: isinstance(v, bool), "Must be true or false."))
+    if value_check is not None:
+        _field(rule, "value", path, errors, value_check)
 
     rollout: Decimal | None = None
     if rule_type == "percentage_rollout":
@@ -318,13 +336,13 @@ def _validate_rule(
         _field(rule, "seed", path, errors, seed_ok)
         _field(rule, "assign_by", path, errors, _one_of((PERSON_ASSIGNMENT,)), False)
 
-    if len(errors) > before or predicates is None or not boolean_family:
+    if len(errors) > before or predicates is None or value_check is None:
         return None
     return ValidatedRule(
         id=rule["id"],
         rule_type=rule_type,
         predicates=predicates,
-        value=rule["value"],
+        value=canonical_value(rule["value"]),
         rollout_percentage=rollout,
         on_rollout_miss=rule["on_rollout_miss"] if rollout is not None else None,
         seed=rule["seed"] if rollout is not None else None,
@@ -507,6 +525,38 @@ def _required(attr: str) -> ConfigError:
 
 def _unknown_field(attr: str, detail: str | None = None) -> ConfigError:
     return ConfigError(code="unknown_field", detail=detail or "Unknown field.", attr=attr)
+
+
+def _is_safe_number(value: object) -> bool:
+    # NaN and the infinities fail both comparisons.
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int | float)
+        and -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER
+    )
+
+
+def _is_object_value(value: object) -> bool:
+    return isinstance(value, Mapping) and _is_nested_value(value, depth=1)
+
+
+def _is_nested_value(value: object, *, depth: int) -> bool:
+    """Depth counts object and array containers, with the returned object at level 1."""
+    if isinstance(value, Mapping | list):
+        items = value.values() if isinstance(value, Mapping) else value
+        return depth <= MAX_OBJECT_DEPTH and all(_is_nested_value(item, depth=depth + 1) for item in items)
+    return value is None or isinstance(value, bool | str) or _is_safe_number(value)
+
+
+_VALUE_CHECKS: dict[str, _Check] = {
+    "boolean": (lambda v: isinstance(v, bool), "Must be true or false."),
+    "string": (lambda v: isinstance(v, str) and bool(v), "Must be a non-empty string."),
+    "number": (_is_safe_number, f"Must be a number from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}."),
+    "object": (
+        _is_object_value,
+        f"Must be an object at most {MAX_OBJECT_DEPTH} levels deep with numbers from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}.",
+    ),
+}
 
 
 def _is_bool_or_none(value: object) -> bool:

@@ -2,6 +2,8 @@
 work with both writer flags off; creating and enabling need the project's flags on.
 """
 
+from typing import Any
+
 from django.conf import settings
 from django.test import override_settings
 
@@ -27,6 +29,13 @@ from products.feature_flags.backend.facade import api as flag_facade
 from products.feature_flags.backend.flags_cache import _get_feature_flags_for_service
 from products.feature_flags.backend.local_evaluation import _get_flags_response_for_local_evaluation_batch
 from products.feature_flags.backend.models import FeatureFlag
+
+
+def nested_list(levels: int) -> Any:
+    value: Any = 1
+    for _ in range(levels):
+        value = [value]
+    return value
 
 
 class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
@@ -120,6 +129,46 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         assert (read.json()["filters"], read.json()["active"]) == (flag.filters, False)
         (entry,) = self.activity(flag)
         assert entry.activity == "created"
+
+    @parameterized.expand(
+        [
+            ("string", "compact", "standard"),
+            ("number", -2.5, 0),
+            ("object", {"layout": "compact", "options": [1, True, None]}, {}),
+        ]
+    )
+    def test_typed_documents_are_created_and_round_trip(self, return_type: str, value: Any, default: Any) -> None:
+        submitted = config(
+            targeted(rule_id=None, value=value), rollout(rule_id=None, seed=None, value=value), return_type=return_type
+        )
+        submitted["default_value"] = default
+        response = self.post_flag({"key": "typed-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flag = FeatureFlag.objects.get(team=self.team, key="typed-v2")
+        assert [rule["value"] for rule in flag.filters["rules"]] == [value, value]
+        assert (flag.filters["return_type"], flag.filters["default_value"]) == (return_type, default)
+        read = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert read.json()["filters"] == flag.filters
+
+    @parameterized.expand(
+        [
+            ("string_bool_default", "string", True, "compact", "filters.default_value"),
+            ("string_empty_value", "string", None, "", "filters.rules[0].value"),
+            ("number_string_value", "number", 0, "1", "filters.rules[0].value"),
+            ("number_unsafe_integer", "number", 2**53, 1, "filters.default_value"),
+            ("object_array_value", "object", None, [1], "filters.rules[0].value"),
+            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters.rules[0].value"),
+        ]
+    )
+    def test_values_that_do_not_match_the_return_type_are_rejected(
+        self, _name: str, return_type: str, default: Any, value: Any, attr: str
+    ) -> None:
+        submitted = config(targeted(rule_id=None, value=value), return_type=return_type)
+        submitted["default_value"] = default
+        response = self.post_flag({"key": "typed-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"].startswith(f"{attr}: "), response.json()
+        assert not FeatureFlag.objects.filter(team=self.team, key="typed-v2").exists()
 
     def test_active_on_create_is_rejected_not_downgraded(self) -> None:
         response = self.post_flag({"key": "new-v2", "filters": config(targeted(rule_id=None)), "active": True})

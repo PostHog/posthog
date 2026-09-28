@@ -22,8 +22,10 @@ from products.feature_flags.backend.facade.config_validation import (
     _ROOT_FIELDS,
     _UUID as UUID_PATTERN,
     ASSIGNMENT_ALGORITHM,
+    MAX_OBJECT_DEPTH,
     MAX_PREDICATES_PER_RULE,
     MAX_RULES,
+    MAX_SAFE_INTEGER,
     MAX_SEED_LENGTH,
     PERSON_ASSIGNMENT,
     PROPERTY_OPERATORS,
@@ -37,6 +39,7 @@ from products.feature_flags.backend.facade.config_validation import (
     ValidatedRule,
     ValidationLimits,
     _encoded_size as config_size_bytes,
+    canonical_value,
     validate_config,
 )
 
@@ -79,6 +82,14 @@ def person(**overrides: Any) -> dict[str, Any]:
 
 def config(*rules: dict[str, Any], **overrides: Any) -> dict[str, Any]:
     return {"version": 2, "return_type": "boolean", "default_value": False, "rules": list(rules), **overrides}
+
+
+def nested(depth: int, leaf: Any = True) -> dict[str, Any]:
+    """An object ``depth`` containers deep, counting itself as level 1."""
+    value: Any = {"leaf": leaf}
+    for _ in range(depth - 1):
+        value = {"child": value}
+    return value
 
 
 def without(document: dict[str, Any], key: str) -> dict[str, Any]:
@@ -162,6 +173,28 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
             )
         ),
     ),
+    (
+        "string_values",
+        config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),
+    ),
+    ("string_null_default", config(targeted(value="compact"), return_type="string", default_value=None)),
+    ("number_values", config(targeted(value=1.25), rollout(value=-40), return_type="number", default_value=0)),
+    (
+        "number_safe_integer_bounds",
+        config(
+            targeted(value=MAX_SAFE_INTEGER), rollout(value=-MAX_SAFE_INTEGER), return_type="number", default_value=None
+        ),
+    ),
+    (
+        "object_values",
+        config(
+            targeted(value={"layout": "compact", "options": [1, True, None]}),
+            rollout(value={}),
+            return_type="object",
+            default_value={"layout": "standard"},
+        ),
+    ),
+    ("object_max_depth", config(targeted(value=nested(MAX_OBJECT_DEPTH)), return_type="object", default_value=None)),
     ("max_rules", config(*[targeted(id=f"00000000-0000-4000-8000-{index:012d}") for index in range(MAX_RULES)])),
     (
         "max_predicates",
@@ -191,9 +224,65 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("missing_return_type", without(config(), "return_type"), [("required", "filters.return_type")]),
     ("return_type_unknown", config(return_type="json"), [("invalid", "filters.return_type")]),
     ("return_type_null", config(return_type=None), [("invalid", "filters.return_type")]),
-    ("return_type_string", config(return_type="string", default_value="a"), [("unsupported", "filters.return_type")]),
-    ("return_type_number", config(return_type="number", default_value=0), [("unsupported", "filters.return_type")]),
-    ("return_type_object", config(return_type="object", default_value={}), [("unsupported", "filters.return_type")]),
+    ("string_empty_default", config(return_type="string", default_value=""), [("invalid", "filters.default_value")]),
+    ("string_bool_default", config(return_type="string", default_value=True), [("invalid", "filters.default_value")]),
+    (
+        "string_empty_value",
+        config(targeted(value=""), return_type="string", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "string_bool_value",
+        config(targeted(value=True), return_type="string", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    ("number_bool_default", config(return_type="number", default_value=False), [("invalid", "filters.default_value")]),
+    (
+        "number_string_value",
+        config(targeted(value="1.25"), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "number_above_safe_integer",
+        config(rollout(value=MAX_SAFE_INTEGER + 1), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "number_below_safe_integer",
+        config(return_type="number", default_value=-float(MAX_SAFE_INTEGER + 1)),
+        [("invalid", "filters.default_value")],
+    ),
+    (
+        "number_not_finite",
+        config(targeted(value=float("inf")), return_type="number", default_value=0),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    ("object_string_default", config(return_type="object", default_value="{}"), [("invalid", "filters.default_value")]),
+    (
+        "object_array_value",
+        config(targeted(value=[{"layout": "compact"}]), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_too_deep",
+        config(targeted(value=nested(MAX_OBJECT_DEPTH + 1)), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_array_too_deep",
+        config(targeted(value={"list": nested(MAX_OBJECT_DEPTH - 1, [])}), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_nested_number_above_safe_integer",
+        config(targeted(value={"limit": [MAX_SAFE_INTEGER + 1]}), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
+    (
+        "object_null_value",
+        config(targeted(value=None), return_type="object", default_value=None),
+        [("invalid", "filters.rules[0].value")],
+    ),
     ("missing_default", without(config(), "default_value"), [("required", "filters.default_value")]),
     ("default_zero", config(default_value=0), [("invalid", "filters.default_value")]),
     ("default_one", config(default_value=1), [("invalid", "filters.default_value")]),
@@ -625,9 +714,32 @@ class TestValidateConfig:
         assert str(exc_info.value) == "filters.future: Unknown field."
 
     def test_unsupported_family_is_reported_before_shape_of_its_values(self) -> None:
-        # A canonical string document is refused for the family, not for values this validator cannot judge.
-        document = config(targeted(value="compact"), return_type="string", default_value="standard")
-        assert errors_of(document) == [("unsupported", "filters.return_type")]
+        # A group document is refused for the family, not for values of the wrong type.
+        document = config(targeted(value=1), aggregation_group_type_index=0)
+        assert errors_of(document) == [
+            ("unsupported", "filters.aggregation_group_type_index"),
+            ("invalid", "filters.rules[0].value"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("boolean", True, True, "true"),
+            ("string", "compact", "compact", '"compact"'),
+            ("number", 1.0, -0.0, "1"),
+            ("object", {"b": [1.0, True], "a": "ü"}, {"b": [1.0, True]}, '{"a":"ü","b":[1,true]}'),
+        ]
+    )
+    def test_values_are_canonical_json_so_equal_json_values_compare_equal(
+        self, return_type: str, value: Any, default: Any, canonical: str
+    ) -> None:
+        validated = validate_config(
+            config(targeted(value=value), return_type=return_type, default_value=default), limits=LIMITS
+        )
+        assert validated.rules[0].value == canonical
+        assert validated.default_value is not None
+        assert json.loads(validated.default_value) == default
+        assert canonical_value(True) != canonical_value(1)
+        assert canonical_value({"n": 1}) == canonical_value({"n": 1.0}) != canonical_value({"n": True})
 
     def test_v1_only_fields_name_the_format_clash(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -674,13 +786,13 @@ class TestValidateConfig:
                             Predicate(key="beta", operator="is_set", value="null", negation=False),
                         }
                     ),
-                    value=True,
+                    value="true",
                 ),
                 ValidatedRule(
                     id=ROLLOUT_ID,
                     rule_type="percentage_rollout",
                     predicates=frozenset(),
-                    value=True,
+                    value="true",
                     rollout_percentage=Decimal("33.33"),
                     on_rollout_miss="continue",
                     seed=SEED,
@@ -722,8 +834,7 @@ def _admitted_family(document: dict[str, Any]) -> bool:
         if isinstance(prop, dict)
     ]
     return (
-        document.get("return_type") == "boolean"
-        and "aggregation_group_type_index" not in document
+        "aggregation_group_type_index" not in document
         and all(rule.get("rule_type") != "experiment" for rule in rules)
         and all(prop.get("type") == "person" for prop in properties)
     )
@@ -804,7 +915,11 @@ class TestReleasedContract:
         errors = errors_of(document)
         if _admitted_family(document):
             expected_attr = _contract_path(entry["expected_failure"]["instance_path"], entry["expected_failure"])
-            assert any(code != "unsupported" and attr == expected_attr for code, attr in errors), (
+            # A value is one field here, so a failure the schema locates inside it is reported on the value.
+            assert any(
+                code != "unsupported" and (attr == expected_attr or expected_attr.startswith(f"{attr}."))
+                for code, attr in errors
+            ), (
                 errors,
                 expected_attr,
             )
