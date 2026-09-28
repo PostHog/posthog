@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -232,6 +233,51 @@ class TestValidateCredentials:
         assert "418" not in error
         # The status has to reach error tracking, or a later triage has only the generic message.
         assert "418" in str(capture.call_args.args[0])
+
+
+def _status_response(status_code: int, body: dict | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.ok = status_code < 400
+    response.text = f"{status_code} body"
+    response.json.return_value = body or {}
+    if not response.ok:
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
+    return response
+
+
+class TestFetchPageRetry:
+    @pytest.fixture(autouse=True)
+    def _instant_retry(self, monkeypatch: Any) -> None:
+        # Zero the tenacity backoff so retry tests don't actually sleep.
+        monkeypatch.setattr(vercel._fetch_page.retry, "wait", lambda *a, **k: 0)  # type: ignore[attr-defined]
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        # 408 is a transient timeout on Vercel's side, not a bad request; a single 408 must not
+        # kill the sync with a fatal HTTPError.
+        session = MagicMock()
+        session.get.side_effect = [_status_response(408), _status_response(200, {"deployments": []})]
+
+        result = vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+
+        assert result == {"deployments": []}
+        assert session.get.call_count == 2
+
+    def test_persistent_408_exhausts_retries(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [_status_response(408) for _ in range(5)]
+
+        with pytest.raises(vercel.VercelRetryableError):
+            vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+
+    def test_400_is_not_retried(self) -> None:
+        # Guards against the 408 fix widening to swallow genuine client errors.
+        session = MagicMock()
+        session.get.return_value = _status_response(400)
+
+        with pytest.raises(requests.HTTPError):
+            vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+        assert session.get.call_count == 1
 
 
 class TestGetRows:
