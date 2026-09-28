@@ -967,6 +967,17 @@ def _begin_sandbox_phase(input: StamphogReviewInput) -> ReviewRun | None:
     return run
 
 
+def _stored_output(run: ReviewRun) -> dict[str, Any]:
+    """The run's output as the writer holds it now, not the copy this activity loaded."""
+    return (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .values_list("output", flat=True)
+        .first()
+    ) or {}
+
+
 def _claim_once(run: ReviewRun, claim: str) -> None:
     """Record ``claim`` on the run, or raise SandboxPhaseError when an earlier attempt already did.
 
@@ -1021,6 +1032,11 @@ def _create_review_sandbox(
     try:
         # The later activities reconnect by this id, and the workflow's teardown reads it.
         _merge_run_output(run, {"sandbox_id": sandbox.id})
+        # The teardown marks the run before it reads the id, and this reads the mark after writing
+        # the id, so one side always sees the other. A create that outlived its activity, after a
+        # timeout or a cancelled workflow, tears its own sandbox down.
+        if _stored_output(run).get("sandbox_abandoned"):
+            raise RuntimeError("the workflow abandoned this sandbox before it existed")
         with timer.step("fetch_head"):
             _clone_pr(
                 sandbox,
@@ -1230,7 +1246,10 @@ def destroy_review_sandbox(input: ReviewSandboxInput) -> dict:
     An empty ``sandbox_id`` means the start returned none. The run can still hold one, because
     start_review_sandbox records it before its head fetch, and a failed start returns no result.
     """
-    sandbox_id = input.sandbox_id or (_load_run(input).output or {}).get("sandbox_id")
+    run = _load_run(input)
+    # Marked before the id read: _create_review_sandbox holds the other half of this handshake.
+    _merge_run_output(run, {"sandbox_abandoned": True})
+    sandbox_id = input.sandbox_id or _stored_output(run).get("sandbox_id")
     if not sandbox_id:
         return {"destroyed": False}
     try:

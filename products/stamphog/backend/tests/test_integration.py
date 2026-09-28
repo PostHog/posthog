@@ -41,7 +41,9 @@ from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    ReviewSandboxInput,
     StamphogReviewInput,
+    destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
     list_in_flight_reviewer_bots,
@@ -2745,3 +2747,27 @@ def test_a_late_sandbox_start_leaves_a_finished_run_alone(
     assert result == {"skipped": "terminal"}
     assert ReviewRun.objects.for_team(team.id).get(id=run.id).status == status
     assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_chain: StamphogChain) -> None:
+    # A start that outlives its activity timeout, or a cancelled workflow, can finish the create after
+    # the workflow's teardown found no sandbox id. The late sandbox must not run until its TTL.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=133, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha133", status=ReviewRunStatus.REVIEWING
+    )
+    inp = ReviewSandboxInput(review_run_id=str(run.id), team_id=team.id, sandbox_id="")
+
+    assert _run_activity(destroy_review_sandbox, inp) == {"destroyed": False}
+    with (
+        patch.object(activities, "_destroy_sandbox_in_background", lambda sandbox, run_id: sandbox.destroy()),
+        pytest.raises(SandboxPhaseError),
+    ):
+        _run_activity(start_review_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert len(stamphog_chain.sandbox_class.created_configs) == 1
+    assert stamphog_chain.sandbox_class.destroy_returned
