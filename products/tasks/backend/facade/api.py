@@ -235,6 +235,9 @@ __all__ = [
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
     "create_and_run_task",
+    "get_owner_origin_latest_run",
+    "owner_origin_has_non_terminal_run",
+    "owner_origin_open_task_ids",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -1776,6 +1779,72 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+_NON_TERMINAL_RUN_STATUSES = (
+    TaskRun.Status.NOT_STARTED,
+    TaskRun.Status.QUEUED,
+    TaskRun.Status.IN_PROGRESS,
+)
+
+
+def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origin_product: str) -> bool:
+    """Whether this owner already has a run of this origin that has not finished.
+
+    Internal origins are hidden from the task APIs, so callers that admit one run at a time
+    check here instead of listing tasks. ``origin_product`` is required so one product's open
+    run does not block another's. Soft-deleting a task does not stop its run, so deleted tasks count.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__team_id=team_id,
+        task__created_by_id=created_by_id,
+        task__origin_product=origin_product,
+        status__in=_NON_TERMINAL_RUN_STATUSES,
+    ).exists()
+
+
+def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
+    """Ids of this owner's tasks of this origin that have a run that has not finished, deleted tasks included."""
+    return set(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            status__in=_NON_TERMINAL_RUN_STATUSES,
+        ).values_list("task_id", flat=True)
+    )
+
+
+def get_owner_origin_latest_run(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    created_by_id: int,
+    origin_product: str,
+) -> contracts.TaskRunDTO | None:
+    """Latest run of a task, only when team, owner, and origin all match.
+
+    A miss on any of those is ``None``. Internal tasks are invisible on the normal task APIs,
+    so this is the read those products use for their own runs.
+    """
+    try:
+        task = Task.objects.filter(
+            id=task_id,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+        ).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return None
+    if task is None:
+        return None
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        return None
+    return _task_run_to_dto(run, task=task)
 
 
 def create_wizard_cloud_run(
