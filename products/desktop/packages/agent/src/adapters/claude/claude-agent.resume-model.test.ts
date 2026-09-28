@@ -7,7 +7,10 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GATEWAY_MODEL } from "../../gateway-models";
+import {
+  DEFAULT_GATEWAY_MODEL,
+  fetchGatewayModels,
+} from "../../gateway-models";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 
 type SdkQueryHandle = {
@@ -63,6 +66,11 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: vi.fn(),
 }));
 
+vi.mock("../../gateway-models", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../gateway-models")>();
+  return { ...actual, fetchGatewayModels: vi.fn(actual.fetchGatewayModels) };
+});
+
 vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
@@ -85,10 +93,12 @@ vi.mock("./mcp/local-tools", () => ({
 const { ClaudeAcpAgent } = await import("./claude-agent");
 type Agent = InstanceType<typeof ClaudeAcpAgent>;
 
-function makeAgent(): Agent {
+function makeAgent(
+  extNotification = vi.fn().mockResolvedValue(undefined),
+): Agent {
   const client = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
-    extNotification: vi.fn().mockResolvedValue(undefined),
+    extNotification,
   } as unknown as AgentSideConnection;
   return new ClaudeAcpAgent(client);
 }
@@ -694,5 +704,76 @@ describe("ClaudeAcpAgent session creation", () => {
     ).rejects.toThrow(/resume boom/);
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs instead of crashing when a model switch cannot update effort flags", async () => {
+    const gatewayModel = (id: string, ownedBy: string) => ({
+      id,
+      owned_by: ownedBy,
+      context_window: 200_000,
+      supports_streaming: true,
+      supports_vision: false,
+      allowed: true,
+    });
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      gatewayModel("claude-opus-5-5", "anthropic"),
+      gatewayModel("moonshotai/kimi-k3", "modal"),
+    ]);
+    const agent = makeAgent();
+    const warnSpy = vi.spyOn(agent.logger, "warn");
+    const { sessionId } = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-effort-flags", model: "claude-opus-5-5" },
+    });
+    createdQueries[0].applyFlagSettings.mockRejectedValue(
+      new Error("query closed"),
+    );
+
+    await agent.setSessionConfigOption({
+      sessionId,
+      configId: "model",
+      value: "moonshotai/kimi-k3",
+    });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("Failed to apply flag settings", {
+        error: expect.any(Error),
+      });
+    });
+  });
+
+  it("logs instead of crashing when reporting used PostHog products fails", async () => {
+    const extNotification = vi.fn().mockResolvedValue(undefined);
+    const agent = makeAgent(extNotification);
+    const warnSpy = vi.spyOn(agent.logger, "warn");
+    await agent.newSession({
+      cwd: permissionCwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-resources" },
+    });
+    extNotification.mockRejectedValue(new Error("connection closed"));
+
+    const input = {
+      session_id: "resources-session",
+      transcript_path: "/tmp/transcript",
+      cwd: permissionCwd,
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__posthog__exec",
+      tool_input: { command: "call dashboard-get {}" },
+      tool_response: {},
+    } as HookInput;
+    for (const hook of (
+      createdQueryOptions[0].hooks?.PostToolUse ?? []
+    ).flatMap((entry) => entry.hooks ?? [])) {
+      await hook(input, undefined, { signal: new AbortController().signal });
+    }
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Failed to report used PostHog products",
+        { error: expect.any(Error) },
+      );
+    });
   });
 });
