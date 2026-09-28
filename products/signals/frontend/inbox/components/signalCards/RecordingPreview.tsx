@@ -9,6 +9,8 @@ import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/se
 import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs } from 'lib/dayjs'
 
+import { RecordingPreviewSource, captureRecordingPreviewUnavailable } from '../../inboxAnalytics'
+
 // Long enough for a thumbnail render to land, short enough that a reader still sees the frame appear.
 const THUMBNAIL_RETRY_MS = 45_000
 
@@ -19,6 +21,7 @@ interface RecordingPreviewProps {
     /** Image of that moment, shown as the frame's background while it can be fetched. */
     thumbnailSrc?: string
     alt: string
+    source: RecordingPreviewSource
 }
 
 /**
@@ -26,7 +29,13 @@ interface RecordingPreviewProps {
  * it opens the recording in the player modal at `seekTime`. Disables itself, instead of opening an
  * empty player, when the recording wasn't captured or has expired.
  */
-export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: RecordingPreviewProps): JSX.Element {
+export function RecordingPreview({
+    sessionId,
+    seekTime,
+    thumbnailSrc,
+    alt,
+    source,
+}: RecordingPreviewProps): JSX.Element {
     // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch usually 404s.
     // One delayed retry covers that; between the two the frame is unmounted, so nothing waits on a dead image.
     const [attempt, setAttempt] = useState(0)
@@ -50,7 +59,14 @@ export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: Rec
         return () => clearTimeout(timer)
     }, [waiting])
 
-    const onError = (): void => (attempt === 0 ? setWaiting(true) : setGaveUp(true))
+    const onError = (): void => {
+        if (attempt === 0) {
+            setWaiting(true)
+            return
+        }
+        setGaveUp(true)
+        captureRecordingPreviewUnavailable({ source })
+    }
 
     const src = thumbnailSrc && !waiting && !gaveUp ? `${thumbnailSrc}?attempt=${attempt}` : undefined
 
@@ -94,7 +110,7 @@ export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: Rec
                 )}
                 <div
                     className={clsx(
-                        'absolute inset-0 flex items-center justify-center transition-colors motion-reduce:transition-none',
+                        'absolute inset-0 flex flex-col gap-1 items-center justify-center transition-colors motion-reduce:transition-none',
                         src ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
                     )}
                 >
@@ -106,6 +122,7 @@ export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: Rec
                             aria-hidden
                         />
                     )}
+                    {gaveUp && <span className="text-xs text-tertiary">Preview unavailable</span>}
                 </div>
             </button>
             {hasRecording === false && (

@@ -67,6 +67,7 @@ export const INBOX_EVENTS = {
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
+    RECORDING_PREVIEW_UNAVAILABLE: 'Inbox recording preview unavailable',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -1024,4 +1025,12 @@ export function captureScoutSuggestionsRefreshed(params: {
 /** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
 export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
+}
+
+/** Signal card whose recording preview failed to load. */
+export type RecordingPreviewSource = 'session_problem' | 'scanner_finding'
+
+/** A recording preview thumbnail failed on the first fetch and on the delayed retry, so the card shows a fallback. */
+export function captureRecordingPreviewUnavailable(params: { source: RecordingPreviewSource }): void {
+    captureInboxEvent(INBOX_EVENTS.RECORDING_PREVIEW_UNAVAILABLE, { source: params.source })
 }
