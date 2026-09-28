@@ -150,9 +150,8 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
-    # True when this schema is a fan-out child whose parent should be read from the warehouse
-    # (flag on + parents verified synced). Evaluated once by the run-time gate in
-    # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
+    # True when this schema is a fan-out child whose parents are all readable from the
+    # warehouse. Evaluated once by the run-time gate in `import_data_activity_sync`.
     fanout_warehouse_reuse: bool = False
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.

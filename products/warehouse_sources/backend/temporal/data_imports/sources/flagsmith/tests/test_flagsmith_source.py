@@ -72,6 +72,14 @@ class TestFlagsmithSource:
         self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert mock_validate.call_args.args[2] == expected_path
 
+    @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
+    @mock.patch(VALIDATE_PATH)
+    def test_validate_credentials_resolves_a_probe_path_for_every_endpoint(self, mock_validate, schema_name):
+        # A fan-out parent with no probe path raises instead of validating the schema.
+        mock_validate.return_value = 200
+        is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        assert is_valid is True
+
     @mock.patch(VALIDATE_PATH)
     def test_validate_credentials_rejects_invalid_base_url(self, mock_validate):
         config = FlagsmithSourceConfig(api_key="org-key", base_url="https://user@evil.example.com")

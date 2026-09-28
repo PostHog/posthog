@@ -101,6 +101,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
+    '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -437,6 +439,7 @@ export const productRedirects: Record<
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+    '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/engineering-analytics': (_params, searchParams, hashParams): string =>
         combineUrl(urls.engineeringAnalytics(), searchParams, hashParams).url,
     '/engineering-analytics/test-health': (_params, searchParams, hashParams): string =>
@@ -615,6 +618,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+    },
+    BusinessKnowledgePlayground: {
+        name: 'Business knowledge playground',
+        projectBased: true,
+        iconType: 'conversations',
     },
     BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
     BusinessKnowledgeSource: {
@@ -1235,6 +1243,8 @@ export const productUrls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgePlayground: (chatId?: string): string =>
+        chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
@@ -2133,7 +2143,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings', 'BusinessKnowledgeSource'],
+        sceneKeys: [
+            'BusinessKnowledge',
+            'BusinessKnowledgePlayground',
+            'BusinessKnowledgeSettings',
+            'BusinessKnowledgeSource',
+        ],
     },
     {
         path: 'Clusters',

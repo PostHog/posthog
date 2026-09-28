@@ -158,13 +158,14 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
             - name: Bump the pin
+              id: bump
               if: steps.state.outputs.action == 'bump'
               env:
                   LATEST: ${{ steps.resolve.outputs.latest }}
                   TARBALL_SHA256: ${{ steps.resolve.outputs.tarball_sha256 }}
               run: |
                   sed -i "s/^ARG AGENT_VERSION=.*/ARG AGENT_VERSION=${LATEST}/" "$DOCKERFILE"
-                  sed -i "s/^ARG AGENT_TARBALL_SHA256=.*/ARG AGENT_TARBALL_SHA256=${TARBALL_SHA256}/" "$DOCKERFILE"
+                  sed -i "s/^ARG AGENT_TARBALL_SHA256=.*/ARG AGENT_TARBALL_SHA256=\"${TARBALL_SHA256}\"/" "$DOCKERFILE"
                   if git diff --quiet "$DOCKERFILE"; then
                     echo "could not rewrite ARG AGENT_VERSION in $DOCKERFILE" >&2
                     exit 1
