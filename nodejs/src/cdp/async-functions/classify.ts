@@ -15,6 +15,12 @@ const getClassifyJwt = (): ScopedServiceJwt =>
         defaultConfig.WORKFLOW_CLASSIFY_JWT_SECRET
     ))
 
+// Django gives the gateway 5 seconds (TIMEOUT_SECONDS in workflow_classifications.py) and returns a 503
+// on a gateway timeout, which this worker retries. The worker budget must be longer than that plus Django's
+// own work. Otherwise the worker aborts first, discards an answer that arrives late, and sends the same
+// classification to the gateway again.
+const CLASSIFY_TIMEOUT_MS = 7000
+
 // The step test panel mocks async functions by default, so `mock` runs these checks too.
 const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
     const [payload] = args as [Record<string, unknown> | undefined]
@@ -49,6 +55,7 @@ registerAsyncFunction('postHogClassify', {
             method: 'POST',
             entityClaims: { hog_flow_id: hogFlow.id },
             body: JSON.stringify(payload),
+            timeoutMs: CLASSIFY_TIMEOUT_MS,
         })
     },
     mock: (args, logs) => {
