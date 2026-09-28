@@ -2580,6 +2580,14 @@ snapshots:
         hash: v1.k794b7964.2ff7288bc0a83e48485c4bd195b0cbceb06d5fd2218264cf63c49a72a90f00dd.tsDphOLaTwWpwAxmLc9dw4zQw9og1WJG5vjOGij2UeE
     data-warehouse-query-history-modal--with-history--light:
         hash: v1.k794b7964.e72700e47a962bf542a5cb857bc6bd98e4d0ca8e280db1ce01c144d3d1b818ef.naPm1iXreZerb2g6MdHDraZEtV7nGY8bi_60zMzf70s
+    data-warehouse-sourcecatalogskeleton--default--dark:
+        hash: v1.k794b7964.1a753989f72ea4cf12f04e1140fdb43e91964d3d4de700a405f2fc55a238bf50.ntxtAhZBU5rMQLYlebsHGhXwHY0_TUFEvjKCN8GJ4hI
+    data-warehouse-sourcecatalogskeleton--default--light:
+        hash: v1.k794b7964.69344e147573737f68d0ef45d1bb2e83d3953e4497aaf7a28ba6a0db3a0e183e.hj8aZGForlTVna1UKWjgacwciz6e0ozXAu-QHoZc_NU
+    data-warehouse-sourcecatalogskeleton--narrow-scene--dark:
+        hash: v1.k794b7964.493527f984dd150ed9590df45c866637a56287c585d69cdcf411ef5bce24dbf8.ocw1FaRlbBWs5pDrll11AbuJkknCONuxdXMhz365RB4
+    data-warehouse-sourcecatalogskeleton--narrow-scene--light:
+        hash: v1.k794b7964.b40c7d9b2dec21673858a8d0dc300b4e25d437140ac3c795e904cfff09934683.LIlhXoMvI575ZULUieEZGXzmVaeYYgk1mWwvjsbNC9U
     data-warehouse-warehousedestinationstable--default--dark:
         hash: v1.k794b7964.6595934174706ea9708694fdfe156d472e769213d8c3d41c59c0678447d20710.ZjAq0JuruCScBFFZXbK-MCQwdIrHPU50EmeRJGlFupY
     data-warehouse-warehousedestinationstable--default--light:
@@ -9493,9 +9501,9 @@ snapshots:
     scenes-app-inbox-scene--installing-self-driving--light:
         hash: v1.k794b7964.fc1d6c0f35936c2a9a59fe89dbc9fdd8bae321ef4a4cba09af26626522d606eb.Ben1AjqSzgVvRph3ykOT3OusF-gZBfMIiFyONV4k6hA
     scenes-app-inbox-scene--legacy--dark:
-        hash: v1.k794b7964.143169747c1f614f8df808dc3cc5bee08e637eefe22c2609b562e3c38e857c62.-M69zyhY1NmS4SFgByyoWbqmHcv-1Hkogv8xCWFXT5U
+        hash: v1.k794b7964.cf7ea7c47bba3a13402d4ffca0936c08040dee5c57ddf01bf8cee89892eb2664.dShBZ3vzzVmp5DadPnsR_vMHw11m5cA6LVA9A2eFOzE
     scenes-app-inbox-scene--legacy--light:
-        hash: v1.k794b7964.0b27dcd61502751b4b090ad9f6dcf6f315fd00ce591c335edfe70e36aa121b7b.Hup-oWqMacI4OKYN2II-QZC-rY3zaxL2XjP699WEjEw
+        hash: v1.k794b7964.f503449990502057e4a2bf6d41dd2c94efad321503856eb11d338084507ed4fb.USiZ5UnWiaNkNJ1ci9aMi6h82TyPLJ1ASTwGfBmidj4
     scenes-app-inbox-scene--legacy-report--dark:
         hash: v1.k794b7964.73179e203433187821ff41208f41221b082f1ca19865fb7b26a751cffffdb633.cNaIyo_D196C9nTyUTVcxfSgwTM5ku-1KroxfCH34_s
     scenes-app-inbox-scene--legacy-report--light:

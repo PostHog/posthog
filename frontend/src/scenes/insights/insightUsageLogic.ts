@@ -95,13 +95,14 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
             const logic = insightSceneLogic.findMounted()
-            const shortId = logic?.values.insight?.short_id
+            // Unsaved insights share an empty short_id, so it can't tell the scene's insight from a preview.
+            const sceneDashboardItemId = logic?.values.insightLogicRef?.logic.props.dashboardItemId
 
-            if (!logic || shortId !== values.insight?.short_id) {
+            if (!logic || sceneDashboardItemId !== props.dashboardItemId) {
                 return
             }
 
