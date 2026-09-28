@@ -271,6 +271,15 @@ class TestSkillBundle(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert self._skill_dirs(response) == {"mine"}
 
+    def test_personal_api_key_without_read_scope_is_forbidden(self):
+        self._create_skill("mine")
+        self.client.logout()
+        _mint_pak(self.user, scopes=["dashboard:read"])
+
+        response = self._fetch(authorization=f"Bearer {_PAK_TOKEN}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
     def test_bundle_contains_only_skills_the_user_created_or_owns(self):
         self._create_skill("mine")
         LLMSkillFile.objects.create(skill=self._create_skill("with-file"), path="scripts/run.py", content="print(1)\n")
