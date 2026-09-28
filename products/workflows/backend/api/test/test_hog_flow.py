@@ -11,6 +11,7 @@ from unittest.mock import ANY, MagicMock, PropertyMock, patch
 from django.core.management import call_command
 from django.db import connection
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -505,10 +506,10 @@ class TestHogFlowAPI(APIBaseTest):
             ("draft", {"Draft"}),
             ("scheduled", {"Scheduled", "Recurring between runs", "Workflow waiting for an API send"}),
             ("sending", {"Sending"}),
-            ("sent", {"Sent"}),
+            ("sent", {"Sent", "Sent after a failed run"}),
             ("failed", {"Run failed", "Launch never finished"}),
             ("archived", {"Archived"}),
-            ("sent,failed", {"Sent", "Run failed", "Launch never finished"}),
+            ("sent,failed", {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"}),
         ]
     )
     @patch(
@@ -518,15 +519,20 @@ class TestHogFlowAPI(APIBaseTest):
         def create(
             name: str,
             status: str = "active",
-            run: str | None = None,
+            runs: tuple[str, ...] = (),
             schedule: str | None = None,
             origin_product: str | None = "broadcasts",
         ) -> None:
             flow = HogFlow.objects.create(
                 team=self.team, name=name, created_by=self.user, origin_product=origin_product, status=status
             )
-            if run:
-                HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow, status=run, filters={}, variables={})
+            for minutes_ago, run in enumerate(reversed(runs)):
+                job = HogFlowBatchJob.objects.create(
+                    team=self.team, hog_flow=flow, status=run, filters={}, variables={}
+                )
+                HogFlowBatchJob.objects.filter(pk=job.pk).update(
+                    created_at=timezone.now() - timedelta(minutes=minutes_ago)
+                )
             if schedule:
                 HogFlowSchedule.objects.create(
                     team=self.team,
@@ -539,10 +545,11 @@ class TestHogFlowAPI(APIBaseTest):
         create("Draft", status="draft")
         create("Archived", status="archived")
         create("Scheduled", schedule="active")
-        create("Recurring between runs", run="completed", schedule="active")
-        create("Sending", run="active")
-        create("Sent", run="completed")
-        create("Run failed", run="failed", schedule="active")
+        create("Recurring between runs", runs=("completed",), schedule="active")
+        create("Sending", runs=("active",))
+        create("Sent", runs=("completed",))
+        create("Sent after a failed run", runs=("failed", "completed"))
+        create("Run failed", runs=("failed",), schedule="active")
         create("Launch never finished")
         create("Workflow waiting for an API send", origin_product=None)
 
