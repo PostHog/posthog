@@ -53,25 +53,49 @@ const meta: Meta<typeof ReportReviewersSectionView> = {
 export default meta;
 type Story = StoryObj<typeof ReportReviewersSectionView>;
 
+const groupedReviewers: SuggestedReviewer[] = [
+  reviewer("avery", "Avery Chen", {
+    reason: sharedReason,
+    explanation: sharedReason,
+    source_skill: "signals-scout-runtime-ownership",
+    source_label: "Runtime ownership scout",
+  }),
+  reviewer("jordan", "Jordan Lee", {
+    reason: sharedReason,
+    explanation: sharedReason,
+    source_skill: "signals-scout-runtime-ownership",
+    source_label: "Runtime ownership scout",
+  }),
+  reviewer("rowan", "Rowan Patel", {
+    explanation: "Recently changed the affected transport.",
+    source_label: "Code history",
+  }),
+];
+
+const withTeammateReviewers: SuggestedReviewer[] = [
+  ...groupedReviewers,
+  reviewer("quinn", "Quinn Foster", {
+    source_skill: null,
+    source_label: "Added by teammate",
+    reason: "Added as a reviewer by Avery Chen on Jan 1, 2026",
+    explanation: null,
+  }),
+];
+
 export const GroupedReviewers: Story = {
+  args: { reviewers: groupedReviewers },
+};
+
+export const AddedByTeammate: Story = {
+  args: { reviewers: withTeammateReviewers },
+};
+
+export const AddedByFullName: Story = {
   args: {
-    reviewers: [
-      reviewer("avery", "Avery Chen", {
-        reason: sharedReason,
-        explanation: sharedReason,
-        source_skill: "signals-scout-runtime-ownership",
-        source_label: "Runtime ownership scout",
-      }),
-      reviewer("jordan", "Jordan Lee", {
-        reason: sharedReason,
-        explanation: sharedReason,
-        source_skill: "signals-scout-runtime-ownership",
-        source_label: "Runtime ownership scout",
-      }),
-      reviewer("rowan", "Rowan Patel", {
-        explanation: "Recently changed the affected transport.",
-        source_label: "Code history",
-      }),
-    ],
+    reviewers: withTeammateReviewers.map((reviewer) =>
+      reviewer.github_login === "quinn"
+        ? { ...reviewer, explanation: "Added by Avery Chen" }
+        : reviewer,
+    ),
   },
 };

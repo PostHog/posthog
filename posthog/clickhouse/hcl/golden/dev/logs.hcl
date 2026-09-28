@@ -2917,6 +2917,7 @@ SQL
       index_granularity                       = "8192"
       index_granularity_bytes                 = "104857600"
       map_serialization_version               = "with_buckets"
+      storage_policy                          = "s3_tiered"
       ttl_only_drop_parts                     = "1"
     }
     column "time_bucket" {

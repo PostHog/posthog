@@ -1,6 +1,8 @@
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -9,8 +11,11 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import finage
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.finage import (
     AGG_LIMIT,
+    CALENDAR_FORWARD_DAYS,
+    CALENDAR_WINDOW_DAYS,
     MAX_SYMBOLS,
     MIN_START_DATE,
+    STATEMENT_LIMIT,
     FinageConfigError,
     FinageRetryableError,
     finage_source,
@@ -288,6 +293,156 @@ class TestGetRows:
 
         _args, kwargs = make_session.call_args
         assert kwargs["retry"].total == 0
+
+
+class TestCalendarWindows:
+    @time_machine.travel("2024-03-01", tick=False)
+    def test_windows_are_contiguous_and_cover_the_declared_range(self) -> None:
+        # A gap between windows loses every event inside it, and an overlap re-fetches rows the merge
+        # then has to de-duplicate. Both are invisible in the synced table until someone counts.
+        windows = list(finage._calendar_windows("2024-01-01"))
+
+        assert windows[0].start == "2024-01-01"
+        # `from`/`to` are inclusive, so the forward horizon is the last day a window may end on.
+        assert windows[-1].end == (date(2024, 3, 1) + timedelta(days=CALENDAR_FORWARD_DAYS)).isoformat()
+        for window, following in zip(windows, windows[1:]):
+            assert date.fromisoformat(following.start) == date.fromisoformat(window.end) + timedelta(days=1)
+        for window in windows:
+            span = date.fromisoformat(window.end) - date.fromisoformat(window.start)
+            assert timedelta(0) <= span <= timedelta(days=CALENDAR_WINDOW_DAYS - 1)
+
+    @time_machine.travel("2024-03-01", tick=False)
+    def test_start_date_inside_the_forward_horizon_still_yields_one_window(self) -> None:
+        # A source created today must not produce an empty walk, which would sync nothing silently.
+        windows = list(finage._calendar_windows("2024-03-01"))
+        assert windows[0].start == "2024-03-01"
+        assert len(windows) >= 1
+
+
+class TestFundamentalsRows:
+    @parameterized.expand(
+        [
+            ("dividends", "historical_dividends", [None]),
+            ("splits", "historical_stock_splits", [None]),
+            (
+                "cash_flow",
+                "cash_flow_statement",
+                [{"limit": STATEMENT_LIMIT, "period": "annual"}, {"limit": STATEMENT_LIMIT, "period": "quarter"}],
+            ),
+            (
+                "balance_sheet",
+                "balance_sheet_statements",
+                [{"limit": STATEMENT_LIMIT, "period": "annual"}, {"limit": STATEMENT_LIMIT, "period": "quarter"}],
+            ),
+        ]
+    )
+    def test_requests_one_call_per_fiscal_period(
+        self, _name: str, endpoint: str, expected_params: list[dict | None]
+    ) -> None:
+        # Statements default to annual, so dropping the quarter request would silently halve the table
+        # while leaving it looking healthy. The dividend and split paths take no period at all.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[]) as fetch,
+        ):
+            list(get_rows("k", endpoint, ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert [call.kwargs["params"] for call in fetch.call_args_list] == expected_params
+
+    @parameterized.expand(
+        [
+            ("response_omits_symbol", {}),
+            ("response_reports_another_symbol", {"symbol": "MSFT"}),
+        ]
+    )
+    def test_pins_the_requested_symbol_onto_every_row(self, _name: str, response_symbol: dict) -> None:
+        # The split and dividend responses carry no symbol, so without pinning the rows lose half
+        # their primary key. A response that names a different company must not write its history
+        # under that company's key either.
+        record = {"numerator_factor": 4, "denominator_factor": 1, "label": "August 31, 20", "date": "2020-08-31"}
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[{**record, **response_symbol}]),
+        ):
+            batches = list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert batches == [[{**record, "symbol": "AAPL"}]]
+
+    def test_calendar_keeps_the_symbol_each_row_reports(self) -> None:
+        # The calendars cover the whole market, so the row's own symbol is the only one available.
+        records = [
+            {"symbol": "GORO", "label": "January 08, 21", "adj_dividend": 0.003, "date": "2021-01-08"},
+            {"symbol": "BLSR.TA", "label": "January 10, 21", "adj_dividend": 517.912, "date": "2021-01-10"},
+        ]
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=records) as fetch,
+        ):
+            batches = list(get_rows("k", "dividend_calendar", ["AAPL"], "2021-01-01", mock.Mock()))
+
+        assert [row["symbol"] for row in batches[0]] == ["GORO", "BLSR.TA"]
+        # Both bounds are required by the endpoint; omitting either is a 4xx for every window.
+        assert set(fetch.call_args_list[0].kwargs["params"]) == {"from", "to"}
+
+    @parameterized.expand(
+        [
+            ("missing_date", "historical_dividends", {"adj_dividend": 0.22}),
+            ("malformed_date", "historical_dividends", {"date": "November 05, 21", "adj_dividend": 0.22}),
+            ("calendar_without_symbol", "dividend_calendar", {"date": "2021-01-08", "adj_dividend": 0.003}),
+            ("calendar_blank_symbol", "dividend_calendar", {"symbol": "   ", "date": "2021-01-08"}),
+            # `strptime` parses "2021-1-8", which would key the same day two ways.
+            ("noncanonical_date", "historical_dividends", {"date": "2021-1-8", "adj_dividend": 0.22}),
+        ]
+    )
+    def test_rejects_records_that_cannot_be_keyed(self, _name: str, endpoint: str, bad_record: dict) -> None:
+        # `symbol` and `date` are the primary key, and `date` is also the partition key. A bad value
+        # merges unrelated rows together or buckets them into the fallback 1970-01 partition.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[bad_record]),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", endpoint, ["AAPL"], "2021-01-01", mock.Mock()))
+
+    def test_rejects_an_array_holding_something_that_is_not_a_record(self) -> None:
+        # Dropping the element would let the sync finish with an incomplete table, which is the
+        # outcome the key checks above exist to prevent.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[{"date": "2020-08-31"}, "not-a-record"]),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
+
+    def test_skips_a_symbol_whose_body_is_not_a_record_list(self) -> None:
+        # Finage answers a symbol it has no fundamentals for with an object rather than an array.
+        # Indexing that as a list would fail the whole sync over one company with no filings.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(
+                finage,
+                "_fetch_json",
+                side_effect=[{"error": "no data"}, [{"symbol": "MSFT", "date": "2020-08-31"}]],
+            ),
+        ):
+            batches = list(get_rows("k", "historical_stock_splits", ["BAD", "MSFT"], "2020-01-01", mock.Mock()))
+
+        assert [row["symbol"] for batch in batches for row in batch] == ["MSFT"]
+
+    @parameterized.expand([("symbol_history", "historical_dividends"), ("calendar", "dividend_calendar")])
+    def test_404_is_skipped_but_401_stops_the_sync(self, _name: str, endpoint: str) -> None:
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=_http_error(404)),
+        ):
+            assert list(get_rows("k", endpoint, ["BAD"], "2021-01-01", mock.Mock())) == []
+
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=_http_error(401)),
+        ):
+            with pytest.raises(requests.HTTPError):
+                list(get_rows("k", endpoint, ["AAPL"], "2021-01-01", mock.Mock()))
 
 
 class TestFinageSourceResponse:

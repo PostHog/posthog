@@ -11,10 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AiObservabilityInstrumentationChecklistRetrieveParams,
     AiObservabilityOfflineExperimentsItemsListParams,
-    AiObservabilityOfflineExperimentsItemsResultsRetrieveParams,
+    AiObservabilityOfflineExperimentsItemsResultsListParams,
     AiObservabilityOfflineExperimentsListParams,
-    AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams,
-    AiObservabilityOfflineScorersHistoryRetrieveParams,
+    AiObservabilityOfflineExperimentsScorerSummariesListParams,
+    AiObservabilityOfflineScorersHistoryListParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -438,11 +438,11 @@ export const aiObservabilityOfflineExperimentsItemsPayloadRetrieve = async (
     )
 }
 
-export const getAiObservabilityOfflineExperimentsItemsResultsRetrieveUrl = (
+export const getAiObservabilityOfflineExperimentsItemsResultsListUrl = (
     projectId: string,
     id: string,
     itemId: string,
-    params?: AiObservabilityOfflineExperimentsItemsResultsRetrieveParams
+    params?: AiObservabilityOfflineExperimentsItemsResultsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -459,15 +459,15 @@ export const getAiObservabilityOfflineExperimentsItemsResultsRetrieveUrl = (
         : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/results/`
 }
 
-export const aiObservabilityOfflineExperimentsItemsResultsRetrieve = async (
+export const aiObservabilityOfflineExperimentsItemsResultsList = async (
     projectId: string,
     id: string,
     itemId: string,
-    params?: AiObservabilityOfflineExperimentsItemsResultsRetrieveParams,
+    params?: AiObservabilityOfflineExperimentsItemsResultsListParams,
     options?: RequestInit
 ): Promise<OfflineResultPageApi> => {
     return apiMutator<OfflineResultPageApi>(
-        getAiObservabilityOfflineExperimentsItemsResultsRetrieveUrl(projectId, id, itemId, params),
+        getAiObservabilityOfflineExperimentsItemsResultsListUrl(projectId, id, itemId, params),
         {
             ...options,
             method: 'GET',
@@ -498,10 +498,10 @@ export const aiObservabilityOfflineExperimentsResultsPayloadRetrieve = async (
     )
 }
 
-export const getAiObservabilityOfflineExperimentsScorerSummariesRetrieveUrl = (
+export const getAiObservabilityOfflineExperimentsScorerSummariesListUrl = (
     projectId: string,
     id: string,
-    params?: AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams
+    params?: AiObservabilityOfflineExperimentsScorerSummariesListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -518,14 +518,14 @@ export const getAiObservabilityOfflineExperimentsScorerSummariesRetrieveUrl = (
         : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/scorer_summaries/`
 }
 
-export const aiObservabilityOfflineExperimentsScorerSummariesRetrieve = async (
+export const aiObservabilityOfflineExperimentsScorerSummariesList = async (
     projectId: string,
     id: string,
-    params?: AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams,
+    params?: AiObservabilityOfflineExperimentsScorerSummariesListParams,
     options?: RequestInit
 ): Promise<OfflineSummaryPageApi> => {
     return apiMutator<OfflineSummaryPageApi>(
-        getAiObservabilityOfflineExperimentsScorerSummariesRetrieveUrl(projectId, id, params),
+        getAiObservabilityOfflineExperimentsScorerSummariesListUrl(projectId, id, params),
         {
             ...options,
             method: 'GET',
@@ -551,10 +551,10 @@ export const aiObservabilityOfflineExperimentsUploadCreate = async (
     })
 }
 
-export const getAiObservabilityOfflineScorersHistoryRetrieveUrl = (
+export const getAiObservabilityOfflineScorersHistoryListUrl = (
     projectId: string,
     id: string,
-    params?: AiObservabilityOfflineScorersHistoryRetrieveParams
+    params?: AiObservabilityOfflineScorersHistoryListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -571,19 +571,16 @@ export const getAiObservabilityOfflineScorersHistoryRetrieveUrl = (
         : `/api/projects/${projectId}/ai_observability/offline_scorers/${id}/history/`
 }
 
-export const aiObservabilityOfflineScorersHistoryRetrieve = async (
+export const aiObservabilityOfflineScorersHistoryList = async (
     projectId: string,
     id: string,
-    params?: AiObservabilityOfflineScorersHistoryRetrieveParams,
+    params?: AiObservabilityOfflineScorersHistoryListParams,
     options?: RequestInit
 ): Promise<OfflineHistoryPageApi> => {
-    return apiMutator<OfflineHistoryPageApi>(
-        getAiObservabilityOfflineScorersHistoryRetrieveUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+    return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {

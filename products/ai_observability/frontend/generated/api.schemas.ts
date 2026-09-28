@@ -375,8 +375,6 @@ export interface OfflineExperimentReadApi {
      * @nullable
      */
     visible_scorer_version_count: number | null
-    /** Whether this credential can read scorer-dependent counts. */
-    result_counts_available: boolean
     /** authorized for visible-result counts, or unavailable without scorer-read scope. */
     result_count_scope: string
     /**
@@ -1790,6 +1788,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -1803,6 +1802,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    OpenaiCompatible: 'openai_compatible',
 } as const
 
 /**
@@ -2664,6 +2664,13 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display: string | null
+    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+    base_url?: string
+    /**
+     * OpenAI-compatible base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -3249,6 +3256,13 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display?: string | null
+    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+    base_url?: string
+    /**
+     * OpenAI-compatible base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -4132,7 +4146,8 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -4186,7 +4201,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -4471,7 +4487,7 @@ export type AiObservabilityOfflineExperimentsItemsListParams = {
     scorer_version_ids?: string
 }
 
-export type AiObservabilityOfflineExperimentsItemsResultsRetrieveParams = {
+export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
@@ -4496,7 +4512,7 @@ export type AiObservabilityOfflineExperimentsItemsResultsRetrieveParams = {
     scorer_version_ids?: string
 }
 
-export type AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams = {
+export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
     /**
      * Continuation cursor returned by the previous page.
      * @minLength 1
@@ -4521,7 +4537,7 @@ export type AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams = {
     scorer_version_ids?: string
 }
 
-export type AiObservabilityOfflineScorersHistoryRetrieveParams = {
+export type AiObservabilityOfflineScorersHistoryListParams = {
     /**
      * Exact application revision.
      * @minLength 1
@@ -4584,10 +4600,6 @@ export type AiObservabilityOfflineScorersHistoryRetrieveParams = {
      * @maxLength 16
      */
     run_source?: string
-    /**
-     * Restrict results to this scorer definition.
-     */
-    scorer_definition_id?: string
     /**
      * Comma-separated list of at most 20 distinct scorer-version UUIDs.
      * @minLength 1
@@ -4867,6 +4879,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Gemini: 'gemini',
     Minimax: 'minimax',
     Openai: 'openai',
+    OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
     Zeabur: 'zeabur',

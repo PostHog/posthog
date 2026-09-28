@@ -235,6 +235,9 @@ __all__ = [
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
     "create_and_run_task",
+    "get_owner_origin_latest_run",
+    "owner_origin_has_non_terminal_run",
+    "owner_origin_open_task_ids",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -1135,18 +1138,30 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     ).exists()
 
 
-def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
+def get_in_progress_runs_for_github_integration(
+    team_id: int, integration_id: int, user_id: int | None
+) -> contracts.InProgressGithubRunsDTO:
     """In-progress runs whose task uses this team GitHub integration.
 
     Used by core's integration API to block disconnecting a GitHub integration while
     live runs still depend on it for credential refresh — deleting the row SET_NULLs
     ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    The count covers every run, but the named task is the oldest one ``user_id`` can read.
     """
-    return TaskRun.objects.filter(
+    runs = TaskRun.objects.filter(
         team_id=team_id,
         status=TaskRun.Status.IN_PROGRESS,
         task__github_integration_id=integration_id,
-    ).count()
+    )
+    count = runs.count()
+    if not count:
+        return contracts.InProgressGithubRunsDTO(count=0)
+    oldest = runs.filter(task_run_visibility_q(user_id)).order_by("created_at").values("task_id", "task__title").first()
+    if oldest is None:
+        return contracts.InProgressGithubRunsDTO(count=count)
+    return contracts.InProgressGithubRunsDTO(
+        count=count, oldest_task_id=oldest["task_id"], oldest_task_title=oldest["task__title"] or None
+    )
 
 
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
@@ -1764,6 +1779,72 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+_NON_TERMINAL_RUN_STATUSES = (
+    TaskRun.Status.NOT_STARTED,
+    TaskRun.Status.QUEUED,
+    TaskRun.Status.IN_PROGRESS,
+)
+
+
+def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origin_product: str) -> bool:
+    """Whether this owner already has a run of this origin that has not finished.
+
+    Internal origins are hidden from the task APIs, so callers that admit one run at a time
+    check here instead of listing tasks. ``origin_product`` is required so one product's open
+    run does not block another's. Soft-deleting a task does not stop its run, so deleted tasks count.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__team_id=team_id,
+        task__created_by_id=created_by_id,
+        task__origin_product=origin_product,
+        status__in=_NON_TERMINAL_RUN_STATUSES,
+    ).exists()
+
+
+def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
+    """Ids of this owner's tasks of this origin that have a run that has not finished, deleted tasks included."""
+    return set(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            status__in=_NON_TERMINAL_RUN_STATUSES,
+        ).values_list("task_id", flat=True)
+    )
+
+
+def get_owner_origin_latest_run(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    created_by_id: int,
+    origin_product: str,
+) -> contracts.TaskRunDTO | None:
+    """Latest run of a task, only when team, owner, and origin all match.
+
+    A miss on any of those is ``None``. Internal tasks are invisible on the normal task APIs,
+    so this is the read those products use for their own runs.
+    """
+    try:
+        task = Task.objects.filter(
+            id=task_id,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+        ).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return None
+    if task is None:
+        return None
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        return None
+    return _task_run_to_dto(run, task=task)
 
 
 def create_wizard_cloud_run(
@@ -5295,6 +5376,21 @@ def resolve_task_run_preview_redirect(
         outcome="ready",
         redirect_url=f"{credentials.url.rstrip('/')}/?_modal_connect_token={credentials.token}",
     )
+
+
+def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+    """Whether ``sandbox_url`` is the configured hogland control-plane origin.
+
+    Thin facade wrapper: presentation may not import ``logic`` directly (see
+    products/architecture.md § Presentation Layer), so both the sandbox-URL allowlist gate
+    and the request-transport decision in the command relay view go through this one edge
+    instead of reaching into ``logic.services.agent_command`` themselves.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        is_hogland_sandbox_url as _is_hogland_sandbox_url,
+    )
+
+    return _is_hogland_sandbox_url(sandbox_url)
 
 
 # Relay control verbs whose outcome PostHog AI funnels track. Captured here (gated on
