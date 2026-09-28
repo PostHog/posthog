@@ -125,6 +125,8 @@ export interface PlaygroundChatListApi {
     created_at: string
     /** When this chat was last asked in. */
     updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
 }
 
 /**
@@ -227,6 +229,8 @@ export interface PlaygroundChatApi {
     created_at: string
     /** When this chat was last asked in. */
     updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
     /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
     turns: PlaygroundTurnApi[]
 }

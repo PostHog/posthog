@@ -102,7 +102,7 @@ export function PlaygroundChatList(): JSX.Element {
                                                     icon={<IconMessage />}
                                                     title={chat.title || 'New chat'}
                                                     isLoading={
-                                                        (chat.id === chatId && chatHasOpenTurn) ||
+                                                        (chat.id === chatId ? chatHasOpenTurn : chat.has_open_turn) ||
                                                         deletingChatId === chat.id
                                                     }
                                                     meta={formatChatAge(chat.updated_at)}

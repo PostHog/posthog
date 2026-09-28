@@ -729,6 +729,9 @@ class PlaygroundChatListSerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(help_text="When this chat was created.")
     updated_at = serializers.DateTimeField(help_text="When this chat was last asked in.")
+    has_open_turn = serializers.BooleanField(
+        help_text="True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes.",
+    )
 
 
 class PlaygroundTurnSerializer(serializers.Serializer):

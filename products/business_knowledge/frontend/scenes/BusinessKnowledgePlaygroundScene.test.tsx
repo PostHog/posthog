@@ -33,6 +33,7 @@ const listedChat = {
     title: 'Can I get a refund?',
     created_at: '2026-09-25T00:00:00Z',
     updated_at: '2026-09-25T00:00:00Z',
+    has_open_turn: false,
 }
 
 const playgroundValues = {
@@ -55,6 +56,7 @@ const playgroundValues = {
         title: 'Can I get a refund?',
         created_at: '2026-09-25T00:00:00Z',
         updated_at: '2026-09-25T00:00:00Z',
+        has_open_turn: false,
         turns: [
             {
                 id: 'turn-1',

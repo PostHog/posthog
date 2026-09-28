@@ -71,18 +71,35 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert self.client.get(other_url).status_code == status.HTTP_404_NOT_FOUND
         assert PlaygroundChat.objects.unscoped().filter(id=chat["id"]).exists()
 
-    def test_ask_while_running_conflicts_across_chats(self, _ff, _workflow) -> None:
+    def test_one_open_answer_per_chat_while_other_chats_run(self, _ff, _workflow) -> None:
         first = self._create_chat()
         started = self.client.post(f"{self.url}{first['id']}/ask/", {"question": "Can I get a refund?"}, format="json")
         assert started.status_code == status.HTTP_201_CREATED, started.content
+        assert started.json()["has_open_turn"] is True
+
+        blocked = self.client.post(f"{self.url}{first['id']}/ask/", {"question": "And after 30 days?"}, format="json")
+        assert blocked.status_code == status.HTTP_409_CONFLICT
+        assert PlaygroundTurn.objects.unscoped().filter(chat_id=first["id"]).count() == 1
+
+        untitled = self._create_chat()
         second = self._create_chat()
-        blocked = self.client.post(
+        parallel = self.client.post(
             f"{self.url}{second['id']}/ask/", {"question": "Where is the policy?"}, format="json"
         )
-        assert blocked.status_code == status.HTTP_409_CONFLICT
-        assert PlaygroundTurn.objects.unscoped().filter(chat_id=second["id"]).count() == 0
-        assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 1
-        assert [listed["id"] for listed in self.client.get(self.url).json()] == [first["id"]]
+        assert parallel.status_code == status.HTTP_201_CREATED, parallel.content
+        assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 2
+
+        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()}
+        assert listed == {first["id"]: True, second["id"]: True}
+        assert untitled["id"] not in listed
+
+        TaskRun.objects.filter(task_id=started.json()["turns"][0]["task_id"]).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Yes.", "sources": []}
+        )
+        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()}
+        assert listed == {first["id"]: False, second["id"]: True}
+        follow_up = self.client.post(f"{self.url}{first['id']}/ask/", {"question": "And after 30 days?"}, format="json")
+        assert follow_up.status_code == status.HTTP_201_CREATED, follow_up.content
 
     def test_reload_reads_the_sandbox_run(self, _ff, _workflow) -> None:
         chat = self._create_chat()

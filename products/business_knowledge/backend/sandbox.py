@@ -157,24 +157,34 @@ def validate_sandbox_output(output: dict | None) -> SandboxAnswer | None:
         return None
 
 
+def open_sandbox_task_ids(*, team_id: int, user_id: int) -> set[UUID]:
+    return tasks_facade.owner_origin_open_task_ids(
+        team_id=team_id,
+        created_by_id=user_id,
+        origin_product=tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
+    )
+
+
 def start_sandbox_run(
     *,
     team: Team,
     user_id: int,
     question: str,
+    admit: Callable[[], None] | None = None,
     on_admitted: Callable[[CreatedTaskDTO], None] | None = None,
 ) -> CreatedTaskDTO:
-    """Admit at most one open sandbox run, then start it. Dispatch waits until this transaction commits.
+    """Admit the run, then start it. Dispatch waits until this transaction commits.
 
-    `on_admitted` runs inside that transaction, so a playground turn is stored with the task or not at all.
+    `admit` runs first inside the transaction and raises `SandboxRunInProgress` to refuse. It must take
+    its own lock. The default allows one open run per person. `on_admitted` runs in the same
+    transaction, so a playground turn is stored with the task or not at all.
     """
     origin = tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE
     with transaction.atomic():
-        _lock_admission(team.id, user_id)
-        if tasks_facade.owner_origin_has_non_terminal_run(
-            team_id=team.id, created_by_id=user_id, origin_product=origin
-        ):
-            raise SandboxRunInProgress()
+        if admit is None:
+            _admit_one_run_per_owner(team.id, user_id)
+        else:
+            admit()
         env_id = tasks_facade.upsert_internal_sandbox_env(
             team.id,
             BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME,
@@ -267,6 +277,16 @@ def sandbox_activity_for_run(*, run_id: UUID, task_id: UUID, team_id: int) -> Sa
     if not logs:
         return SandboxActivity(searches=[], docs_search_called=False)
     return parse_sandbox_log(logs)
+
+
+def _admit_one_run_per_owner(team_id: int, user_id: int) -> None:
+    _lock_admission(team_id, user_id)
+    if tasks_facade.owner_origin_has_non_terminal_run(
+        team_id=team_id,
+        created_by_id=user_id,
+        origin_product=tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
+    ):
+        raise SandboxRunInProgress()
 
 
 def _lock_admission(team_id: int, user_id: int) -> None:

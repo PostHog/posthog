@@ -13,6 +13,7 @@ const listedChat: PlaygroundChatListApi = {
     title: 'Can customers get a refund after 30 days?',
     created_at: '2023-01-28T09:00:00Z',
     updated_at: '2023-01-28T09:05:00Z',
+    has_open_turn: true,
 }
 
 const olderChat: PlaygroundChatListApi = {
@@ -20,6 +21,7 @@ const olderChat: PlaygroundChatListApi = {
     title: 'Which plans include priority support?',
     created_at: '2023-01-20T09:00:00Z',
     updated_at: '2023-01-20T09:00:00Z',
+    has_open_turn: true,
 }
 
 const chat: PlaygroundChatApi = {

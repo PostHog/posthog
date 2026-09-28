@@ -235,6 +235,7 @@ __all__ = [
     "create_and_run_task",
     "get_owner_origin_latest_run",
     "owner_origin_has_non_terminal_run",
+    "owner_origin_open_task_ids",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -1751,6 +1752,20 @@ def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origi
         task__deleted=False,
         status__in=_NON_TERMINAL_RUN_STATUSES,
     ).exists()
+
+
+def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
+    """Ids of this owner's tasks of this origin that have a run that has not finished."""
+    return set(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            task__deleted=False,
+            status__in=_NON_TERMINAL_RUN_STATUSES,
+        ).values_list("task_id", flat=True)
+    )
 
 
 def get_owner_origin_latest_run(

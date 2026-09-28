@@ -16,6 +16,7 @@ import type { PlaygroundChatApi, PlaygroundChatListApi, SandboxRunApi } from '..
 import { type PlaygroundChatGroup, groupPlaygroundChats } from './playgroundDisplay'
 
 const POLL_MS = 2000
+const LIST_POLL_MS = 5000
 
 function errorDetail(error: unknown, fallback: string): string {
     if (error instanceof ApiError && error.detail) {
@@ -253,6 +254,15 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        loadChatsSuccess: ({ chats }) => {
+            // Other chats keep running in the background, so refresh the list until their spinners can clear.
+            if (chats.some((chat) => chat.has_open_turn)) {
+                cache.disposables.add(() => {
+                    const id = window.setTimeout(() => actions.loadChats(), LIST_POLL_MS)
+                    return () => window.clearTimeout(id)
+                }, 'playgroundListPoll')
+            }
+        },
         openChat: async ({ chatId }) => {
             cache.disposables.dispose('playgroundPoll')
             actions.setAsking(false)

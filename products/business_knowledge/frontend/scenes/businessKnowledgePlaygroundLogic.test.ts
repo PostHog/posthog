@@ -43,6 +43,7 @@ function chat(status: SandboxRunApi['status'], extra: Partial<PlaygroundChatApi>
         title: 'Can I get a refund?',
         created_at: '2026-09-25T00:00:00Z',
         updated_at: '2026-09-25T00:00:00Z',
+        has_open_turn: status === 'running',
         turns: [
             {
                 id: 'turn-1',
@@ -62,6 +63,7 @@ const emptyChat: PlaygroundChatApi = {
     title: '',
     created_at: '2026-09-25T00:00:00Z',
     updated_at: '2026-09-25T00:00:00Z',
+    has_open_turn: false,
     turns: [],
 }
 
@@ -70,6 +72,7 @@ const listed: PlaygroundChatListApi = {
     title: 'Can I get a refund?',
     created_at: '2026-09-25T00:00:00Z',
     updated_at: '2026-09-25T00:00:00Z',
+    has_open_turn: false,
 }
 
 describe('businessKnowledgePlaygroundLogic', () => {
@@ -229,6 +232,30 @@ describe('businessKnowledgePlaygroundLogic', () => {
             logic.actions.poll()
         }).toDispatchActions(['pollFailed'])
         expect(logic.values.asking).toBe(false)
+    })
+
+    it('refreshes the chat list until no chat has an answer running', async () => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        jest.useFakeTimers()
+        try {
+            mockedList
+                .mockResolvedValueOnce([{ ...listed, has_open_turn: true }])
+                .mockResolvedValue([{ ...listed, has_open_turn: false }])
+            await expectLogic(logic, () => {
+                logic.actions.loadChats()
+            }).toDispatchActions(['loadChatsSuccess'])
+            expect(logic.values.chats[0].has_open_turn).toBe(true)
+
+            jest.advanceTimersByTime(5000)
+            await expectLogic(logic).toDispatchActions(['loadChats', 'loadChatsSuccess'])
+            expect(logic.values.chats[0].has_open_turn).toBe(false)
+
+            const calls = mockedList.mock.calls.length
+            jest.advanceTimersByTime(20000)
+            expect(mockedList).toHaveBeenCalledTimes(calls)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('clears the poll timer on unmount', async () => {

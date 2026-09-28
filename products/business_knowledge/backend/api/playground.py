@@ -25,7 +25,7 @@ from ..playground import (
     ask_playground_chat,
     create_playground_chat,
     serialize_playground_chat,
-    serialize_playground_chat_list_item,
+    serialize_playground_chat_list,
 )
 from ..sandbox import SandboxRunInProgress
 from .sandbox import SandboxConflict
@@ -76,10 +76,11 @@ class BusinessKnowledgePlaygroundChatViewSet(
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         # A refused first question leaves an untitled chat behind.
-        chats = [
-            serialize_playground_chat_list_item(chat)
-            for chat in self.get_queryset().exclude(title="").order_by("-updated_at")
-        ]
+        chats = serialize_playground_chat_list(
+            self.get_queryset().exclude(title="").order_by("-updated_at"),
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+        )
         return Response(PlaygroundChatListSerializer(chats, many=True).data)
 
     @extend_schema(
@@ -123,10 +124,10 @@ class BusinessKnowledgePlaygroundChatViewSet(
         responses={
             201: OpenApiResponse(response=PlaygroundChatSerializer, description="Chat with the new turn."),
             403: OpenApiResponse(description="AI data processing is not approved for this organization."),
-            409: OpenApiResponse(description="This person already has a sandbox run that has not finished."),
+            409: OpenApiResponse(description="This chat already has an answer that has not finished."),
         },
         summary="Ask a question in a playground chat",
-        description="Append a turn and start a sandbox run. A second question while any run is still open returns 409, including from a different chat.",
+        description="Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time.",
     )
     @validated_request(
         request_serializer=SandboxQuestionSerializer,
