@@ -2588,22 +2588,44 @@ class TestQueryFailureCaching(BaseTest):
             assert failure_cache.get_open() is None
             assert self._warm(runner).is_cached is True
 
-    def test_hourly_warming_failures_back_off_and_success_resets_history(self) -> None:
+    @parameterized.expand(
+        [
+            ("ordinary_cooldown", None, (1, 2, 3, 4, 5, 6, 7, 8, 8, 9, 9, 9, 10)),
+            ("warming_cooldown", EventSource.CACHE_WARMING, (1, 2, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5)),
+        ]
+    )
+    def test_hourly_ten_minute_timeouts_without_user_views_back_off_and_recover(
+        self, _name: str, source: EventSource | None, executions_by_hour: tuple[int, ...]
+    ) -> None:
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        start = datetime(2026, 1, 1, tzinfo=UTC)
         with (
-            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen,
+            time_machine.travel(start, tick=False) as frozen,
             mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
         ):
+
+            def time_out_after_ten_minutes(_runner: QueryRunner) -> None:
+                frozen.shift(timedelta(minutes=10))
+                raise ClickHouseQueryTimeOut()
+
             with mock.patch.object(
-                runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
+                runner_class, "_calculate", autospec=True, side_effect=time_out_after_ten_minutes
             ) as calculate:
-                for refused in (False, False, False, True, False, True, True, True):
-                    with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                        self._warm(runner)
-                    assert bool(getattr(ctx.exception, "served_from_query_failure_cache", False)) is refused
-                    frozen.shift(timedelta(hours=1))
-                assert calculate.call_count == 4
+                for hour, expected_executions in enumerate(executions_by_hour):
+                    with self.subTest(hour=hour, expected_executions=expected_executions):
+                        frozen.move_to(start + timedelta(hours=hour))
+                        previous_executions = calculate.call_count
+                        with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+                            runner.run(
+                                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                                analytics_props={"source": source} if source is not None else None,
+                            )
+                        assert calculate.call_count == expected_executions
+                        assert bool(getattr(ctx.exception, "served_from_query_failure_cache", False)) is (
+                            expected_executions == previous_executions
+                        )
+            frozen.move_to(start + timedelta(hours=17))
             assert self._warm(runner).is_cached is False
             assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
             with (
