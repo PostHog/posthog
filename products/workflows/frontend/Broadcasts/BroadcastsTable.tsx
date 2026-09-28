@@ -130,8 +130,11 @@ export function BroadcastsTable(): JSX.Element {
                         onChange={(status) => setFilters({ status: status as BroadcastsStatusFilter })}
                         options={[
                             { label: 'All', value: 'all' },
-                            { label: 'Active', value: 'active' },
                             { label: 'Draft', value: 'draft' },
+                            { label: 'Scheduled', value: 'scheduled' },
+                            { label: 'Sending', value: 'sending' },
+                            { label: 'Sent', value: 'sent' },
+                            { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}
                         value={filters.status}
