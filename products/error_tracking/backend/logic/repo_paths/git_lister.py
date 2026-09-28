@@ -12,6 +12,7 @@ import base64
 import shutil
 import signal
 import tempfile
+import ipaddress
 import subprocess
 from dataclasses import field
 from pathlib import Path
@@ -19,16 +20,23 @@ from typing import IO, Literal
 from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
+from posthog.security.pinned_requests import select_pinned_ip
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 from products.error_tracking.backend.logic.repo_paths.metrics import record_git_fetch
 
-HTTPS_ONLY: frozenset[str] = frozenset({"https"})
+GitFetchOutcome = Literal[
+    "listed", "auth_failed", "commit_not_found", "too_large", "timeout", "host_not_allowed", "error"
+]
 
-GitFetchOutcome = Literal["listed", "auth_failed", "commit_not_found", "too_large", "timeout", "error"]
-
+_ALLOWED_PROTOCOLS: frozenset[str] = frozenset({"https"})
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _POLL_SECONDS = 0.2
 _STDERR_LIMIT = 2000
+_STDERR_MAX_BYTES = 1024 * 1024
+# The tail is redacted before it is cut to _STDERR_LIMIT characters. The window is far longer than
+# the kept text, so a secret that the window start cuts in two falls outside the kept text.
+_STDERR_TAIL_BYTES = 64 * 1024
 _REDACTED = "[REDACTED]"
 
 # Environment variables that only select a network route or a CA bundle. The worker may need them
@@ -65,6 +73,10 @@ class GitTimeout(GitListError):
     outcome = "timeout"
 
 
+class GitHostNotAllowed(GitListError):
+    outcome = "host_not_allowed"
+
+
 class GitFailed(GitListError):
     outcome = "error"
 
@@ -73,11 +85,10 @@ class GitFailed(GitListError):
 class GitRemote:
     url: str
     auth_header: str = field(repr=False)
-    allowed_protocols: frozenset[str] = HTTPS_ONLY
 
     def __post_init__(self) -> None:
         parts = urlsplit(self.url)
-        if parts.scheme not in self.allowed_protocols:
+        if parts.scheme not in _ALLOWED_PROTOCOLS:
             raise ValueError(f"Protocol {parts.scheme!r} is not allowed")
         if parts.username or parts.password:
             raise ValueError("The URL must not contain credentials")
@@ -143,7 +154,7 @@ def list_repository_files(target: GitFetchTarget) -> RepoFileList:
     started = time.monotonic()
     deadline = started + target.timeout_seconds
     outcome: GitFetchOutcome = "error"
-    fetched_bytes = 0
+    run: _GitRunner | None = None
     try:
         with tempfile.TemporaryDirectory(prefix="error-tracking-repo-paths-") as tmp:
             workdir = Path(tmp)
@@ -168,20 +179,20 @@ def list_repository_files(target: GitFetchTarget) -> RepoFileList:
                 watch_dir=repo / "objects",
                 max_bytes=target.max_bytes,
             )
-            fetched_bytes = run.watched_bytes
             listing = run(["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", target.commit])
         paths = tuple(sorted(_decode_paths(listing)))
         outcome = "listed"
         return RepoFileList(
             commit=target.commit,
             paths=paths,
-            fetched_bytes=fetched_bytes,
+            fetched_bytes=run.watched_bytes,
             seconds=time.monotonic() - started,
         )
     except GitListError as e:
         outcome = e.outcome
         raise
     finally:
+        fetched_bytes = run.watched_bytes if run is not None else 0
         record_git_fetch(outcome=outcome, seconds=time.monotonic() - started, fetched_bytes=fetched_bytes)
 
 
@@ -211,9 +222,10 @@ def _git_env(remote: GitRemote, *, home: Path) -> dict[str, str]:
         ("http.followRedirects", "false"),
         ("protocol.version", "2"),
         ("protocol.allow", "never"),
-        *((f"protocol.{protocol}.allow", "always") for protocol in sorted(remote.allowed_protocols)),
+        *((f"protocol.{protocol}.allow", "always") for protocol in sorted(_ALLOWED_PROTOCOLS)),
         ("core.hooksPath", os.devnull),
         ("credential.helper", ""),
+        *(("http.curloptResolve", entry) for entry in _pinned_host_entries(remote.url)),
     ]
     env = {name: os.environ[name] for name in _PASSTHROUGH_ENV if name in os.environ}
     env.update(
@@ -237,6 +249,37 @@ def _git_env(remote: GitRemote, *, home: Path) -> dict[str, str]:
     return env
 
 
+def _pinned_host_entries(url: str) -> list[str]:
+    """Check the host of ``url`` and return the libcurl resolve entry that pins git to the checked IP.
+
+    Git resolves the host again when it connects. Without the pin, a DNS record that changes
+    between the check and the connection could send git and the token to an internal address.
+    """
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise GitHostNotAllowed(verdict.reason or "The git host is not allowed")
+    ip = select_pinned_ip(verdict.pinned_ips)
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ip is None or not host or _is_ip_literal(host):
+        return []
+    # libcurl looks up resolve entries by the host it connects to. For a non-ASCII host that is the
+    # IDNA form, so an entry under the raw host would not match and git would use DNS instead.
+    if not host.isascii():
+        raise GitHostNotAllowed("The git host must be an ASCII hostname")
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    address = f"[{ip}]" if ip.version == 6 else str(ip)
+    return [f"{host}:{port}:{address}"]
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 class _GitRunner:
     def __init__(self, *, remote: GitRemote, env: dict[str, str], cwd: Path, deadline: float) -> None:
         self._remote = remote
@@ -258,22 +301,24 @@ class _GitRunner:
                 start_new_session=True,
             )
             try:
-                self._wait(process, watch_dir, max_bytes)
+                self._wait(process, stderr, watch_dir, max_bytes)
             finally:
                 if process.poll() is None:
                     _kill(process)
+                if watch_dir is not None:
+                    self.watched_bytes = _dir_size(watch_dir)
             # A fast fetch can finish between two checks, so check the size once more at the end.
             # This also catches a server that ignores the blob filter and sends every file.
-            if watch_dir is not None:
-                self.watched_bytes = _dir_size(watch_dir)
-                if self.watched_bytes > max_bytes:
-                    raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
+            if watch_dir is not None and self.watched_bytes > max_bytes:
+                raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
             if process.returncode != 0:
-                raise _classify(self._redact(_read_tail(stderr)))
+                raise _classify(self._redacted_tail(stderr))
             stdout.seek(0)
             return stdout.read()
 
-    def _wait(self, process: subprocess.Popen[bytes], watch_dir: Path | None, max_bytes: int) -> None:
+    def _wait(
+        self, process: subprocess.Popen[bytes], stderr: IO[bytes], watch_dir: Path | None, max_bytes: int
+    ) -> None:
         while True:
             remaining = self._deadline - time.monotonic()
             if remaining <= 0:
@@ -283,13 +328,16 @@ class _GitRunner:
                 return
             except subprocess.TimeoutExpired:
                 pass
+            if os.fstat(stderr.fileno()).st_size > _STDERR_MAX_BYTES:
+                raise GitFailed(f"git wrote more than {_STDERR_MAX_BYTES} bytes to stderr")
             if watch_dir is not None and _dir_size(watch_dir) > max_bytes:
                 raise GitTooLarge(f"The fetch passed the cap of {max_bytes} bytes")
 
-    def _redact(self, text: str) -> str:
+    def _redacted_tail(self, stderr: IO[bytes]) -> str:
+        text = _read_tail(stderr)
         for secret in self._remote.secrets():
             text = text.replace(secret, _REDACTED)
-        return text
+        return text[-_STDERR_LIMIT:].strip()
 
 
 def _kill(process: subprocess.Popen[bytes]) -> None:
@@ -301,8 +349,8 @@ def _kill(process: subprocess.Popen[bytes]) -> None:
 
 
 def _read_tail(file: IO[bytes]) -> str:
-    file.seek(0)
-    return file.read().decode("utf-8", errors="replace")[-_STDERR_LIMIT:].strip()
+    file.seek(max(0, os.fstat(file.fileno()).st_size - _STDERR_TAIL_BYTES))
+    return file.read(_STDERR_TAIL_BYTES).decode("utf-8", errors="replace")
 
 
 _AUTH_FAILURES = (
