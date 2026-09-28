@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
+import { clamp } from 'lib/utils/numbers'
 
-import type { EvaluationBackfillConditionApi } from '../generated/api.schemas'
+import type { EvaluationBackfillApi, EvaluationBackfillConditionApi } from '../generated/api.schemas'
 
 export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi): string {
     const percent = condition.rollout_percentage ?? 100
@@ -17,4 +18,23 @@ export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi)
 export function backfillRangeDateFormat(start: string, end: string, now: dayjs.Dayjs): string {
     const sameYear = dayjs(start).isSame(now, 'year') && dayjs(end).isSame(now, 'year')
     return sameYear ? 'MMM D' : 'MMM D, YYYY'
+}
+
+/** Raised, never replaced: a run whose units the live path graded mid-walk handles fewer than it
+ * was created for, and those units are covered too. */
+export function backfillTotalCount(backfill: EvaluationBackfillApi): number {
+    return Math.max(backfill.total_count, backfill.dispatched_count + backfill.skipped_count)
+}
+
+export function backfillLateArrivalCount(backfill: EvaluationBackfillApi): number {
+    return backfillTotalCount(backfill) - backfill.total_count
+}
+
+export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
+    const total = backfillTotalCount(backfill)
+    const covered =
+        backfill.status === 'completed' && backfill.remaining_count !== null
+            ? total - backfill.remaining_count
+            : backfill.dispatched_count + backfill.skipped_count
+    return clamp(covered, 0, total)
 }

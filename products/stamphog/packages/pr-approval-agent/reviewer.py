@@ -17,8 +17,8 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
-from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, new_diff_file, write_pr_diff
+from gateway import REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
+from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
@@ -40,8 +40,6 @@ try:
         _POSTHOG_AI_AVAILABLE = False
 except ImportError:
     _POSTHOG_AI_AVAILABLE = False
-
-MODEL = "claude-sonnet-5"
 
 # Prompt byte budgets. Trace telemetry shows the reviewer uses a small fraction
 # of the model's context window, so these are generous — they exist to cap
@@ -410,7 +408,7 @@ class Reviewer:
             mcp_servers={},
             strict_mcp_config=True,
             max_turns=5 if quick else 20,
-            model=MODEL,
+            model=REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
             effort="low" if quick else "high",
@@ -545,7 +543,7 @@ class Reviewer:
 
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root)
+        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root, pr.merge_base_sha)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
@@ -599,7 +597,7 @@ class Reviewer:
             lines.extend(self._discussion_line(c) for c in tail_items)
             discussion_text = "\n".join(lines)
 
-        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
+        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in drop_abandoned_bot_eyes(pr.pr_reactions))
 
         ownership = self._format_ownership(cl)
         assurance_block = self._format_assurance(cl)
@@ -743,9 +741,10 @@ class Reviewer:
 
     def _format_reactions(self, reactions: list[dict] | None) -> str:
         """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""
-        if not reactions:
+        shown = drop_abandoned_bot_eyes(reactions)
+        if not shown:
             return ""
-        return "  {" + ", ".join(_reaction_token(r) for r in reactions) + "}"
+        return "  {" + ", ".join(_reaction_token(r) for r in shown) + "}"
 
     def _format_familiarity(self, cl: dict) -> str:
         """Render the TRUSTED author-familiarity block, or "" when the signal is absent.

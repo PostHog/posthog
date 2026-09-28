@@ -37,7 +37,7 @@ from products.experiments.backend.hogql_queries.experiment_exposures_query_runne
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
 
 
 @dataclass
@@ -129,18 +129,6 @@ def transform_variant_for_max(
 def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:
     """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
-
-
-def order_metrics_by_uuid(metrics: list[dict], ordered_uuids: list | None) -> list[dict]:
-    """
-    Apply the UI's display order so metric numbering in the AI summary matches the
-    metrics list in the app. Metrics missing from the ordering keep their relative
-    position at the end.
-    """
-    if not ordered_uuids:
-        return metrics
-    position = {uuid: index for index, uuid in enumerate(ordered_uuids)}
-    return sorted(metrics, key=lambda metric: position.get(metric.get("uuid"), len(position)))
 
 
 class ExperimentSummaryDataService:
@@ -304,8 +292,11 @@ class ExperimentSummaryDataService:
             else:
                 secondary_metrics.append(query)
 
-        primary_metrics = order_metrics_by_uuid(primary_metrics, experiment.primary_metrics_ordered_uuids)
-        secondary_metrics = order_metrics_by_uuid(secondary_metrics, experiment.secondary_metrics_ordered_uuids)
+        # Number metrics in the UI's display order so "Metric 2" in the summary is the second row in the app.
+        primary_rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
+        secondary_rank = metric_display_rank(experiment.secondary_metrics_ordered_uuids)
+        primary_metrics.sort(key=lambda metric: primary_rank(metric.get("uuid", "")))
+        secondary_metrics.sort(key=lambda metric: secondary_rank(metric.get("uuid", "")))
 
         omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
             0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE

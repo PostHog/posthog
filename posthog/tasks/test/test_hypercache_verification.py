@@ -58,6 +58,29 @@ class TestFixCounterSeries(SimpleTestCase):
                     ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, writer={writer}"
 
 
+class TestSweepFailureCounterSeries(SimpleTestCase):
+    def test_every_label_combination_is_pre_created_at_import(self) -> None:
+        for cache_type in ("flags", "team_metadata", "flag_definitions"):
+            for reason in ("dependency_unavailable", "data_error", "unknown"):
+                assert (
+                    REGISTRY.get_sample_value(
+                        "posthog_hypercache_verify_errors_total",
+                        {"cache_type": cache_type, "reason": reason},
+                    )
+                    is not None
+                ), f"series not pre-created: cache_type={cache_type}, reason={reason}"
+
+            for issue_type in ("cache_miss", "cache_mismatch", "expiry_missing"):
+                for reason in ("update_fn_returned_false", "dependency_unavailable", "data_error", "unknown"):
+                    assert (
+                        REGISTRY.get_sample_value(
+                            "posthog_hypercache_verify_fix_failures_total",
+                            {"cache_type": cache_type, "issue_type": issue_type, "reason": reason},
+                        )
+                        is not None
+                    ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, reason={reason}"
+
+
 class TestIncompleteRunsCounterSeries(SimpleTestCase):
     def test_every_label_pair_is_pre_created_at_import(self) -> None:
         for cache_type in ("flags", "team_metadata", "flag_definitions"):

@@ -3,7 +3,7 @@
 Version: 1
 Status: stable
 
-This document defines the `owners.yaml` file format and how a tool resolves the owner of a path from it.
+This document defines the `owners.yaml` file format and how a resolver finds the owner of a path from it.
 `owners-yaml` is the reference implementation.
 A JSON Schema for editors is in [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/owners.schema.json).
 
@@ -20,15 +20,22 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 - **Resolution**: the result of the algorithm in section 4 for one path.
 - **Unowned**: a path whose resolution has no owners and is not unowned by design.
 - **Unowned by design**: a path whose resolution comes from an explicit `owners: null`.
+- **Author**: a person or program that writes ownership files.
+- **Tool**: a program that reads ownership files. A resolver and a linter are tools.
+- **Resolver**: a tool that computes resolutions (section 4). Section 7 defines a command interface for a resolver.
+- **Linter**: a tool that checks ownership files and reports errors.
+- **Consumer**: a program that uses resolutions, such as a review assigner or a coverage check.
 - **Addition**: a path that a change adds to the repository, such as a new file or directory. A consumer decides which paths count as additions (section 3.6).
 - **Owners of additions**: the owners that the `additions` field names for a path. They are separate from the owners of the path (section 3.6).
+
+One program can have more than one of these roles. A consumer that reads ownership files itself is also a tool. It is a resolver when it computes resolutions.
 
 ## 2. File placement
 
 1. An ownership file applies to the directory that contains it and to everything below that directory.
-2. A directory MUST NOT contain more than one ownership file.
-3. A tool MUST read only the file named `owners.yaml` and the alias files of section 6. It MUST NOT read other file names as ownership files.
-4. An `owners.yaml` MUST NOT be placed in a directory where other tooling reads every YAML file. `.github/workflows/` and its subdirectories are always reserved. The root file MAY reserve more locations with `reserved_dirs` (section 5).
+2. An author MUST NOT put more than one ownership file in a directory. Section 6, rules 10 to 12, say which file takes precedence when a directory has more than one.
+3. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or is an alias file (section 6).
+4. An author MUST NOT put an `owners.yaml` in a directory where another program reads every YAML file. `.github/workflows/` and its subdirectories are always reserved. The root file MAY reserve more locations with `reserved_dirs` (section 5).
 
 ## 3. Fields
 
@@ -44,14 +51,14 @@ An ownership file is a YAML mapping.
 | `additions` | no       | string or list of strings          | The owners of additions below the directory.                                  |
 
 The root file MAY also carry the repository settings in section 5.
-Any other top-level field is an error.
+In an `owners.yaml`, any other top-level field is an error. A linter MUST report it. The field has no effect on resolution.
 
 ### 3.1 `owners`
 
 1. A string is a list with one entry.
 2. Each entry MUST be a non-empty string.
-3. A list MUST be ordered. The first entry is the primary owner.
-4. `null` means the directory is unowned by design. A coverage check MUST NOT report such paths.
+3. A tool MUST keep the order of the list. The first entry is the primary owner.
+4. `null` makes a path unowned by design when it sets the owners of that path (section 4, step 5.4). A consumer that checks coverage MUST NOT report such a path.
 5. An empty list means the file sets no owners. The owners of the nearest ancestor apply.
 6. Any other value is an error. The file then sets no owners, as with an empty list, and its other fields still apply.
 
@@ -59,12 +66,12 @@ Any other top-level field is an error.
 
 The value MUST be one of these:
 
-| Value        | Meaning                                                                 |
-| ------------ | ----------------------------------------------------------------------- |
-| `active`     | Maintained code. This is the default.                                   |
-| `deprecated` | Code that is due for removal.                                           |
-| `generated`  | Output of a generator. A review tool SHOULD NOT request reviews for it. |
-| `vendored`   | Third-party code copied into the repository.                            |
+| Value        | Meaning                                                                     |
+| ------------ | --------------------------------------------------------------------------- |
+| `active`     | Maintained code. This is the default.                                       |
+| `deprecated` | Code that is due for removal.                                               |
+| `generated`  | Output of a generator. A consumer SHOULD NOT request reviews for this code. |
+| `vendored`   | Third-party code copied into the repository.                                |
 
 ### 3.3 `inherit`
 
@@ -85,8 +92,8 @@ Each rule is a mapping with these fields:
 
 1. A rule with a list of valid patterns is equal to one rule per pattern, in list order, with the same fields.
 2. Within one file, every rule whose pattern matches a path applies, in file order. Each rule replaces only the fields it sets, so a later rule that sets only `status` keeps the `owners` of an earlier rule. `additions` is the exception: each matching rule appends to it (section 3.6).
-3. A rule MUST NOT change the resolution of a path outside the directory of its file.
-4. A rule with a pattern that the matcher rejects is an error. A tool MUST ignore the whole rule, including its other patterns, and MAY continue with the rest of the file.
+3. A resolver MUST NOT apply a rule to a path outside the directory of its file.
+4. A rule with a pattern that breaks section 3.5, rule 9, is an error. A tool MUST ignore the whole rule, including its other patterns, and MAY continue with the rest of the file.
 
 ### 3.5 Patterns
 
@@ -98,7 +105,7 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 4. A trailing `/` matches everything below the directory. It does not match the path of the directory itself.
 5. A pattern whose last segment has no wildcard also matches everything below a directory of that name.
 6. `*` matches any characters except `/`. `?` matches one character except `/`. `**` matches zero or more directories.
-7. `[abc]` matches one character from the set. `[a-z]` matches one character from the range. A `[!` or a `[^` at the start negates the set. A set MUST NOT match `/`. A `]` in the first position is a member of the set, not the end of it. An unclosed `[` is a literal `[`. GitHub CODEOWNERS has no character classes, so this rule is an extension of that syntax.
+7. `[abc]` matches one character from the set. `[a-z]` matches one character from the range. A `[!` or a `[^` at the start negates the set. A set does not match `/`. A `]` in the first position is a member of the set, not the end of it. An unclosed `[` is a literal `[`. GitHub CODEOWNERS has no character classes, so this rule is an extension of that syntax.
 8. `\` escapes the next character.
 9. A pattern MUST NOT be empty and MUST NOT contain `***`.
 
@@ -110,8 +117,6 @@ The format only names these owners.
 It does not define when a path is an addition.
 It does not define what a consumer does with the owners of additions.
 A consumer decides both, for example from the change set of a pull request.
-A consumer also chooses which version of the ownership files it reads.
-For example, it can read the version before a change, so that the change cannot alter the owners that apply to it.
 
 1. A string is a list with one entry. Each entry MUST be a non-empty string, as in 3.1.
 2. An empty list means that the file or the rule names no owners of additions. A file or a rule with no owners of additions MAY leave the key out.
@@ -126,11 +131,14 @@ For example, it can read the version before a change, so that the change cannot 
 
 ## 4. Resolution
 
-A consumer SHOULD get resolutions from an implementation of this algorithm, not by reading ownership files itself.
+A consumer SHOULD get resolutions from a resolver, not by reading ownership files itself.
+A consumer chooses which version of the ownership files the resolver reads, through the repository root that it passes (section 7.1).
+For example, a consumer can read the version before a change, so that the change cannot alter the owners that apply to it.
+A resolver MUST return the same resolution as the steps below for every path. A resolver MAY use a different method. A resolver MAY also remove a placeholder owner that it documents from every list, as `owners-yaml` does with `team-CHANGEME` (section 8).
 
 To resolve a path `P`:
 
-1. Normalize `P`: replace `\` with `/`, then remove any leading `./` and `/`, and any trailing `/`.
+1. Normalize `P`: replace each `\` with `/`. Then, while `P` starts with `./`, remove that `./`. Then remove every `/` at the start and at the end of `P`.
 2. List the directories from the repository root down to the parent directory of `P`, root first.
 3. For each directory, find its ownership file. Skip the directory when it has none. A file that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent.
 4. Start with an empty result: owners unset, status unset, source unset, additions empty.
@@ -159,7 +167,7 @@ The value is the file-level value after step 5.2 applied every matching rule.
 
 | Field       | Value in the file | Effect on the result                                                           |
 | ----------- | ----------------- | ------------------------------------------------------------------------------ |
-| `inherit`   | `false`           | The result is reset to empty before the other fields apply.                    |
+| `inherit`   | `false`           | The result resets to empty before the other fields apply.                      |
 | `inherit`   | `true` or absent  | No effect.                                                                     |
 | `owners`    | non-empty list    | Owners become this list. Source becomes this file.                             |
 | `owners`    | `[]`              | No effect.                                                                     |
@@ -195,21 +203,21 @@ flowchart TD
 ### 4.3 Conformance
 
 The cases in [`conformance/`](https://github.com/PostHog/posthog/tree/master/packages/owners-yaml/conformance) are part of this specification.
-An implementation of section 4 and section 5.2 MUST produce the expected result for every case that applies to it.
+A resolver MUST produce the expected result for every case that applies to it.
 When the prose and a case disagree, the disagreement is a defect in this specification.
 
 ## 5. Repository settings
 
-Only the root file MAY carry these fields. A tool MUST report them as errors in any other file.
+An author MUST NOT put these fields in a file other than the root file. A linter MUST report them as errors in any other `owners.yaml`. They have no effect there.
 
-| Field           | Type             | Meaning                                                                                                   |
-| --------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `teams`         | mapping          | The team channel registry (section 5.2).                                                                  |
-| `github_org`    | string           | The GitHub organization of the team slugs.                                                                |
-| `producers`     | list of strings  | The automation names a team can address in `notifications`.                                               |
-| `reserved_dirs` | list of patterns | Extra locations where `owners.yaml` MUST NOT be placed. The patterns are relative to the repository root. |
-| `alias_files`   | list of strings  | The other file names that count as ownership files (section 6). Defaults to `[product.yaml]`.             |
-| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `owners-yaml` (section 8).      |
+| Field           | Type             | Meaning                                                                                              |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `teams`         | mapping          | The team channel registry (section 5.2).                                                             |
+| `github_org`    | string           | The GitHub organization of the team slugs.                                                           |
+| `producers`     | list of strings  | The automation names a team can address in `notifications`.                                          |
+| `reserved_dirs` | list of patterns | Extra reserved locations (section 2, rule 4). The patterns are relative to the repository root.      |
+| `alias_files`   | list of strings  | The other file names that count as ownership files (section 6). Defaults to `[product.yaml]`.        |
+| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `owners-yaml` (section 8). |
 
 ### 5.1 `github_org`
 
@@ -229,8 +237,8 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 1. A channel is a string that starts with `#`.
 2. `false` means the team has no channel for that purpose.
 3. A key of `teams` MUST be a team slug. It MUST NOT be a person handle.
-4. When the root file declares `producers`, each key of a `notifications` mapping MUST be in that list. When it does not, any non-empty name is valid.
-5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`, so a typo silences automation instead of posting to an unwanted channel. One rejected entry makes the whole mapping unreadable: keeping the other entries would send the rejected producer to the `slack` channel.
+4. When the root file declares `producers`, each key of a `notifications` mapping MUST name a producer from that list. A mapping MAY leave out any producer. When the root file does not declare `producers`, any non-empty name is valid.
+5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`. A typo then silences automation. Automation does not post to an unwanted channel. One rejected entry makes the whole mapping unreadable. A tool that keeps the other entries sends the rejected producer to the `slack` channel.
 
 To find the channel for a team slug `T`, a purpose, and an optional producer:
 
@@ -243,6 +251,7 @@ To find the channel for a team slug `T`, a purpose, and an optional producer:
 
 The channel of a path is the channel of its primary owner.
 When the primary owner is a person handle, the path has no channel.
+An implementation that answers requests from other programs takes the purpose and the producer from the consumer, as section 7.1 states.
 
 ## 6. Alias files
 
@@ -252,29 +261,32 @@ The root file declares the alias files in `alias_files` (section 5).
 1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/` or `\`, and it MUST NOT be `.` or `..`.
 2. An entry MUST NOT be `owners.yaml`. An entry MUST NOT appear twice.
 3. `alias_files` MUST NOT hold more than 8 entries. A tool MUST ignore the whole list when it does.
-4. When the root file does not declare `alias_files`, the alias file names MUST be `product.yaml` and nothing else.
-5. When the root file declares `alias_files` and the declaration is valid, the alias file names MUST be exactly the declared entries. A tool MUST NOT add `product.yaml` to a declared list. An empty declared list means the repository has no alias file.
-6. When the root file declares `alias_files` and a tool ignores the declaration as invalid, the repository MUST have no alias file. A tool MUST NOT fall back to `product.yaml` there.
+4. When the root file does not declare `alias_files`, the only alias file name is `product.yaml`.
+5. When the root file declares `alias_files` and the declaration is valid, the alias file names are exactly the declared entries. A tool MUST NOT add `product.yaml` to a declared list. An empty declared list means the repository has no alias file.
+6. When the root file declares `alias_files` and a tool ignores the declaration as invalid, the repository has no alias file. A tool MUST NOT fall back to `product.yaml` there.
 7. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or its name is one of the alias file names.
 8. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
 9. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
 10. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
-11. When a directory holds more than one alias file, the first name in `alias_files` decides. A linter SHOULD report that directory.
+11. When a directory holds more than one alias file, the file with the first name in `alias_files` takes precedence. A linter SHOULD report that directory.
 12. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
 
-A repository with no root file has the default alias file name. A repository whose root file declares an empty `alias_files` has none, and only `owners.yaml` decides ownership there.
+A repository with no root file has the default alias file name. A repository whose root file declares an empty `alias_files` has none, and only `owners.yaml` sets ownership there.
 
 ## 7. Resolver interface
 
-This section applies to an implementation that answers resolution requests from other programs through a command.
+This section applies to a resolver that answers requests from consumers through a command.
 In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` implement it.
 
 ### 7.1 Request
 
-1. The caller MAY pass paths as command arguments.
-2. When the caller passes no path arguments, the resolver MUST read paths from standard input, one path per line. It MUST remove whitespace at the start and end of each line and MUST skip empty lines.
-3. The caller MAY name the repository root. Without one, the resolver MAY find the root itself, for example from the git worktree.
-4. The caller MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `owners-yaml` spells these `--purpose slack` and `--purpose notifications`.
+1. The consumer MAY pass paths as command arguments.
+2. When the consumer passes no path arguments, the resolver MUST read paths from standard input, one path per line. It MUST remove whitespace at the start and end of each line and MUST skip empty lines.
+3. The consumer MAY name the repository root. Without one, the resolver MAY find the root itself, for example from the git worktree.
+4. The consumer MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `owners-yaml` spells these `--purpose slack` and `--purpose notifications`.
+5. The consumer MAY name the producer of the channel (section 5.2). The default is no producer. `owners-yaml` spells this `--producer NAME`.
+6. The resolver MUST pass the producer to the channel lookup of section 5.2 for every path of the request.
+7. When the root file declares `producers` and the consumer names a producer that is not in that list, the resolver MUST exit with a non-zero status. The error message MUST list the declared names.
 
 ### 7.2 Response
 
@@ -303,7 +315,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 ### 7.4 Compatibility
 
 1. A consumer MUST ignore members that it does not know.
-2. An implementation MAY add members to a value.
+2. A resolver MAY add members to a value.
 3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
 4. A consumer MUST treat a missing `additions` member as an empty array. A resolver that predates the member leaves it out.
 5. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
@@ -313,7 +325,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 This section describes the reference implementation. It is not part of the format.
 
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
-- It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list.
+- It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
@@ -446,16 +458,18 @@ rules:
 
 ## 10. Design notes (non-normative)
 
-- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors. Rules in one file merge the same way, so a rule that marks generated files does not undo a rule that names their owners.
+- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone has to approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors. Rules in one file merge the same way, so a rule that marks generated files does not undo a rule that names their owners.
 - **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so a new rule cannot take over paths in another directory.
-- **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
+- **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A consumer that checks coverage reports an unowned path. It does not report a path that is unowned by design.
 - **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
-- **Owners of additions add up.** Owners are nearest-file-wins because the union tags too many teams. `additions` answers a different question: who owns additions below a directory. If a nested file could drop the owners of additions that an ancestor file names, the answer of the ancestor would not be reliable. A separate field keeps the coverage check correct: `owners` on the parent directory would claim every file below it that has no nearer owner.
+- **Owners of additions add up.** Owners are nearest-file-wins because the union tags too many teams. `additions` answers a different question: who owns additions below a directory. If a nested file could drop the owners of additions that an ancestor file names, the answer of the ancestor would not be reliable. A separate field keeps coverage checks correct: `owners` on the parent directory would claim every file below it that has no nearer owner.
 - **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules. `additions` is routing too: it names owners, and it does not approve or block a change.
+- **`additions` does not default to `owners`.** An empty list means that the file names no separate owners of additions. A default would hide which directories have their own owners of additions and which only have owners.
+- **One input format.** A resolver reads ownership files only. CODEOWNERS is an export target, and a source for a one-time migration into ownership files, never a second input the resolver reads. The two formats resolve differently: CODEOWNERS takes the last matching line in one file, and this format takes the nearest file, field by field. CODEOWNERS also carries owners and nothing else, so it can say nothing about status or channels. Reading both would make the answer depend on which file a tool found first.
 
 ## Changelog
 
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
-- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.
-- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, section 7.2 adds the `additions` member, and section 7.4 says that a consumer treats a missing member as an empty array. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it. Section 3.5 rule 4 now states that a trailing `/` does not match the directory path itself. Because of the step 1 change, a request for `docs/` no longer matches a rule `docs/`, and it no longer reads the ownership file in `docs`.
+- **1**, amended (2026-09): Section 7.1 adds the producer to the resolver request, so a consumer can reach a team's per-producer `notifications` mapping through an entrypoint. No ownership file changes meaning.
+- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.

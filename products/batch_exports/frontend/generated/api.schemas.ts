@@ -671,8 +671,11 @@ export interface BatchExportApi {
     end_at?: string | null
     /** The 10 most recent runs of this batch export, ordered newest first. */
     readonly latest_runs: readonly BatchExportRunApi[]
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
     /** A schema of custom fields to select when exporting data. */
     readonly schema: unknown
     filters?: unknown
@@ -1456,7 +1459,7 @@ export type BatchExportDestinationRequestApi =
 export interface BatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
@@ -1475,8 +1478,11 @@ export interface BatchExportRequestApi {
     interval: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1617,7 +1623,7 @@ export interface PaginatedBatchExportRunListApi {
 export interface PatchedBatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name?: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
@@ -1636,8 +1642,11 @@ export interface PatchedBatchExportRequestApi {
     interval?: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1659,6 +1668,11 @@ export interface PatchedBatchExportRequestApi {
      * @nullable
      */
     offset_hour?: number | null
+}
+
+export interface BatchExportUnpauseRequestApi {
+    /** Whether to backfill the runs that the batch export missed while it was paused. */
+    backfill?: boolean
 }
 
 /**
@@ -1862,38 +1876,6 @@ export type RetrieveFileDownloadResponseApi =
     | RetrieveBasicOutputApi
     | RetrieveCompletedOutputApi
     | RetrieveFailedOutputApi
-
-/**
- * * `events` - events
- * * `persons` - persons
- * * `sessions` - sessions
- * * `hogql` - hogql
- */
-export type FileDownloadBatchExportOnDemandModelEnumApi =
-    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
-
-export const FileDownloadBatchExportOnDemandModelEnumApi = {
-    Events: 'events',
-    Persons: 'persons',
-    Sessions: 'sessions',
-    Hogql: 'hogql',
-} as const
-
-/**
- * Request shape for a FileDownload batch export on demand.
- */
-export interface FileDownloadBatchExportOnDemandApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadBatchExportOnDemandModelEnumApi
-    include?: string[]
-    exclude?: string[]
-    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
-    hogql_query?: string
-    /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
-    data_interval_start?: string
-    /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
-    data_interval_end?: string
-}
 
 /**
  * * `hogql` - hogql

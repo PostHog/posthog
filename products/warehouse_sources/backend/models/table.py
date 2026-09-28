@@ -1,3 +1,4 @@
+import os
 import csv
 import sys
 import time
@@ -251,6 +252,12 @@ except Exception as e:
 sys.stdout.write(str(result))
 """
 
+# chdb loads its engine with RTLD_DEEPBIND and passes every pointer its bundled jemalloc does not
+# own to glibc free(). When LD_PRELOAD puts another jemalloc under the interpreter, the interpreter's
+# heap belongs to that jemalloc, so glibc aborts the chdb import. MALLOC_CONF carries the tuning for
+# that preloaded jemalloc.
+_CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
+
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
     # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
@@ -263,6 +270,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             capture_output=True,
             text=True,
             timeout=timeout,
+            env={name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"chdb query timed out after {timeout}s")

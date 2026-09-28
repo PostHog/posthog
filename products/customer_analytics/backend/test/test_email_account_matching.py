@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 
 from products.conversations.backend.facade.types import EmailThreadForAccountMatching
@@ -19,10 +20,16 @@ from products.customer_analytics.backend.logic.email_account_matching import (
     MatchedAccount,
     match_accounts_for_gmail_emails,
 )
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
 
 
 class TestEmailAccountMatching(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Team.customer_analytics_config caches the config object process-wide. Without a row here, a later test
+        # gets the object an earlier test created and rolled back, and save(update_fields=...) updates no rows.
+        get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+
     def _create_account(
         self,
         *,

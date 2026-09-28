@@ -2,7 +2,10 @@ import errno
 
 import pytest
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
+
+import psycopg.errors
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.db_errors import is_transient_db_error
 
@@ -11,6 +14,11 @@ class _WithSqlstate(Exception):
     def __init__(self, sqlstate: str) -> None:
         super().__init__(sqlstate)
         self.sqlstate = sqlstate
+
+
+def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
+    error.__cause__ = cause
+    return error
 
 
 @pytest.mark.parametrize(
@@ -46,10 +54,49 @@ class _WithSqlstate(Exception):
         # An unrelated errno (e.g. a real permissions problem) must not be swept up just because
         # it shares the exception type.
         (OSError(errno.EACCES, "Permission denied"), False),
+        # An activity that re-raises one typed error keeps the drop in __cause__ only.
+        (
+            _raised_from(
+                ApplicationError("Failed to emit $ai_evaluation"),
+                OperationalError("server closed the connection unexpectedly"),
+            ),
+            True,
+        ),
+        # Two links deep, and the condition is a SQLSTATE rather than a message.
+        (
+            _raised_from(
+                ApplicationError("Failed to emit $ai_evaluation"),
+                _raised_from(OperationalError("some driver-specific message"), _WithSqlstate("57P03")),
+            ),
+            True,
+        ),
+        # The wrapper must stay reportable when what it hides is a real defect.
+        (
+            _raised_from(ApplicationError("Failed to emit $ai_evaluation"), KeyError("team_id")),
+            False,
+        ),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:
     assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize("suppress_context", [False, True])
+def test_is_transient_db_error_ignores_context(suppress_context: bool) -> None:
+    error = KeyError("team_id")
+    error.__context__ = OperationalError("server closed the connection unexpectedly")
+    error.__suppress_context__ = suppress_context
+
+    assert not is_transient_db_error(error)
+
+
+@pytest.mark.parametrize("cycle_length", [1, 2])
+def test_is_transient_db_error_handles_cyclic_causes(cycle_length: int) -> None:
+    errors = [ValueError("not a database error") for _ in range(cycle_length)]
+    for index, error in enumerate(errors):
+        error.__cause__ = errors[(index + 1) % cycle_length]
+
+    assert not is_transient_db_error(errors[0])
 
 
 @pytest.mark.parametrize(
@@ -73,4 +120,21 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
 def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
+    assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize(
+    "cause,expected",
+    [
+        # A migration adding a column and the activity code reading it ship in the same deploy;
+        # a worker rolling out ahead of the migration completing gets this from Postgres.
+        (psycopg.errors.UndefinedColumn("column posthog_externaldataschema.auto_disabled_at does not exist"), True),
+        (psycopg.errors.UndefinedTable('relation "sourcebatch" does not exist'), True),
+        # A real bug (e.g. a typo in raw SQL) must keep reaching error tracking.
+        (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
+    ],
+)
+def test_is_transient_db_error_for_schema_lag(cause: Exception, expected: bool) -> None:
+    error = ProgrammingError(str(cause))
+    error.__cause__ = cause
     assert is_transient_db_error(error) is expected

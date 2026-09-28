@@ -61,6 +61,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -77,6 +79,10 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
 import {
   activitySection,
   compactCount,
@@ -469,6 +475,26 @@ export type {
 export type Evaluation = Schemas.Evaluation;
 
 export type GithubInstallationStatus = "connected" | "unavailable";
+
+export type CodexIntegrationStatus =
+  | "not_connected"
+  | "connected"
+  | "reauth_required";
+
+/** `GET /api/users/@me/integrations/codex/`: the ChatGPT account PostHog holds for the user's cloud Codex runs. */
+export interface UserCodexIntegration {
+  status: CodexIntegrationStatus;
+  plan_type: string | null;
+  email: string | null;
+  connected_at: string | null;
+}
+
+/** The `tokens` object of the `auth.json` that `codex login` writes. */
+export interface CodexAuthTokens {
+  access_token: string;
+  refresh_token: string;
+  id_token?: string | null;
+}
 
 export interface UserGitHubIntegration {
   id: string;
@@ -1100,6 +1126,7 @@ export interface CloudRunOptions {
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
   claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1252,6 +1279,9 @@ function buildCloudRunRequestBody(
   }
   if (!options?.piRuntime && options?.claudeModelAccess) {
     body.claude_model_access = options.claudeModelAccess;
+  }
+  if (!options?.piRuntime && options?.codexModelAccess) {
+    body.codex_model_access = options.codexModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;
@@ -2104,6 +2134,65 @@ export class PostHogAPIClient {
     if (!response.ok && response.status !== 404) {
       throw new Error(
         `Failed to disconnect GitHub integration: ${response.statusText}`,
+      );
+    }
+  }
+
+  async getCodexUserIntegration(): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  /**
+   * `POST /api/users/@me/integrations/codex/`. PostHog refreshes the chain once and keeps
+   * the rotated tokens, so the local `auth.json` is stale after this call.
+   */
+  async connectCodexUserIntegration(
+    tokens: CodexAuthTokens,
+  ): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ tokens }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to connect the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  async disconnectCodexUserIntegration(): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to disconnect the ChatGPT account: ${response.statusText}`,
       );
     }
   }
@@ -3215,6 +3304,7 @@ export class PostHogAPIClient {
         channel?: string | null;
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
+        initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
       },
@@ -3854,6 +3944,34 @@ export class PostHogAPIClient {
     return (await response.json()) as ChannelFeedMessage[];
   }
 
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
+        },
+      });
+      return spaceSetupStartedSchema.parse(await response.json());
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
+    }
+  }
+
   // Post a system announcement into a channel's feed. The row is authored by the
   // system; the server records the requester as `author` for "Adam …" rendering.
   async postChannelFeedMessage(
@@ -4209,6 +4327,7 @@ export class PostHogAPIClient {
     runtime_adapter?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    initial_permission_mode?: ExecutionMode | null;
     context_window?: "200k" | "1m" | null;
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
@@ -4231,6 +4350,7 @@ export class PostHogAPIClient {
             runtime_adapter: options.runtime_adapter ?? null,
             model: options.model ?? null,
             reasoning_effort: options.reasoning_effort ?? null,
+            initial_permission_mode: options.initial_permission_mode ?? null,
             ...(options.context_window
               ? { context_window: options.context_window }
               : {}),

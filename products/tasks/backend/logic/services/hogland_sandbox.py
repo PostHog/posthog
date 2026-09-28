@@ -69,6 +69,13 @@ TEMPLATE_TO_SNAPSHOT_ALIAS: dict[SandboxTemplate, str] = {
     SandboxTemplate.DEFAULT_BASE: "alias:posthog-tasks-default",
 }
 
+# The pluggable-memory golden (baked by the tasks golden-snapshot workflow with a
+# BOX_MEM_BOOT_MIB below the cap). A box restored from it boots small and hot-adds guest
+# RAM up to the cap on demand. Selected per run by the tasks-hogland-hotplug-golden flag
+# (config.use_hotplug_golden); only the default template has a pluggable variant. The
+# alias must exist before the flag is enabled for a team.
+HOGLAND_HOTPLUG_SNAPSHOT_ALIAS = "alias:posthog-tasks-hotplug"
+
 # The golden snapshot (baked in CI) pins this machine shape. A hogland
 # restore must inherit-or-match it, so per-task overrides are ignored and the provisioned
 # box is always this size. Keep in sync with the shape the CI golden bake boots at.
@@ -233,6 +240,12 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 "Template is not supported on the hogland backend",
                 {"config_name": config.name, "template": config.template.value},
                 cause=RuntimeError(f"no hogland golden snapshot for template {config.template.value}"),
+            )
+        if config.use_hotplug_golden and config.template == SandboxTemplate.DEFAULT_BASE:
+            snapshot_alias = HOGLAND_HOTPLUG_SNAPSHOT_ALIAS
+            logger.info(
+                "Hogland run provisioning from the pluggable-memory golden",
+                extra={"config_name": config.name, "snapshot_alias": snapshot_alias},
             )
         if config.snapshot_id or config.snapshot_external_id:
             # Backend resolution forces resume snapshots off for hogland runs; if an id

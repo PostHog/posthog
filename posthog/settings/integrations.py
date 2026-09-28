@@ -1,3 +1,6 @@
+import os
+
+from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Integration service. Both unset (the default) means credential reads fall back to the
@@ -47,9 +50,6 @@ YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
-# HMAC keys, newest first, for the email and `sub` fingerprints in ee/api/google_oauth_diagnostics.py.
-# Provision a unique value per environment. When empty, those fingerprints are left out.
-GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS = get_list(get_from_env("GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS", ""))
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
@@ -85,6 +85,12 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# The review engine's entrypoint, whose PEP 723 header lists the engine's pinned deps. A settings
+# constant rather than an import, so the tasks product can bake those deps into the
+# STAMPHOG_REVIEW sandbox image without a tasks -> stamphog dependency.
+STAMPHOG_REVIEW_ENGINE_SCRIPT = os.path.join(
+    BASE_DIR, "products", "stamphog", "packages", "pr-approval-agent", "review_local.py"
+)
 # Models the reviewer's per-run gateway token may call, comma-separated; empty leaves the token
 # unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
 # uses in a review, including its small utility model.

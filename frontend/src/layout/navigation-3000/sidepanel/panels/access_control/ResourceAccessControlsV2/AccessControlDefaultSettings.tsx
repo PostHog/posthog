@@ -60,9 +60,9 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     loading={loading}
                     columns={[
                         {
-                            title: 'Tool',
+                            title: 'Product',
                             key: 'label',
-                            render: function RenderTool(_, resource) {
+                            render: function RenderProduct(_, resource) {
                                 const tooltipText = getAccessControlTooltip(resource.key)
                                 return (
                                     <div className="font-medium flex items-center gap-2">

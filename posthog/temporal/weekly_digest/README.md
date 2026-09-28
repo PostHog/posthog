@@ -10,6 +10,10 @@ The digest is generated and sent via two Temporal workflows:
 2. **SendWeeklyDigestWorkflow** - Reads from Redis and sends personalized emails
 
 Team-level generation keeps at most 100 activities pending per workflow to stay below Temporal's pending-activity limit.
+Activities are sync bodies wrapped in `@asyncify`, so each one runs on its own worker thread with its own database connection.
+Django's async ORM and `database_sync_to_async` default to one shared thread per process, which serializes every database call across all concurrent activities.
+Cancelling an activity cancels only the coroutine that awaits the thread, so the send loop checks the cancellation event before each organization and recipient.
+A body that runs on the event loop also trips Django's async-unsafe guard as soon as a helper such as `should_send_notification` queries the database.
 Every team range and report generator must finish before organization aggregation starts.
 A Temporal patch marker preserves the activity scheduling behavior when replaying older histories.
 
@@ -25,7 +29,10 @@ Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-0
 
 ### Team-level data
 
-Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`:
+Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`.
+Each Postgres-backed generator reads a team id range with two queries, one for the eligible teams and one for the data, and writes its keys in one Redis pipeline.
+A team with no data of a kind gets no key for it; organization aggregation substitutes an empty default for a missing key.
+The two ClickHouse-backed generators work per range too: expiring recordings are counted for the whole range in one grouped query, and usage trends first find the teams with events in the window in one query, then run the per-team HogQL query for those teams only.
 
 | `TeamDataKey` enum      | Key Pattern                                    | Contents                           |
 | ----------------------- | ---------------------------------------------- | ---------------------------------- |
@@ -99,7 +106,9 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │       a. Load user's notification team set                                  │
 │       b. Load user's product suggestion                                     │
 │       c. Create UserSpecificDigest via org_digest.for_user()                │
-│       d. Render payload and send via PostHog capture event                  │
+│       d. Render payload and queue it as a PostHog capture event             │
+│    3. Flush queued events, then stamp the org's MessagingRecord as sent     │
+│       (a dropped, oversized, or undrained event leaves the org unsent)      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

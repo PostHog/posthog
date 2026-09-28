@@ -236,6 +236,7 @@ class Settings(BaseSettings):
         "@cf/zai-org/glm-5.2",
         "deepseek-ai/deepseek-v4-flash-0731",
         "moonshotai/kimi-k3",
+        "zai-org/glm-5.3-flash",
     ]
 
     default_fallback_cost_usd: float = 0.01

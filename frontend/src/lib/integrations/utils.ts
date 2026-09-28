@@ -45,6 +45,21 @@ import IconVercel from 'public/services/vercel.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
 
 /**
+ * What a "link an existing installation" banner offered, reported as counts on
+ * `integration_link_existing_offered`. `unnamed` counts entries shown by installation id because
+ * their account name is missing, which is the case a reader cannot recognize.
+ */
+export interface IntegrationLinkExistingCounts {
+    discoveryId?: string
+    installationIds?: string[]
+    responseAgeMs?: number
+    total: number
+    sibling: number
+    orphan: number
+    unnamed: number
+}
+
+/**
  * Where a user started an integration connect flow. Reported as the `surface` property on
  * `integration_connect_clicked`, so these strings are frozen — renaming one silently splits a
  * funnel that already counts the old value.

@@ -28,7 +28,6 @@ from products.signals.backend.report_embeddings import (
     emit_report_tombstone,
     render_report_documents,
 )
-from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
@@ -649,6 +648,28 @@ def reconcile_report_embedding_on_verdict_saved(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
+    if instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        return
+    SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Keep the report's cached actionability equal to its newest judgment.
+
+    On the artefact write path rather than at each producer, because a judgment reaches a report
+    from the research pipeline, a custom agent, a scout edit, the artefact REST API and the MCP
+    tools. Not gated on `created`, because `update_content` edits a judgment row in place.
+    """
+    _sync_report_latest_actionability(instance)
+
+
 def _deleted_directly(origin: Any) -> bool:
     """Whether a delete was issued against artefacts themselves rather than cascading from a report.
 
@@ -681,6 +702,23 @@ def reconcile_report_embedding_on_verdict_deleted(
     if not _deleted_directly(origin):
         return
     _reconcile_report_embedding_with_verdict(instance)
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the newest judgment reverts the report to the one before it.
+
+    Skipped for a cascade, where the report itself is going away, so a team teardown does not pay
+    a read and a write per artefact for a row nobody will read.
+    """
+    if not _deleted_directly(origin):
+        return
+    _sync_report_latest_actionability(instance)
 
 
 @receiver(post_save, sender=SignalReport)
@@ -858,6 +896,13 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
     if update_fields is not None and "enabled" not in update_fields:
         return
     try:
+        # Call-time import inside the guard: scout_harness reaches the tasks facade contracts
+        # (pydantic-heavy), which must not load in every process at django.setup() just to wire
+        # this receiver, and an import failure must not fail the config write either.
+        from products.signals.backend.scout_harness.suggestions import (
+            mark_stale_if_fleet_changed,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
+
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)

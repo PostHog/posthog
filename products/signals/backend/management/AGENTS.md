@@ -183,6 +183,39 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+## Repairing a report's cached actionability
+
+`SignalReport.latest_actionability` and `latest_already_addressed` cache the two values of a report's newest `actionability_judgment` artefact, so the inbox list can sort and filter on a column instead of walking the artefact log once per report.
+A `post_save` / `post_delete` receiver maintains them and a migration filled the historical rows, so this command is a repair rather than a routine job.
+Run it when the columns are suspected to disagree with the artefact log, for example after a bulk write that bypassed Django signals.
+
+```bash
+# Every team
+uv run manage.py backfill_report_actionability
+
+# One team, smaller pages, resuming after the report id an earlier run printed
+uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --after <report-id>
+```
+
+Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
+
+## Resuming operational scouts the setup flow paused
+
+An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
+Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
+`resume_setup_paused_operational_scouts` resumes only operational rows paused without an attributed user within `--max-gap-seconds` (default 300) of creation.
+It skips withheld scouts and does not go past the enabled-scout cap.
+
+```bash
+# Dry run (the default): counts per scout and the first team ids
+uv run manage.py resume_setup_paused_operational_scouts
+
+# Write, optionally for one team
+uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
+```
+
+Idempotent. A resumed row no longer matches.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

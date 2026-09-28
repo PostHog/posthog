@@ -1,10 +1,19 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
+# FireHydrant caps per_page at 200. 100 keeps each response comfortably small while halving the
+# request count versus the default page size.
+PAGE_SIZE = 100
 
-@dataclass
+
+@frozen
 class FireHydrantEndpointConfig:
     path: str
     # Field to partition by. Must be a STABLE creation timestamp (never updated_at), and only set
@@ -13,6 +22,11 @@ class FireHydrantEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
+    # Set when the endpoint is scoped to a parent resource and has to be walked once per parent row.
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = PAGE_SIZE
+    # Read by the shared fan-out builder; every FireHydrant endpoint is full refresh, so it stays None.
+    default_incremental_field: Optional[str] = None
 
 
 # Endpoint catalog. Paths are the FireHydrant v1 REST collection endpoints (verified against the
@@ -51,6 +65,48 @@ FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
     "scheduled_maintenances": FireHydrantEndpointConfig(path="/v1/scheduled_maintenances", partition_key="created_at"),
     "task_lists": FireHydrantEndpointConfig(path="/v1/task_lists", partition_key="created_at"),
     "checklist_templates": FireHydrantEndpointConfig(path="/v1/checklist_templates", partition_key="created_at"),
+    # ScheduleEntity carries only id/name/integration/discarded, so there is nothing to partition on.
+    "schedules": FireHydrantEndpointConfig(path="/v1/schedules"),
+    "incident_milestones": FireHydrantEndpointConfig(
+        path="/v1/incidents/{incident_id}/milestones",
+        partition_key="created_at",
+        # Milestone ids are only documented per incident, and this table aggregates every incident's
+        # milestones, so the parent incident is part of the key to keep it unique table-wide.
+        primary_keys=["incident_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+        ),
+    ),
+    "incident_tasks": FireHydrantEndpointConfig(
+        path="/v1/incidents/{incident_id}/tasks",
+        partition_key="created_at",
+        primary_keys=["incident_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+        ),
+    ),
+    # The spec documents the request but leaves the response body empty, as it does for 100+ other
+    # FireHydrant endpoints (signals_on_call included). Transport reads the standard `data` envelope
+    # and fails loud if this endpoint turns out to answer differently.
+    "team_escalation_policies": FireHydrantEndpointConfig(
+        path="/v1/teams/{team_id}/escalation_policies",
+        primary_keys=["team_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="teams",
+            resolve_param="team_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "team_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(FIREHYDRANT_ENDPOINTS.keys())

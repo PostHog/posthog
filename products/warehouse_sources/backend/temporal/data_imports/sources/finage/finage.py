@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -8,12 +8,19 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import (
     FINAGE_ENDPOINTS,
     FinageEndpointConfig,
+    FinageEndpointKind,
 )
+
+# Finage returns a wrapper object for the quote and aggregate endpoints and a bare array for the
+# fundamentals ones, so every caller narrows the body before reading it.
+JsonBody = dict[str, Any] | list[Any]
 
 FINAGE_BASE_URL = "https://api.finage.co.uk"
 
@@ -25,6 +32,18 @@ AGG_TIMESPAN = "day"
 # request per symbol covers the whole window without pagination.
 AGG_LIMIT = 50000
 DEFAULT_START_DATE = "2020-01-01"
+
+# Statement endpoints return the most recent filings first and cap the response with `limit`. 100
+# filings reaches back further than any statement stays comparable, for annual and quarterly alike.
+STATEMENT_LIMIT = 100
+
+# The calendar endpoints require `from` and `to` on every request and cover every listed company
+# rather than the configured symbols, so the backfill window is walked in slices. The slice length
+# bounds how many rows one response has to hold in memory.
+CALENDAR_WINDOW_DAYS = 30
+# Both calendars publish events once they are declared, which is weeks before they take effect. The
+# window runs past today so a sync picks up the events that are already scheduled.
+CALENDAR_FORWARD_DAYS = 90
 
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -101,6 +120,20 @@ def _today() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
+def _is_iso_date(value: Any) -> bool:
+    """True only for a canonical `YYYY-MM-DD` string.
+
+    `strptime` accepts a date with the leading zeros left off, so "2021-1-8" parses. Left alone it
+    would key the same day two ways and merge as two rows, hence the round-trip comparison.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat() == value
+    except ValueError:
+        return False
+
+
 @retry(
     retry=retry_if_exception_type((FinageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -113,7 +146,7 @@ def _fetch_json(
     api_key: str,
     logger: FilteringBoundLogger,
     params: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
+) -> JsonBody:
     request_params: dict[str, Any] = {"apikey": api_key, **(params or {})}
     url = f"{FINAGE_BASE_URL}{path}"
     response = session.get(url, params=request_params, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -216,7 +249,9 @@ def _iter_aggregate_rows(
             _handle_symbol_http_error(exc, logger, f"aggregates request for {symbol}")
             continue
 
-        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            continue
+        results = data.get("results")
         if not results:
             continue
 
@@ -238,6 +273,139 @@ def _iter_aggregate_rows(
         yield rows
 
 
+def _records(data: JsonBody, what: str, logger: FilteringBoundLogger) -> list[dict[str, Any]]:
+    """Narrow a fundamentals response to its record list.
+
+    These endpoints answer with a bare JSON array. Finage reports a symbol it has no data for with an
+    object instead, so a non-list body means there is nothing to sync for this request.
+    """
+    if not isinstance(data, list):
+        logger.warning(f"Finage: {what} returned no records, skipping")
+        return []
+    if not all(isinstance(record, dict) for record in data):
+        raise ValueError(f"Finage {what} returned an array element that is not a record")
+    return data
+
+
+def _keyed_row(
+    record: dict[str, Any], config: FinageEndpointConfig, *, pinned_symbol: str | None, what: str
+) -> dict[str, Any]:
+    """Return the record with `symbol` and `date` pinned, rejecting records that can't supply them.
+
+    Both columns are part of the primary key on every fundamentals endpoint, and `date` is also the
+    partition key. A missing symbol merges unrelated companies onto one key, and a missing or
+    malformed date buckets the row into the fallback 1970-01 partition, so either fails the sync
+    rather than corrupting the table.
+
+    A per-symbol request passes `pinned_symbol` so the row is keyed by the symbol we asked for. The
+    response cannot then relabel one company's history under another company's key, and the four
+    per-symbol tables key the same way whether or not the response repeats the symbol. A calendar
+    request passes `None`, because only the record says which company it is about.
+    """
+    symbol = pinned_symbol if pinned_symbol is not None else record.get("symbol")
+    symbol = symbol.strip() if isinstance(symbol, str) else ""
+    if not symbol:
+        raise ValueError(f"Finage {config.name} for {what} returned a record with no symbol")
+
+    date = record.get("date")
+    if not _is_iso_date(date):
+        raise ValueError(f"Finage {config.name} for {what} returned a record with an invalid date: {date!r}")
+
+    return {**record, "symbol": symbol, "date": date}
+
+
+def _symbol_history_params(config: FinageEndpointConfig) -> list[Optional[dict[str, Any]]]:
+    """One request's params per fiscal period, or a single unparameterized request."""
+    if not config.periods:
+        return [None]
+    return [{"limit": STATEMENT_LIMIT, "period": period} for period in config.periods]
+
+
+def _iter_symbol_history_rows(
+    session: requests.Session,
+    api_key: str,
+    symbols: list[str],
+    config: FinageEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield one company's historical dividends, splits or financial statements, per symbol.
+
+    Full refresh: Finage exposes no time filter on these paths, so the whole history is re-fetched
+    every sync and de-duplicated on the endpoint's primary key at merge time. A per-symbol error
+    (unknown ticker, no fundamentals for that company) is logged and skipped; auth and plan failures
+    (401/403) propagate from `_fetch_json` and stop the sync.
+    """
+    for symbol in symbols:
+        path = config.path.format(symbol=symbol)
+        for params in _symbol_history_params(config):
+            try:
+                data = _fetch_json(session, path, api_key, logger, params=params)
+            except requests.HTTPError as exc:
+                _handle_symbol_http_error(exc, logger, f"{config.name} request for {symbol}")
+                continue
+
+            records = _records(data, f"{config.name} for {symbol}", logger)
+            if not records:
+                continue
+
+            yield [_keyed_row(record, config, pinned_symbol=symbol, what=symbol) for record in records]
+
+
+@frozen
+class _CalendarWindow:
+    """One inclusive `from` / `to` pair for a calendar request."""
+
+    start: str
+    end: str
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"Finage calendar window starts after it ends: {self.start} to {self.end}")
+
+
+def _calendar_windows(start_date: str) -> Iterator[_CalendarWindow]:
+    """Walk [start_date, today + CALENDAR_FORWARD_DAYS] as contiguous, non-overlapping date windows.
+
+    Finage treats `from` and `to` as inclusive, so each window starts the day after the previous one
+    ends. Overlapping windows would re-fetch rows the merge then has to de-duplicate, and a gap would
+    lose every event in it.
+    """
+    window_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    last_day = datetime.now(UTC).date() + timedelta(days=CALENDAR_FORWARD_DAYS)
+    while window_start <= last_day:
+        window_end = min(window_start + timedelta(days=CALENDAR_WINDOW_DAYS - 1), last_day)
+        yield _CalendarWindow(start=window_start.isoformat(), end=window_end.isoformat())
+        window_start = window_end + timedelta(days=1)
+
+
+def _iter_calendar_rows(
+    session: requests.Session,
+    api_key: str,
+    config: FinageEndpointConfig,
+    start_date: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield market-wide dividend or split events one date window at a time.
+
+    These endpoints list every listed company, not the configured symbols, so each row carries its own
+    symbol. A window that fails is logged and skipped so one bad request doesn't lose the rest of the
+    backfill; auth and plan failures (401/403) still stop the sync.
+    """
+    for window in _calendar_windows(start_date):
+        what = f"{config.name} between {window.start} and {window.end}"
+        try:
+            data = _fetch_json(session, config.path, api_key, logger, params={"from": window.start, "to": window.end})
+        except requests.HTTPError as exc:
+            _handle_symbol_http_error(exc, logger, what)
+            continue
+
+        records = _records(data, what, logger)
+        if not records:
+            continue
+
+        yield [_keyed_row(record, config, pinned_symbol=None, what=what) for record in records]
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -252,10 +420,15 @@ def get_rows(
     # second urllib3 retry layer would multiply backoff and let long `Retry-After` waits bypass its cap.
     session = make_tracked_session(redact_values=(api_key,), retry=Retry(total=0))
 
-    if config.is_aggregate:
-        yield from _iter_aggregate_rows(session, api_key, symbols, config, start_date, logger)
-    else:
-        yield from _iter_point_in_time_rows(session, api_key, symbols, config, logger)
+    match config.kind:
+        case FinageEndpointKind.AGGREGATE:
+            yield from _iter_aggregate_rows(session, api_key, symbols, config, start_date, logger)
+        case FinageEndpointKind.SYMBOL_HISTORY:
+            yield from _iter_symbol_history_rows(session, api_key, symbols, config, logger)
+        case FinageEndpointKind.CALENDAR:
+            yield from _iter_calendar_rows(session, api_key, config, start_date, logger)
+        case FinageEndpointKind.POINT_IN_TIME:
+            yield from _iter_point_in_time_rows(session, api_key, symbols, config, logger)
 
 
 def finage_source(
