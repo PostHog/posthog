@@ -319,9 +319,10 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
                 clear_feature_enrollment(related_feature_flag.id, team=self.context["get_team"]())
-                # The facade writes its own row, so the instance this response serializes still
-                # carries the enrollment marker until it reads the cleared filters back.
-                related_feature_flag.refresh_from_db(fields=["filters"])
+                # clear_feature_enrollment loads the flag by id and saves that copy, not this
+                # instance. Reload the whole row: the response carries version, and a client that
+                # sends a stale one to a rollout action gets a 409.
+                related_feature_flag.refresh_from_db()
 
         updated_instance = super().update(instance, validated_data)
 

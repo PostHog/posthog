@@ -638,6 +638,8 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         feature_id = response.json()["id"]
         flag = FeatureFlag.objects.get(team=self.team, key="gated-feature")
         if invalid_stored_filters:
+            # The person property carries no "key" on purpose: that is what fails validation and
+            # drives cleanup onto the raw fallback. Adding one turns these into gated-write cases.
             FeatureFlag.objects.filter(pk=flag.pk).update(
                 filters={
                     "groups": [{"properties": [{"value": "ok", "type": "person"}], "rollout_percentage": 100}],
