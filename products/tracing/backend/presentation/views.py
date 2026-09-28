@@ -370,7 +370,7 @@ class _TracingSparklineRequestSerializer(serializers.Serializer):
 class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
-        help_text="Date range for the query. Defaults to last 24 hours.",
+        help_text="Date range for the query. Omit it to search all retained spans for this trace.",
     )
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -1196,6 +1196,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     # Both scopes: the response is Error Tracking data, so a token scoped to tracing alone must
     # not reach it. Scopes gate the token; the access-control check below gates the user.
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=False,
         methods=["POST"],
@@ -1239,6 +1240,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         parameters=[_TracingServiceNamesQuerySerializer],
         responses={200: _TracingServiceNamesResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1452,6 +1454,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return self._run_scalar_span_query(request, run_impact_query, event_name="tracing impact queried")
 
     @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])
     def symbol_stats(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1561,6 +1564,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingDurationHistogramRequestSerializer,
         responses={200: _TracingDurationHistogramResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1604,6 +1608,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingLatencyHeatmapRequestSerializer,
         responses={200: _TracingLatencyHeatmapResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
     def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1755,6 +1760,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingAttributeBreakdownRequestSerializer,
         responses={200: _TracingAttributeBreakdownResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1835,8 +1841,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
-        date_range = self.get_model(
-            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        date_range = (
+            self.get_model(normalize_tracing_date_range(query_data["dateRange"], default_date_from="-24h"), DateRange)
+            if query_data.get("dateRange")
+            else None
         )
         try:
             # verify the trace_id is valid

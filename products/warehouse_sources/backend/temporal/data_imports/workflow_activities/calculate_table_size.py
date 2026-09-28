@@ -14,6 +14,7 @@ from products.data_warehouse.backend.facade.api import get_size_of_folder
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
 
 LOGGER = get_logger(__name__)
 
@@ -25,6 +26,9 @@ class CalculateTableSizeActivityInputs:
     job_id: str
 
 
+# The individual queries carry `retry_internal_db_operation` rather than the whole activity
+# carrying `with_internal_db_retries`, because retrying the whole body would repeat the S3 folder
+# listing below, which can take minutes and still has to finish inside the activity's timeout.
 @activity.defn
 def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
@@ -34,13 +38,13 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     logger.debug("Calculating table size in S3")
 
     try:
-        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+        schema = retry_internal_db_operation(lambda: ExternalDataSchema.objects.get(id=inputs.schema_id))
     except ExternalDataSchema.DoesNotExist:
         logger.debug(f"Schema doesnt exist, exiting early. Schema id = {inputs.schema_id}")
         return
 
     try:
-        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        job = retry_internal_db_operation(lambda: ExternalDataJob.objects.get(id=inputs.job_id))
     except ExternalDataJob.DoesNotExist:
         logger.debug(f"Job doesnt exist, exiting early. Job id = {inputs.job_id}")
         return
@@ -84,7 +88,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
 
     job.storage_delta_mib = table_size_delta
     try:
-        job.save(update_fields=["storage_delta_mib", "updated_at"])
+        retry_internal_db_operation(lambda: job.save(update_fields=["storage_delta_mib", "updated_at"]))
     except DatabaseError:
         # get_size_of_folder() (an S3 listing) can run long enough for the job's team to be
         # deleted meanwhile, cascading away this row before the UPDATE lands. Not a defect —
@@ -100,7 +104,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
         # possibly-stale in-memory url_pattern (table was loaded before the potentially long
         # get_size_of_folder() call above) against the row's current DB value, and a credential-less
         # table with no other change in flight trips the url_pattern guard on that false mismatch.
-        table.save(update_fields=["size_in_s3_mib", "updated_at"])
+        retry_internal_db_operation(lambda: table.save(update_fields=["size_in_s3_mib", "updated_at"]))
     except DatabaseError:
         if not DataWarehouseTable.objects.filter(id=table.id).exists():
             logger.debug(f"Table was deleted while calculating table size, exiting early. Table id = {table.id}")

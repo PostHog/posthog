@@ -22,7 +22,11 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
  * filled in. Anything the person has no value for stays on screen as `{{ ... }}` rather than
  * rendering blank, so a missing variable is visible before the send rather than after.
  */
-export function BroadcastEmailPreview(): JSX.Element {
+export function BroadcastEmailPreview({
+    intro = 'Preview and test before this reaches the audience.',
+}: {
+    intro?: string
+}): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
     const {
         persons,
@@ -42,7 +46,7 @@ export function BroadcastEmailPreview(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-muted text-xs">Preview and test before this reaches the audience.</span>
+                <span className="text-muted text-xs">{intro}</span>
                 <LemonButton
                     type="secondary"
                     size="small"

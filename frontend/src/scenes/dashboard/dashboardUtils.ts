@@ -208,6 +208,15 @@ export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh:
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
 }
 
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
+}
+
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -307,6 +316,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
@@ -327,6 +337,7 @@ export async function getInsightWithRetry(
                             ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
 
                         if (insightResponse?.query_status?.id) {
@@ -341,6 +352,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
                                     methodOptions

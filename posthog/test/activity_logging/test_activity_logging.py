@@ -412,6 +412,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
             ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
+            ("github_diagnostic", "Integration", "github_diagnostic", False, True),
+            ("github_connected", "Integration", "created", False, False),
             # Ticket comment rows reference support-ticket bodies (rows written before write-time
             # masking still hold plaintext) and must be hidden from non-staff viewers
             ("ticket_comment", "Ticket", "commented", False, True),

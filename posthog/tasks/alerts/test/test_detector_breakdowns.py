@@ -415,7 +415,7 @@ class TestSimulateDetectorBreakdowns:
         # Exercises the HogQLDetectorExtractor.simulate() dispatch route end-to-end: a HOG_QL_QUERY
         # insight resolves to the SQL extractor via DETECTOR_EXTRACTORS and scores its own rows.
         rows = [[v] for v in [*([10.0, 11.0, 10.0, 9.0] * 10), 500.0]]  # 41 single-column rows, spike last
-        mock_calc.return_value = MagicMock(result=rows, columns=["value"])
+        mock_calc.return_value = MagicMock(result=rows, columns=["value"], has_more=False)
 
         insight = MagicMock(spec=Insight)
         insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM events"}

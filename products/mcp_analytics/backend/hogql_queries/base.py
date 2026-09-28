@@ -10,8 +10,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import posthoganalytics
-
 from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter
 
 from posthog.hogql import ast
@@ -21,18 +19,13 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
     from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
-
-# Gates these runners behind the same flag and RBAC resource the product's DRF endpoints
-# require, so the generic /query/ endpoint can't bypass either (see PostHogFeatureFlagPermission
-# and the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
-MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
 # single-exec wrapper, else the directly-registered tool name. Shared by every runner that
@@ -48,8 +41,31 @@ EFFECTIVE_DESCRIPTION_SQL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
     "toString(properties.$mcp_tool_description))"
 )
+# One MCP conversation: the SDK's own session id, falling back to the PostHog session id.
+CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+
+def mcp_source_expr() -> ast.Expr:
+    """The `$mcp_source = NEW_SDK_SOURCE` predicate alone, without the tool-name predicate.
+
+    Used where a query must scan every tool's new-SDK calls (e.g. a share denominator)
+    instead of scoping to one effective tool.
+    """
+    return parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)})
+
+
+def effective_tool_expr(tool: str) -> ast.Expr:
+    """The effective-tool equality predicate alone, bound as ast.Constant.
+
+    Used to materialize a per-row boolean column so one scan can produce both a
+    tool-scoped aggregate and an all-tools total in the same query.
+    """
+    return parse_expr(
+        "{EFFECTIVE_TOOL_SQL} = {tool}",
+        placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
+    )
 
 
 def tool_scope_exprs(tool: str) -> list[ast.Expr]:
@@ -57,13 +73,7 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
 
     `tool` is bound as an ast.Constant, never string-interpolated.
     """
-    return [
-        parse_expr(
-            "{EFFECTIVE_TOOL_SQL} = {tool}",
-            placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
-        ),
-        parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
-    ]
+    return [effective_tool_expr(tool), mcp_source_expr()]
 
 
 def shared_filter_exprs(
@@ -99,18 +109,9 @@ def display_person_properties(*, email: str, name: str) -> str:
     return json.dumps({k: v for k, v in (("email", email), ("name", name)) if v})
 
 
+# Gates these runners behind the same RBAC resource the product's DRF endpoints require, so the
+# generic /query/ endpoint can't bypass it (see the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
 def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
-    org_id = str(team.organization_id)
-    enabled = posthoganalytics.feature_enabled(
-        MCP_ANALYTICS_FEATURE_FLAG,
-        str(user.distinct_id),
-        groups={"organization": org_id, "project": str(team.id)},
-        group_properties={"organization": {"id": org_id}, "project": {"id": str(team.id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-    if not enabled:
-        raise UserAccessControlError("mcp_analytics", "viewer")
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 

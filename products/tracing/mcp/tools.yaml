@@ -227,6 +227,30 @@ tools:
         response:
             include:
                 - results
+    tracing-retention-rules-create:
+        operation: tracing_retention_rules_create
+        enabled: false
+    tracing-retention-rules-destroy:
+        operation: tracing_retention_rules_destroy
+        enabled: false
+    tracing-retention-rules-list:
+        operation: tracing_retention_rules_list
+        enabled: false
+    tracing-retention-rules-partial-update:
+        operation: tracing_retention_rules_partial_update
+        enabled: false
+    tracing-retention-rules-reorder-create:
+        operation: tracing_retention_rules_reorder_create
+        enabled: false
+    tracing-retention-rules-retrieve:
+        operation: tracing_retention_rules_retrieve
+        enabled: false
+    tracing-retention-rules-suggest-name-create:
+        operation: tracing_retention_rules_suggest_name_create
+        enabled: false
+    tracing-retention-rules-update:
+        operation: tracing_retention_rules_update
+        enabled: false
     tracing-spans-error-counts-create:
         operation: tracing_spans_error_counts_create
         enabled: false

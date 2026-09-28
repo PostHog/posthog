@@ -293,7 +293,7 @@ def deliver_scout_slack_thread_replies(
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     channel_id = _slack_channel_id(channel)
 
     def _schedule_retry(

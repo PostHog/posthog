@@ -8,6 +8,8 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -31,6 +33,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models import PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
@@ -372,6 +375,13 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             bulk_create_ai_events(events)
         else:
             bulk_create_events(events)
+        stored = events[0]["properties"]
+        if table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The JSON ingest cleaner drops the heavy AI properties, and the table stores declared String paths as text.
+            # The runner converts the numeric ones back, but not $ai_is_error.
+            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES} | {
+                "$ai_is_error": "true"
+            }
 
         def make_runner(user: User) -> TraceQueryRunner | SessionQueryRunner | TracesQueryRunner:
             date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")
@@ -396,12 +406,12 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert isinstance(allowed, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse))
         assert len(allowed.results) == 1
         allowed_trace = allowed.results[0]
-        assert allowed_trace.inputState == events[0]["properties"]["$ai_input_state"]
-        assert allowed_trace.outputState == events[0]["properties"]["$ai_output_state"]
+        assert allowed_trace.inputState == stored.get("$ai_input_state")
+        assert allowed_trace.outputState == stored.get("$ai_output_state")
         assert allowed_trace.events
         for event in allowed_trace.events:
             for property_name in denied_properties:
-                assert event.properties[property_name] == events[0]["properties"][property_name]
+                assert event.properties.get(property_name) == stored.get(property_name)
         assert allowed_trace.sentiment is not None
         assert allowed_trace.sentiment.messages
         if runner_kind != "traces":
@@ -426,7 +436,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 if event.sentiment is not None:
                     assert not event.sentiment.messages
                 assert denied_properties.isdisjoint(event.properties)
-                assert event.properties["$ai_output"] == "Public output"
+                assert event.properties.get("$ai_output") == stored.get("$ai_output")
                 assert event.properties["public_note"] == "Public custom property"
             if index == 1:
                 assert response.is_cached

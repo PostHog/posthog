@@ -2,8 +2,8 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
-    HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FeatureFlagRow, FlagFilters,
+    FlagPropertyGroup, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::{
     FLAG_MALFORMED_FILTER_COUNTER, FLAG_MALFORMED_FILTER_READ_COUNTER, TOMBSTONE_COUNTER,
@@ -11,10 +11,20 @@ use crate::metrics::consts::{
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndecodableDocument {
+    NotAnObject,
+    UnreadableV1Object,
+}
+
+/// Rows `from_pg_keeping_undecodable` kept with blank filters, and why.
+pub type UndecodableFlags = HashMap<FeatureFlagId, UndecodableDocument>;
 
 /// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
 /// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
@@ -126,6 +136,18 @@ impl FeatureFlagList {
         client: PostgresReader,
         team_id: TeamId,
     ) -> Result<Vec<FeatureFlag>, FlagError> {
+        let (mut flags, undecodable) = Self::from_pg_keeping_undecodable(client, team_id).await?;
+        flags.retain(|flag| !undecodable.contains_key(&flag.id));
+        Ok(flags)
+    }
+
+    /// Like `from_pg`, but a row whose `filters` document could not be decoded stays in
+    /// the list with blank filters and is reported in `UndecodableFlags`, so the cache
+    /// builder can classify it and its dependents.
+    pub async fn from_pg_keeping_undecodable(
+        client: PostgresReader,
+        team_id: TeamId,
+    ) -> Result<(Vec<FeatureFlag>, UndecodableFlags), FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
             .map_err(|e| {
@@ -197,36 +219,19 @@ impl FeatureFlagList {
             FlagError::internal(anyhow::Error::new(e).context(message))
         })?;
 
-        let mut malformed_filter_flags: u64 = 0;
+        let mut undecodable = UndecodableFlags::default();
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
-            .filter_map(|row| {
-                match crate::flags::config_format::decode_raw_filters(row.filters.0) {
-                    Ok(filters) => Some(FeatureFlag {
-                        id: row.id,
-                        team_id: row.team_id,
-                        name: row.name,
-                        key: row.key,
-                        filters,
-                        deleted: row.deleted,
-                        active: row.active,
-                        ensure_experience_continuity: row.ensure_experience_continuity,
-                        version: row.version,
-                        evaluation_runtime: row.evaluation_runtime,
-                        evaluation_tags: row.evaluation_tags,
-                        bucketing_identifier: row.bucketing_identifier,
-                        has_experiment: row.has_experiment,
-                    }),
-                    Err(e) => {
+            .map(|row| {
+                let filters = crate::flags::config_format::decode_raw_filters(row.filters.0)
+                    .unwrap_or_else(|e| {
                         // Serde fails the whole `filters` struct when a required field is
                         // absent, so one bad property filter costs the entire flag. A property
                         // filter with no `"type"` key does that, because
                         // PropertyFilter::prop_type has no default. Python does not parse these
-                        // filters, so it keeps such a flag when the flag is active or referenced,
-                        // and those drops are real builder divergences. An inactive, unreferenced
-                        // flag is dropped by both builders, so the counters below over-count it.
-                        // Skip the flag rather than fail the read, so the team keeps the rest.
-                        malformed_filter_flags += 1;
+                        // filters, so it keeps such a flag when the flag is active, and those
+                        // drops are real builder divergences. Either way the team keeps the
+                        // rest of its flags, rather than failing the read.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,
@@ -241,25 +246,39 @@ impl FeatureFlagList {
                             "component" => "feature_flag_list",
                         )
                         .increment(1);
-
-                        None
-                    }
+                        undecodable.insert(row.id, e.document);
+                        FlagFilters::default()
+                    });
+                FeatureFlag {
+                    id: row.id,
+                    team_id: row.team_id,
+                    name: row.name,
+                    key: row.key,
+                    filters,
+                    deleted: row.deleted,
+                    active: row.active,
+                    ensure_experience_continuity: row.ensure_experience_continuity,
+                    version: row.version,
+                    evaluation_runtime: row.evaluation_runtime,
+                    evaluation_tags: row.evaluation_tags,
+                    bucketing_identifier: row.bucketing_identifier,
+                    has_experiment: row.has_experiment,
                 }
             })
             .collect();
 
-        if malformed_filter_flags > 0 {
-            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(malformed_filter_flags);
+        if !undecodable.is_empty() {
+            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(undecodable.len() as u64);
             counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
         }
 
         tracing::debug!(
             "Successfully fetched {} flags from database for team {}",
-            flags.len(),
+            flags.len() - undecodable.len(),
             team_id
         );
 
-        Ok(flags)
+        Ok((flags, undecodable))
     }
 }
 
