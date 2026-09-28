@@ -21,6 +21,7 @@ import dagster
 import structlog
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
+from pydantic import Field
 
 from posthog.hogql.constants import LimitContext
 
@@ -1179,7 +1180,9 @@ class WarmQueriesConfig(dagster.Config):
     # Process at most this many shapes, hottest first (0 = no limit).
     limit: int = 0
     # Spread the teams' start times over this many seconds (0 = start every team at once).
-    release_window_seconds: int = 0
+    # Capped at the hourly window because a window near the stall timeout can leave a
+    # shard with only waiting workers, and the stall guard then kills a healthy pass.
+    release_window_seconds: int = Field(default=0, ge=0, le=WARMING_RELEASE_WINDOW_SECONDS)
 
 
 def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str, list[dict]]:
