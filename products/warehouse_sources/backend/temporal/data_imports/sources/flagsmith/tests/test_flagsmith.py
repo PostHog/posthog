@@ -405,6 +405,117 @@ class TestGetRowsFanout:
         ]
 
 
+class TestGetRowsTwoLevelFanout:
+    # Identity traits and feature segments need two identifiers per request, so their parent
+    # enumeration walks a second level and both identifiers are injected into each row.
+
+    @staticmethod
+    def _identity_dispatch() -> Any:
+        def _get(url, **kwargs):
+            if url.endswith("/projects/"):
+                return _resp([{"id": 1}])
+            if "/environments/?project=" in url:
+                return _resp(_page([{"id": 10, "api_key": "env-a"}], None))
+            if url.endswith("/identities/?page_size=100"):
+                return _resp(_page([{"id": 500}, {"id": 501}], None))
+            identity_id = url.split("/identities/")[1].split("/")[0]
+            return _resp(_page([{"id": 9000 + int(identity_id), "trait_key": "plan"}], None))
+
+        return _get
+
+    @mock.patch(SESSION_PATH)
+    def test_traits_fan_out_per_identity(self, mock_session):
+        mock_session.return_value.get.side_effect = self._identity_dispatch()
+
+        batches = list(get_rows("key", None, "identity_traits", mock.MagicMock(), _make_manager()))
+
+        assert [row for batch in batches for row in batch] == [
+            {"id": 9500, "trait_key": "plan", "_environment_api_key": "env-a", "_identity_id": "500"},
+            {"id": 9501, "trait_key": "plan", "_environment_api_key": "env-a", "_identity_id": "501"},
+        ]
+        urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if c.args[0].endswith("/traits/")]
+        assert urls == [
+            f"{API_BASE}/environments/env-a/identities/500/traits/",
+            f"{API_BASE}/environments/env-a/identities/501/traits/",
+        ]
+
+    @mock.patch(SESSION_PATH)
+    def test_traits_resume_key_identifies_the_inner_parent(self, mock_session):
+        # The resume bookmark has to name the environment AND the identity, or a resume would
+        # restart at the wrong identity (or the whole environment).
+        mock_session.return_value.get.side_effect = self._identity_dispatch()
+        manager = _make_manager()
+
+        list(get_rows("key", None, "identity_traits", mock.MagicMock(), manager))
+        saved = [call.args[0].parent_key for call in manager.save_state.call_args_list]
+        assert saved == ["env-a/500", "env-a/501"]
+
+        mock_session.return_value.get.side_effect = self._identity_dispatch()
+        resumed = _make_manager(FlagsmithResumeConfig(next_url="", parent_key="env-a/500"))
+        batches = list(get_rows("key", None, "identity_traits", mock.MagicMock(), resumed))
+
+        assert [row["_identity_id"] for batch in batches for row in batch] == ["501"]
+
+    @mock.patch(PARENTS_PATH, 2)
+    @mock.patch(SESSION_PATH)
+    def test_identity_parent_cap_spans_environments(self, mock_session):
+        # The cap bounds the identities retained across the whole fan-out; applied per environment
+        # it would let the retained list grow with the environment count.
+        def _get(url, **kwargs):
+            if url.endswith("/projects/"):
+                return _resp([{"id": 1}])
+            if "/environments/?project=" in url:
+                return _resp(_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}], None))
+            if url.endswith("/identities/?page_size=100"):
+                return _resp(_page([{"id": 500}, {"id": 501}], None))
+            return _resp(_page([{"id": 9000}], None))
+
+        mock_session.return_value.get.side_effect = _get
+
+        list(get_rows("key", None, "identity_traits", mock.MagicMock(), _make_manager()))
+
+        trait_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if c.args[0].endswith("/traits/")]
+        assert trait_urls == [
+            f"{API_BASE}/environments/env-a/identities/500/traits/",
+            f"{API_BASE}/environments/env-a/identities/501/traits/",
+        ]
+
+    @mock.patch(SESSION_PATH)
+    def test_feature_segments_pair_environments_with_features(self, mock_session):
+        # The listing requires both filters, and a pair only resolves inside the project that owns
+        # both, so the cross product is built per project rather than globally.
+        def _get(url, **kwargs):
+            if url.endswith("/projects/"):
+                return _resp([{"id": 1}, {"id": 2}])
+            if "/environments/?project=1" in url:
+                return _resp(_page([{"id": 10}, {"id": 11}], None))
+            if "/environments/?project=2" in url:
+                return _resp(_page([{"id": 20}], None))
+            if "/projects/1/features/" in url:
+                return _resp(_page([{"id": 100}], None))
+            if "/projects/2/features/" in url:
+                return _resp(_page([{"id": 200}], None))
+            return _resp(_page([{"id": 7, "segment": 3}], None))
+
+        mock_session.return_value.get.side_effect = _get
+
+        batches = list(get_rows("key", None, "feature_segments", mock.MagicMock(), _make_manager()))
+
+        assert [row for batch in batches for row in batch] == [
+            {"id": 7, "segment": 3, "_environment_id": "10", "_feature_id": "100"},
+            {"id": 7, "segment": 3, "_environment_id": "11", "_feature_id": "100"},
+            {"id": 7, "segment": 3, "_environment_id": "20", "_feature_id": "200"},
+        ]
+        pair_urls = [
+            c.args[0] for c in mock_session.return_value.get.call_args_list if "/feature-segments/" in c.args[0]
+        ]
+        assert pair_urls == [
+            f"{API_BASE}/features/feature-segments/?environment=10&feature=100",
+            f"{API_BASE}/features/feature-segments/?environment=11&feature=100",
+            f"{API_BASE}/features/feature-segments/?environment=20&feature=200",
+        ]
+
+
 class TestErrors:
     @mock.patch(SESSION_PATH)
     def test_4xx_raises(self, mock_session):

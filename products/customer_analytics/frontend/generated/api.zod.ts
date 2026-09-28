@@ -414,6 +414,15 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const accountsPresenceListBodyAccountIdsMax = 100
+
+export const AccountsPresenceListBody = /* @__PURE__ */ zod.object({
+    account_ids: zod
+        .array(zod.uuid())
+        .max(accountsPresenceListBodyAccountIdsMax)
+        .describe('Up to 100 account IDs to read presence for.'),
+})
+
 /**
  * Run a Customer Analytics accounts table query.
  */
@@ -438,6 +447,16 @@ export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe('Id of the Google account integration to backfill.'),
     start_date: zod.iso.date().describe('First UTC date to include. Must be within the last 365 days.'),
     end_date: zod.iso.date().describe('Final UTC date to include. Cannot be after today.'),
+})
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const CalendarSyncIntervalCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the connected Google account.'),
+    sync_interval_minutes: zod.number().describe('Minutes between scheduled syncs: 5, 15, 30, or 60.'),
 })
 
 /**

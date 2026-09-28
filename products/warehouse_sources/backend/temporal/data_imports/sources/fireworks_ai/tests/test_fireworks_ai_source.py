@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
+    ACCOUNT_USAGE,
     ENDPOINTS,
     FIREWORKS_AI_ENDPOINTS,
 )
@@ -28,13 +29,24 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh_only(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Server-side timestamp filtering is unverified (AIP-160 filter fields undocumented),
-        # so nothing may advertise incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
+    def test_collections_are_full_refresh_and_usage_is_incremental(self) -> None:
+        schemas = {s.name: s for s in FireworksAISource().get_schemas(_config(), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+
+        # Server-side timestamp filtering is unverified for the list endpoints (AIP-160 filter
+        # fields undocumented), so advertising incremental there would page the whole collection
+        # every sync while claiming not to.
+        collections = [s for name, s in schemas.items() if name != ACCOUNT_USAGE]
+        assert all(s.supports_incremental is False for s in collections)
+        assert all(s.incremental_fields == [] for s in collections)
+
+        # billingUsage windows on a required startTime/endTime, which is a real server-side filter.
+        usage = schemas[ACCOUNT_USAGE]
+        assert usage.supports_incremental is True
+        assert [f["field"] for f in usage.incremental_fields] == ["startTime"]
+
+        # Usage buckets are restated while their day is open, so appending would duplicate them.
+        assert all(s.supports_append is False for s in schemas.values())
 
     def test_names_filter_restricts_output(self) -> None:
         schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])

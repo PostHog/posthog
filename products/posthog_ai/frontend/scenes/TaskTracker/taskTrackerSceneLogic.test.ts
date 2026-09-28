@@ -236,7 +236,7 @@ describe('taskTrackerSceneLogic', () => {
         [null, ''],
         ['/tasks/another-task', ''],
         ['/tasks/another-task', 'A different task'],
-        ['/activity/explore', ''],
+        ['/activity/events', ''],
     ] as const)(
         'handles a startup stop and draft when navigating to %s with a new draft=%s',
         async (destination, newDraft) => {
@@ -754,7 +754,7 @@ describe('taskTrackerSceneLogic', () => {
     // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
     // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
     // dropped, which would yank the host to the tasks scene or silently drop the panel's in-flight run.
-    it.each(['/tasks/some-other-task', '/activity/explore'])(
+    it.each(['/tasks/some-other-task', '/activity/events'])(
         'keeps an embedded creation in place after navigation to %s',
         async (destination) => {
             const panelLogic = taskTrackerSceneLogic({ panelId: 'test-panel' })
@@ -796,6 +796,7 @@ describe('taskTrackerSceneLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     state: {},
                     artifacts: [],
                     created_at: '2026-01-01T00:00:00Z',
@@ -826,7 +827,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
     })
 
-    it.each([null, '/activity/explore'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
+    it.each([null, '/activity/events'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
         let finishCreation!: (response: [number, Record<string, unknown>]) => void
         const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
             finishCreation = resolve

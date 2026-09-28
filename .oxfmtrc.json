@@ -137,6 +137,7 @@
         "frontend/src/taxonomy/core-filter-definitions-by-group.json",
         "services/mcp/src/lib/trace-property-allowlist.generated.ts",
         "posthog/cdp/filter_globals.json",
+        "posthog/emoji_search/catalog.json",
         "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
         "products/review_hog/backend/reviewer/prompts/**/schema.json",
         "**/chart/*/templates/**",

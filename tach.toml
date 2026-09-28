@@ -625,6 +625,9 @@ layer = "modules"
 path = "products.messaging"
 depends_on = [
     "posthog",
+    # Facade-only: template writes publish the realtime edited-elsewhere event through
+    # products.notifications.backend.facade.api.
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -1440,7 +1443,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee", "products.access_control"]
+depends_on = ["posthog", "ee", "products.access_control", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

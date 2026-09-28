@@ -59,6 +59,17 @@ if (url.pathname.startsWith('/mcp')) {
 
 `RequestProperties` (the parsed headers and query params for a request) is defined in `src/lib/request-properties.ts` and shared by both runtimes.
 
+### End user IP
+
+The PostHog API sees the Hono pod as the caller, so the activity log would record that pod's address.
+The end user IP travels as a signed header on each hop (`src/lib/client-ip-signature.ts`, the same HMAC format as Django's `verify_signed_client_ip`):
+
+1. The Worker removes any client-sent IP headers, signs `CF-Connecting-IP` with the key list of the target region, and sends `X-PostHog-Edge-Client-IP*` to Hono.
+2. Hono resolves the IP once per request (`src/hono/client-ip.ts`). A valid edge signature gives the signed IP. Otherwise Hono uses the rightmost `X-Forwarded-For` entry, which Envoy writes. When that entry is a published Cloudflare address, the request is Worker traffic without a valid signature, so Hono uses no IP.
+3. `ApiClient.fetch` signs that IP with a new timestamp on every API call and sends `X-PostHog-MCP-Client-IP*`. Django verifies it and uses it for the activity log only.
+
+Each hop has its own key list, and an empty list turns that hop off. `.env.example` names the variables. The `mcp_client_ip_resolutions_total` counter shows which source Hono used.
+
 ### Per-User State
 
 The Hono runtime keeps per-user session state (active project/organization, region, distinctId) in Redis, namespaced by `userHash` — a PBKDF2 hash of the API token (see `src/lib/utils`), ensuring:
