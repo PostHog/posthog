@@ -978,8 +978,10 @@ class TestSnowflakeSourceNonRetryableErrors:
     )
     def test_resource_monitor_quota_exceeded_is_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Resource-monitor quota error should be non-retryable: {error_msg}"
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"Resource-monitor quota error should be non-retryable: {error_msg}"
+        # Monitors with FREQUENCY=NEVER never reset, so the reset advice must stay conditional.
+        assert all(message is not None and "reset schedule" in message for message in messages)
 
     @pytest.mark.parametrize(
         "error_msg",
