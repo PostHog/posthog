@@ -228,10 +228,16 @@ def _merge_frontmatter(identity: list[str], imported: list[str], defaults: list[
 def _is_lint_clean(frontmatter: list[str]) -> bool:
     # The import lints the whole wiki in one change, so one page the lint rejects blocks every page in the
     # organization. Accept only frontmatter this check proves clean: `superseded` and `review_after` need
-    # checks against other pages or dates, so they fall back to the body as well.
-    fields = {key: line.partition(":")[2].strip() for line in frontmatter if (key := _top_level_key(line))}
+    # checks against other pages or dates, so they fall back to the body as well, where the import encodes bad links.
+    fields = {
+        key: value.strip()
+        for key, separator, value in (line.partition(":") for line in frontmatter)
+        if separator and key and key == key.strip()
+    }
+    _, malformed_links = repo_lint._links("\n".join(frontmatter))
     return (
-        not repo_lint._lint_frontmatter_lists(frontmatter)
+        not malformed_links
+        and not repo_lint._lint_frontmatter_lists(frontmatter)
         and bool(fields.get("summary"))
         and fields.get("status") in {"active", "historical"}
         and "review_after" not in fields

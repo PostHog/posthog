@@ -153,12 +153,20 @@ class TestContextLayerAPI(APIBaseTest):
         assert "&#91;&#91;unfinished notes." in page["content"]
         assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
 
-    @parameterized.expand([("lint clean", "    name: Activation", True), ("lint rejects", "    period: yearly", False)])
+    @parameterized.expand(
+        [
+            ("lint clean", "summary: Tracks weekly activation.", "    name: Activation", True),
+            ("invalid goal", "summary: Tracks weekly activation.", "    period: yearly", False),
+            ("escaping wikilink", "summary: See [[../secrets]]", "    name: Activation", False),
+            ("unclosed wikilink", "summary: See [[unfinished", "    name: Activation", False),
+            ("spaced summary key", "summary : Tracks weekly activation.", "    name: Activation", False),
+        ]
+    )
     def test_enable_lifts_legacy_context_frontmatter_only_when_lint_clean(
-        self, _flag: MagicMock, _name: str, goal_line: str, lifted: bool
+        self, _flag: MagicMock, _name: str, summary_line: str, goal_line: str, lifted: bool
     ) -> None:
         imported = (
-            "---\nsummary: Tracks weekly activation.\nstatus: active\nteam_id: 999\n"
+            f"---\n{summary_line}\nstatus: active\nteam_id: 999\n"
             "channel_id: 00000000-0000-0000-0000-000000000000\nsources: space-setup\nautonomy: propose\n"
             f"goals:\n  - id: primary\n{goal_line}\n---\n# Goal: Activation\n\nBody text."
         )
@@ -196,7 +204,8 @@ class TestContextLayerAPI(APIBaseTest):
                 "status: active",
                 "sources: channel-instructions-import",
             ]
-            assert imported in body
+            assert "sources: space-setup\nautonomy: propose" in body
+            assert "# Goal: Activation\n\nBody text." in body
 
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
