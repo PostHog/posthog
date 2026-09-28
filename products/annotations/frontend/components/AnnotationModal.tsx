@@ -100,7 +100,7 @@ export function AnnotationModal(): JSX.Element {
     ]
 
     return (
-        <BindLogic logic={annotationsModel}>
+        <BindLogic logic={annotationsModel} props={{}}>
             <LemonModal
                 isOpen={isModalOpen}
                 onClose={closeModal}
@@ -152,6 +152,7 @@ export function AnnotationModal(): JSX.Element {
             >
                 <Form
                     logic={annotationModalLogic}
+                    props={{}}
                     formKey="annotationModal"
                     id="annotation-modal-form"
                     enableFormOnSubmit

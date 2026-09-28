@@ -1,15 +1,15 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptions, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, RawAnnotationType } from '~/types'
 
+import { annotationsRetrieve } from '../generated/api'
 import { annotationModalHostLogic } from './annotationModalHostLogic'
 import { annotationScopeToName } from './annotationScopes'
 
@@ -38,6 +38,7 @@ export interface annotationsLogicValues {
     annotationsLoading: boolean // annotationsModel
     loadingNext: boolean // annotationsModel
     next: string | null // annotationsModel
+    currentTeamIdStrict: number | string // teamLogic
     timezone: string // teamLogic
     filteredAnnotations: AnnotationType[]
     scope: AnnotationType['scope'] | null
@@ -76,7 +77,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
             annotationsModel,
             ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
             teamLogic,
-            ['timezone'],
+            ['timezone', 'currentTeamIdStrict'],
         ],
     })),
     actions({
@@ -86,17 +87,30 @@ export const annotationsLogic = kea<annotationsLogicType>([
     reducers(() => ({
         scope: [null as AnnotationType['scope'] | null, { setScope: (_, { scope }) => scope }],
     })),
-    listeners(({ values }) => ({
+    listeners(({ cache, values }) => ({
         openAnnotationFromUrl: async ({ annotationId }) => {
+            const requestId = (cache.openAnnotationRequestId ?? 0) + 1
+            cache.openAnnotationRequestId = requestId
+            const isCurrentRequest = (): boolean => cache.openAnnotationRequestId === requestId
             const annotation = values.annotations.find((item) => item.id === annotationId)
             if (annotation) {
-                annotationModalHostLogic.actions.openModalToEditAnnotation(annotation)
+                if (isCurrentRequest()) {
+                    annotationModalHostLogic.actions.openModalToEditAnnotation(annotation)
+                }
                 return
             }
-            const rawAnnotation = await api.annotations.get(annotationId)
-            annotationModalHostLogic.actions.openModalToEditAnnotation(
-                deserializeAnnotation(rawAnnotation, values.timezone)
-            )
+            try {
+                const rawAnnotation = await annotationsRetrieve(String(values.currentTeamIdStrict), annotationId)
+                if (isCurrentRequest()) {
+                    annotationModalHostLogic.actions.openModalToEditAnnotation(
+                        deserializeAnnotation(rawAnnotation as RawAnnotationType, values.timezone)
+                    )
+                }
+            } catch {
+                if (isCurrentRequest()) {
+                    lemonToast.error('Failed to load annotation')
+                }
+            }
         },
     })),
     selectors(() => ({
@@ -132,7 +146,11 @@ export const annotationsLogic = kea<annotationsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.annotation(':id')]: ({ id }) => {
-            actions.openAnnotationFromUrl(parseInt(id as string))
+            const annotationId = id as string
+            const parsedAnnotationId = Number(annotationId)
+            if (/^\d+$/.test(annotationId) && Number.isSafeInteger(parsedAnnotationId) && parsedAnnotationId > 0) {
+                actions.openAnnotationFromUrl(parsedAnnotationId)
+            }
         },
         [urls.annotations()]: (_, searchParams) => {
             const scope = searchParams.scope
