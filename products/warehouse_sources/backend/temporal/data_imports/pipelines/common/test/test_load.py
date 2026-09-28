@@ -189,7 +189,7 @@ class TestPublishQueryableFilesDoubleBufferRollout:
         [
             # The flag is the rollback switch: off must reach the timestamped-folder path even when a
             # pointer record is stored, or turning it off after a bad rollout would change nothing.
-            ("flag_off", False, _STATE, False, _HISTORY),
+            ("flag_off", False, _STATE, False, None),
             ("flag_on_with_record", True, _STATE, True, _HISTORY),
             ("flag_on_no_record", True, None, True, None),
         ]

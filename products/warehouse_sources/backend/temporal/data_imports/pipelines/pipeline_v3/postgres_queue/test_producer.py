@@ -311,5 +311,7 @@ class TestPostgresProducerHeldBatch:
         ) as mock_supersede:
             producer.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
 
-        mock_supersede.assert_called_once_with(producer._conn, job_id="job-1", current_run_uuid="run-1")
+        mock_supersede.assert_called_once_with(
+            producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
+        )
         assert _inserted_rows(producer) == []
