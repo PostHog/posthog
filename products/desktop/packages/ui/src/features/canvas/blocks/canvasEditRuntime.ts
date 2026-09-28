@@ -290,6 +290,20 @@ export function installCanvasEditing(
     }
     const onlyText =
       element.children.length === 0 ? (element.textContent ?? "") : null;
+    const rawSource = element.getAttribute("data-ph-src");
+    const twins = rawSource
+      ? Array.from(
+          document.querySelectorAll(`[data-ph-src="${CSS.escape(rawSource)}"]`),
+        )
+      : [];
+    const instance =
+      twins.length > 1
+        ? { index: twins.indexOf(element) + 1, count: twins.length }
+        : null;
+    const shownText = (element.innerText ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
     return {
       rev,
       source: source
@@ -300,6 +314,8 @@ export function installCanvasEditing(
       props,
       tag: element.tagName.toLowerCase(),
       text: onlyText,
+      visibleText: shownText || null,
+      instance,
       params: element.getAttribute("data-ph-params"),
       layout: {
         inGrid:

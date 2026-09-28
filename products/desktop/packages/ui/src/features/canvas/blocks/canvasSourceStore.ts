@@ -1,3 +1,4 @@
+import type { PageInstance } from "@posthog/core/canvas/blockLibrary/blockReference";
 import type { ParamSchema } from "@posthog/core/canvas/blockLibrary/params";
 import type {
   GridGrowth,
@@ -18,6 +19,8 @@ export interface CanvasEditSelection {
   props: Record<string, unknown>;
   tag: string;
   text: string | null;
+  visibleText: string | null;
+  instance: PageInstance | null;
   layout: {
     inGrid: boolean;
     grow: GridGrowth | null;
