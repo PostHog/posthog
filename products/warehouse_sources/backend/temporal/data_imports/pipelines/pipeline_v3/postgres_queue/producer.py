@@ -98,6 +98,9 @@ class PostgresProducer:
 
         self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
+        # The most recent staged batch and its cumulative row count, kept out of the queue until the
+        # next batch arrives or the run ends, so the run's last row can carry the final flag itself.
+        self._held: tuple[BatchWriteResult, int] | None = None
 
     @property
     def sync_type(self) -> SyncTypeLiteral:
@@ -111,6 +114,67 @@ class PostgresProducer:
     def is_first_ever_sync(self, value: bool) -> None:
         self._is_first_ever_sync = value
 
+    @property
+    def has_held_batch(self) -> bool:
+        return self._held is not None
+
+    def hold_batch(self, batch_result: BatchWriteResult, *, cumulative_row_count: int) -> None:
+        """Stage a batch's queue row, inserting the previously held one as a non-final row.
+
+        The parquet file is already durable when this is called; only the queue row waits. Holding
+        one row back is what lets `send_final_batch` flag the run's last data row as final instead of
+        inserting a second row for it, which the loader would have to process twice.
+
+        Superseding runs on the staging of batch 0, not on its insert, so it keeps firing at the
+        same point of the run it always has.
+        """
+        if batch_result.batch_index == 0 and not self._is_resume:
+            self._supersede_other_runs()
+        previous = self._held
+        self._held = (batch_result, cumulative_row_count)
+        if previous is not None:
+            self._insert(previous[0], is_final_batch=False, cumulative_row_count=previous[1])
+
+    def release_held_batch(self) -> bool:
+        """Insert the held batch as a non-final row now. Returns whether a row was inserted.
+
+        For a resumable source, whose cursor commit promises that every yielded row is loadable,
+        the held row has to be in the queue before that commit lands.
+        """
+        held = self._held
+        if held is None:
+            return False
+        self._held = None
+        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1])
+        return True
+
+    def send_final_batch(
+        self,
+        last_batch: BatchWriteResult,
+        *,
+        total_batches: int,
+        total_rows: int,
+        data_folder: str,
+        schema_path: str | None,
+    ) -> None:
+        """Mark the run complete: the held last batch becomes the final row.
+
+        When nothing is held (a resumable source released it before a cursor commit), the last
+        batch is inserted a second time as a final-only marker, which the loader still accepts.
+        """
+        held = self._held
+        self._held = None
+        final_batch = last_batch if held is None else held[0]
+        self._insert(
+            final_batch,
+            is_final_batch=True,
+            total_batches=total_batches,
+            total_rows=total_rows,
+            data_folder=data_folder,
+            schema_path=schema_path,
+            cumulative_row_count=total_rows,
+        )
+
     def send_batch_notification(
         self,
         batch_result: BatchWriteResult,
@@ -121,7 +185,48 @@ class PostgresProducer:
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
     ) -> None:
-        """Insert a batch row into the Postgres queue."""
+        """Insert a batch row into the Postgres queue immediately."""
+        if batch_result.batch_index == 0 and not self._is_resume:
+            self._supersede_other_runs()
+        self._insert(
+            batch_result,
+            is_final_batch=is_final_batch,
+            total_batches=total_batches,
+            total_rows=total_rows,
+            data_folder=data_folder,
+            schema_path=schema_path,
+            cumulative_row_count=cumulative_row_count,
+        )
+
+    def _supersede_other_runs(self) -> None:
+        # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
+        # this job go terminal so their batches can't double-load. Runs the loader is
+        # still draining are spared (see supersede_other_runs); a spared run that
+        # stalls later is recovered by the reconcile sweep's stranded-run pass.
+        #
+        # A full_refresh is the exception: this run's batch 0 overwrites the table, so
+        # an older attempt's loaded rows are gone either way and sparing it only leaves
+        # its batches clogging the serial per-(team, schema) gate.
+        superseded = BatchQueue.supersede_other_runs(
+            self._conn,
+            job_id=self._job_id,
+            current_run_uuid=self._run_uuid,
+            spare_runs_with_progress=self._sync_type != "full_refresh",
+        )
+        if superseded > 0:
+            self._logger.info("superseded_old_run_batches", count=superseded)
+
+    def _insert(
+        self,
+        batch_result: BatchWriteResult,
+        *,
+        is_final_batch: bool,
+        total_batches: Optional[int] = None,
+        total_rows: Optional[int] = None,
+        data_folder: Optional[str] = None,
+        schema_path: Optional[str] = None,
+        cumulative_row_count: int = 0,
+    ) -> None:
         metadata: dict[str, Any] = {}
         if data_folder is not None:
             metadata["data_folder"] = data_folder
@@ -150,24 +255,6 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
-
-        # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
-        # this job go terminal so their batches can't double-load. Runs the loader is
-        # still draining are spared (see supersede_other_runs); a spared run that
-        # stalls later is recovered by the reconcile sweep's stranded-run pass.
-        #
-        # A full_refresh is the exception: this run's batch 0 overwrites the table, so
-        # an older attempt's loaded rows are gone either way and sparing it only leaves
-        # its batches clogging the serial per-(team, schema) gate.
-        if batch_result.batch_index == 0 and not self._is_resume:
-            superseded = BatchQueue.supersede_other_runs(
-                self._conn,
-                job_id=self._job_id,
-                current_run_uuid=self._run_uuid,
-                spare_runs_with_progress=self._sync_type != "full_refresh",
-            )
-            if superseded > 0:
-                self._logger.info("superseded_old_run_batches", count=superseded)
 
         self._conn.execute(
             f"""
