@@ -98,12 +98,9 @@ export const finishTool = defineLocalTool({
   // runs pay the timeout. An unknown origin also hides the tool: the origin
   // fetch fails soft, and exposing `finish` on a blip would silently eat a
   // workflow run's reply, while hiding it only costs a bounded idle window.
-  // Suggestions callers own completion after all turns and persistence;
-  // an agent-side finish would close the run before that work completes.
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
-    meta?.taskOriginProduct !== "scout_suggestions" &&
     ((meta?.taskOriginProduct !== undefined &&
       meta?.taskOriginProduct !== "workflow") ||
       meta?.endRunWhenDone === true) &&
