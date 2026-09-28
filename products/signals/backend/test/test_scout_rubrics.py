@@ -18,8 +18,9 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.presentation.scout_rubrics import ScoutRubricSaveSerializer
+from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.rubrics import (
     GENERATION_TIMEOUT,
     ScoutRubricCriterion,
@@ -33,9 +34,11 @@ from products.signals.backend.scout_harness.rubrics import (
     save_rubric,
     update_generation,
 )
-from products.signals.backend.scout_harness.rubrics_runner import run_rubric_generation
-from products.skills.backend.models.skills import LLMSkill
+from products.signals.backend.scout_harness.rubrics_runner import read_selection_output, run_rubric_generation
+from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.models import Task, TaskRun
 
 
 def custom_criterion() -> ScoutRubricCriterion:
@@ -51,6 +54,33 @@ def custom_criterion() -> ScoutRubricCriterion:
 
 
 class TestRubricValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("duplicate", [0, 0], None),
+            ("out_of_range", [2], None),
+            ("preserves_draft_order", [1, 0], [0, 1]),
+        ]
+    )
+    def test_selection_keeps_whole_draft_items_in_order(
+        self, _name: str, indices: list[int], expected: list[int] | None
+    ) -> None:
+        criterion = custom_criterion().model_dump(exclude={"id", "source", "enabled"})
+        draft = ScoutRubricSuggestionBatch(
+            summary="Draft criteria.",
+            suggestions=[
+                ScoutRubricSuggestion(**criterion),
+                ScoutRubricSuggestion(**{**criterion, "title": "A separate judgment"}),
+            ],
+        )
+        output = json.dumps({"summary": "Selected additions.", "keep_indices": indices})
+        if expected is None:
+            with self.assertRaises(ValueError):
+                read_selection_output(output, draft)
+        else:
+            selected = read_selection_output(output, draft)
+            self.assertEqual(selected.summary, "Selected additions.")
+            self.assertEqual(selected.suggestions, [draft.suggestions[index] for index in expected])
+
     @parameterized.expand(
         [
             ("duplicate", "duplicate"),
@@ -199,28 +229,112 @@ class TestScoutRubricsAPI(APIBaseTest):
         [
             ("completed", None, False),
             ("description_only", None, False),
+            ("saved_choices", None, False),
+            ("complete_context", None, False),
+            ("truncated_context", None, False),
+            ("report_emit", None, False, "emit"),
+            ("report_edit", None, False, "edit"),
+            ("report_both", None, False, "both"),
             ("start_failed", "start", False),
-            ("review_dispatch_value_error", "review", False),
-            ("review_timeout", "timeout", False),
-            ("review_cancelled", "cancelled", False),
+            ("selection_dispatch_value_error", "review", False),
+            ("selection_timeout", "timeout", False),
+            ("selection_cancelled", "cancelled", False),
             ("malformed_json_recovered", None, False),
             ("overlong_summary_recovered", None, False),
             ("schema_recovered", None, False),
             ("twice_invalid", "format", False),
             ("cleanup_failed", None, True),
+            ("subset_selection", None, False),
+            ("empty_selection", None, False),
+            ("selection_recovered", None, False),
+            ("both_stages_invalid", "shared_repair", False),
+            ("oversized_selection", "selection_size", False),
         ]
     )
     def test_agent_output_is_saved_as_suggestions_without_changing_rubric(
-        self, name: str, failed_stage: str | None, cleanup_fails: bool
+        self, name: str, failed_stage: str | None, cleanup_fails: bool, report_channel: str = "none"
     ) -> None:
         body = "" if name == "description_only" else "Inspect checkout failures and report reproducible issues."
-        LLMSkill.objects.create(
+        bounded_context = name in {"complete_context", "truncated_context"}
+        truncated = name == "truncated_context"
+        if bounded_context:
+            body = "x" * 60_000 + (" omitted instruction" if truncated else "")
+        allowed_tools = {
+            "none": [],
+            "emit": ["emit_report"],
+            "edit": ["edit_report"],
+            "both": ["emit_report", "edit_report"],
+        }[report_channel]
+        skill = LLMSkill.objects.create(
             team=self.team,
             name=self.config.skill_name,
             description="Check the checkout flow.",
             body=body,
-            version=1,
+            version=2 if bounded_context else 1,
+            allowed_tools=allowed_tools,
         )
+        normal_scout_prompt = ""
+        if report_channel != "none":
+            normal_scout_prompt = build_run_prompt(
+                load_skill_for_run(self.team, self.config.skill_name),
+                run_id=str(uuid4()),
+                team_id=self.team.id,
+                started_at=timezone.now(),
+            )
+        reference_paths: list[str] = []
+        report_ids: list[str] = []
+        if bounded_context:
+            reference_paths = [f"references/{index:02d}.md" for index in range(21 if truncated else 20)]
+            LLMSkillFile.objects.bulk_create(
+                [
+                    LLMSkillFile(
+                        skill=skill,
+                        path=path,
+                        content="r" * (45_001 if truncated and index == 1 else 15_000),
+                    )
+                    for index, path in enumerate(reference_paths)
+                ]
+            )
+            if not truncated:
+                other_team = Team.objects.create(organization=self.organization)
+                for reference_team, version in [(self.team, 1), (other_team, 99)]:
+                    other_skill = LLMSkill.objects.create(
+                        team=reference_team,
+                        name=self.config.skill_name,
+                        body="Unrelated version or project instructions.",
+                        version=version,
+                        is_latest=reference_team != self.team,
+                    )
+                    LLMSkillFile.objects.create(
+                        skill=other_skill, path=reference_paths[0], content="Must not reach this generation."
+                    )
+            task = Task.objects.create(team=self.team, title="Scout history", description="Check the checkout flow.")
+            task_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+            report_ids = [str(uuid4()) for _ in range(6 if truncated else 5)]
+            SignalScoutRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                task_run=task_run,
+                scout_config=self.config,
+                skill_name=self.config.skill_name,
+                skill_version=1,
+                summary="s" * 3000 + (" omitted qualification" if truncated else ""),
+                emitted_report_ids=report_ids,
+            )
+        expected_criteria = default_criteria()
+        if name == "saved_choices":
+            expected_criteria[0].pass_condition = "Reported checkout counts match the inspected evidence."
+            expected_criteria[0].applicability = "When the scout reports checkout counts."
+            expected_criteria[1].enabled = False
+            enabled_custom = custom_criterion()
+            disabled_custom = custom_criterion().model_copy(update={"id": "custom-disabled", "enabled": False})
+            expected_criteria.extend([enabled_custom, disabled_custom])
+        elif name == "oversized_selection":
+            expected_criteria.extend(
+                custom_criterion().model_copy(update={"id": f"custom-large-{index}", "pass_condition": "🙂" * 2000})
+                for index in range(12)
+            )
+        if name in {"saved_choices", "oversized_selection"}:
+            save_rubric(self.team.id, str(self.config.id), revision=0, criteria=expected_criteria)
         config, _ = reserve_generation(self.team.id, str(self.config.id))
         generation = read_rubric_state(config).generation
         assert generation is not None
@@ -229,6 +343,18 @@ class TestScoutRubricsAPI(APIBaseTest):
             summary="Reviewed criteria based on the instructions. There are no recent runs.",
             suggestions=[ScoutRubricSuggestion(**criterion.model_dump(exclude={"id", "source", "enabled"}))],
         )
+        if name == "subset_selection":
+            reviewed_batch.suggestions.append(
+                reviewed_batch.suggestions[0].model_copy(
+                    update={
+                        "title": "Second judgment",
+                        "pass_condition": "The required checkout investigation is completed.",
+                    }
+                )
+            )
+        kept_indices = [] if name == "empty_selection" else [1] if name == "subset_selection" else [0]
+        selection_summary = "Suggestions after comparison with the original saved criteria."
+        selection_json = json.dumps({"summary": selection_summary, "keep_indices": kept_indices})
         reviewed_json = reviewed_batch.model_dump_json()
         review_outputs: list[str | BaseException] = [reviewed_json]
         if name == "malformed_json_recovered":
@@ -243,13 +369,19 @@ class TestScoutRubricsAPI(APIBaseTest):
         elif failed_stage == "format":
             review_outputs = ["This is not JSON", '{"summary":']
         elif failed_stage == "review":
-            review_outputs = [ValueError("Follow-up dispatch failed")]
+            review_outputs = [reviewed_json, ValueError("Follow-up dispatch failed")]
         elif failed_stage == "timeout":
-            review_outputs = [TimeoutError("Follow-up timed out")]
+            review_outputs = [reviewed_json, TimeoutError("Follow-up timed out")]
         elif failed_stage == "cancelled":
-            review_outputs = [asyncio.CancelledError()]
+            review_outputs = [reviewed_json, asyncio.CancelledError()]
+        if name == "selection_recovered":
+            review_outputs = [reviewed_json, '{"summary":', selection_json]
+        elif name == "both_stages_invalid":
+            review_outputs = ["Invalid initial draft", reviewed_json, "Invalid selection"]
+        elif failed_stage is None or failed_stage == "start":
+            review_outputs.append(selection_json)
         session = SimpleNamespace(
-            send_followup_raw=AsyncMock(side_effect=review_outputs),
+            send_followup_raw=AsyncMock(side_effect=review_outputs[1:]),
             end=AsyncMock(side_effect=RuntimeError("Sandbox unavailable") if cleanup_fails else None),
         )
         run_id = uuid4()
@@ -257,10 +389,61 @@ class TestScoutRubricsAPI(APIBaseTest):
         async def start(**kwargs: object) -> tuple[SimpleNamespace, str]:
             prompt = kwargs["prompt"]
             assert isinstance(prompt, str)
-            scout_context = json.loads(prompt.split("\nUntrusted scout context:\n", 1)[1])
+            bundle_text, schema_text = prompt.split("\nUntrusted source bundle:\n", 1)[1].split("\nResult schema:\n", 1)
+            bundle = json.loads(bundle_text)
+            scout_context = bundle["scout_context"]
+            self.assertEqual(json.loads(schema_text), ScoutRubricSuggestionBatch.model_json_schema())
+            references = bundle["reference_texts"]
+            if bounded_context:
+                self.assertEqual([item["path"] for item in references], reference_paths[: 2 if truncated else 4])
+                self.assertEqual(
+                    [len(item["content"]) for item in references], [15_000, 45_000] if truncated else [15_000] * 4
+                )
+                self.assertTrue(all(set(item["content"]) == {"r"} for item in references))
+                self.assertEqual(bundle["reference_limits"]["omitted_files"], 19 if truncated else 16)
+                self.assertEqual(
+                    bundle["reference_limits"]["truncated_files"], [reference_paths[1]] if truncated else []
+                )
+            else:
+                self.assertEqual(references, [])
+                self.assertEqual(bundle["reference_limits"], {"omitted_files": 0, "truncated_files": []})
             self.assertEqual(scout_context["description"], "Check the checkout flow.")
-            self.assertEqual(scout_context["instructions"], body)
-            self.assertEqual(scout_context["recent_runs"], [])
+            self.assertEqual(scout_context["report_channel"], report_channel)
+            disposition = scout_context["report_disposition_instructions"]
+            if report_channel == "none":
+                self.assertEqual(disposition, "")
+            else:
+                self.assertIn(disposition, normal_scout_prompt)
+                self.assertIn(
+                    {
+                        "emit": "This run can't edit reports",
+                        "edit": "This run updates reports that already exist; it can't author new ones.",
+                        "both": "Edit when it already exists *and is still live*",
+                    }[report_channel],
+                    disposition,
+                )
+            self.assertEqual(scout_context["instructions"], body[:60_000])
+            self.assertEqual(scout_context["instructions_truncated"], truncated)
+            self.assertEqual(scout_context["reference_files"], reference_paths[:20])
+            self.assertEqual(scout_context["reference_files_truncated"], truncated)
+            if bounded_context:
+                self.assertEqual(len(scout_context["recent_runs"]), 1)
+                recent_run = scout_context["recent_runs"][0]
+                self.assertEqual(recent_run["summary"], "s" * 3000)
+                self.assertEqual(recent_run["summary_truncated"], truncated)
+                self.assertEqual(recent_run["emitted_report_ids"], report_ids[:5])
+                self.assertEqual(recent_run["emitted_report_ids_truncated"], truncated)
+            else:
+                self.assertEqual(scout_context["recent_runs"], [])
+            self.assertEqual(
+                scout_context["saved_criteria"],
+                [
+                    item.model_dump(mode="json")
+                    for item in expected_criteria
+                    if not (item.source == ScoutRubricSource.CUSTOM and item.enabled)
+                ],
+            )
+            self.assertNotIn("shared_defaults", scout_context)
             self.assertEqual(kwargs["origin_product"], "scout_suggestions")
             context = kwargs["context"]
             assert isinstance(context, CustomPromptSandboxContext)
@@ -280,7 +463,9 @@ class TestScoutRubricsAPI(APIBaseTest):
             await result
             if failed_stage == "start":
                 raise ValueError("Draft failed")
-            return session, "An unvalidated draft that still needs review."
+            initial_output = review_outputs[0]
+            assert isinstance(initial_output, str)
+            return session, initial_output
 
         with (
             patch("products.signals.backend.scout_harness.rubrics_runner.RUBRIC_TEAM_ID", self.team.id),
@@ -294,19 +479,47 @@ class TestScoutRubricsAPI(APIBaseTest):
             else:
                 async_to_sync(run_rubric_generation)(self.team.id, str(self.config.id), generation.id, self.user.id)
         start_session.assert_awaited_once()
-        expected_followups = 0 if failed_stage == "start" else len(review_outputs)
+        expected_followups = 0 if failed_stage == "start" else len(review_outputs) - 1
         self.assertEqual(session.send_followup_raw.await_count, expected_followups)
         self.config.refresh_from_db()
         state = read_rubric_state(self.config)
-        self.assertEqual(state.revision, 0)
-        self.assertEqual([item.id for item in state.criteria], [item.id for item in default_criteria()])
+        self.assertEqual(state.revision, 1 if name in {"saved_choices", "oversized_selection"} else 0)
+        self.assertEqual(state.criteria, expected_criteria)
         assert state.generation is not None
         self.assertEqual(state.generation.task_run_id, str(run_id))
         self.assertEqual(state.generation.status, "failed" if failed_stage else "completed")
-        self.assertEqual(len(state.generation.suggestions), 0 if failed_stage else 1)
+        self.assertEqual(len(state.generation.suggestions), 0 if failed_stage else len(kept_indices))
         if not failed_stage:
-            self.assertEqual(state.generation.summary, reviewed_batch.summary)
-            self.assertEqual(state.generation.suggestions[0].pass_condition, criterion.pass_condition)
+            self.assertEqual(state.generation.summary, selection_summary)
+            self.assertEqual(
+                [item.model_dump(exclude={"id", "source", "enabled"}) for item in state.generation.suggestions],
+                [reviewed_batch.suggestions[index].model_dump() for index in kept_indices],
+            )
+            selection_calls = [
+                call
+                for call in session.send_followup_raw.call_args_list
+                if call.kwargs["label"] == "rubric_saved_selection"
+            ]
+            self.assertEqual(len(selection_calls), 1)
+            selection_prompt = selection_calls[0].args[0]
+            saved_text, numbered_text = selection_prompt.split("\nUntrusted saved criteria:\n", 1)[1].split(
+                "\nNumbered draft criteria:\n", 1
+            )
+            self.assertEqual(json.loads(saved_text), [item.model_dump(mode="json") for item in expected_criteria])
+            self.assertEqual(
+                json.loads(numbered_text.split("\nSelection schema:\n", 1)[0]),
+                [
+                    {"index": index, "criterion": item.model_dump(mode="json")}
+                    for index, item in enumerate(reviewed_batch.suggestions)
+                ],
+            )
+            if name == "selection_recovered":
+                correction = session.send_followup_raw.call_args_list[-1].args[0]
+                schema_text, indices_text = correction.split("\nResult schema:\n", 1)[1].split(
+                    "\nValid draft indices:\n", 1
+                )
+                self.assertEqual(set(json.loads(schema_text)["required"]), {"summary", "keep_indices"})
+                self.assertEqual(json.loads(indices_text), [0])
         if failed_stage != "start":
             session.end.assert_awaited_once_with(
                 status="failed" if failed_stage else "completed",

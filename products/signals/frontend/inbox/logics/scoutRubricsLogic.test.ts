@@ -92,10 +92,17 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.hasUnsavedChanges).toBe(true)
     })
 
-    it('saves only reviewed criteria and keeps their enabled states with the expected revision', async () => {
+    it('saves reviewed criteria before generating suggestions and preserves enabled states', async () => {
         document = makeDocument({ revision: 3, generation: makeGeneration('completed') })
         let submitted: unknown
+        let starts = 0
         useMocks({
+            post: {
+                [GENERATE_URL]: () => {
+                    starts += 1
+                    return [202, { ...document, generation: makeGeneration('queued') }]
+                },
+            },
             put: {
                 [RUBRICS_URL]: async ({ request }) => {
                     submitted = await request.json()
@@ -115,12 +122,19 @@ describe('scoutRubricsLogic', () => {
         logic.actions.toggleSuggestion(suggestion.id, true)
         logic.actions.addSelectedSuggestions()
         logic.actions.addSelectedSuggestions()
+        await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
+        expect(starts).toBe(0)
+
         await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
 
         expect(submitted).toEqual({ revision: 3, criteria: [{ ...criterion, enabled: false }, suggestion] })
         expect(logic.values.draftRevision).toBe(4)
         expect(logic.values.hasUnsavedChanges).toBe(false)
         expect(logic.values.availableSuggestions).toEqual([])
+
+        await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
+        expect(starts).toBe(1)
+        expect(logic.values.generationActive).toBe(true)
     })
 
     it.each([409, 503])('preserves edits after a %s save failure and recovers explicitly', async (status) => {

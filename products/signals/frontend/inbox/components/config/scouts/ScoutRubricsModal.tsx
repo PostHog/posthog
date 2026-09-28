@@ -149,7 +149,9 @@ export function ScoutRubricsModal({
                                         ? 'Suggestions are being generated'
                                         : saving
                                           ? 'Saving rubrics'
-                                          : undefined
+                                          : hasUnsavedChanges
+                                            ? 'Save rubric changes before generating suggestions'
+                                            : undefined
                                 }
                                 data-attr="scout-rubrics-generate"
                             >

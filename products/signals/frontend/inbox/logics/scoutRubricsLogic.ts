@@ -363,7 +363,7 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
             actions.appendCriteria(values.selectedSuggestions)
         },
         generateSuggestions: async () => {
-            if (values.generationSubmitting || values.generationActive || values.saving) {
+            if (values.generationSubmitting || values.generationActive || values.saving || values.hasUnsavedChanges) {
                 return
             }
             actions.generationRequestStarted()

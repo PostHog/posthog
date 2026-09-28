@@ -293,20 +293,34 @@ await session.end()
 
 ### Reference implementation
 
-The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` uses a single background session to inspect a scout's description, instructions and recent runs.
+The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
 The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
-When no runs exist, it drafts criteria from the description, instructions and available references and states that limitation.
-The prompt asks for a few outcome-focused checks not already covered by saved criteria, preserving conditional rules and fallback paths.
-Unresolved instruction conflicts stay with the owner, and the summary distinguishes inspected evidence from material the agent did not read.
+The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
+Reference text comes from the exact skill version in the same project, ordered by path and limited to four files and 60,000 characters combined.
+The context marks clipped instructions, references, summaries and report identifier lists explicitly.
+It includes the scout's report capabilities and matching disposition rules from the normal scout prompt; scouts without report tools receive no report-disposition instructions.
+Historical transcripts and full report contents are not supplied or inspected.
+When no runs exist, the generator uses the description and available instructions without inventing history.
+The prompt asks for a few distinct judgments about required outcomes and decisions, preserving saved coverage, edits and disabled choices.
+For complex policies, a criterion names the precise source rules that govern the judgment instead of rewriting their conditions and permitted alternatives.
+Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
+Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
-The agent drafts suggestions, then reviews them in the same session against the supplied rules and output schema.
-The review checks the passing conditions using the context already gathered.
-If its reply fails JSON or schema validation, the agent gets one request to correct the format in the same session.
-All calls share the original runtime limit; a second invalid reply fails the generation.
-Only the validated review result is saved on the scout config; a failed draft or review preserves the saved rubric.
+The agent first drafts a complete set of source-specific criteria, then receives the full saved rubric and selects which draft items add useful judgments.
+Selection returns indices rather than rewritten criteria; the backend preserves each selected item exactly and keeps draft order.
+An empty selection is valid when the saved rubric already supplies the draft's judgments.
+The agent can update its own task's progress before the final result.
+The summary describes supplied evidence and material limitations without grading historical runs.
+The two steps share one conditional JSON or schema correction in the same session and the original runtime limit.
+A second invalid reply fails the generation. Duplicate or out-of-range selection indices are invalid.
+The follow-up is bounded to 240,000 serialized bytes; an oversized request fails generation without truncating criteria.
+Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 The worker ends the session after success or failure.
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
+Save rubric edits before generating suggestions; generation uses the saved criteria.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
