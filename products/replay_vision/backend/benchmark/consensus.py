@@ -97,8 +97,16 @@ def _median_choice(choices: list[int | None]) -> tuple[dict[str, Any], float] | 
     answered = [choice for choice in choices if choice is not None]
     if len(answered) < MIN_LABELS:
         return None
-    median = round(statistics.median(answered))
+    median = _settled_median(answered)
+    if median is None:
+        return None
     return {"choiceIndices": [median]}, sum(1 for choice in answered if choice == median) / len(answered)
+
+
+def _settled_median(values: list[int]) -> int | None:
+    """The median when it is one of the values, None when it falls between two: a split, not an answer."""
+    median = statistics.median(values)
+    return int(median) if median == int(median) else None
 
 
 def _per_option_majority(
@@ -120,27 +128,31 @@ def _median_ratings(labels: list[dict[str, Any]]) -> tuple[dict[str, Any], None]
         for option_id, rating in (label.get("ratings") or {}).items():
             by_option.setdefault(option_id, []).append(rating)
     ratings = {
-        option_id: round(statistics.median(values))
+        option_id: median
         for option_id, values in by_option.items()
-        if len(values) >= MIN_LABELS
+        if len(values) >= MIN_LABELS and (median := _settled_median(values)) is not None
     }
     if not ratings:
         return None
     return {"ratings": ratings}, None
 
 
+def _span(edges: dict[str, Any]) -> list[Span]:
+    """A span with both edges, or none: an answer missing one is dropped rather than failing the snapshot."""
+    start, end = edges.get("startMs"), edges.get("endMs")
+    return [Span(start_ms=start, end_ms=end)] if isinstance(start, int) and isinstance(end, int) else []
+
+
 def _itemized_spans(label: dict[str, Any]) -> list[Span]:
     spans: list[Span] = []
     for item in label.get("items") or []:
-        if item.get("spans"):
-            spans.extend(Span(start_ms=s["startMs"], end_ms=s["endMs"]) for s in item["spans"])
-        elif item.get("startMs") is not None and item.get("endMs") is not None:
-            spans.append(Span(start_ms=item["startMs"], end_ms=item["endMs"]))
+        for edges in item.get("spans") or [item]:
+            spans.extend(_span(edges))
     return spans
 
 
 def _marker_spans(label: dict[str, Any]) -> list[Span]:
-    return [Span(start_ms=m["startMs"], end_ms=m["endMs"]) for m in label.get("markers") or []]
+    return [span for marker in label.get("markers") or [] for span in _span(marker)]
 
 
 def _span_consensus(per_labeler: list[list[Span]]) -> tuple[dict[str, Any], float] | None:

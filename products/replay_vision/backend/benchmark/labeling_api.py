@@ -5,11 +5,13 @@ knows the labeling database, the image ref formats or the v2 encryption; the pla
 returns a recording with all of that already resolved.
 """
 
+import io
 import time
+import zlib
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, BinaryIO
+from typing import Any
 
 from django.conf import settings
 
@@ -28,6 +30,7 @@ _TIMEOUT = (10, 300)
 # The app caps playable exports in flight and answers the overflow with a 429, which clears once
 # another export finishes, so a busy answer is waited out here rather than failing the case.
 _BUSY_RETRIES = 4
+_READ_CHUNK_BYTES = 1024 * 1024
 _BUSY_BACKOFF_SECONDS = 5
 
 
@@ -37,10 +40,38 @@ class ExportSnapshot(BaseModel, frozen=True):
     cases: list[BenchmarkCase]
 
 
+class GzipBody(io.RawIOBase):
+    """A gzip response body, decoded as it is read, that fails on one ending before its trailer.
+
+    The export ends a failed body early, and urllib3's own decoding would pass that off as a short recording.
+    """
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+        self._decoder = zlib.decompressobj(wbits=zlib.MAX_WBITS | 16)
+        self._pending = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int | None = -1) -> bytes:
+        wanted = -1 if size is None else size
+        while (wanted < 0 or len(self._pending) < wanted) and not self._decoder.eof:
+            chunk = self._raw.read(_READ_CHUNK_BYTES, decode_content=False)
+            if not chunk:
+                raise OSError("the playable export ended before its gzip trailer")
+            self._pending += self._decoder.decompress(chunk)
+        if wanted < 0:
+            data, self._pending = self._pending, b""
+        else:
+            data, self._pending = self._pending[:wanted], self._pending[wanted:]
+        return data
+
+
 @frozen
 class PlayableRecording:
     # The JSONL body, decoded from the route's gzip as it is read.
-    stream: BinaryIO
+    stream: GzipBody
     image_refs: int
     images_resolved: int
 
@@ -93,9 +124,8 @@ class LabelingExportClient:
         """The recording as a stream, so a long one never sits whole in the worker's memory."""
         response = self._get(f"/recordings/{recording_id}/playable", stream=True)
         try:
-            response.raw.decode_content = True
             yield PlayableRecording(
-                stream=response.raw,
+                stream=GzipBody(response.raw),
                 image_refs=int(response.headers.get("x-benchmark-image-refs", 0)),
                 images_resolved=int(response.headers.get("x-benchmark-images-resolved", 0)),
             )

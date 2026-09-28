@@ -2,14 +2,15 @@
 
 from django.conf import settings
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BenchmarkCase(BaseModel, frozen=True):
     """One labeled recording to render, as listed in the version's `cases.jsonl`."""
 
-    # The labeling suite's recording id, used as the case id throughout.
-    case_id: str
+    # The labeling suite's recording id, used as the case id throughout. It lands in object keys and workflow ids,
+    # so only a UUID from the export is accepted.
+    case_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     split: str | None
     domain: str | None
     # The PostHog team and session: production's scan inputs are fetched by them, and a deletion reaches the case by them.

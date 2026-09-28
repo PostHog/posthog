@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { zstdCompressSync } from 'zlib'
 
-import { FileBlockSource } from '~/session-replay/recording-rasterizer/capture/file-block-source'
+import { FileBlockSource, isAllowedSource } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 
 describe('FileBlockSource', () => {
     let dir: string
@@ -35,5 +35,15 @@ describe('FileBlockSource', () => {
         await source.fetchBlocks()
 
         expect(await serve(source)).toEqual({ status: expectedStatus, body: expectedBody })
+    })
+
+    // The allowlist is the only thing between a render input and every object the rasterizer's role can read.
+    it.each([
+        ['s3://bench/rv-benchmark/v1/cases/a/events.jsonl.zst', true],
+        ['s3://bench/rv-benchmark-private/v1/events.jsonl.zst', false],
+        ['s3://other/rv-benchmark/v1/events.jsonl.zst', false],
+        ['s3://bench/rv-benchmark/../exports/mp4/x.mp4', false],
+    ])('isAllowedSource(%s) is %s under s3://bench/rv-benchmark', (uri, expected) => {
+        expect(isAllowedSource(uri, ['s3://bench/rv-benchmark'])).toBe(expected)
     })
 })

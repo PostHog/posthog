@@ -13,6 +13,8 @@ from products.replay_vision.backend.benchmark.layout import BenchmarkCase
 
 # The prepare activity's error type for a session production would not scan, which the build skips.
 BENCHMARK_CASE_SKIPPED_ERROR_TYPE = "BenchmarkCaseSkipped"
+# Its error type for a case an earlier run of the same version already built, which a resumed build counts as is.
+BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE = "BenchmarkCaseAlreadyBuilt"
 
 CaseOutcome = Literal["built", "failed", "skipped"]
 

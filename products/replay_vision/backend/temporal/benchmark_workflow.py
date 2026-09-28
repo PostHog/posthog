@@ -24,7 +24,6 @@ with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.temporal.session_replay.rasterize_recording.types import (
-        RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
         RasterizationActivityOutput,
         RasterizeRecordingInputs,
     )
@@ -38,6 +37,7 @@ with wf.unsafe.imports_passed_through():
         write_benchmark_manifest_activity,
     )
     from products.replay_vision.backend.temporal.benchmark_types import (
+        BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE,
         BENCHMARK_CASE_SKIPPED_ERROR_TYPE,
         BuildBenchmarkInputs,
         CaseOutcome,
@@ -60,6 +60,9 @@ BENCHMARK_RENDER_PRIORITY = Priority(priority_key=5)
 # Rasterizer codes for a recording production gates as ineligible rather than failed: nothing to draw, or
 # too large to render. The benchmark skips those the same way.
 _INELIGIBLE_RENDER_TYPES = frozenset({"NO_SNAPSHOTS", "RECORDING_TOO_LARGE"})
+# A render at the lowest priority waits behind any production backlog, and that wait counts against the child's
+# execution timeout, so it gets hours rather than the single render attempt production callers budget for.
+BENCHMARK_RENDER_TIMEOUT = dt.timedelta(hours=6)
 
 _RETRY = common.RetryPolicy(maximum_attempts=3)
 
@@ -143,25 +146,32 @@ class BuildBenchmarkWorkflow(PostHogWorkflow):
                     task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(maximum_attempts=1),
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                    execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+                    execution_timeout=BENCHMARK_RENDER_TIMEOUT,
                     priority=BENCHMARK_RENDER_PRIORITY,
                 )
             except Exception as error:
+                cause = unwrap_temporal_cause(error)
+                if cause is not None and cause.type == BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE:
+                    return "built"
                 reason = _skip_reason(error)
                 outcome = "skipped" if reason else "failed"
-                reason = reason or str(unwrap_temporal_cause(error) or error)
-            await wf.execute_activity(
-                record_benchmark_case_activity,
-                RecordBenchmarkCaseInputs(
-                    version=version,
-                    case_id=case.case_id,
-                    outcome=outcome,
-                    render=render,
-                    reason=reason,
-                    image_refs=image_refs,
-                    images_resolved=images_resolved,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=_RETRY,
-            )
+                reason = reason or str(cause or error)
+            try:
+                await wf.execute_activity(
+                    record_benchmark_case_activity,
+                    RecordBenchmarkCaseInputs(
+                        version=version,
+                        case_id=case.case_id,
+                        outcome=outcome,
+                        render=render,
+                        reason=reason,
+                        image_refs=image_refs,
+                        images_resolved=images_resolved,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=_RETRY,
+                )
+            except Exception:
+                # One case whose status could not be written must not fail the batch and the renders beside it.
+                return "failed"
             return outcome

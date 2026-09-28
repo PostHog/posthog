@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+from typing import IO, cast
 
 import zstandard
 from temporalio import activity
@@ -15,9 +16,11 @@ from posthog.temporal.session_replay.rasterize_recording.types import FINGERPRIN
 
 from products.replay_vision.backend.benchmark.labeling_api import LabelingExportClient
 from products.replay_vision.backend.benchmark.layout import BenchmarkCase, BenchmarkLayout
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import analysis_export_context
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_payload
 from products.replay_vision.backend.temporal.benchmark_types import (
+    BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE,
     BENCHMARK_CASE_SKIPPED_ERROR_TYPE,
     LoadBenchmarkCasesInputs,
     LoadBenchmarkCasesOutput,
@@ -115,6 +118,9 @@ def _skip(reason: str) -> ApplicationError:
 
 def _production_inputs(case: BenchmarkCase) -> ScannerLlmInputs:
     """The inputs a production scan of this session gets, from the same fetch; a session it would not scan is skipped."""
+    # The same gate a production scan passes before anything leaves for Gemini.
+    if not is_ai_data_processing_approved(case.team_id):
+        raise _skip("no AI data processing consent")
     try:
         payload = fetch_session_payload(case.team_id, case.session_id)
     except IneligibleSessionError as error:
@@ -126,11 +132,20 @@ def _production_inputs(case: BenchmarkCase) -> ScannerLlmInputs:
     return payload
 
 
+def _already_built(layout: BenchmarkLayout, case: BenchmarkCase) -> bool:
+    status = object_storage.read(layout.status_key(case.case_id), bucket=layout.bucket, missing_ok=True)
+    return status is not None and json.loads(status).get("outcome") == "built"
+
+
 def _prepare_case(layout: BenchmarkLayout, case: BenchmarkCase) -> PrepareBenchmarkCaseOutput:
+    # A resumed build keeps what an earlier run of this version rendered instead of rendering it again.
+    if _already_built(layout, case):
+        raise ApplicationError("already built", type=BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE, non_retryable=True)
     # Inputs first: a skipped session costs the labeling app nothing.
     inputs = _production_inputs(case)
     with LabelingExportClient.from_settings().playable(case.case_id) as playable:
-        with zstandard.ZstdCompressor().stream_reader(playable.stream) as compressed:
+        # The reader only calls read(), which GzipBody provides.
+        with zstandard.ZstdCompressor().stream_reader(cast(IO[bytes], playable.stream)) as compressed:
             object_storage.write_stream(layout.events_key(case.case_id), compressed, bucket=layout.bucket)
     object_storage.write(layout.inputs_key(case.case_id), inputs.model_dump_json(), bucket=layout.bucket)
     return PrepareBenchmarkCaseOutput(
