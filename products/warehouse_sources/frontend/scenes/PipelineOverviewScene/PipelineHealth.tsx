@@ -26,8 +26,6 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
 const TYPE_LABELS: Record<string, string> = {
     external_data_sync: 'Sync',
     source: 'Source',
-    destination: 'Destination',
-    transformation: 'Transformation',
 }
 
 export function PipelineHealth(): JSX.Element {

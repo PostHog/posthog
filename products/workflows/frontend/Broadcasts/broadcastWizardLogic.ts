@@ -937,15 +937,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s) => [s.name],
             (name: string): Breadcrumb[] => [
                 {
-                    key: Scene.Workflows,
+                    key: Scene.Broadcasts,
                     name: 'Broadcasts',
                     path: urls.broadcasts(),
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
                 {
                     key: [Scene.Broadcast, name],
                     name,
-                    iconType: 'workflows',
+                    iconType: 'broadcasts',
                 },
             ],
         ],
