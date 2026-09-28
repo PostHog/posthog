@@ -142,12 +142,12 @@ export interface workflowProposalsLogicActions {
         errorObject?: any
     }
     setOptimizationEnabledSuccess: (
-        optimization: HogFlowOptimizationApi | null,
+        optimization: HogFlowOptimizationApi,
         payload?: {
             enabled: boolean
         }
     ) => {
-        optimization: HogFlowOptimizationApi | null
+        optimization: HogFlowOptimizationApi
         payload?: {
             enabled: boolean
         }
@@ -176,7 +176,7 @@ export interface workflowProposalsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
-        optimizationEnabled: (optimization: any) => boolean
+        optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
     }

@@ -235,7 +235,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
-                              |HogFlowOptimisation
+                              |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
@@ -668,7 +668,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
-                        |HogFlowOptimisation
+                        |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
