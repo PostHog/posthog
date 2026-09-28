@@ -58,7 +58,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.investigation import (
+    carried_verdict_suppresses,
+    claim_investigation_slot,
+    decide_investigation,
+)
 from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -761,9 +765,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation = decide_investigation(alert, alert_check)
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
-                should_gate_notification = investigation.is_first_of_episode and bool(
-                    alert.investigation_gates_notifications
-                )
+                should_gate_notification = bool(alert.investigation_gates_notifications)
+            elif should_notify and carried_verdict_suppresses(alert, investigation):
+                # Marked so the safety net does not force-send it and the UI shows why it was held.
+                AlertCheck.objects.filter(id=alert_check.id).update(notification_suppressed_by_agent=True)
+                should_notify = False
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.
