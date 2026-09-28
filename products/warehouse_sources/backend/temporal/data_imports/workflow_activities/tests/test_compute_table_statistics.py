@@ -438,6 +438,49 @@ class TestComputeTableStatisticsSync:
         assert result["status"] == "skipped"
         assert result["reason"] == "version_unchanged"
 
+    def test_recomputes_when_a_registered_column_has_no_stats_row_at_all(self) -> None:
+        # Distinct from the two tests above: those cover a column whose row exists but carries a
+        # stale timestamp/version. Here "currency" has no row at all — its very first computation
+        # never landed. The min-based gates only compare columns present in `existing`, so without an
+        # explicit completeness check a table like this would read as fully fresh off "amount" alone.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team,
+            columns={
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "currency": {"clickhouse": "Nullable(String)"},
+            },
+        )
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            row_count=1,
+            computed_at=timezone.now(),
+            computed_for_delta_version=7,
+        )
+        add_actions = pa.table(
+            {
+                "num_records": [99],
+                "null_count.amount": [0],
+                "min.amount": [1],
+                "max.amount": [1],
+                "null_count.currency": [0],
+                "min.currency": ["usd"],
+                "max.currency": ["usd"],
+            }
+        )
+        helper = self._mock_delta(add_actions, version=7)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        rows = {r.column_name: r for r in WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id)}
+        assert rows["currency"].computed_for_delta_version == 7
+
     def test_skipped_when_no_columns_without_reading_add_actions(self) -> None:
         # Nothing is written for a table with no registered columns, so the recency gate never
         # engages for it; the only thing keeping the scan off every sync is checking columns first.

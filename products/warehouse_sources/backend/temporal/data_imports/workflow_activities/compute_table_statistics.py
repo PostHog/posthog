@@ -205,6 +205,19 @@ def _most_recent_computed_version(
     return min(versions) if versions else None
 
 
+def _all_columns_have_stats(existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]) -> bool:
+    """Whether every currently-registered column has a statistics row at all.
+
+    The min-based staleness checks above only compare columns that already have a row; a column
+    whose very first computation never landed (its upsert failed before any row was written, not
+    just before its version caught up) is invisible to them entirely, so a table with such a gap
+    would read as fully fresh off the other columns' timestamps and versions alone. Both skip gates
+    require this to be true first, so a never-computed column always forces a recompute rather than
+    waiting out the interval.
+    """
+    return set(current_columns) <= existing.keys()
+
+
 @retry_on_operational_error
 def _get_team(team_id: int) -> Team:
     return Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
@@ -259,7 +272,10 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         stat.column_name: stat for stat in WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id)
     }
     latest = _most_recent_computed_at(existing, columns)
-    if latest is not None and timezone.now() - latest < MIN_RECOMPUTE_INTERVAL:
+    # Gates every skip below: a column missing a row entirely (see _all_columns_have_stats) is
+    # invisible to the min-based checks, so it must not let a table with such a gap read as fresh.
+    all_columns_have_stats = _all_columns_have_stats(existing, columns)
+    if latest is not None and all_columns_have_stats and timezone.now() - latest < MIN_RECOMPUTE_INTERVAL:
         emit_completed("skipped", reason="computed_recently")
         return {"status": "skipped", "reason": "computed_recently"}
 
@@ -294,6 +310,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     version_is_stale = stored_version is not None and stored_version > delta_version
     if (
         latest is not None
+        and all_columns_have_stats
         and not version_is_stale
         and stored_version == delta_version
         and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL

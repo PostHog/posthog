@@ -4,7 +4,7 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
-from django.db import IntegrityError, close_old_connections
+from django.db import close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
@@ -89,10 +89,6 @@ class SourceOrSchemaDeletedError(NonReportableError):
     activity can find the rows gone. The run must still fail, because there is no schema left
     to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
     the race out of error tracking instead of opening an issue per orphaned run.
-
-    Also raised when the deletion happens in the narrower window between the existence check
-    above and the job insert (e.g. a team torn down mid-run cascades the source/schema away),
-    which surfaces as an ``IntegrityError`` on the FK to the now-gone row instead.
     """
 
 
@@ -380,23 +376,15 @@ def create_external_data_job_model_activity(
             schema_snapshot["scheduled_full_refresh"] = True
             logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
 
-        try:
-            job = _create_job(
-                team_id=inputs.team_id,
-                source_id=inputs.source_id,
-                schema_id=inputs.schema_id,
-                pipeline_version=pipeline_version,
-                billable=inputs.billable,
-                schema_snapshot=schema_snapshot,
-                destination_ids=destination_ids,
-            )
-        except IntegrityError:
-            # The source or schema can still be deleted (or its team torn down, cascading to
-            # both) between the existence check above and this insert. Same race as
-            # SourceOrSchemaDeletedError, just found a step later.
-            delete_external_data_schedule(str(inputs.schema_id))
-            logger.info("Source or schema was deleted before the job could be created, deleted the sync schedule")
-            raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule") from None
+        job = _create_job(
+            team_id=inputs.team_id,
+            source_id=inputs.source_id,
+            schema_id=inputs.schema_id,
+            pipeline_version=pipeline_version,
+            billable=inputs.billable,
+            schema_snapshot=schema_snapshot,
+            destination_ids=destination_ids,
+        )
         # Persist the Running status only after the job row exists: a Running schema with no job
         # behind it can never be finalized, so it would stay stuck on Running forever. With the job
         # committed first, the workflow's finalizer can always resolve it and repaint the schema.
@@ -470,9 +458,6 @@ def create_external_data_job_model_activity(
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's
         # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
-        raise
-    except SourceOrSchemaDeletedError:
-        # Raised (and already logged) from the IntegrityError handler around _create_job above.
         raise
     except Exception as e:
         logger.exception(
