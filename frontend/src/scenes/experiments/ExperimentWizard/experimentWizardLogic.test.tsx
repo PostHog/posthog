@@ -189,10 +189,10 @@ describe('experimentWizardLogic', () => {
                 </BindLogic>
             )
 
-            const nameInput = screen.getByPlaceholderText('e.g., New checkout flow test')
+            const nameInput = screen.getByPlaceholderText('e.g. New checkout flow test')
             await userEvent.type(nameInput, 'My Cool Experiment')
 
-            expect(screen.getByPlaceholderText('e.g., new-checkout-flow-test')).toHaveValue('my-cool-experiment')
+            expect(screen.getByPlaceholderText('e.g. new-checkout-flow-test')).toHaveValue('my-cool-experiment')
         })
 
         it('selecting an existing flag sets key and variants from the flag', async () => {

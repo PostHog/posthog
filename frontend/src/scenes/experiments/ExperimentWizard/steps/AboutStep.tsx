@@ -64,7 +64,7 @@ export function AboutStep(): JSX.Element {
 
             <LemonField.Pure label="Experiment name" error={nameError}>
                 <LemonInput
-                    placeholder="e.g., New checkout flow test"
+                    placeholder="e.g. New checkout flow test"
                     value={experiment.name}
                     onChange={(value) => {
                         setExperimentValue('name', value)
@@ -141,7 +141,7 @@ export function AboutStep(): JSX.Element {
                     }
                 >
                     <LemonInput
-                        placeholder="e.g., new-checkout-flow-test"
+                        placeholder="e.g. new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
                             const normalizedValue = slugifyFeatureFlagKey(value)
