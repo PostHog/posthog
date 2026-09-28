@@ -252,11 +252,11 @@ Exact property matching is selected per team through `TeamFeatureFlagsConfig.pro
 | `PERSONS_WRITE_DATABASE_URL`              | (empty, aliases to main)                            | Persons database primary              |
 | `PERSONS_READ_DATABASE_URL`               | (empty, aliases to main)                            | Persons database replica              |
 | `MAX_PG_CONNECTIONS`                      | `10`                                                | Max connections per pool              |
-| `ACQUIRE_TIMEOUT_SECS`                    | `5`                                                 | Connection acquisition timeout        |
+| `ACQUIRE_TIMEOUT_SECS`                    | `1`                                                 | Connection acquisition timeout        |
 | `IDLE_TIMEOUT_SECS`                       | `300`                                               | Close idle connections after this     |
 | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | `2000`                                              | Statement timeout for flag/team reads |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `3000`                                              | Statement timeout for person lookups  |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | `3000`                                              | Statement timeout for writes          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `1000`                                              | Statement timeout for person lookups  |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | `1000`                                              | Statement timeout for writes          |
 
 ### Behavioral cohorts
 

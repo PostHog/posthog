@@ -426,7 +426,8 @@ pub struct Config {
 
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
-    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // pool's full acquire timeout plus statement timeout. On timeout the lookup degrades to
+    // non-membership.
     // The default matches the pool's 1s statement timeout: a tighter client-side bound
     // would discard answers the DB would still deliver, flipping flags for the person,
     // so this bound only adds cover where statement_timeout cannot reach (pool acquire
@@ -519,10 +520,13 @@ pub struct Config {
     #[envconfig(default = "4500")]
     pub request_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out.
-    // Must be well under request_timeout_ms so there's still time for query + response.
-    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
-    #[envconfig(default = "2")]
+    // How long to wait for a connection from the pool before timing out (whole seconds, minimum 1).
+    // The wait covers queueing for a free connection, the test_before_acquire ping, and opening a
+    // new connection.
+    // This plus each pool's statement timeout must stay well under request_timeout_ms. Then
+    // Postgres cancels a slow query before the request times out, and the connection goes back
+    // to the pool. When the request times out first, sqlx closes the connection instead.
+    #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -548,19 +552,20 @@ pub struct Config {
 
     // PostgreSQL statement_timeout for persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Person and cohort queries should complete well under 3s (P99 hold time is 25ms)
-    // - Default: 3000ms (3 seconds)
+    // - Person and cohort queries should complete well under 1s (P99 hold time is 25ms)
+    // - Default: 1000ms (1 second)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "1000")]
     pub persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for writer database queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Hash key override writes have retry logic (2 attempts, 100ms backoff)
-    // - 3s per attempt with retries gives 6s total before failure
-    // - Default: 3000ms (3 seconds)
+    // - Hash key override writes retry a transient error and a foreign key violation, which
+    //   occurs when a person is deleted during the write. A statement that hits this timeout is
+    //   not retried.
+    // - Default: 1000ms (1 second)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "1000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)

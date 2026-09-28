@@ -54,10 +54,10 @@ pub struct PoolConfig {
 | ---------------------- | --------------- | --------------- | ------------------------------------------ |
 | `min_connections`      | 0               | 0 per pool      | Start with no connections, scale on demand |
 | `max_connections`      | 10              | 10              | Maximum connections per pool               |
-| `acquire_timeout`      | 10s             | 3s (test)       | Wait time for connection from pool         |
+| `acquire_timeout`      | 10s             | 1s              | Wait time for connection from pool         |
 | `idle_timeout`         | 300s (5 min)    | 300s            | Close unused connections                   |
 | `test_before_acquire`  | true            | true            | Validate connection before use             |
-| `statement_timeout_ms` | None            | 5000ms          | Cancel queries exceeding this duration     |
+| `statement_timeout_ms` | None            | per pool        | Cancel queries exceeding this duration     |
 
 ### Per-pool statement timeouts
 
@@ -214,6 +214,9 @@ Transient errors (suitable for retry):
 | `40003`        | Statement completion unknown                        |
 | `40P01`        | Deadlock detected                                   |
 
+The `57***` class includes 57014, which is a statement timeout.
+The hash key override retry predicate checks `is_timeout_error` first, so it does not retry a timeout.
+
 Non-transient errors (fail immediately):
 
 | SQLSTATE class | Meaning                          |
@@ -250,35 +253,40 @@ Used for retrying hash key override writes when a person is deleted during the o
 
 ## Retry strategies
 
-The service uses the `tokio-retry` crate with exponential backoff:
+The hash key override calls use the `tokio-retry` crate with exponential backoff.
+Each call passes `should_retry_on_error` to `RetryIf`.
+It retries a transient error and a foreign key violation, which means a person was deleted during a write.
+It does not retry a timeout, because a second attempt could wait the full acquire and statement timeouts again.
 
 ### Read operations
+
+`get_feature_flag_hash_key_overrides`:
 
 ```rust
 let retry_strategy = ExponentialBackoff::from_millis(50)
     .max_delay(Duration::from_millis(300))
-    .take(3)  // 3 attempts total
+    .take(1)  // 1 retry = 2 attempts total
     .map(jitter);
 ```
 
 - **Initial delay**: 50ms
 - **Max delay**: 300ms
-- **Max attempts**: 3
-- **Retry on**: Transient errors only
+- **Max attempts**: 2
 
 ### Write operations
+
+`should_write_hash_key_override` and `set_feature_flag_hash_key_overrides`:
 
 ```rust
 let retry_strategy = ExponentialBackoff::from_millis(100)
     .max_delay(Duration::from_millis(300))
-    .take(2)  // 2 attempts for writes
+    .take(2)  // 2 retries = 3 attempts total
     .map(jitter);
 ```
 
-- **Initial delay**: 100ms (slower to avoid overwhelming)
+- **Initial delay**: 100ms
 - **Max delay**: 300ms
-- **Max attempts**: 2 (more conservative)
-- **Retry on**: Foreign key constraint errors (person deletion race)
+- **Max attempts**: 3
 
 ## Observability
 
@@ -347,24 +355,24 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 
 ### Environment variables
 
-| Variable                                  | Default      | Purpose                                                          |
-| ----------------------------------------- | ------------ | ---------------------------------------------------------------- |
-| `READ_DATABASE_URL`                       | required     | Main database read replica URL                                   |
-| `WRITE_DATABASE_URL`                      | required     | Main database primary URL                                        |
-| `PERSONS_READ_DATABASE_URL`               | empty        | Persons database read replica (enables routing)                  |
-| `PERSONS_WRITE_DATABASE_URL`              | empty        | Persons database primary (enables routing)                       |
-| `MAX_PG_CONNECTIONS`                      | 10           | Max connections per pool                                         |
-| `MIN_NON_PERSONS_READER_CONNECTIONS`      | 0            | Min idle connections for non-persons reader                      |
-| `MIN_NON_PERSONS_WRITER_CONNECTIONS`      | 0            | Min idle connections for non-persons writer                      |
-| `MIN_PERSONS_READER_CONNECTIONS`          | 0            | Min idle connections for persons reader                          |
-| `MIN_PERSONS_WRITER_CONNECTIONS`          | 0            | Min idle connections for persons writer                          |
-| `ACQUIRE_TIMEOUT_SECS`                    | 10           | Connection acquisition timeout                                   |
-| `IDLE_TIMEOUT_SECS`                       | 300          | Idle connection timeout                                          |
-| `TEST_BEFORE_ACQUIRE`                     | true         | Validate connections before use                                  |
-| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 0 (disabled) | Statement timeout for non-persons reads                          |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 0 (disabled) | Statement timeout for persons reads                              |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | 0 (disabled) | Statement timeout for writes                                     |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`    | empty        | Behavioral cohorts database (enables realtime cohort evaluation) |
+| Variable                                  | Default  | Purpose                                                          |
+| ----------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `READ_DATABASE_URL`                       | required | Main database read replica URL                                   |
+| `WRITE_DATABASE_URL`                      | required | Main database primary URL                                        |
+| `PERSONS_READ_DATABASE_URL`               | empty    | Persons database read replica (enables routing)                  |
+| `PERSONS_WRITE_DATABASE_URL`              | empty    | Persons database primary (enables routing)                       |
+| `MAX_PG_CONNECTIONS`                      | 10       | Max connections per pool                                         |
+| `MIN_NON_PERSONS_READER_CONNECTIONS`      | 0        | Min idle connections for non-persons reader                      |
+| `MIN_NON_PERSONS_WRITER_CONNECTIONS`      | 0        | Min idle connections for non-persons writer                      |
+| `MIN_PERSONS_READER_CONNECTIONS`          | 0        | Min idle connections for persons reader                          |
+| `MIN_PERSONS_WRITER_CONNECTIONS`          | 0        | Min idle connections for persons writer                          |
+| `ACQUIRE_TIMEOUT_SECS`                    | 1        | Connection acquisition timeout                                   |
+| `IDLE_TIMEOUT_SECS`                       | 300      | Idle connection timeout                                          |
+| `TEST_BEFORE_ACQUIRE`                     | true     | Validate connections before use                                  |
+| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | 2000     | Statement timeout for non-persons reads                          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | 1000     | Statement timeout for persons reads                              |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | 1000     | Statement timeout for writes                                     |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`    | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 
 ### Tuning guidance
 
@@ -383,13 +391,13 @@ IDLE_TIMEOUT_SECS=600  # Keep connections warm longer
 MIN_NON_PERSONS_READER_CONNECTIONS=3  # Pre-warm some connections
 ```
 
-**Strict timeout enforcement**:
+**Raising timeouts**:
 
-```bash
-NON_PERSONS_READER_STATEMENT_TIMEOUT_MS=5000  # 5s for reads
-PERSONS_READER_STATEMENT_TIMEOUT_MS=5000
-WRITER_STATEMENT_TIMEOUT_MS=2000  # 2s for writes (should be fast)
-```
+One database call can wait the full acquire timeout and then run until the statement timeout cancels its query.
+Keep `ACQUIRE_TIMEOUT_SECS` plus each pool's statement timeout well under `REQUEST_TIMEOUT_MS`.
+Otherwise the request can time out while its query still runs, and sqlx closes the connection instead of returning it to the pool.
+The service logs a warning at startup for each pool where the sum does not fit.
+Hash key override calls do not retry a timeout, so a retry does not add to this sum.
 
 ## Related files
 

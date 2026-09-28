@@ -1,5 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
+use crate::database::pool_names;
 use common_database::{get_pool_with_config, PoolConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -42,12 +43,55 @@ impl DatabasePools {
         }
     }
 
+    /// Lists each pool, with its statement timeout, where one call can outlast the request timeout.
+    /// A statement timeout of 0 leaves the query unbounded.
+    ///
+    /// This bounds one call, not one request. A request that runs several calls in sequence can
+    /// still outlast the request timeout.
+    fn pools_over_request_timeout(config: &Config) -> Vec<(&'static str, u64)> {
+        let acquire_ms = config.acquire_timeout_secs.saturating_mul(1000);
+        [
+            (
+                pool_names::NON_PERSONS_READER,
+                config.non_persons_reader_statement_timeout_ms,
+            ),
+            (
+                pool_names::PERSONS_READER,
+                config.persons_reader_statement_timeout_ms,
+            ),
+            (
+                pool_names::PERSONS_WRITER,
+                config.writer_statement_timeout_ms,
+            ),
+            (
+                pool_names::NON_PERSONS_WRITER,
+                config.writer_statement_timeout_ms,
+            ),
+        ]
+        .into_iter()
+        .filter(|&(_, statement_timeout_ms)| {
+            statement_timeout_ms == 0
+                || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms
+        })
+        .collect()
+    }
+
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         // Validate acquire_timeout_secs - must be at least 1 second
         if config.acquire_timeout_secs == 0 {
             return Err(FlagError::internal(anyhow::anyhow!(
                 "ACQUIRE_TIMEOUT_SECS must be at least 1 second"
             )));
+        }
+
+        for (pool, statement_timeout_ms) in Self::pools_over_request_timeout(config) {
+            tracing::warn!(
+                pool,
+                statement_timeout_ms,
+                acquire_timeout_secs = config.acquire_timeout_secs,
+                request_timeout_ms = config.request_timeout_ms,
+                "Acquire timeout plus statement timeout on this pool does not fit inside REQUEST_TIMEOUT_MS, so a slow query outlasts the request and its connection is closed"
+            );
         }
 
         // Validate and fix max_connections if it's 0
@@ -303,6 +347,8 @@ impl DatabasePools {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use envconfig::Envconfig;
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[test]
@@ -322,6 +368,45 @@ mod tests {
 
         assert_eq!(config.statement_timeout_ms, None);
         assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
+    }
+
+    #[rstest::rstest]
+    #[case::defaults(&[], &[])]
+    #[case::statement_timeouts(
+        &[
+            ("NON_PERSONS_READER_STATEMENT_TIMEOUT_MS", "4000"),
+            ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "0"),
+        ],
+        &[(pool_names::NON_PERSONS_READER, 4000), (pool_names::PERSONS_READER, 0)]
+    )]
+    #[case::acquire(
+        &[("ACQUIRE_TIMEOUT_SECS", "4")],
+        &[
+            (pool_names::NON_PERSONS_READER, 2000),
+            (pool_names::PERSONS_READER, 1000),
+            (pool_names::PERSONS_WRITER, 1000),
+            (pool_names::NON_PERSONS_WRITER, 1000),
+        ]
+    )]
+    #[case::sum_equals_request_timeout(
+        &[("ACQUIRE_TIMEOUT_SECS", "3"), ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "1500")],
+        &[(pool_names::NON_PERSONS_READER, 2000), (pool_names::PERSONS_READER, 1500)]
+    )]
+    #[case::longer_request_timeout(
+        &[("ACQUIRE_TIMEOUT_SECS", "4"), ("REQUEST_TIMEOUT_MS", "7000")],
+        &[]
+    )]
+    fn test_pools_over_request_timeout(
+        #[case] env: &[(&str, &str)],
+        #[case] expected: &[(&str, u64)],
+    ) {
+        let env: HashMap<String, String> = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+
+        assert_eq!(DatabasePools::pools_over_request_timeout(&config), expected);
     }
 
     #[tokio::test]

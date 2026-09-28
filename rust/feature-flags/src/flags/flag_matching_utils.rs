@@ -4,7 +4,7 @@ use std::{
 };
 use tokio_retry::{
     strategy::{jitter, ExponentialBackoff},
-    Retry,
+    RetryIf,
 };
 
 use crate::database::{
@@ -49,8 +49,7 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
 
 /// Bounds how long a detached check can occupy the writer pool. Covers connection acquisition as
-/// well as the query, so a saturated pool kills the task here rather than at its 10s acquire
-/// timeout.
+/// well as the query, so a saturated pool kills the task here rather than at its acquire timeout.
 const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
@@ -670,14 +669,20 @@ fn are_overrides_useful_for_flag(
 
 /// Classifies whether a FlagError is worth retrying.
 ///
-/// NOTE: this does not gate retries. The call sites use `Retry::spawn`, which retries
-/// every `Err` unconditionally; this only labels metrics and logs. Switch to
-/// `RetryIf::spawn` with this as the predicate if retries should actually be gated.
+/// Timeouts are not retried. A second attempt could wait the full acquire and statement timeouts
+/// again, which pushes the call past the request timeout. A foreign key violation is retried
+/// because it means that a person was deleted during a hash key override write.
 fn should_retry_on_error(error: &FlagError) -> bool {
     match error {
         // Errors constructed with context (e.g. "Failed to fetch flags") bypass
         // From<sqlx::Error> and still carry the raw error, so classify by transience here.
-        FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
+        // is_transient_error accepts every 57*** code, including the statement timeout 57014.
+        // The timeout check excludes timeouts before is_transient_error sees them.
+        FlagError::DatabaseError(sqlx_error, _) => {
+            common_database::is_foreign_key_constraint_error(sqlx_error)
+                || (!common_database::is_timeout_error(sqlx_error)
+                    && common_database::is_transient_error(sqlx_error))
+        }
 
         // Transient DB faults propagated via `?` (From<sqlx::Error>) or connection
         // acquisition failures arrive already classified as DatabaseUnavailable (503).
@@ -807,11 +812,10 @@ pub async fn get_feature_flag_hash_key_overrides(
 
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
-        .take(1) // 1 retry = 2 total attempts; keeps retry budget tight (~350ms worst case)
+        .take(1) // 1 retry = 2 total attempts
         .map(jitter);
 
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
+    let attempt = || async {
         let result = try_get_feature_flag_hash_key_overrides(
             &reader,
             pool_name,
@@ -852,8 +856,9 @@ pub async fn get_feature_flag_hash_key_overrides(
         }
 
         result
-    })
-    .await
+    };
+
+    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override retrieval.
@@ -1077,8 +1082,7 @@ pub async fn set_feature_flag_hash_key_overrides(
         .take(2)
         .map(jitter); // Add jitter to prevent thundering herd
 
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
+    let attempt = || async {
         let result = try_set_feature_flag_hash_key_overrides(
             router,
             team_id,
@@ -1087,7 +1091,6 @@ pub async fn set_feature_flag_hash_key_overrides(
         )
         .await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
             Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Track error classification
@@ -1116,18 +1119,17 @@ pub async fn set_feature_flag_hash_key_overrides(
                 // Return error to trigger retry
                 result
             }
-            // For other errors, don't retry - return immediately to stop retrying
             Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "set_hash_key_overrides", false);
+                classify_and_track_error(e, "set_hash_key_overrides", should_retry_on_error(e));
 
                 result
             }
             // Success case - return the result
             Ok(_) => result,
         }
-    })
-    .await
+    };
+
+    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override setting.
@@ -1252,11 +1254,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             "set_hash_key_overrides",
         )
         .await
-        .map_err(|e| {
-            sqlx::Error::Configuration(
-                format!("Failed to acquire non-persons connection: {e}").into(),
-            )
-        })?;
+        .map_err(FlagError::from)?;
 
         let flags_labels = [
             (
@@ -1408,11 +1406,9 @@ pub async fn should_write_hash_key_override(
 
     let distinct_ids = vec![distinct_id.clone(), hash_key_override.clone()];
 
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
+    let attempt = || async {
         let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
             Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Increment retry counter for monitoring
@@ -1438,18 +1434,21 @@ pub async fn should_write_hash_key_override(
                 // Return error to trigger retry
                 result
             }
-            // For other errors, don't retry - return immediately to stop retrying
             Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "should_write_hash_key_override", false);
+                classify_and_track_error(
+                    e,
+                    "should_write_hash_key_override",
+                    should_retry_on_error(e),
+                );
 
                 result
             }
             // Success case - return the result
             Ok(_) => result,
         }
-    })
-    .await
+    };
+
+    RetryIf::spawn(retry_strategy, attempt, should_retry_on_error).await
 }
 
 /// Internal function that performs the actual hash key override check.
@@ -2618,6 +2617,113 @@ mod tests {
         assert!(!result);
     }
 
+    struct CountingFailingClient {
+        error: fn() -> sqlx::Error,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl common_database::Client for CountingFailingClient {
+        async fn get_connection(
+            &self,
+        ) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, common_database::CustomDatabaseError>
+        {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(common_database::CustomDatabaseError::Other((self.error)()))
+        }
+
+        fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+            None
+        }
+    }
+
+    #[rstest]
+    #[case::timeout(|| sqlx::Error::PoolTimedOut, 1, 1, 1)]
+    #[case::transient(|| sqlx::Error::PoolClosed, 2, 3, 3)]
+    #[tokio::test(start_paused = true)]
+    async fn test_hash_key_override_retries(
+        #[case] error: fn() -> sqlx::Error,
+        #[case] read_attempts: usize,
+        #[case] write_attempts: usize,
+        #[case] check_attempts: usize,
+    ) {
+        let client = std::sync::Arc::new(CountingFailingClient {
+            error,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let router = PostgresRouter::new(
+            client.clone(),
+            client.clone(),
+            client.clone(),
+            client.clone(),
+        );
+        let calls = || client.calls.swap(0, std::sync::atomic::Ordering::SeqCst);
+
+        let read = get_feature_flag_hash_key_overrides(
+            client.clone(),
+            pool_names::PERSONS_READER,
+            client.clone(),
+            1,
+            vec!["user".to_string()],
+        )
+        .await;
+        assert!(read.is_err());
+        assert_eq!(calls(), read_attempts, "read attempts");
+
+        let write = set_feature_flag_hash_key_overrides(
+            &router,
+            1,
+            vec!["user".to_string()],
+            "hash".to_string(),
+        )
+        .await;
+        assert!(write.is_err());
+        assert_eq!(calls(), write_attempts, "write attempts");
+
+        let check =
+            should_write_hash_key_override(&router, 1, "user".to_string(), "hash".to_string())
+                .await;
+        assert!(check.is_err());
+        assert_eq!(calls(), check_attempts, "check attempts");
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_retries_transient_non_persons_acquire_failure() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        context
+            .insert_person(team.id, "user".to_string(), None)
+            .await
+            .unwrap();
+
+        let non_persons_reader = std::sync::Arc::new(CountingFailingClient {
+            error: || sqlx::Error::PoolClosed,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            context.persons_writer.clone(),
+            non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            vec!["user".to_string()],
+            "hash".to_string(),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            non_persons_reader
+                .calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            3
+        );
+    }
+
     #[tokio::test]
     async fn test_should_retry_on_error() {
         use sqlx::Error as SqlxError;
@@ -2649,7 +2755,7 @@ mod tests {
 
         let protocol_timeout_error =
             FlagError::DatabaseError(SqlxError::Protocol("operation timeout".to_string()), None);
-        assert!(should_retry_on_error(&protocol_timeout_error));
+        assert!(!should_retry_on_error(&protocol_timeout_error));
 
         // Test that configuration errors don't trigger retries
         let config_error = FlagError::DatabaseError(
