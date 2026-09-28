@@ -28,10 +28,43 @@ MAX_OPEN_RUNS_PER_OWNER = 3
 FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
 BK_MCP_SCOPE = "business_knowledge:read"
+# The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
+BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read"]
 BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 DOCS_SEARCH_TOOL = "docs-search"
 BK_DISPLAY_TOOLS = frozenset({BK_SEARCH_TOOL, BK_WINDOW_TOOL})
+# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
+# injected instructions, so hide anything that reads the asker's own data.
+BK_HIDDEN_TOOLS = [
+    DOCS_SEARCH_TOOL,
+    "user-get",
+    "user-home-settings-get",
+    "llma-personal-spend",
+    "reminder-get",
+    "reminders-list",
+    "tasks-list",
+    "tasks-retrieve",
+    "tasks-runs-list",
+    "tasks-runs-retrieve",
+    "tasks-runs-session-logs-retrieve",
+    "tasks-config-list",
+    "tasks-me-config-list",
+    "tasks-models-retrieve",
+    "channel-list",
+    "channel-retrieve",
+    "channel-instructions-retrieve",
+    "inbox-reports-list",
+    "inbox-reports-retrieve",
+    "inbox-report-artefacts-list",
+    "inbox-report-artefacts-retrieve",
+    "inbox-report-checks-list",
+    "inbox-report-checks-retrieve",
+    "inbox-source-configs-list",
+    "inbox-source-configs-retrieve",
+    "task-context-wiki-channel-resolve",
+    "task-context-wiki-page-retrieve",
+]
 _RECOGNIZED_TOOLS = BK_DISPLAY_TOOLS | {DOCS_SEARCH_TOOL}
 
 # Exact single-exec form. A later mention of the tool name inside the command is not a call.
@@ -213,12 +246,12 @@ def start_sandbox_run(
             create_pr=False,
             internal=True,
             sandbox_environment_id=str(env_id),
-            posthog_mcp_scopes=[BK_MCP_SCOPE],
+            posthog_mcp_scopes=BK_MCP_SCOPES,
             model=SANDBOX_MODEL,
             runtime_adapter=SANDBOX_RUNTIME_ADAPTER,
             output_schema=SandboxAnswer,
             extra_run_state={
-                "mcp_exclude_tools": [DOCS_SEARCH_TOOL],
+                "mcp_exclude_tools": BK_HIDDEN_TOOLS,
                 "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
             },
         )
