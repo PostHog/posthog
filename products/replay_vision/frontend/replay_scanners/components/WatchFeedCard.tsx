@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -253,8 +253,9 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             className="@container relative border rounded bg-bg-light p-4 flex gap-4 hover:border-accent"
             data-attr="vision-watch-feed-card"
         >
+            {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
             {/* The thumbnail is the watch affordance, so the whole poster opens the clip modal.
-                The dot and the duration sit outside the poster, which clips its own overflow. */}
+                The New tag and the duration sit outside the poster, which clips its own overflow. */}
             <div className="relative hidden @md:block w-64 shrink-0 self-start">
                 <button
                     type="button"
@@ -277,12 +278,15 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     )}
                 </button>
                 {!observation.viewed && (
-                    <Tooltip title="You haven't opened this observation yet">
-                        <span
-                            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light z-10"
-                            aria-label="Unviewed"
-                        />
-                    </Tooltip>
+                    <LemonTag
+                        type="primary"
+                        size="small"
+                        // The primary tag is transparent by default, which lets the frame show through.
+                        className="absolute top-1 left-1 z-10 shadow-sm bg-surface-primary!"
+                        title="You haven't opened this observation yet."
+                    >
+                        New
+                    </LemonTag>
                 )}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
