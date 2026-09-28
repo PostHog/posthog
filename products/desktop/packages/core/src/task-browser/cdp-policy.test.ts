@@ -19,6 +19,11 @@ describe("isTabScopedCdpMethod", () => {
     ["DOM.setFileInputFiles", false],
     ["Network.loadNetworkResource", false],
     ["Page.setDownloadBehavior", false],
+    ["Network.getCookies", false],
+    ["Network.getAllCookies", false],
+    ["Network.setCookie", false],
+    ["Network.clearBrowserCookies", false],
+    ["CacheStorage.requestCacheNames", false],
     ["not-a-method", false],
   ])("allows %s only when it stays in the tab", (method, allowed) => {
     expect(isTabScopedCdpMethod(method)).toBe(allowed);

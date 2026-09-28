@@ -1,13 +1,11 @@
 const TAB_CDP_DOMAINS = new Set([
   "Accessibility",
   "Audits",
-  "CacheStorage",
   "CSS",
   "Console",
   "DOM",
   "DOMDebugger",
   "DOMSnapshot",
-  "Database",
   "Debugger",
   "Emulation",
   "Fetch",
@@ -25,13 +23,20 @@ const TAB_CDP_DOMAINS = new Set([
   "WebAuthn",
 ]);
 
-const LOCAL_FILE_METHODS = new Set([
+const OUTSIDE_TAB_METHODS = new Set([
   "DOM.setFileInputFiles",
+  "Network.clearBrowserCache",
+  "Network.clearBrowserCookies",
+  "Network.deleteCookies",
+  "Network.getAllCookies",
+  "Network.getCookies",
   "Network.loadNetworkResource",
+  "Network.setCookie",
+  "Network.setCookies",
   "Page.setDownloadBehavior",
 ]);
 
 export function isTabScopedCdpMethod(method: string): boolean {
   const domain = method.split(".")[0] ?? "";
-  return TAB_CDP_DOMAINS.has(domain) && !LOCAL_FILE_METHODS.has(method);
+  return TAB_CDP_DOMAINS.has(domain) && !OUTSIDE_TAB_METHODS.has(method);
 }
