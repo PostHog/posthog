@@ -21,7 +21,6 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.db_errors import is_transient_db_error
 
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -75,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -334,7 +334,7 @@ class DeltaBatchConsumerAdapter:
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "fail_run_job_status_update_app_db_not_ready",
                     job_id=batch.job_id,
@@ -587,7 +587,7 @@ class DeltaBatchConsumerAdapter:
                 error=ref.reason or "run failed (reconciled from queue)",
             )
         except Exception as e:
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "reconcile_job_status_update_app_db_not_ready",
                     job_id=ref.job_id,
@@ -677,7 +677,7 @@ class DeltaBatchConsumerAdapter:
                     error=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                if is_transient_db_error(e):
+                if is_transient_internal_db_error(e):
                     logger.warning(
                         "stranded_run_job_status_update_app_db_not_ready",
                         job_id=ref.job_id,
@@ -772,7 +772,7 @@ class DeltaBatchConsumerAdapter:
             job_dead = await self._is_job_dead(batch)
         except Exception as e:
             # Fail open: an app-DB hiccup must never wedge the loader.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "job_status_check_app_db_not_ready", batch_id=batch.id, job_id=batch.job_id, error=str(e)
                 )
