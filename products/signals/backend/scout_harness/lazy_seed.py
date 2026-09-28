@@ -70,7 +70,6 @@ _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # Python writes bytecode next to a bundled script when a process imports or runs it, so a
 # deployed image can hold these files even though the source tree does not. They are not
 # skill content, and their bytes are not UTF-8.
-_BUNDLE_BUILD_ARTIFACT_DIRS = frozenset({"__pycache__"})
 _BUNDLE_BUILD_ARTIFACT_SUFFIXES = frozenset({".pyc", ".pyo"})
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/skills/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
@@ -354,9 +353,7 @@ def _parse_structured_output_schema(
 
 
 def _is_bundle_build_artifact(rel_path: Path) -> bool:
-    return rel_path.suffix in _BUNDLE_BUILD_ARTIFACT_SUFFIXES or any(
-        part in _BUNDLE_BUILD_ARTIFACT_DIRS for part in rel_path.parts
-    )
+    return rel_path.suffix in _BUNDLE_BUILD_ARTIFACT_SUFFIXES or "__pycache__" in rel_path.parts
 
 
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
