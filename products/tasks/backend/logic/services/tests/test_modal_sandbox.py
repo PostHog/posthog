@@ -83,6 +83,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
     ExecutionResult,
@@ -1024,7 +1025,7 @@ class TestModalSandboxAgentServer:
     @pytest.mark.parametrize(
         "marker, message",
         [
-            ("claude_credential_unavailable", "The Claude token did not arrive"),
+            ("claude_credential_unavailable", CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE),
             ("codex_credential_unavailable", CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE),
         ],
     )
@@ -1543,6 +1544,29 @@ class TestStartupFailureDiagnostics:
         assert diagnostics["sandbox_terminated"] == "false"
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
         assert diagnostics["host_pressure"] == "ok"
+
+    def test_reports_running_session_hooks_without_probing_egress(self) -> None:
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "/health" in command:
+                return ExecutionResult(
+                    stdout='{"status":"ok","hasSession":false,"initializationPhase":"setup_hooks"}',
+                    stderr="",
+                    exit_code=0,
+                    error=None,
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec) as execute,
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
+
+        assert "SessionStart hooks" in diagnostics["failure_reason"]
+        assert "egress_probe" not in diagnostics
+        assert all("http_code=" not in call.args[0] for call in execute.call_args_list)
 
     def test_skips_probes_when_the_log_shows_a_missing_credential(self) -> None:
         sandbox = self._sandbox()
