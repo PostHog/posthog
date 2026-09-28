@@ -8,11 +8,12 @@ per field. SPEC.md in this package defines the format.
 from __future__ import annotations
 
 import sys
+import stat
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, TypedDict, runtime_checkable
+from typing import Literal, Protocol, TypedDict, cast, runtime_checkable
 
 from .matcher import SEP, compile_pattern, normalize_path
 from .schema import (
@@ -262,14 +263,13 @@ class DiskSource:
         return file.read_text() if file.is_file() else None
 
     def path_kind(self, path: str) -> PathKind | None:
-        target = self.repo_root / path
-        # Git stores a symlink as a file, so a symlink to a directory is a leaf of the tree. Checking
-        # it first also catches a dangling link, which exists() reports as missing.
-        if target.is_symlink():
-            return "file"
-        if target.is_dir():
-            return "dir"
-        return "file" if target.exists() else None
+        # lstat does not follow a symlink: git stores a symlink as a file, so a symlink to a
+        # directory is a leaf of the tree, and a dangling link still counts as present.
+        try:
+            mode = (self.repo_root / path).lstat().st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        return "dir" if stat.S_ISDIR(mode) else "file"
 
 
 def first_new_path(path: str, path_kind: Callable[[str], PathKind | None]) -> str | None:
@@ -319,6 +319,9 @@ class OwnersResolver:
         self._tracked_cache: dict[str | None, list[str]] = {}
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
         self._teams_cache: dict[str, TeamEntry] | None = None
+        # Files in one directory share every ancestor, so a full-tree run asks about each
+        # directory thousands of times.
+        self._path_kind_cache: dict[str, PathKind | None] = {}
 
     def alias_files(self) -> tuple[str, ...]:
         """The alias file names the root file declares, in the order that decides a tie."""
@@ -447,10 +450,15 @@ class OwnersResolver:
 
         return merged
 
+    def _path_kind(self, path: str) -> PathKind | None:
+        if path not in self._path_kind_cache:
+            self._path_kind_cache[path] = cast(TreeSource, self.source).path_kind(path)
+        return self._path_kind_cache[path]
+
     def _added(self, path: str) -> Addition | None:
         if not isinstance(self.source, TreeSource):
             return None
-        new_path = first_new_path(path, self.source.path_kind)
+        new_path = first_new_path(path, self._path_kind)
         if new_path is None:
             return None
         return Addition(path=new_path, additions=self._merge(new_path).additions)
