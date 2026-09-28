@@ -1159,6 +1159,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
                 )
                 actions.saveBroadcastFinished(saved)
+                // This save carried any email edit still waiting on its autosave.
+                cache.emailEditPending = false
                 actions.nextStep()
                 actions.showSavedDraftUrl()
             } catch (error: any) {

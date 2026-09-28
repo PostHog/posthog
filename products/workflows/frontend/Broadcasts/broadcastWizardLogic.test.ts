@@ -155,6 +155,27 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
+    it('moves to the draft URL when Continue saves an email edit still waiting on its autosave', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        router.actions.push('/broadcasts/new')
+
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Typed before Continue',
+            html: '<p>Hi</p>',
+        })
+        await expectLogic(logic, () => {
+            logic.actions.continueStep()
+        }).toDispatchActions(['nextStep', 'showSavedDraftUrl'])
+
+        expect(patchedSubjects).toEqual(['Typed before Continue'])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })
