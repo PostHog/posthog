@@ -301,6 +301,12 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export interface CommentSentToAgentProperties {
+  surface: "preview" | "browser" | "artifact" | "canvas" | "task";
+  with_context: boolean;
+  with_screenshot: boolean;
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -312,12 +318,6 @@ export interface TaskPreviewOpenedProperties {
 
 export interface TaskPreviewSessionStartedProperties {
   outcome: TaskRunPreviewSessionOutcome;
-}
-
-export interface CommentSentToAgentProperties {
-  surface: "preview" | "browser" | "artifact" | "canvas" | "task";
-  with_context: boolean;
-  with_screenshot: boolean;
 }
 
 export interface SidebarNavItemClickedProperties {
@@ -1702,7 +1702,6 @@ export const ANALYTICS_EVENTS = {
   TASK_PREVIEW_OPENED: "Task preview opened",
   TASK_PREVIEW_SESSION_STARTED: "Task preview session started",
   TASK_PREVIEW_OPENED_IN_BROWSER: "Task preview opened in browser",
-  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
@@ -1872,6 +1871,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
+  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
 } as const;
 
 // Event property mapping
@@ -1929,7 +1929,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED]: TaskPreviewOpenedProperties;
   [ANALYTICS_EVENTS.TASK_PREVIEW_SESSION_STARTED]: TaskPreviewSessionStartedProperties;
   [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED_IN_BROWSER]: never;
-  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
@@ -2102,6 +2101,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
+  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
 };
 
 /**
