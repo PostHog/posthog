@@ -25,7 +25,7 @@ import { convertUniversalFiltersToRecordingsQuery } from '../filters/recordingsQ
 const MATCH_COUNT_LIMIT = 25
 export const TEMPLATE_DATE_FROM = '-7d'
 
-interface TemplateMatchCount {
+export interface TemplateMatchCount {
     count: number
     hasMore: boolean
 }
@@ -80,11 +80,21 @@ export interface sessionReplayTemplatesLogicActions {
         errorObject?: any
     }
     loadMatchCountSuccess: (
-        matchCount: TemplateMatchCount | null,
-        payload?: any
+        matchCount: {
+            count: number
+            hasMore: boolean
+        } | null,
+        payload?: {
+            value: true
+        }
     ) => {
-        matchCount: TemplateMatchCount | null
-        payload?: any
+        matchCount: {
+            count: number
+            hasMore: boolean
+        } | null
+        payload?: {
+            value: true
+        }
     }
     matchCountFailed: () => {
         value: true
@@ -139,6 +149,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
         resetVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
         reportTemplateUsed: (source: ReplayTemplateUsedSource) => ({ source }),
         matchCountFailed: true,
+        loadMatchCount: true,
         showVariables: true,
         hideVariables: true,
     }),
@@ -201,6 +212,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                     }
                     let response
                     try {
+                        // nosemgrep: prefer-codegen-api-namespaced-replay
                         response = await api.recordings.list(query)
                     } catch {
                         actions.matchCountFailed()
