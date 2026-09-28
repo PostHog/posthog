@@ -48,8 +48,6 @@ const descriptions: Record<string, string> = {
         'Explore the properties attached to your events and people. Document their meaning so everyone interprets the same data consistently.',
     'Managed viewsets':
         'Set up collections of warehouse views built for a particular kind of analysis. Reuse prepared data models instead of starting each query from scratch.',
-    'Event ingestion warnings':
-        'Find problems encountered while processing your events. Inspect the warnings to identify tracking issues and improve the data you analyze.',
     Annotations:
         'Add context to changes in your metrics. Mark releases, campaigns, and other milestones so your team can connect a chart with what happened.',
     ETL: 'Watch the data moving into PostHog and out to your own warehouses. See what is running, what is stale, and what has stopped.',
