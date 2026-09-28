@@ -184,6 +184,27 @@ Hard rules:
         ),
     )
 
+    @field_validator("layers", mode="before")
+    @classmethod
+    def drop_a_plan_with_a_layer_that_does_not_validate(cls, v: object) -> object:
+        # Pydantic checks each layer's own fields (a missing scope, a title over the length cap, a
+        # non-integer dependency) before `layers_form_a_plan` runs, and the presentation turn has no
+        # retry. So a malformed layer drops the whole plan here, and the report continues as a single
+        # pull request with its title and summary, the same as a plan with a blank layer.
+        if not isinstance(v, list):
+            return v
+        for index, entry in enumerate(v):
+            try:
+                ReportLayer.model_validate(entry)
+            except ValidationError as e:
+                logger.warning(
+                    "presentation: dropped layer plan, layer at index %d did not validate (%s)",
+                    index,
+                    _rejection_reason(e),
+                )
+                return []
+        return v
+
     @field_validator("layers")
     @classmethod
     def layers_form_a_plan(cls, layers: list[ReportLayer]) -> list[ReportLayer]:

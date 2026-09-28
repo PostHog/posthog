@@ -16,6 +16,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest, SignalScoutRun
 from products.signals.backend.report_generation.research import (
+    MAX_REPORT_LAYER_TITLE_LENGTH,
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
@@ -62,23 +63,24 @@ class TestReportLayersValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("empty_title", {"title": ""}),
-            ("whitespace_title", {"title": "  \n"}),
-            ("empty_scope", {"scope": ""}),
-            ("whitespace_scope", {"scope": " \t"}),
+            ("empty_title", {"title": "", "scope": "scope", "depends_on": 0}),
+            ("whitespace_title", {"title": "  \n", "scope": "scope", "depends_on": 0}),
+            ("empty_scope", {"title": "layer 1", "scope": "", "depends_on": 0}),
+            ("whitespace_scope", {"title": "layer 1", "scope": " \t", "depends_on": 0}),
+            ("missing_scope", {"title": "layer 1", "depends_on": 0}),
+            ("title_too_long", {"title": "x" * (MAX_REPORT_LAYER_TITLE_LENGTH + 1), "scope": "scope"}),
+            ("list_depends_on", {"title": "layer 1", "scope": "scope", "depends_on": [0]}),
         ]
     )
-    def test_blank_layer_text_is_no_plan(self, _name: str, blank: dict[str, str]):
+    def test_malformed_layer_is_no_plan(self, _name: str, layer: dict[str, object]):
         output = ReportPresentationOutput.model_validate(
             {
                 "title": "feat(x): plan",
                 "summary": "s",
-                "layers": [
-                    {"title": "layer 0", "scope": "scope"},
-                    {"title": "layer 1", "scope": "scope", "depends_on": 0, **blank},
-                ],
+                "layers": [{"title": "layer 0", "scope": "scope"}, layer],
             }
         )
+        assert output.title == "feat(x): plan"
         assert output.layers == []
 
 
