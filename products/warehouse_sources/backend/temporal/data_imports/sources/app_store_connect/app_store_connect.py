@@ -9,7 +9,7 @@ import tempfile
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, Literal, Optional
+from typing import IO, Any, Literal, NoReturn, Optional
 from urllib.parse import urlsplit
 
 import jwt
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 BASE_URL = "https://api.appstoreconnect.apple.com"
 API_HOST = "api.appstoreconnect.apple.com"
@@ -67,6 +68,11 @@ ANALYTICS_SEGMENT_SPOOL_BYTES = 32 * 1024 * 1024
 
 ANALYTICS_ROWS_PER_BATCH = 2000
 
+APP_STORE_CONNECT_SNAPSHOT_PENDING_MESSAGE = (
+    "Waiting for Apple to generate historical data for this table (1-2 days). "
+    "Syncs keep checking, and history and daily data load together once it's ready."
+)
+
 # The message goes in a form field error and an account can hold hundreds of apps, so the rest
 # are counted rather than listed.
 MAX_APPS_LISTED_IN_ERROR = 10
@@ -86,6 +92,10 @@ class AppStoreConnectUrlError(Exception):
 
 class AppStoreConnectPermissionError(Exception):
     """A 403 from App Store Connect: the key's role can't perform this call. Non-retryable."""
+
+
+class AppStoreConnectSnapshotPendingError(Exception):
+    pass
 
 
 class AppStoreConnectReportError(Exception):
@@ -1555,6 +1565,12 @@ def _iter_segment_rows(
         yield row
 
 
+def _raise_snapshot_pending() -> NoReturn:
+    raise NonRetryableException(APP_STORE_CONNECT_SNAPSHOT_PENDING_MESSAGE) from AppStoreConnectSnapshotPendingError(
+        APP_STORE_CONNECT_SNAPSHOT_PENDING_MESSAGE
+    )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class _WalkInstance:
     """One analytics report instance scheduled into the date-ordered walk."""
@@ -1579,6 +1595,8 @@ def _get_analytics_report(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     selected_app_ids: frozenset[str],
+    snapshot_owed: bool = False,
+    record_snapshot_owed: Callable[[bool], None] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     # Filtering before the loop keeps `_ensure_report_request` away from the excluded apps, so an
     # unselected app never gets an ONGOING analytics report request created on it.
@@ -1596,16 +1614,17 @@ def _get_analytics_report(
 
     # The one-time snapshot restates all history, so it only joins the walk when the table is
     # known to be empty: a first sync, a resync (the reset clears the watermark before the run),
-    # or a full refresh. An established incremental table holds ongoing history the source can't
-    # enumerate, so no report-date boundary could dedupe a snapshot against it. The decision has
-    # separate state from the main resume checkpoint, because the pipeline reads that checkpoint
-    # before this generator starts and uses it to decide whether to overwrite the first batch.
+    # or a full refresh; or when the table still owes it. An established incremental table holds
+    # ongoing history the source can't enumerate, so no report-date boundary could dedupe a
+    # snapshot against it. The decision has separate state from the main resume checkpoint,
+    # because the pipeline reads that checkpoint before this generator starts and uses it to
+    # decide whether to overwrite the first batch.
     if snapshot_decision is not None and snapshot_decision.include_snapshot is not None:
         include_snapshot = snapshot_decision.include_snapshot
     elif resume is not None and resume.include_snapshot is not None:
         include_snapshot = resume.include_snapshot
     else:
-        include_snapshot = watermark is None
+        include_snapshot = watermark is None or snapshot_owed
     if snapshot_decision is None or snapshot_decision.include_snapshot is None:
         snapshot_decision_manager.save_state(AppStoreConnectResumeConfig(include_snapshot=include_snapshot))
 
@@ -1617,6 +1636,7 @@ def _get_analytics_report(
     # the next run re-reads that boundary date in full and the merge dedupes it. Resume state
     # is job-scoped (it survives retries of the same job, never the next scheduled run), so
     # the watermark has to carry cross-run progress by itself.
+    snapshot_lower_bound = resumed_date if snapshot_owed else lower_bound
     instances_by_date: dict[date, list[_WalkInstance]] = {}
     hold_for_snapshot = False
     snapshot_ceiling: date | None = None
@@ -1668,7 +1688,7 @@ def _get_analytics_report(
             hold_for_snapshot = True
         snapshot_cutoff = min((processing_date for _, processing_date in ongoing_instances), default=None)
         for instance_id, processing_date in snapshot_plan.instances:
-            if lower_bound is not None and processing_date < lower_bound:
+            if snapshot_lower_bound is not None and processing_date < snapshot_lower_bound:
                 continue
             instances_by_date.setdefault(processing_date, []).append(
                 _WalkInstance(app_id=app_id, instance_id=instance_id, is_snapshot=True, snapshot_cutoff=snapshot_cutoff)
@@ -1676,7 +1696,7 @@ def _get_analytics_report(
             if snapshot_ceiling is None or processing_date > snapshot_ceiling:
                 snapshot_ceiling = processing_date
 
-    if hold_for_snapshot and should_use_incremental_field:
+    if hold_for_snapshot and should_use_incremental_field and watermark is None:
         # An incremental table's first emission ratchets the watermark past the snapshot's
         # report dates for good, so nothing is emitted until the snapshot can be emitted with
         # it. A full refresh never holds: it rebuilds the whole table every run, so the next
@@ -1686,7 +1706,10 @@ def _get_analytics_report(
             f"(typically 1-2 days) before the first ingest, so history lands ahead of the "
             f"ongoing stream. endpoint={config.name}"
         )
-        return
+        _raise_snapshot_pending()
+
+    if hold_for_snapshot and not snapshot_owed and record_snapshot_owed is not None:
+        record_snapshot_owed(True)
 
     has_snapshot_instances = any(
         walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
@@ -1706,6 +1729,10 @@ def _get_analytics_report(
                         f"endpoint={config.name}, app_id={walk_instance.app_id}, "
                         f"processing_date={processing_date.isoformat()}"
                     )
+                    if watermark is None:
+                        _raise_snapshot_pending()
+                    if not snapshot_owed and record_snapshot_owed is not None:
+                        record_snapshot_owed(True)
                     return
                 probed_segments[walk_instance.instance_id] = segments
 
@@ -1797,6 +1824,9 @@ def _get_analytics_report(
             )
         )
 
+    if snapshot_owed and not hold_for_snapshot and record_snapshot_owed is not None:
+        record_snapshot_owed(False)
+
 
 def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[int | None, str | None]:
     """Probe ``/v1/apps`` with a minted token.
@@ -1878,6 +1908,8 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     app_ids: str | None = None,
+    snapshot_owed: bool = False,
+    record_snapshot_owed: Callable[[bool], None] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
     session = _make_session(private_key)
@@ -1909,6 +1941,8 @@ def get_rows(
                 should_use_incremental_field,
                 db_incremental_field_last_value,
                 selected_app_ids,
+                snapshot_owed,
+                record_snapshot_owed,
             )
         else:  # "sales_report"
             # `/v1/salesReports` returns one file per vendor number, so no app id filter applies.
@@ -1946,6 +1980,8 @@ def app_store_connect_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     app_ids: Optional[str] = None,
+    snapshot_owed: bool = False,
+    record_snapshot_owed: Callable[[bool], None] | None = None,
 ) -> SourceResponse:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
 
@@ -1962,6 +1998,8 @@ def app_store_connect_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             app_ids=app_ids,
+            snapshot_owed=snapshot_owed,
+            record_snapshot_owed=record_snapshot_owed,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

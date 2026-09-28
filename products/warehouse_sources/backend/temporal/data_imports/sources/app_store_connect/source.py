@@ -1,4 +1,7 @@
+from functools import partial
 from typing import Optional, cast
+
+from django.db import close_old_connections
 
 import structlog
 
@@ -8,6 +11,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
@@ -46,12 +53,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
+SNAPSHOT_OWED_CONFIG_KEY = "app_store_connect_snapshot_owed"
+
 _UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right now. Wait a few minutes, then try again."
 
 _MISSING_VENDOR_NUMBER = (
     "Add your vendor number in the source settings to sync sales and subscription reports. "
     "You can find it in App Store Connect under Payments and Financial Reports."
 )
+
+
+def _load_snapshot_owed(schema_id: str, team_id: int) -> bool:
+    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    return bool((schema.sync_type_config or {}).get(SNAPSHOT_OWED_CONFIG_KEY))
+
+
+def _record_snapshot_owed(schema_id: str, team_id: int, owed: bool) -> None:
+    close_old_connections()
+    if owed:
+        update_sync_type_config_keys(schema_id, team_id, updates={SNAPSHOT_OWED_CONFIG_KEY: True})
+    else:
+        update_sync_type_config_keys(schema_id, team_id, removes=[SNAPSHOT_OWED_CONFIG_KEY])
 
 
 @SourceRegistry.register
@@ -279,6 +301,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         resumable_source_manager: ResumableSourceManager[AppStoreConnectResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        is_analytics = APP_STORE_CONNECT_ENDPOINTS[inputs.schema_name].kind == "analytics_report"
         return app_store_connect_source(
             issuer_id=config.issuer_id,
             key_id=config.key_id,
@@ -291,5 +314,9 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
+            else None,
+            snapshot_owed=_load_snapshot_owed(inputs.schema_id, inputs.team_id) if is_analytics else False,
+            record_snapshot_owed=partial(_record_snapshot_owed, inputs.schema_id, inputs.team_id)
+            if is_analytics
             else None,
         )
