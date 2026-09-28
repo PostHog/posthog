@@ -1,6 +1,13 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconLightBulb } from '@posthog/icons'
+import { IconLightBulb, IconSparkles } from '@posthog/icons'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { urls } from 'scenes/urls'
 
 import { ExperimentWizardStep, experimentWizardLogic } from './experimentWizardLogic'
 
@@ -38,25 +45,60 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
 export function ExperimentWizardGuide(): JSX.Element {
     const { currentStep } = useValues(experimentWizardLogic)
 
+    // Same create_experiment tool and prompt as the "New experiment" button on the experiments list, but with no
+    // suggestion dropdown, so the user just finishes the pre-filled prompt
+    const { openMax } = useMaxTool({
+        identifier: 'create_experiment',
+        initialMaxPrompt: 'Create an experiment for ',
+        callback: (toolOutput: { experiment_id?: string | number; error?: string }) => {
+            if (toolOutput?.error || !toolOutput?.experiment_id) {
+                lemonToast.error(`Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`)
+                return
+            }
+            router.actions.push(urls.experiment(toolOutput.experiment_id))
+        },
+        context: {},
+    })
+
     const guide = GUIDE_CONTENT[currentStep]
 
     return (
-        <div className="sticky top-6 space-y-4">
-            <div className="flex items-center gap-1.5 text-sm font-medium text-secondary">
-                <IconLightBulb className="size-4" />
-                Guide
+        <div className="sticky top-6 rounded-lg border border-dashed border-primary bg-bg-light p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <IconLightBulb className="size-4 shrink-0" />
+                <h4 className="m-0 text-sm font-semibold">{guide.title}</h4>
             </div>
 
-            <h4 className="text-sm font-semibold">{guide.title}</h4>
-
-            <ul className="space-y-2.5">
+            <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed space-y-1.5">
                 {guide.tips.map((tip, i) => (
-                    <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-secondary">
-                        <span className="text-muted select-none shrink-0">&#8226;</span>
-                        <span>{tip}</span>
-                    </li>
+                    <li key={i}>{tip}</li>
                 ))}
             </ul>
+
+            {openMax && (
+                <div className="flex flex-col gap-2 pt-3 border-t border-dashed border-primary">
+                    <div className="text-sm text-default">Rather describe it? PostHog AI can set it up for you.</div>
+                    <div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconSparkles className="text-ai" />}
+                            onClick={openMax}
+                            data-attr="experiment-wizard-guide-ask-ai"
+                        >
+                            {/* Skip the animation in Storybook so visual snapshots don't flake on the moving gradient */}
+                            <span
+                                className={cn(
+                                    'rainbow-text font-semibold',
+                                    !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
+                                )}
+                            >
+                                Ask AI
+                            </span>
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
