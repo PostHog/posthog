@@ -1184,9 +1184,11 @@ def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     token = client._get_installation_token()
     merge_base_sha = _review_merge_base(run, client)
+    # Outside the wrapped block, so a transient provider lookup error stays retryable.
+    sandbox = _reconnect_review_sandbox(input.sandbox_id)
     timer = _StepTimer()
     try:
-        _check_out_review(_reconnect_review_sandbox(input.sandbox_id), run, merge_base_sha, token, timer, deadline)
+        _check_out_review(sandbox, run, merge_base_sha, token, timer, deadline)
     except Exception as exc:
         # Give the type only: a failed git step reports its stderr, which can name repository content.
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
@@ -1246,10 +1248,13 @@ def destroy_review_sandbox(input: ReviewSandboxInput) -> dict:
     An empty ``sandbox_id`` means the start returned none. The run can still hold one, because
     start_review_sandbox records it before its head fetch, and a failed start returns no result.
     """
-    run = _load_run(input)
-    # Marked before the id read: _create_review_sandbox holds the other half of this handshake.
-    _merge_run_output(run, {"sandbox_abandoned": True})
-    sandbox_id = input.sandbox_id or _stored_output(run).get("sandbox_id")
+    sandbox_id = input.sandbox_id
+    if not sandbox_id:
+        # A start that returned no id can still be creating the sandbox. Marked before the id read:
+        # _create_review_sandbox holds the other half of this handshake.
+        run = _load_run(input)
+        _merge_run_output(run, {"sandbox_abandoned": True})
+        sandbox_id = _stored_output(run).get("sandbox_id") or ""
     if not sandbox_id:
         return {"destroyed": False}
     try:
