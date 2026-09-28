@@ -100,8 +100,9 @@ def compute_partner_scoped_teams(
         if user_can_access_team(user, team):
             granted.add(team.id)
 
-    # sorted() only for deterministic test assertions and log diffs; scope order is not a correctness requirement
-    return sorted(granted)
+    # The base team must stay at index 0. Refresh passes scoped_teams[0] back in as
+    # base_team_id, and resource creation and deep links default to it.
+    return [base_team_id, *sorted(granted - {base_team_id})]
 
 
 def ensure_team_in_token_scopes(

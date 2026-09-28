@@ -477,15 +477,14 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 raise SpecError("invalid_grant", "Refresh token was not issued for the Stripe Projects app")
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
-            # base_team_id at refresh: the first team in the prior scope. The consent team
-            # (authorized at grant time) has the lowest id and sorts first at issuance;
-            # partner-provisioned teams are always created later, so they take higher ids
-            # and are only ever appended after it. [0] is therefore the consent team. This
-            # ordering is load-bearing: compute_partner_scoped_teams re-adds the consent
-            # team only when it is base_team_id (it has no TeamProvisioningConfig for this
-            # app), so a lower-id provisioned team becoming [0] would silently drop the
-            # consent team from the refreshed scope. If the prior token was somehow empty-
-            # scoped, fall back to zero so the helper short-circuits without claiming a team.
+            # base_team_id at refresh: the first team in the prior scope. That is the consent
+            # team, because compute_partner_scoped_teams returns the base team first and teams
+            # added later are appended. This ordering is load-bearing: the helper keeps
+            # base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so a consent team without one would
+            # silently drop out of the refreshed scope if another team sat at [0]. If the
+            # prior token was somehow empty-scoped, fall back to zero so the helper
+            # short-circuits without claiming a team.
             base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
 
             # Deactivation drops the user's login sessions but leaves their OAuth tokens
