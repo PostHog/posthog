@@ -140,29 +140,6 @@ def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) ->
     return enabled
 
 
-def is_pending_repartition_released_by_flag(
-    schema: ExternalDataSchema, pending: dict[str, Any], *, enabled: bool | None = None
-) -> bool:
-    """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
-
-    Mirrors `_maybe_repartition_table`'s 'release' branch in `repartition_table.py` exactly: each
-    auto-staged trigger family answers to the flag that staged it (the flag is the only lever support
-    has to release such a table), and any other reason fails open because operator-staged work (admin,
-    a staged swap) must never dead-end on a rollout flag. Shared so `repartition_activity_has_work`
-    agrees with the activity's own answer instead of scheduling a round trip the activity would just
-    skip.
-
-    `enabled` lets a caller that already evaluated `WAREHOUSE_AUTO_REPARTITION_FLAG` this run thread
-    the result through instead of paying for a second evaluation.
-    """
-    reason = pending.get("trigger_reason")
-    if reason in ("proactive_threshold", "oom_history"):
-        return not (enabled if enabled is not None else is_auto_repartition_enabled(schema))
-    if reason == "coarsening":
-        return not is_auto_coarsen_enabled(schema)
-    return False
-
-
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
     """Whether the pre-extraction repartition activity would do more than log and return.
 
@@ -171,21 +148,10 @@ def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
     the rollout flag (or a coarsening nomination) wants measured on disk. A pending corruption revive
     makes the activity stand down before any of that, so it is a no-op here too. The flag is only
     evaluated when nothing is queued, which is the one case the activity's answer depends on it.
-
-    A queued rewrite whose own trigger flag has since been disabled is also a no-op: the activity's
-    fast path stands it down without doing any work (see `is_pending_repartition_released_by_flag`), so
-    scheduling the activity for it would just pay a full round trip to log and return.
     """
     if schema.delta_revive_required is not None:
         return False
-    pending = schema.repartition_pending
-    swap = schema.repartition_swap
-    if swap is not None:
-        return True
-    if pending is not None:
-        enabled = is_auto_repartition_enabled(schema)
-        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
-            return needs_pre_extraction_detection(schema, enabled)
+    if schema.repartition_pending is not None or schema.repartition_swap is not None:
         return True
     return needs_pre_extraction_detection(schema, is_auto_repartition_enabled(schema))
 

@@ -1077,20 +1077,7 @@ class TestRepartitionActivityHasWork:
                 True,
                 False,
             ),
-            ("queued_rewrite_flag_on", {}, PENDING_TARGET, None, None, True, True),
-            # The activity's own fast path treats a queued rewrite as a no-op once the flag that
-            # staged it is disabled (the flag is the only lever support has to release such a table) —
-            # this must agree, or the schema keeps paying a full activity round trip forever.
-            ("queued_rewrite_released_by_disabled_flag", {}, PENDING_TARGET, None, None, False, False),
-            (
-                "queued_rewrite_admin_reason_fails_open",
-                {},
-                {**PENDING_TARGET, "trigger_reason": "admin"},
-                None,
-                None,
-                False,
-                True,
-            ),
+            ("queued_rewrite", {}, PENDING_TARGET, None, None, False, True),
             ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
             ("flag_on_measures_the_table", {}, None, None, None, True, True),
             ("flag_off_nothing_queued", {}, None, None, None, False, False),
