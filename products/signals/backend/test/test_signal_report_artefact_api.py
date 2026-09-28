@@ -27,11 +27,11 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.impact_measurement_plans import (
     latest_measurement_plans,
     persist_authored_measurement_plans,
 )
+from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalActorKind,
