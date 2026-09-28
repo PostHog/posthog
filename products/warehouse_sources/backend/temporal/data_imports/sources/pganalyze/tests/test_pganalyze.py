@@ -3,6 +3,8 @@ import ipaddress
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
     PgAnalyzeRetryableError,
     _post_graphql,
@@ -63,6 +65,30 @@ class TestPostGraphql:
 
         with pytest.raises(Exception, match="Unexpected pganalyze response format"):
             _post_graphql(session, "https://app.pganalyze.com/graphql", "query {}", {})
+
+    def test_retries_on_read_timeout(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            requests.ReadTimeout("Read timed out. (read timeout=60)"),
+            _mock_response(json_data={"data": {"getServers": []}}),
+        ]
+
+        result = _post_graphql(session, "https://app.pganalyze.com/graphql", "query {}", {})
+
+        assert result == {"getServers": []}
+        assert session.post.call_count == 2
+
+    def test_retries_on_connection_error(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            requests.ConnectionError("Connection aborted"),
+            _mock_response(json_data={"data": {"getServers": []}}),
+        ]
+
+        result = _post_graphql(session, "https://app.pganalyze.com/graphql", "query {}", {})
+
+        assert result == {"getServers": []}
+        assert session.post.call_count == 2
 
 
 class TestValidateCredentials:
