@@ -1,10 +1,10 @@
 //! Integration tests for the open/refresh path: the single-load guarantee of
-//! `open_table_multipart`, snapshot preservation in `wrap_multipart`, and the
-//! `TableHandle` upsert orchestration (incremental refresh, relax with a warm cache).
+//! `open_table_multipart`, snapshot preservation in `wrap_multipart`, the checkpoint
+//! prefetch, and the `TableHandle` upsert orchestration (incremental refresh, relax with
+//! a warm cache, open timing, snapshot accessors).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use arrow_array::{Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
@@ -14,7 +14,7 @@ use deltalake::logstore::{
     ObjectStoreFactory, StorageConfig,
 };
 use deltalake::operations::create::CreateBuilder;
-use deltalake::{DeltaResult, Path};
+use deltalake::{DeltaResult, Path, TableProperty};
 use deltalite_core::handle::TableHandle;
 use deltalite_core::table::{open_table, open_table_multipart, wrap_multipart, MultipartConfig};
 use deltalite_core::upsert::UpsertOptions;
@@ -27,10 +27,60 @@ use object_store::{
 
 // ---- read-counting store, registered as its own URL scheme ------------------------
 
-static READS: AtomicUsize = AtomicUsize::new(0);
+/// Reads (GET/HEAD/LIST) keyed by the path or listing prefix they targeted. Per path
+/// rather than one global counter so the tests, which run concurrently in one process
+/// and share this scheme, each measure only their own table.
+static READS: LazyLock<Mutex<HashMap<String, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn reads() -> usize {
-    READS.load(Ordering::SeqCst)
+/// GETs per checkpoint Parquet file (one per `get_opts`, one per range in `get_ranges`),
+/// keyed by path, so a test can assert how many round trips one checkpoint cost.
+static CHECKPOINT_GETS: LazyLock<Mutex<HashMap<String, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn record_read(target: String, n: usize) {
+    *READS.lock().unwrap().entry(target).or_default() += n;
+}
+
+/// Reads issued against paths under `root` (an object-store path, no leading slash).
+fn reads_under(root: &str) -> usize {
+    READS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(path, _)| path.starts_with(root))
+        .map(|(_, n)| n)
+        .sum()
+}
+
+/// The object-store path a `dltest://<dir>` table's reads are recorded under.
+fn table_root(dir: &std::path::Path) -> String {
+    Path::from(dir.to_string_lossy().as_ref()).to_string()
+}
+
+fn count_checkpoint_get(location: &Path, n: usize) {
+    if location.as_ref().contains(".checkpoint.") {
+        *CHECKPOINT_GETS
+            .lock()
+            .unwrap()
+            .entry(location.to_string())
+            .or_default() += n;
+    }
+}
+
+fn checkpoint_gets() -> HashMap<String, usize> {
+    CHECKPOINT_GETS.lock().unwrap().clone()
+}
+
+/// Checkpoint GETs issued since `before`, per file.
+fn checkpoint_gets_since(before: &HashMap<String, usize>) -> HashMap<String, usize> {
+    checkpoint_gets()
+        .into_iter()
+        .filter_map(|(path, n)| {
+            let delta = n - before.get(&path).copied().unwrap_or(0);
+            (delta > 0).then_some((path, delta))
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -68,7 +118,10 @@ impl ObjectStore for CountingStore {
         location: &Path,
         options: GetOptions,
     ) -> object_store::Result<GetResult> {
-        READS.fetch_add(1, Ordering::SeqCst);
+        record_read(location.to_string(), 1);
+        if !options.head {
+            count_checkpoint_get(location, 1);
+        }
         self.inner.get_opts(location, options).await
     }
 
@@ -77,7 +130,8 @@ impl ObjectStore for CountingStore {
         location: &Path,
         ranges: &[std::ops::Range<u64>],
     ) -> object_store::Result<Vec<bytes::Bytes>> {
-        READS.fetch_add(ranges.len(), Ordering::SeqCst);
+        record_read(location.to_string(), ranges.len());
+        count_checkpoint_get(location, ranges.len());
         self.inner.get_ranges(location, ranges).await
     }
 
@@ -91,7 +145,7 @@ impl ObjectStore for CountingStore {
     // Sorted before returning: cloud stores list keys lexicographically and
     // delta-kernel relies on it, while `LocalFileSystem` yields directory order.
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
-        READS.fetch_add(1, Ordering::SeqCst);
+        record_read(prefix_key(prefix), 1);
         sorted(self.inner.list(prefix))
     }
 
@@ -100,12 +154,12 @@ impl ObjectStore for CountingStore {
         prefix: Option<&Path>,
         offset: &Path,
     ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
-        READS.fetch_add(1, Ordering::SeqCst);
+        record_read(prefix_key(prefix), 1);
         sorted(self.inner.list_with_offset(prefix, offset))
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
-        READS.fetch_add(1, Ordering::SeqCst);
+        record_read(prefix_key(prefix), 1);
         self.inner.list_with_delimiter(prefix).await
     }
 
@@ -126,6 +180,10 @@ impl ObjectStore for CountingStore {
     ) -> object_store::Result<()> {
         self.inner.rename_opts(from, to, options).await
     }
+}
+
+fn prefix_key(prefix: Option<&Path>) -> String {
+    prefix.map(ToString::to_string).unwrap_or_default()
 }
 
 fn sorted(
@@ -210,17 +268,32 @@ fn opts() -> UpsertOptions {
 /// Create an unpartitioned table at `uri` with a non-nullable `pk` and a `v` column of
 /// the given nullability, then seed it with a few commits so opening has log to replay.
 async fn create_seeded_table(uri: &str, v_nullable: bool) -> SchemaRef {
-    CreateBuilder::new()
-        .with_location(uri)
-        .with_columns(vec![
-            StructField::new("pk", KernelType::STRING, false),
-            StructField::new("v", KernelType::LONG, v_nullable),
-        ])
-        .await
-        .expect("create table");
+    create_seeded_table_with(uri, v_nullable, None, 3).await
+}
+
+/// [`create_seeded_table`] with a checkpoint interval and commit count. deltalite writes
+/// a checkpoint when `(version + 1) % interval == 0`, so an interval of 2 over 4 commits
+/// checkpoints versions 1 and 3 and leaves one JSON commit after the last checkpoint.
+async fn create_seeded_table_with(
+    uri: &str,
+    v_nullable: bool,
+    checkpoint_interval: Option<u32>,
+    commits: i64,
+) -> SchemaRef {
+    let mut builder = CreateBuilder::new().with_location(uri).with_columns(vec![
+        StructField::new("pk", KernelType::STRING, false),
+        StructField::new("v", KernelType::LONG, v_nullable),
+    ]);
+    if let Some(interval) = checkpoint_interval {
+        builder = builder.with_configuration_property(
+            TableProperty::CheckpointInterval,
+            Some(interval.to_string()),
+        );
+    }
+    builder.await.expect("create table");
 
     let s = schema(v_nullable);
-    for i in 0..3 {
+    for i in 0..commits {
         let mut handle = TableHandle::open(uri.to_string(), HashMap::new())
             .await
             .expect("open for seeding");
@@ -233,28 +306,74 @@ async fn create_seeded_table(uri: &str, v_nullable: bool) -> SchemaRef {
     s
 }
 
+/// Create a table partitioned on `p` at `uri` with one file in each of two partitions.
+async fn create_partitioned_table(uri: &str) -> SchemaRef {
+    CreateBuilder::new()
+        .with_location(uri)
+        .with_columns(vec![
+            StructField::new("pk", KernelType::STRING, false),
+            StructField::new("p", KernelType::STRING, true),
+            StructField::new("v", KernelType::LONG, true),
+        ])
+        .with_partition_columns(vec!["p".to_string()])
+        .await
+        .expect("create partitioned table");
+
+    let s: SchemaRef = Arc::new(Schema::new(vec![
+        Field::new("pk", DataType::Utf8, false),
+        Field::new("p", DataType::Utf8, true),
+        Field::new("v", DataType::Int64, true),
+    ]));
+    let b = RecordBatch::try_new(
+        s.clone(),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b"])),
+            Arc::new(StringArray::from(vec!["x", "y"])),
+            Arc::new(Int64Array::from(vec![1, 2])),
+        ],
+    )
+    .expect("partitioned batch");
+    let mut handle = TableHandle::open(uri.to_string(), HashMap::new())
+        .await
+        .expect("open for seeding");
+    handle
+        .upsert(
+            vec![b],
+            s.clone(),
+            UpsertOptions {
+                primary_keys: vec!["pk".to_string()],
+                partition_key: Some("p".to_string()),
+                ..Default::default()
+            },
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("partitioned seed upsert");
+    s
+}
+
 // ---- tests -------------------------------------------------------------------------
 
 /// Pins the double-load fix: opening through the multipart wrapper must cost the same
-/// storage reads as a plain open, not twice as many. Serial with the other counting
-/// test via the shared atomic; each measurement is deltas around one call, and the
-/// tests run in one process where no other code touches the `dltest://` scheme.
+/// storage reads as a plain open, not twice as many.
 #[tokio::test]
 async fn open_table_multipart_replays_the_log_once() {
     register_counting_scheme();
     let dir = tempfile::tempdir().expect("tempdir");
-    let uri = format!("dltest://{}", dir.path().join("t1").to_string_lossy());
+    let table_dir = dir.path().join("t1");
+    let uri = format!("dltest://{}", table_dir.to_string_lossy());
+    let root = table_root(&table_dir);
     create_seeded_table(&uri, true).await;
 
-    let before_plain = reads();
+    let before_plain = reads_under(&root);
     let plain = open_table(&uri, HashMap::new()).await.expect("plain open");
-    let plain_reads = reads() - before_plain;
+    let plain_reads = reads_under(&root) - before_plain;
 
-    let before_multipart = reads();
+    let before_multipart = reads_under(&root);
     let multipart = open_table_multipart(&uri, HashMap::new(), MultipartConfig::default())
         .await
         .expect("multipart open");
-    let multipart_reads = reads() - before_multipart;
+    let multipart_reads = reads_under(&root) - before_multipart;
 
     assert_eq!(plain.version(), multipart.version());
     assert!(plain.version().is_some(), "open must load the snapshot");
@@ -393,4 +512,185 @@ async fn warm_relax_cache_still_relaxes_when_the_batch_carries_nulls() {
         .await
         .expect("post-relax upsert");
     assert_eq!(stats.columns_relaxed, 0);
+}
+
+/// The checkpoint prefetch: a snapshot load must read each checkpoint Parquet file with
+/// one whole-object GET instead of one ranged GET per footer, metadata and column chunk.
+/// Covers both the initial open and the post-commit refresh that adopts a checkpoint the
+/// upsert's own maintenance just wrote (through the multipart-wrapped view).
+#[tokio::test]
+async fn checkpoint_files_are_read_with_one_get_each() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let uri = format!("dltest://{}", dir.path().join("t5").to_string_lossy());
+    let s = create_seeded_table_with(&uri, true, Some(2), 4).await;
+
+    let before = checkpoint_gets();
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open handle");
+    let opened = checkpoint_gets_since(&before);
+    assert_eq!(handle.version(), 4);
+    assert!(!opened.is_empty(), "the open must load from a checkpoint");
+    for (path, gets) in &opened {
+        assert_eq!(
+            *gets, 1,
+            "{path} was read with {gets} GETs; expected one prefetch"
+        );
+    }
+
+    // Version 5 sits on the interval boundary: maintenance writes checkpoint 5 and the
+    // post-commit refresh rebuilds the snapshot from it.
+    let before = checkpoint_gets();
+    let stats = handle
+        .upsert(
+            vec![batch(&s, &["c"], vec![Some(9)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("boundary upsert");
+    assert_eq!(stats.version, 5);
+    let refreshed = checkpoint_gets_since(&before);
+    assert!(
+        refreshed.keys().any(|p| p.contains("00000000000000000005")),
+        "the refresh must adopt the new checkpoint (read: {refreshed:?})"
+    );
+    for (path, gets) in &refreshed {
+        assert_eq!(
+            *gets, 1,
+            "{path} was read with {gets} GETs; expected one prefetch"
+        );
+    }
+}
+
+/// The full load that opens a handle is reported once, on the first upsert through it,
+/// so a caller summing per-upsert stats attributes the open cost exactly once.
+#[tokio::test]
+async fn initial_open_is_timed_and_reported_on_the_first_upsert_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let uri = dir.path().join("t6").to_string_lossy().to_string();
+    let s = create_seeded_table_with(&uri, true, Some(2), 6).await;
+
+    let mut handle = TableHandle::open(uri, HashMap::new())
+        .await
+        .expect("open handle");
+    assert!(
+        handle.initial_open_ms() > 0,
+        "a checkpoint load plus log replay must register on the clock"
+    );
+
+    let first = handle
+        .upsert(
+            vec![batch(&s, &["a"], vec![Some(1)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("first upsert");
+    assert_eq!(first.initial_open_ms, handle.initial_open_ms());
+
+    let second = handle
+        .upsert(
+            vec![batch(&s, &["a"], vec![Some(2)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("second upsert");
+    assert_eq!(second.initial_open_ms, 0, "reported once per handle");
+}
+
+/// The snapshot accessors describe the loaded table without I/O and agree with what
+/// delta-rs itself reports for the same snapshot.
+#[tokio::test]
+async fn snapshot_accessors_describe_the_loaded_table() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let table_dir = dir.path().join("t7");
+    let uri = format!("dltest://{}", table_dir.to_string_lossy());
+    let root = table_root(&table_dir);
+    create_seeded_table_with(&uri, true, Some(2), 3).await;
+
+    let handle = TableHandle::open(uri, HashMap::new())
+        .await
+        .expect("open handle");
+    let snapshot = handle.table().snapshot().expect("loaded snapshot");
+
+    let before = reads_under(&root);
+    let files = handle.files().expect("files");
+    let uris: Vec<String> = handle.table().get_file_uris().expect("file uris").collect();
+    assert_eq!(files.len(), uris.len());
+    assert_eq!(handle.num_files().expect("num_files"), files.len());
+    for f in &files {
+        assert!(
+            uris.iter().any(|u| u.ends_with(&f.path)),
+            "{} is not a live file ({uris:?})",
+            f.path
+        );
+        assert!(f.size > 0);
+        assert!(f.modification_time > 0);
+        assert!(f.partition_values.is_empty(), "unpartitioned table");
+    }
+
+    let schema: serde_json::Value =
+        serde_json::from_str(&handle.schema_json().expect("schema_json")).expect("valid json");
+    assert_eq!(schema["type"], "struct");
+    let names: Vec<&str> = schema["fields"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .map(|f| f["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(names, ["pk", "v"]);
+
+    assert_eq!(
+        handle.table_id().expect("table_id"),
+        snapshot.metadata().id()
+    );
+    let configuration = handle.configuration().expect("configuration");
+    assert_eq!(&configuration, snapshot.metadata().configuration());
+    assert_eq!(
+        configuration
+            .get("delta.checkpointInterval")
+            .map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        reads_under(&root),
+        before,
+        "accessors must be served from memory"
+    );
+}
+
+#[tokio::test]
+async fn files_carry_partition_values() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let uri = dir.path().join("t8").to_string_lossy().to_string();
+    create_partitioned_table(&uri).await;
+
+    let handle = TableHandle::open(uri, HashMap::new())
+        .await
+        .expect("open handle");
+    let mut files = handle.files().expect("files");
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(files.len(), 2);
+    let mut partitions: Vec<Option<String>> = files
+        .iter()
+        .map(|f| {
+            assert_eq!(f.partition_values.len(), 1);
+            assert!(f.path.starts_with(&format!(
+                "p={}/",
+                f.partition_values["p"]
+                    .as_deref()
+                    .unwrap_or("__HIVE_DEFAULT_PARTITION__")
+            )));
+            f.partition_values["p"].clone()
+        })
+        .collect();
+    partitions.sort();
+    assert_eq!(partitions, [Some("x".to_string()), Some("y".to_string())]);
 }

@@ -122,6 +122,16 @@ impl ProcessLimits {
             .map_err(|_| Error::Generic("process byte-budget semaphore closed".into()))
     }
 
+    /// Try to reserve `kb` KiB without waiting. Callers that can fall back to a
+    /// streaming path use this to avoid deadlocking when several operations each hold
+    /// part of the process budget and need one more allocation to finish.
+    pub fn try_acquire_buffer_kb(&self, kb: u32) -> Option<OwnedSemaphorePermit> {
+        self.buffer
+            .clone()
+            .try_acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
+            .ok()
+    }
+
     /// Capacity of the byte budget in KiB.
     pub fn buffer_cap_kb(&self) -> u32 {
         self.buffer_cap_kb
