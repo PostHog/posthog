@@ -1,4 +1,6 @@
+import json
 from collections.abc import Iterator
+from io import BytesIO
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -6,6 +8,8 @@ import pytest
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
+
+import requests
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.models import Team
@@ -25,6 +29,13 @@ from products.ai_observability.backend.llm.system_one import (
     SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
 )
+
+
+def _response(status: int, body: dict[str, object] | str = "") -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response.raw = BytesIO((json.dumps(body) if isinstance(body, dict) else body).encode())
+    return response
 
 
 @pytest.fixture(autouse=True)
@@ -67,12 +78,14 @@ def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_int
 
 @pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])
 def test_system_one_key_validation(status: int, expected_state: str) -> None:
-    response = Mock(status_code=status)
-    response.json.return_value = {
-        "model": "example-judge-v1",
-        "answers": {"verdict": {"type": "noul", "noul": 0.9}, "applicable": {"type": "noul", "noul": 0.9}},
-        "usage": {"input_tokens": 12, "output_tokens": 0},
-    }
+    response = _response(
+        status,
+        {
+            "model": "example-judge-v1",
+            "answers": {"verdict": {"type": "noul", "noul": 0.9}, "applicable": {"type": "noul", "noul": 0.9}},
+            "usage": {"input_tokens": 12, "output_tokens": 0},
+        },
+    )
     with patch("requests.Session.request", return_value=response) as request:
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
@@ -87,12 +100,14 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
 
 @pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan"), float("inf"), "0.8", True, None])
 def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
-    response = Mock(status_code=200)
-    response.json.return_value = {
-        "model": "example-judge-v1",
-        "answers": {"verdict": {"type": "noul", "noul": probability}},
-        "usage": {"input_tokens": 120, "output_tokens": 10},
-    }
+    response = _response(
+        200,
+        {
+            "model": "example-judge-v1",
+            "answers": {"verdict": {"type": "noul", "noul": probability}},
+            "usage": {"input_tokens": 120, "output_tokens": 10},
+        },
+    )
     with (
         patch("requests.Session.request", return_value=response),
         pytest.raises(StructuredOutputParseError),
@@ -134,12 +149,14 @@ def test_system_one_rate_limits_are_retryable(status: int) -> None:
 def test_unavailable_usage_does_not_discard_a_valid_answer(
     usage: dict[str, object], expected_input: int | None, expected_output: int | None
 ) -> None:
-    response = Mock(status_code=200)
-    response.json.return_value = {
-        "model": "example-judge-v1",
-        "answers": {"verdict": {"type": "noul", "noul": 0.9}},
-        "usage": usage,
-    }
+    response = _response(
+        200,
+        {
+            "model": "example-judge-v1",
+            "answers": {"verdict": {"type": "noul", "noul": 0.9}},
+            "usage": usage,
+        },
+    )
     with patch("requests.Session.request", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
@@ -174,12 +191,14 @@ def test_official_endpoint_is_blocked(base_url: str) -> None:
 
 @pytest.mark.parametrize("answers", [{}, {"verdict": {"type": "noul", "noul": 0.9}}])
 def test_system_one_requires_every_requested_answer(answers: dict[str, object]) -> None:
-    response = Mock(status_code=200)
-    response.json.return_value = {
-        "model": "example-judge-v1",
-        "answers": answers,
-        "usage": {"input_tokens": 12, "output_tokens": 2},
-    }
+    response = _response(
+        200,
+        {
+            "model": "example-judge-v1",
+            "answers": answers,
+            "usage": {"input_tokens": 12, "output_tokens": 2},
+        },
+    )
     with (
         patch("requests.Session.request", return_value=response),
         pytest.raises(StructuredOutputParseError),
@@ -208,7 +227,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
     ],
 )
 def test_system_one_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
-    response = Mock(status_code=status, text=message)
+    response = _response(status, message)
     with (
         patch("requests.Session.request", return_value=response),
         pytest.raises(error_type),
@@ -229,13 +248,15 @@ def test_system_one_preserves_error_categories(status: int, message: str, error_
 )
 @pytest.mark.parametrize("api_key", ["example-token", ""])
 def test_custom_endpoint_and_model(api_key: str) -> None:
-    response = Mock(status_code=200)
-    response.json.return_value = {
-        "model": "custom-model-revision",
-        "answers": {"verdict": {"noul": 0.7}, "applicable": {"noul": 1.0}},
-        "usage": {"input_tokens": 15},
-        "latency_ms": 42,
-    }
+    response = _response(
+        200,
+        {
+            "model": "custom-model-revision",
+            "answers": {"verdict": {"noul": 0.7}, "applicable": {"noul": 1.0}},
+            "usage": {"input_tokens": 15},
+            "latency_ms": 42,
+        },
+    )
     with patch("requests.Session.request", return_value=response) as request:
         result = SystemOneClient.evaluate(
             api_key=api_key,

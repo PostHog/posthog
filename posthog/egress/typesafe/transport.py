@@ -28,7 +28,7 @@ class TypeSafeClient(EgressClient):
     observability = typesafe_egress
 
     def _standard_headers(self) -> dict[str, str]:
-        return {"Accept": "application/json", "Content-Type": "application/json"}
+        return {"Accept": "application/json", "Accept-Encoding": "identity", "Content-Type": "application/json"}
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         return consume_typesafe_sync(scope=scope, priority=priority, source=source)

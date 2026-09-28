@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 from typing import Any
 
 from unittest.mock import patch
@@ -11,7 +12,7 @@ from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority, resolve_policy
 from posthog.egress.observability.observability import scope_fingerprint
-from posthog.egress.typesafe.client import TypeSafeNotConfigured, TypeSafeRequestFailed, system_one
+from posthog.egress.typesafe.client import MAX_RESPONSE_BYTES, TypeSafeNotConfigured, TypeSafeRequestFailed, system_one
 from posthog.egress.typesafe.limiter import typesafe_account_key
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
 
@@ -45,10 +46,12 @@ _COUNTER_LABELS = {
 }
 
 
-def _response(status: int, body: str) -> requests.Response:
+def _response(status: int, body: str, *, content_length: str | None = None) -> requests.Response:
     response = requests.models.Response()
     response.status_code = status
-    response._content = body.encode()
+    response.raw = BytesIO(body.encode())
+    if content_length is not None:
+        response.headers["Content-Length"] = content_length
     return response
 
 
@@ -93,7 +96,9 @@ class TestTypeSafeEgress(SimpleTestCase):
         assert request.call_args.args == ("POST", f"{base_url}/systemone")
         kwargs = request.call_args.kwargs
         assert kwargs["headers"].get("Authorization") == (f"Bearer {resolved_key}" if resolved_key else None)
+        assert kwargs["headers"]["Accept-Encoding"] == "identity"
         assert kwargs["allow_redirects"] is False
+        assert kwargs["stream"] is True
         assert kwargs["json"] == {
             "model": "jev-latest",
             "state": {"ticket": "Payouts fail"},
@@ -169,6 +174,50 @@ class TestTypeSafeEgress(SimpleTestCase):
         ):
             system_one(state="Payouts fail", questions=_QUESTIONS, source="test")
         assert raised.exception.status_code == expected_status_code
+
+    @parameterized.expand([("declared", True), ("chunked", False)])
+    def test_rejects_oversized_endpoint_responses(self, _name: str, declared: bool) -> None:
+        response = _response(
+            200,
+            "x" * (MAX_RESPONSE_BYTES + 1),
+            content_length=str(MAX_RESPONSE_BYTES + 1) if declared else None,
+        )
+        with (
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
+            patch("requests.request", return_value=response),
+            patch.object(response.raw, "read", wraps=response.raw.read) as read,
+            self.assertRaisesRegex(TypeSafeRequestFailed, "oversized body"),
+        ):
+            system_one(state="hello", questions=_QUESTIONS, source="test")
+        assert response.raw.closed
+        if declared:
+            read.assert_not_called()
+
+    def test_stops_reading_a_response_after_the_total_time_limit(self) -> None:
+        response = _response(200, json.dumps(_ANSWERS))
+        with (
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
+            patch("requests.request", return_value=response),
+            patch.object(response.raw, "read", wraps=response.raw.read) as read,
+            patch("posthog.egress.typesafe.client.monotonic", side_effect=[0, 0, 2]),
+            self.assertRaisesRegex(TypeSafeRequestFailed, "time limit"),
+        ):
+            system_one(state="hello", questions=_QUESTIONS, source="test", timeout=1)
+        assert response.raw.closed
+        assert read.call_count == 2
+
+    def test_rejects_compressed_responses_before_reading(self) -> None:
+        response = _response(200, json.dumps(_ANSWERS))
+        response.headers["Content-Encoding"] = "gzip"
+        with (
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
+            patch("requests.request", return_value=response),
+            patch.object(response.raw, "read", wraps=response.raw.read) as read,
+            self.assertRaisesRegex(TypeSafeRequestFailed, "compressed body"),
+        ):
+            system_one(state="hello", questions=_QUESTIONS, source="test")
+        assert response.raw.closed
+        read.assert_not_called()
 
     @parameterized.expand(
         [

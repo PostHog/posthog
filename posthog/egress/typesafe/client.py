@@ -10,6 +10,7 @@ opt-in from each customer and sign-off from leadership first.
 """
 
 from collections.abc import Mapping
+from time import monotonic
 
 from django.conf import settings
 
@@ -32,6 +33,7 @@ from posthog.llm.system_one import (
 
 TYPESAFE_API_BASE = "https://api.typesafe.ai"
 SYSTEM_ONE_ENDPOINT = SYSTEM_ONE_PATH
+MAX_RESPONSE_BYTES = 1_048_576
 
 # The alias moves to each new release. A caller that tunes thresholds against one version pins that
 # version's id instead, so a release cannot shift its answers without a code change.
@@ -87,6 +89,7 @@ def system_one(
         else scope_fingerprint(base_url, resolved_api_key)
     )
 
+    deadline = monotonic() + (sum(timeout) if isinstance(timeout, tuple) else timeout)
     response = typesafe_request(
         "POST",
         f"{base_url}/systemone",
@@ -97,20 +100,42 @@ def system_one(
         priority=priority,
         timeout=timeout,
         allow_redirects=False,
+        stream=True,
         session=session,
         json=build_system_one_body(state=state, questions=questions, model=model),
     )
-
-    if response.status_code != 200:
-        # A 422 body echoes the offending field, which can carry the state, so keep the body out of
-        # the exception that gets logged.
-        raise TypeSafeRequestFailed(
-            f"TypeSafe returned HTTP {response.status_code}", status_code=response.status_code, response=response
-        )
     try:
-        payload: object = response.json()
-    except ValueError as exc:
-        raise TypeSafeRequestFailed("TypeSafe returned a non-JSON body") from exc
+        if response.status_code not in (200, 422):
+            raise TypeSafeRequestFailed(
+                f"TypeSafe returned HTTP {response.status_code}", status_code=response.status_code, response=response
+            )
+        if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+            raise TypeSafeRequestFailed("TypeSafe returned a compressed body")
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_RESPONSE_BYTES:
+                    raise TypeSafeRequestFailed("TypeSafe returned an oversized body")
+            except ValueError:
+                pass
+        body = bytearray()
+        # boffin: Check each byte so a trickling endpoint cannot keep a larger read open indefinitely.
+        for chunk in response.iter_content(chunk_size=1):
+            if monotonic() >= deadline:
+                raise TypeSafeRequestFailed("TypeSafe response exceeded the time limit")
+            if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                raise TypeSafeRequestFailed("TypeSafe returned an oversized body")
+            body.extend(chunk)
+        # A 422 body may describe a context limit, but it can also echo state; keep it out of logs.
+        response._content = bytes(body)
+        if response.status_code != 200:
+            raise TypeSafeRequestFailed("TypeSafe returned HTTP 422", status_code=422, response=response)
+        try:
+            payload: object = response.json()
+        except ValueError as exc:
+            raise TypeSafeRequestFailed("TypeSafe returned a non-JSON body") from exc
+    finally:
+        response.close()
     try:
         return parse_system_one_response(payload, questions)
     except SystemOneRequestFailed as exc:
