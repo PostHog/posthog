@@ -258,13 +258,10 @@ function HogFlowEditorToolbarSection({ title, children }: { title: string; child
     )
 }
 
-// For now we only want to show destinations that do not have secrets and not coming soon
+// Destinations with secret inputs are allowed, because the hog flow API moves those inputs to
+// encrypted_inputs on save. Destinations that are not released yet stay hidden.
 const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
     if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-        return false
-    }
-
-    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
         return false
     }
 
