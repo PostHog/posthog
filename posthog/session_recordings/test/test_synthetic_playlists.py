@@ -12,13 +12,17 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models import Comment, SessionRecordingPlaylist, Team
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
-from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
+from posthog.session_recordings.synthetic_playlists import (
+    ExpiringPlaylistSource,
+    ExportedPlaylistSource,
+    FrustrationSignalsPlaylistSource,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -163,6 +167,51 @@ class TestSyntheticPlaylists(APIBaseTest):
         playlist = self._get_synthetic_playlist("synthetic-shared")
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
+
+    def test_exported_playlist_caches_and_shares_one_scan(self) -> None:
+        cache.clear()
+
+        # "old" is exported twice, most recently of all, so it must sort ahead of "new"
+        exports = [("exported-session-old", 30), ("exported-session-new", 20), ("exported-session-old", 10)]
+        for session_id, minutes_ago in exports:
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": session_id},
+                created_by=self.user,
+            )
+            # created_at is auto_now_add, and consecutive writes are not ordered in time
+            ExportedAsset.objects.filter(pk=asset.pk).update(created_at=now() - timedelta(minutes=minutes_ago))
+
+        source = ExportedPlaylistSource()
+
+        # count + get_session_ids + a second list load share a single cached scan
+        with self.assertNumQueries(1):
+            count = source.count_session_ids(self.team, self.user)
+            session_ids = source.get_session_ids(self.team, self.user)
+            recount = source.count_session_ids(self.team, self.user)
+
+        assert count == 2
+        assert recount == 2
+        assert session_ids == ["exported-session-old", "exported-session-new"]
+
+    def test_exported_playlist_cache_is_scoped_per_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        for team, session_id in [(self.team, "exported-for-our-team"), (other_team, "exported-for-other-team")]:
+            ExportedAsset.objects.create(
+                team=team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": session_id},
+                created_by=self.user,
+            )
+
+        source = ExportedPlaylistSource()
+
+        # warming one team's cache must not answer for the other
+        assert source.get_session_ids(self.team, self.user) == ["exported-for-our-team"]
+        assert source.get_session_ids(other_team, self.user) == ["exported-for-other-team"]
+        assert source.count_session_ids(self.team, self.user) == 1
+        assert source.count_session_ids(other_team, self.user) == 1
 
     def test_synthetic_playlist_exported_content(self) -> None:
         ExportedAsset.objects.create(
