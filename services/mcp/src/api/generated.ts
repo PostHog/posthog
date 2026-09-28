@@ -39393,6 +39393,7 @@ export namespace Schemas {
      * * `session_recordings` - Session Recordings
      * * `errortracking` - Errortracking
      * * `clientwarnings` - Clientwarnings
+     * * `heatmaps` - Heatmaps
      * * `ai` - Ai
      */
     export type IngestionPipelineEnum = typeof IngestionPipelineEnum[keyof typeof IngestionPipelineEnum];
@@ -39403,6 +39404,7 @@ export namespace Schemas {
       SessionRecordings: 'session_recordings',
       Errortracking: 'errortracking',
       Clientwarnings: 'clientwarnings',
+      Heatmaps: 'heatmaps',
       Ai: 'ai',
     } as const;
 
