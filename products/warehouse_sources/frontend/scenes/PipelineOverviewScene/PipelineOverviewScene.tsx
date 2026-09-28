@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,7 +15,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ConnectedSources } from './ConnectedSources'
+import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
+
 import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
@@ -119,7 +120,7 @@ export function PipelineOverviewScene(): JSX.Element {
             <SceneDivider />
 
             <SceneSection title="Synced sources" description="Sources PostHog imports on a schedule.">
-                <ConnectedSources />
+                <ManagedSourcesTable />
             </SceneSection>
 
             <SceneDivider />
@@ -141,10 +142,6 @@ export function PipelineOverviewScene(): JSX.Element {
                         Manage destinations
                     </LemonButton>
                 </div>
-                <p className="mt-2 mb-0 text-xs text-muted">
-                    <Link to={urls.pipelineStatus()}>Pipeline status</Link> covers the rest of the warehouse, including
-                    views and batch exports.
-                </p>
             </SceneSection>
         </SceneContent>
     )

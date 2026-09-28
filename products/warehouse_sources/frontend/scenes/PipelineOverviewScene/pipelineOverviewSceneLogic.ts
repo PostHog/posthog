@@ -13,6 +13,7 @@ import {
 import { loaders } from 'kea-loaders'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
@@ -31,14 +32,8 @@ import type {
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import {
-    externalDataDestinationsList,
-    externalDataSourcesList,
-} from 'products/warehouse_sources/frontend/generated/api'
-import type {
-    ExternalDataDestinationApi,
-    ExternalDataSourceSerializersApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { externalDataDestinationsList } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 /** Windows `job_stats` accepts. Anything else is a 400. */
 export type PipelineStatsWindow = 1 | 7 | 30
@@ -87,10 +82,6 @@ export interface pipelineOverviewSceneLogicValues {
     failedRuns: PipelineActivityRowApi[]
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
-    sources: ExternalDataSourceSerializersApi[] | null
-    sourcesLoading: boolean
-    managedSources: ExternalDataSourceSerializersApi[] | null
-    otherSourceCount: number
     destinationRowTotals: Record<string, { total: number }> | null
     destinationRowTotalsLoading: boolean
     rowsByDestination: { id: string; name: string; type: string; rows: number }[]
@@ -105,7 +96,6 @@ export interface pipelineOverviewSceneLogicActions {
     loadHealthIssues: () => any
     loadRecentFailures: () => any
     loadDestinations: () => any
-    loadSources: () => any
     loadDestinationRowTotals: () => any
     refresh: () => { value: true }
     loadEverything: () => { value: true }
@@ -164,12 +154,6 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     (await externalDataDestinationsList(String(values.currentTeamId))).results ?? [],
             },
         ],
-        sources: [
-            null as ExternalDataSourceSerializersApi[] | null,
-            {
-                loadSources: async () => (await externalDataSourcesList(String(values.currentTeamId))).results ?? [],
-            },
-        ],
         /**
          * Rows written per destination, across every source. The pipeline emits `rows_synced`
          * three ways per run — keyed by schema, by schema and destination, and by destination
@@ -185,7 +169,11 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                             appSource: WAREHOUSE_APP_SOURCE,
                             metricName: 'rows_synced',
                             breakdownBy: ['instance_id'],
-                            dateFrom: `-${values.window}d`,
+                            // Both bounds are interpolated into `toDateTime(...)`, so they have to
+                            // be absolute timestamps. The upper bound sits an hour ahead because
+                            // the comparison is exclusive and rows land continuously.
+                            dateFrom: dayjs().subtract(values.window, 'day').toISOString(),
+                            dateTo: dayjs().add(1, 'hour').toISOString(),
                             // Bounded so a team with many schemas cannot silently truncate the
                             // destination rows out of the result.
                             limit: 500,
@@ -245,22 +233,6 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     .sort((a, b) => b.rows - a.rows)
             },
         ],
-        /**
-         * Sources PostHog imports on a schedule. Direct-connect sources are queried in place and
-         * never sync, so they have no runs, no freshness and nothing for this scene to report.
-         */
-        managedSources: [
-            (s: any) => [s.sources],
-            (sources: ExternalDataSourceSerializersApi[] | null): ExternalDataSourceSerializersApi[] | null =>
-                sources === null ? null : sources.filter((source) => source.access_method?.toLowerCase() !== 'direct'),
-        ],
-        otherSourceCount: [
-            (s: any) => [s.sources, s.managedSources],
-            (
-                sources: ExternalDataSourceSerializersApi[] | null,
-                managed: ExternalDataSourceSerializersApi[] | null
-            ): number => (sources === null || managed === null ? 0 : sources.length - managed.length),
-        ],
         /** Whether anything is wrong. The health section is hidden when nothing is. */
         hasIssues: [(s: any) => [s.issuesBySeverity], (issues: DataHealthIssueApi[]): boolean => issues.length > 0],
         failedRuns: [
@@ -294,7 +266,6 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadHealthIssues()
             actions.loadRecentFailures()
             actions.loadDestinations()
-            actions.loadSources()
             actions.loadDestinationRowTotals()
         },
         // Only the headline numbers poll. Reloading the tables under someone mid-read moves rows

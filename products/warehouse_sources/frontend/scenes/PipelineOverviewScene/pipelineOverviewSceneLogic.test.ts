@@ -13,7 +13,6 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataDestinationsList: jest.fn(),
-    externalDataSourcesList: jest.fn(),
 }))
 
 jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
@@ -45,7 +44,6 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({ results: [], count: 0 })
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
         wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
-        wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
         metrics.loadAppMetricsTotals.mockResolvedValue({})
         logic = pipelineOverviewSceneLogic()
         logic.mount()
@@ -179,20 +177,16 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalled()
     })
 
-    it('keeps direct-connect sources out of the synced-sources table', async () => {
-        logic.unmount()
-        wsApi.externalDataSourcesList.mockResolvedValue({
-            results: [
-                { id: 'a', source_type: 'Stripe', access_method: 'warehouse' },
-                { id: 'b', source_type: 'Postgres', access_method: 'Direct' },
-                { id: 'c', source_type: 'Hubspot', access_method: null },
-            ],
-        })
-
-        logic.mount()
+    it('asks for destination rows between two absolute timestamps', async () => {
+        // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
+        // `dateTo` makes the query throw instead of returning rows.
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.managedSources?.map((source: any) => source.id)).toEqual(['a', 'c'])
-        expect(logic.values.otherSourceCount).toEqual(1)
+        const [request] = metrics.loadAppMetricsTotals.mock.calls[0]
+        expect(request.metricName).toEqual('rows_synced')
+        expect(request.breakdownBy).toEqual(['instance_id'])
+        expect(Date.parse(request.dateFrom)).not.toBeNaN()
+        expect(Date.parse(request.dateTo)).not.toBeNaN()
+        expect(Date.parse(request.dateFrom)).toBeLessThan(Date.parse(request.dateTo))
     })
 })
