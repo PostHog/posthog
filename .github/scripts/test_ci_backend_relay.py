@@ -439,10 +439,14 @@ def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str)
     "field,value",
     [
         ("app", {"id": 99}),
+        ("app", None),
         ("name", "other check"),
         ("head_sha", "other"),
         ("pull_requests", [{"number": PR + 1}]),
         ("details_url", "https://depot.dev/orgs/other/workflows/live"),
+        ("details_url", "https://depot.dev.example.com/orgs/ntsdt08fpt/workflows/live"),
+        ("details_url", "https://depot.dev@evil.example.com/orgs/ntsdt08fpt/workflows/live"),
+        ("details_url", "http://depot.dev/orgs/ntsdt08fpt/workflows/live"),
     ],
 )
 def test_reader_rejects_wrong_identity(field: str, value: Any) -> None:

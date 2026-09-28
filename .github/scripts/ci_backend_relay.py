@@ -241,10 +241,6 @@ class CheckRunReader:
                 if len(batch) < PAGE_SIZE:
                     break
                 page += 1
-        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError):
-            sys.stdout.write("::warning::check-runs API read failed\n")
-            return []
-        try:
             runs = [
                 CheckRun.from_api(run)
                 for run in raw
@@ -258,8 +254,8 @@ class CheckRunReader:
                 )
             ]
             runs = [run for run in runs if run.depot_workflow is not None]
-        except (KeyError, TypeError, ValueError, AttributeError):
-            sys.stdout.write("::warning::check-runs API returned malformed checks\n")
+        except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError):
+            sys.stdout.write("::warning::check-runs API read failed\n")
             return []
         # One page's ETag cannot validate the other pages of a paginated response.
         self._cache[name] = (new_etag if page == 1 else "", runs)
