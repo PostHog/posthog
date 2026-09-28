@@ -1,4 +1,5 @@
 import { signalsConfigKeys } from "@posthog/core/inbox/inboxQuery";
+import type { PullRequestLabelUpdate } from "@posthog/core/inbox/pullRequestLabel";
 import type { SignalTeamConfig } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -9,8 +10,9 @@ const TEAM_CONFIG_QUERY_KEY = signalsConfigKeys.teamConfig;
 
 /**
  * Mutations that write to the per-team Self-driving config:
- * default autostart priority, default Slack channel, and the per-repo
- * autostart base-branch map. Reads come from `useSignalTeamConfig`.
+ * default autostart priority, default Slack channel, the per-repo autostart
+ * base-branch map, the daily report cap, and the pull request label. Reads come
+ * from `useSignalTeamConfig`.
  */
 export function useSignalTeamConfigMutations() {
   const client = useAuthenticatedClient();
@@ -128,10 +130,35 @@ export function useSignalTeamConfigMutations() {
     [client, queryClient],
   );
 
+  const handleUpdatePullRequestLabel = useCallback(
+    async (updates: PullRequestLabelUpdate) => {
+      if (!client) return;
+      try {
+        const fresh = await client.updateSignalTeamConfig(updates);
+        // Same reason as the daily cap above: cancel an in-flight focus refetch
+        // so a stale GET cannot resolve after this write.
+        await queryClient.cancelQueries({ queryKey: TEAM_CONFIG_QUERY_KEY });
+        queryClient.setQueryData<SignalTeamConfig | null>(
+          TEAM_CONFIG_QUERY_KEY,
+          fresh,
+        );
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to update the pull request label";
+        toast.error(message);
+        throw error instanceof Error ? error : new Error(message);
+      }
+    },
+    [client, queryClient],
+  );
+
   return {
     handleUpdateAutostartPriority,
     handleUpdateTeamSlackChannel,
     handleUpdateAutostartBaseBranches,
     handleUpdateMaxReportsPerDay,
+    handleUpdatePullRequestLabel,
   };
 }

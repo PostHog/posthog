@@ -1179,6 +1179,10 @@ export interface SignalTeamConfig {
   reports_generated_today?: number;
   /** Whether the cap is reached, pausing new reports until local midnight. `false` when there is no cap. Read-only. */
   daily_report_limit_reached?: boolean;
+  /** Whether self-driving labels every pull request it opens, so GitHub search can separate them from other automation. */
+  pull_request_label_enabled?: boolean;
+  /** The label name self-driving applies. `null` or blank means the server default. Only used while `pull_request_label_enabled` is true. */
+  pull_request_label?: string | null;
   created_at: string;
   updated_at: string;
 }
