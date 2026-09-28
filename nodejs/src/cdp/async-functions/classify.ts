@@ -21,6 +21,11 @@ const getClassifyJwt = (): ScopedServiceJwt =>
 // classification to the gateway again.
 const CLASSIFY_TIMEOUT_MS = 7000
 
+// Match the limits of the classification endpoint (GATEWAY_MAX_CHOICE_OPTIONS and the categories field in
+// workflow_classifications.py), so a mocked test run fails on the same inputs as a live run.
+const MAX_CATEGORIES = 16
+const MAX_DESCRIPTION_LENGTH = 500
+
 // The step test panel mocks async functions by default, so `mock` runs these checks too.
 const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
     const [payload] = args as [Record<string, unknown> | undefined]
@@ -30,6 +35,16 @@ const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
     const categories = payload.categories
     if (!categories || typeof categories !== 'object' || Object.keys(categories).length < 2) {
         throw new Error('Enter at least two categories')
+    }
+    if (Object.keys(categories).length > MAX_CATEGORIES) {
+        throw new Error(`Enter at most ${MAX_CATEGORIES} categories`)
+    }
+    if (
+        Object.values(categories).some(
+            (description) => typeof description === 'string' && [...description.trim()].length > MAX_DESCRIPTION_LENGTH
+        )
+    ) {
+        throw new Error(`Keep each category description to ${MAX_DESCRIPTION_LENGTH} characters or fewer`)
     }
     return payload
 }
