@@ -129,6 +129,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
@@ -753,6 +754,33 @@ const reorderVariantState = (
             payloads: newPayloads,
         },
     }
+}
+
+function containsFormError(error: unknown): boolean {
+    if (typeof error === 'string') {
+        return error.length > 0
+    }
+    if (error && typeof error === 'object') {
+        return Object.values(error).some(containsFormError)
+    }
+    return false
+}
+
+function getFeatureFlagFormErrorMessage(
+    formErrors: DeepPartialMap<FeatureFlagType, ValidationErrorType> | null | undefined
+): string {
+    const filtersErrors = formErrors?.filters as Record<string, unknown> | undefined
+    const sections = [
+        containsFormError(formErrors?.key) && 'flag key',
+        containsFormError((filtersErrors?.multivariate as Record<string, unknown> | undefined)?.variants) && 'variants',
+        containsFormError(filtersErrors?.payloads) && 'payload',
+        containsFormError(filtersErrors?.groups) && 'release conditions',
+        containsFormError(formErrors?.tags) && 'tags',
+    ].filter((section): section is string => !!section)
+    if (!sections.length) {
+        return 'This flag has validation errors. Please review the highlighted fields above.'
+    }
+    return `Fix the errors in ${sections.join(', ')}, then save again.`
 }
 
 // Helper function to remap openVariants after reordering to handle keyless variants
@@ -3811,14 +3839,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (formErrors?.tags && !values.advancedPanelOpen) {
                 actions.setAdvancedExpanded(true)
             }
+            const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({ id: String(props.id) })
+            const conditionKeysWithErrors = releaseConditionsLogic?.values.conditionKeysWithErrors ?? []
+            if (releaseConditionsLogic && conditionKeysWithErrors.length) {
+                releaseConditionsLogic.actions.setOpenConditions(
+                    Array.from(new Set([...releaseConditionsLogic.values.openConditions, ...conditionKeysWithErrors]))
+                )
+            }
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
             // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
             // fires instead of scrolling to the error.
             await Promise.resolve()
-            scrollToFormError({
-                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
-            })
+            scrollToFormError({ fallbackErrorMessage: getFeatureFlagFormErrorMessage(formErrors) })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {

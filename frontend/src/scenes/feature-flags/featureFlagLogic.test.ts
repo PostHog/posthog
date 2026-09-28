@@ -70,6 +70,7 @@ import {
     validateFeatureFlagVariantKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 jest.mock('posthog-js')
@@ -3547,6 +3548,41 @@ describe('variant rollout sum validation', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.openVariants).toEqual(expect.arrayContaining(['variant-0', 'variant-1']))
+    })
+
+    // Collapsed condition sets don't render their inline errors, so the save has nothing to scroll to.
+    it('opens the collapsed condition set that holds a release condition error', async () => {
+        const filters: FeatureFlagFilters = {
+            groups: [
+                { sort_key: 'valid', properties: [], rollout_percentage: 100, variant: null },
+                {
+                    sort_key: 'empty-value',
+                    properties: [
+                        { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: [] },
+                    ],
+                    rollout_percentage: 100,
+                    variant: null,
+                },
+            ],
+            multivariate: null,
+            payloads: {},
+        }
+        const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
+            id: '1',
+            filters,
+            onChange: logic.actions.setFeatureFlagFilters,
+        })
+        releaseConditionsLogic.mount()
+        logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, filters })
+        logic.actions.setFeatureFlagFilters(filters, releaseConditionsLogic.values.propertySelectErrors)
+        releaseConditionsLogic.actions.setOpenConditions([])
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        expect(releaseConditionsLogic.values.openConditions).toEqual(['condition-empty-value'])
+        releaseConditionsLogic.unmount()
     })
 
     it('does not block a boolean flag, which carries no variants', () => {

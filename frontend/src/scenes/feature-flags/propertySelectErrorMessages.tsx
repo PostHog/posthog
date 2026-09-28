@@ -10,6 +10,10 @@ export type PropertySelectError = {
     variant: null
 }
 
+export function conditionSetHasErrors(error: PropertySelectError | null | undefined): boolean {
+    return !!error?.rollout_percentage || !!error?.properties?.some((property) => typeof property?.value === 'string')
+}
+
 // Renders a condition set's property errors (from featureFlagReleaseConditionsLogic's
 // `propertySelectErrors` selector) as the JSX.Element[] the PropertyFilters `errorMessages`
 // prop expects, one entry per property (empty entries render nothing).

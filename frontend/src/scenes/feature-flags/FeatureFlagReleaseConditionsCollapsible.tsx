@@ -91,7 +91,11 @@ import {
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { MatchingActorsLink } from './MatchingActorsLink'
-import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
+import {
+    conditionSetHasErrors,
+    getPropertySelectErrorMessages,
+    PropertySelectError,
+} from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -195,6 +199,7 @@ interface ConditionHeaderProps {
     getFlagKey: (flagId: string) => string
     onDuplicate: () => void
     onRemove: () => void
+    hasErrors: boolean
 }
 
 function ConditionHeader({
@@ -207,6 +212,7 @@ function ConditionHeader({
     getFlagKey,
     onDuplicate,
     onRemove,
+    hasErrors,
 }: ConditionHeaderProps): JSX.Element {
     // Use description if available, otherwise summarize the filters
     const summary =
@@ -226,6 +232,13 @@ function ConditionHeader({
             <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-xs bg-bg-light rounded px-1.5 py-0.5 shrink-0">{index + 1}</span>
                 <span className="text-sm break-all">{summary}</span>
+                {hasErrors && (
+                    <Tooltip title="This condition set has errors. Expand it to fix them.">
+                        <span className="flex shrink-0" data-attr="condition-set-error-marker">
+                            <IconErrorOutline className="text-danger text-lg" aria-label="Condition set has errors" />
+                        </span>
+                    </Tooltip>
+                )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
                 <span className="text-sm text-muted mr-2 tabular-nums">
@@ -563,6 +576,10 @@ const ConditionContent = ({
                                 getFlagKey={getFlagKey}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
+                                hasErrors={
+                                    !openConditions.includes(`condition-${group.sort_key!}`) &&
+                                    conditionSetHasErrors(propertySelectErrors?.[index])
+                                }
                             />
                             <span className="ml-2">
                                 {openConditions.includes(`condition-${group.sort_key!}`) ? (
@@ -691,6 +708,12 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
+                                        {propertySelectErrors?.[index]?.rollout_percentage && (
+                                            <div className="text-danger flex items-center gap-1 text-sm mt-1 Field--error">
+                                                <IconErrorOutline className="text-xl" />{' '}
+                                                {propertySelectErrors[index].rollout_percentage}
+                                            </div>
+                                        )}
                                         {blastRadiusError ? (
                                             <div
                                                 role="status"

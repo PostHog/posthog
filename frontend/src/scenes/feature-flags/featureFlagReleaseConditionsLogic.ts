@@ -43,6 +43,7 @@ import type { SimpleOption } from '../../lib/components/TaxonomicFilter/types'
 import type { Noun } from '../../models/groupsModel'
 import type { GroupType } from '../../types'
 import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { PropertySelectError, conditionSetHasErrors } from './propertySelectErrorMessages'
 
 // A property filter targets people by their raw distinct id.
 export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
@@ -176,6 +177,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     computeBlastRadiusPercentage: (rolloutPercentage: any, sortKey: any) => any
+    conditionKeysWithErrors: string[]
     distinctIdNameCache: Record<string, string>
     distinctIds: string[]
     draggedGroup: FeatureFlagGroupType | null
@@ -367,6 +369,12 @@ export interface featureFlagReleaseConditionsLogicMeta {
             rollout_percentage: string | undefined
             variant: null
         }[]
+        conditionKeysWithErrors: (
+            filters: FeatureFlagFilters & {
+                groups: FeatureFlagGroupTypeWithSortKey[]
+            },
+            propertySelectErrors: PropertySelectError[]
+        ) => string[]
         computeBlastRadiusPercentage: (
             affectedCounts: Record<string, number | undefined>,
             totalCounts: Record<string, number | undefined>
@@ -1143,6 +1151,18 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     variant: null,
                 }))
             },
+        ],
+        conditionKeysWithErrors: [
+            (s) => [s.filters, s.propertySelectErrors],
+            (
+                filters: FeatureFlagFilters & {
+                    groups: FeatureFlagGroupTypeWithSortKey[]
+                },
+                propertySelectErrors: PropertySelectError[]
+            ): string[] =>
+                filters.groups
+                    .filter((_, index) => conditionSetHasErrors(propertySelectErrors?.[index]))
+                    .map((group) => `condition-${group.sort_key}`),
         ],
         computeBlastRadiusPercentage: [
             (s) => [s.affectedCounts, s.totalCounts],
