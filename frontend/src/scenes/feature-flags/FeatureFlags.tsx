@@ -38,6 +38,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -808,6 +809,12 @@ export function FeatureFlags(): JSX.Element {
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
     const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
+    const { currentTeam } = useValues(teamLogic)
+    // The rules v2 create contract rejects `evaluation_contexts`, so a project that requires them rejects every rules v2 create.
+    const rulesV2CreateDisabledReason =
+        enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && currentTeam?.require_evaluation_contexts
+            ? "This project requires evaluation contexts on new flags, and rules v2 flags can't set them yet."
+            : undefined
 
     return (
         <SceneContent className="feature_flags">
@@ -832,6 +839,7 @@ export function FeatureFlags(): JSX.Element {
                                     type="secondary"
                                     size="small"
                                     to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                    disabledReason={rulesV2CreateDisabledReason}
                                     data-attr="new-rules-v2-feature-flag"
                                 >
                                     New rules v2 flag
