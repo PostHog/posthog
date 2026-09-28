@@ -1,5 +1,7 @@
 import { LemonBanner, LemonCollapse, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import type {
     TrialComparisonReportApi,
     TrialVariantAggregateApi,
@@ -36,7 +38,7 @@ export function ScoutTrialComparisonReport({ report }: { report: TrialComparison
                                 {variant.is_baseline && <LemonTag type="muted">Baseline</LemonTag>}
                                 <span className="text-xs text-muted">{`${variant.judged_runs}/${variant.total_runs} runs judged`}</span>
                                 {(variant.excluded_runs > 0 || variant.judge_errors > 0) && (
-                                    <span className="text-xs text-muted">{`${variant.excluded_runs} excluded · ${variant.judge_errors} judge errors`}</span>
+                                    <span className="text-xs text-muted">{`${variant.excluded_runs} excluded · ${pluralize(variant.judge_errors, 'judge error')}`}</span>
                                 )}
                             </div>
                         ),

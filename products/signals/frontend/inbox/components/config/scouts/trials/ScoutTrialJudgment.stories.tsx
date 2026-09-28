@@ -38,6 +38,7 @@ export const Excluded: Story = {
         },
         evidence: {
             ...trialFixtureReport.evidence[0],
+            execution_status: 'cancelled',
             sources: [],
             exclusion_reason: 'The run was canceled before producing evidence.',
         },
