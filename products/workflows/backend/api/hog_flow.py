@@ -4134,7 +4134,7 @@ class WorkflowNotOptimisedError(exceptions.APIException):
         "This workflow is not set up for suggestions. Turn on 'Suggest improvements' on the workflow "
         "before proposing a change to it."
     )
-    default_code = "workflow_not_optimised"
+    default_code = "workflow_not_optimized"
 
 
 class ProposalOutOfDateError(exceptions.APIException):

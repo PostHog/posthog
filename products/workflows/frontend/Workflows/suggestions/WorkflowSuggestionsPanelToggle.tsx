@@ -24,7 +24,7 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
         >
             {({ disabledReason }) => (
                 <LemonSwitch
-                    id="workflow-self-optimising"
+                    id="workflow-self-optimization"
                     data-attr="workflow-suggest-improvements"
                     className="px-2 py-1"
                     checked={optimizationEnabled}

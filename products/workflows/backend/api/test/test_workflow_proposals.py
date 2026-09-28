@@ -47,7 +47,7 @@ class TestWorkflowProposals(APIBaseTest):
         super().setUp()
         sync_template_to_db(webhook_template)
 
-    def _optimise(self, flow_id: str) -> None:
+    def _optimize(self, flow_id: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization", {"enabled": True}, format="json"
         )
@@ -62,7 +62,7 @@ class TestWorkflowProposals(APIBaseTest):
         flow_id = create.json()["id"]
         activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
-        self._optimise(flow_id)
+        self._optimize(flow_id)
         return flow_id
 
     def _propose(self, flow_id: str, **overrides) -> dict:
@@ -405,7 +405,7 @@ class TestWorkflowProposals(APIBaseTest):
             format="json",
         )
         assert refused.status_code == 409, refused.json()
-        assert refused.json()["code"] == "workflow_not_optimised"
+        assert refused.json()["code"] == "workflow_not_optimized"
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
