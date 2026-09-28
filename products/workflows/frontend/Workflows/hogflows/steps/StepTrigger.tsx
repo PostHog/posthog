@@ -893,11 +893,24 @@ const TTL_OPTIONS = [
     { value: 12 * 60 * 60, label: '12 hours' },
     { value: 24 * 60 * 60, label: '24 hours' },
     { value: 24 * 60 * 60 * 7, label: '7 days' },
+    { value: 24 * 60 * 60 * 14, label: '14 days' },
+    { value: 24 * 60 * 60 * 21, label: '21 days' },
     { value: 24 * 60 * 60 * 30, label: '30 days' },
     { value: 24 * 60 * 60 * 90, label: '90 days' },
     { value: 24 * 60 * 60 * 180, label: '180 days' },
     { value: 24 * 60 * 60 * 365, label: '365 days' },
 ]
+
+function formatTtl(seconds: number): string {
+    const units: [number, string][] = [
+        [24 * 60 * 60, 'day'],
+        [60 * 60, 'hour'],
+        [60, 'minute'],
+    ]
+    const [size, unit] = units.find(([size]) => seconds % size === 0) ?? [1, 'second']
+    const amount = seconds / size
+    return `${amount} ${unit}${amount === 1 ? '' : 's'}`
+}
 
 function TTLSelect({
     value,
@@ -906,10 +919,15 @@ function TTLSelect({
     value: number | null | undefined
     onChange: (val: number | null) => void
 }): JSX.Element {
+    // A TTL set through the API can be any value, so show it rather than a blank select.
+    const options =
+        value != null && !TTL_OPTIONS.some((option) => option.value === value)
+            ? [...TTL_OPTIONS, { value, label: formatTtl(value) }]
+            : TTL_OPTIONS
     return (
         <div className="flex flex-wrap gap-1 items-center">
             <span>per</span>
-            <LemonSelect value={value} onChange={onChange} options={TTL_OPTIONS} />
+            <LemonSelect value={value} onChange={onChange} options={options} />
         </div>
     )
 }

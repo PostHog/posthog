@@ -92,4 +92,17 @@ describe('StepTriggerConfiguration', () => {
             expect(screen.getByText("properties.plan = 'pro'")).toBeInTheDocument()
         })
     })
+
+    it.each([
+        [24 * 60 * 60 * 14, '14 days'],
+        [24 * 60 * 60 * 10, '10 days'],
+        [90 * 60, '90 minutes'],
+    ])('shows a stored frequency window of %i seconds as "%s"', async (ttl, label) => {
+        workflowLogic(LOGIC_PROPS).actions.setWorkflowValue('trigger_masking', { hash: '{person.id}', ttl })
+        renderTrigger([])
+
+        await waitFor(() => {
+            expect(screen.getByText(label)).toBeInTheDocument()
+        })
+    })
 })
