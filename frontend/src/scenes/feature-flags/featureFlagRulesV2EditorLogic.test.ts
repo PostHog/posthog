@@ -1,9 +1,11 @@
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -181,6 +183,26 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(body.version).toBe(3)
             expect(body.filters.rules.map((rule: { id: string }) => rule.id)).toEqual(['rule-rollout', 'rule-beta'])
             expect(JSON.stringify(body)).not.toContain('seed')
+        })
+
+        it.each([
+            { edit: 'a rule move', asks: true, apply: () => logic.actions.moveRule(1, 0) },
+            { edit: 'a name change', asks: false, apply: () => logic.actions.setDraft({ name: 'Renamed' }) },
+        ])('with project confirmation on, $edit asks first: $asks', async ({ asks, apply }) => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, feature_flag_confirmation_enabled: true })
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, version: 4 })
+
+            apply()
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag()).toFinishAllListeners()
+            expect(openDialog).toHaveBeenCalledTimes(asks ? 1 : 0)
+            expect(update).toHaveBeenCalledTimes(asks ? 0 : 1)
+
+            if (asks) {
+                openDialog.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+                await expectLogic(logic).toDispatchActions(['saveRulesV2FlagSuccess']).toFinishAllListeners()
+                expect(update).toHaveBeenCalledTimes(1)
+            }
         })
 
         it('saves with the version its draft was loaded from, even after the page refreshed underneath', async () => {
