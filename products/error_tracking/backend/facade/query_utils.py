@@ -162,13 +162,9 @@ def _parse_relative_date(
     return relative_date_parse(value, timezone_info, now=now, **kwargs)
 
 
-def resolve_date_range(
-    raw_date_range: object, timezone_info: ZoneInfo, now: datetime.datetime | None = None
+def _resolve_date_bounds(
+    raw_date_range: object, timezone_info: ZoneInfo, now: datetime.datetime | None
 ) -> ResolvedDateRange:
-    """Resolve a tool date range to exact bounds in the project timezone.
-
-    A date-only `date_to` includes that whole day, and relative values count back from now.
-    """
     date_range = raw_date_range if isinstance(raw_date_range, dict) else {}
     current = (now or datetime.datetime.now(tz=ZoneInfo("UTC"))).astimezone(timezone_info)
 
@@ -200,6 +196,20 @@ def resolve_date_range(
     if date_from.timestamp() > date_to.timestamp():
         raise ValueError("date_from must be before date_to.")
     return ResolvedDateRange(date_from=date_from, date_to=date_to)
+
+
+def resolve_date_range(
+    raw_date_range: object, timezone_info: ZoneInfo, now: datetime.datetime | None = None
+) -> ResolvedDateRange:
+    """Resolve a tool date range to exact bounds in the project timezone.
+
+    A date-only `date_to` includes that whole day, and relative values count back from now.
+    """
+    try:
+        return _resolve_date_bounds(raw_date_range, timezone_info, now)
+    except OverflowError as error:
+        # Very large relative values and dates near the calendar limits overflow datetime arithmetic.
+        raise ValueError("date_from or date_to is outside the supported dates.") from error
 
 
 def add_event_filter(filters: list[dict[str, object]], key: str, operator: str, value: str | list[str]) -> None:

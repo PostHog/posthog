@@ -181,6 +181,8 @@ def test_resolve_date_range(_name: str, raw: object, expected_from: str, expecte
         ("all_as_date_to", {"date_from": "-7d", "date_to": "all"}),
         ("unreadable_date_from", {"date_from": "banana"}),
         ("unreadable_date_to", {"date_from": "-7d", "date_to": "last week"}),
+        ("oversized_relative_date_from", {"date_from": "-99999999d"}),
+        ("date_to_at_calendar_limit", {"date_to": "9999-12-31"}),
     ]
 )
 def test_resolve_date_range_rejects_invalid_range(_name: str, raw: object) -> None:
