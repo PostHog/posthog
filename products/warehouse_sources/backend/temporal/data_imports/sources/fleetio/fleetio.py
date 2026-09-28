@@ -175,7 +175,7 @@ def _client_config(api_key: str, account_token: str, contract: _VersionContract)
     }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FleetioResumeConfig:
     # The cursor to start the next page from, for a top-level endpoint. None means "start at the
     # first page".
