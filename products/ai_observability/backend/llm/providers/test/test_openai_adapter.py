@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     OutputTokenLimitError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
@@ -162,6 +163,22 @@ class TestOpenAIAdapterErrorMapping:
                 adapter.complete(
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
+
+    def test_unmapped_400_is_terminal_and_carries_the_providers_reason(
+        self, request_no_structured_output: CompletionRequest
+    ):
+        adapter = OpenAIAdapter()
+        detail = "This model cannot be used with the chat completions endpoint."
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = _make_bad_request_error(detail)
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ProviderRequestInvalidError) as excinfo:
+                adapter.complete(
+                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
+                )
+
+        assert excinfo.value.detail == detail
 
     def test_non_402_status_error_is_not_swallowed(self, request_no_structured_output: CompletionRequest):
         adapter = OpenAIAdapter()

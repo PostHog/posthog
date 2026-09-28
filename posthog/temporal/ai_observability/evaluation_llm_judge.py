@@ -16,6 +16,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -43,6 +44,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -542,6 +544,38 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
+    except ProviderRequestInvalidError as e:
+        # Every retry sends the same request, so end it here and give the team the provider's
+        # reason instead of a burst of identical failures.
+        if is_byok:
+            increment_user_errors("provider_request_invalid", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("provider_request_invalid", is_byok=True),
+                # Only the provider's sentence, because the banner prints the reason and the
+                # recovery step above this detail block.
+                message=truncate_error_detail(e.detail),
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
+            )
+        # Our key and our model list, so the refusal is ours to fix. The provider's sentence reads
+        # differently on every call, so it stays out of the message error tracking fingerprints on.
+        increment_errors("provider_request_invalid", provider=provider)
+        logger.warning(
+            "Model provider rejected the judge request",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            detail=e.detail,
+        )
+        raise ApplicationError(
+            "The model provider rejected the judge request.",
+            {"error_type": "provider_request_invalid", "provider": provider, "model": model},
+            non_retryable=True,
+        ) from e
+
     except StructuredOutputParseError as e:
         # Skip rather than raise: non-conforming model output is not a PostHog defect, and raising
         # files a new error tracking issue on each deploy, because the fingerprint follows the stack.

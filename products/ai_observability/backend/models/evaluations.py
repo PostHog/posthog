@@ -40,6 +40,7 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_QUOTA_EXCEEDED = "provider_key_quota_exceeded", "Provider API key quota exceeded"
     PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
     MODEL_NOT_FOUND = "model_not_found", "Model not found"
+    PROVIDER_REQUEST_INVALID = "provider_request_invalid", "Model provider rejected the request"
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
