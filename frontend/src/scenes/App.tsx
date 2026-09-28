@@ -24,6 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { RageClickTint } from '~/layout/RageClickTint'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
@@ -114,6 +115,7 @@ export function App(): JSX.Element | null {
                     {showApp ? (
                         <>
                             <AppScene />
+                            <RageClickTint />
                             {showingDevTools ? <KeaDevtoolsLoader /> : null}
                         </>
                     ) : (
