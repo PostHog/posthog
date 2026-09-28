@@ -19,8 +19,6 @@ type normalizationKind byte
 
 const (
 	normalizationNone normalizationKind = iota
-	normalizationStringArray
-	normalizationObjectArray
 	normalizationObject
 )
 
@@ -91,12 +89,6 @@ func isTemporaryProperty(key string) bool {
 	return strings.HasPrefix(root, "$sdk_debug_")
 }
 
-func makePathRules(paths ...string) *pathRule {
-	root := &pathRule{children: make(map[string]*pathRule, len(paths))}
-	addPathRules(root, normalizationStringArray, paths...)
-	return root
-}
-
 func addPathRules(root *pathRule, normalization normalizationKind, paths ...string) {
 	for _, path := range paths {
 		node := root
@@ -118,16 +110,7 @@ func addPathRules(root *pathRule, normalization normalizationKind, paths ...stri
 }
 
 func makeEventPropertyRules() *pathRule {
-	root := makePathRules(
-		"$exception_functions",
-		"$exception_sources",
-		"$exception_types",
-		"$exception_values",
-		"$mcp_listed_tool_names",
-	)
-	addPathRules(root, normalizationObjectArray,
-		"$exception_list",
-	)
+	root := &pathRule{children: make(map[string]*pathRule, 1)}
 	addPathRules(root, normalizationObject, "$feature_flags")
 	return root
 }
@@ -876,11 +859,7 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) erro
 				writeJSONString(&unparsable, entry.key)
 				unparsable.WriteByte(':')
 				p.writeValue(&unparsable, cleaned)
-				if childPathRules.normalization == normalizationObject {
-					p.resetValue(cleaned, kindObject)
-				} else {
-					cleaned = p.reuseAsEmptyArray(cleaned)
-				}
+				p.resetValue(cleaned, kindObject)
 			}
 		}
 		if cleaned.kind == kindNull {
@@ -1068,10 +1047,6 @@ func (p *processor) deduplicateEntries(obj *value) {
 
 func (p *processor) normalizeValue(normalization normalizationKind, v *value, depth int) (*value, error) {
 	switch normalization {
-	case normalizationStringArray:
-		return p.coerceStringArray(v, depth)
-	case normalizationObjectArray:
-		return p.coerceObjectArray(v, depth)
 	case normalizationObject:
 		if v.kind != kindObject && v.kind != kindNull {
 			return nil, fmt.Errorf("cannot coerce %s to Map", valueKindName(v.kind))
@@ -1080,46 +1055,6 @@ func (p *processor) normalizeValue(normalization normalizationKind, v *value, de
 	default:
 		return v, nil
 	}
-}
-
-func (p *processor) coerceObjectArray(v *value, depth int) (*value, error) {
-	switch v.kind {
-	case kindArray:
-		for _, child := range v.values {
-			if child.kind != kindObject {
-				return nil, fmt.Errorf("cannot coerce array containing %s to Array(JSON)", valueKindName(child.kind))
-			}
-		}
-		return v, nil
-	case kindObject:
-		arr := p.newValue(kindArray)
-		arr.values = append(arr.values, v)
-		return arr, nil
-	case kindNull:
-		return p.reuseAsEmptyArray(v), nil
-	case kindString:
-		raw := strings.TrimSpace(v.s)
-		if isNullishString(raw) {
-			return p.reuseAsEmptyArray(v), nil
-		}
-		parsed, err := p.parseStringifiedJSON(raw, depth)
-		if err != nil {
-			return nil, err
-		}
-		normalized, err := p.coerceObjectArray(parsed, depth)
-		if err != nil {
-			p.recycle(parsed)
-			return nil, err
-		}
-		p.recycle(v)
-		return normalized, nil
-	default:
-		return nil, fmt.Errorf("cannot coerce %s to Array(JSON)", valueKindName(v.kind))
-	}
-}
-
-func isNullishString(s string) bool {
-	return s == "" || strings.EqualFold(s, "null") || strings.EqualFold(s, "undefined")
 }
 
 func valueKindName(kind valueKind) string {
@@ -1141,44 +1076,6 @@ func valueKindName(kind valueKind) string {
 	}
 }
 
-func (p *processor) coerceStringArray(v *value, depth int) (*value, error) {
-	switch v.kind {
-	case kindArray:
-		oldValues := v.values
-		v.values = v.values[:0]
-		for _, child := range oldValues {
-			s := p.nodeString(child)
-			p.recycle(child)
-			str := p.newValue(kindString)
-			str.s = s
-			v.values = append(v.values, str)
-		}
-		return v, nil
-	case kindObject:
-		if len(v.entries) == 0 {
-			return p.reuseAsEmptyArray(v), nil
-		}
-		s := p.nodeString(v)
-		return p.reuseAsStringArray(v, s), nil
-	case kindNull:
-		return p.reuseAsEmptyArray(v), nil
-	case kindString:
-		trimmed := strings.TrimSpace(v.s)
-		if isEmptyArrayString(trimmed) {
-			return p.reuseAsEmptyArray(v), nil
-		}
-		if parsed, ok, err := p.parseStringifiedJSONArray(trimmed, depth); err != nil {
-			return nil, err
-		} else if ok {
-			p.recycle(v)
-			return p.coerceStringArray(parsed, depth)
-		}
-		return p.reuseAsStringArray(v, v.s), nil
-	default:
-		return p.reuseAsStringArray(v, p.nodeString(v)), nil
-	}
-}
-
 func (p *processor) resetValue(v *value, kind valueKind) {
 	for _, entry := range v.entries {
 		p.recycle(entry.value)
@@ -1193,92 +1090,6 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 	v.b = false
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
-}
-
-func (p *processor) reuseAsEmptyArray(v *value) *value {
-	p.resetValue(v, kindArray)
-	return v
-}
-
-func (p *processor) reuseAsStringArray(v *value, s string) *value {
-	p.reuseAsEmptyArray(v)
-	child := p.newValue(kindString)
-	child.s = s
-	v.values = append(v.values, child)
-	return v
-}
-
-func (p *processor) parseStringifiedJSON(raw string, depth int) (*value, error) {
-	if raw == "" || (raw[0] != '[' && raw[0] != '{') {
-		return nil, fmt.Errorf("cannot coerce %q to Array(JSON)", raw)
-	}
-
-	oldData, oldPos := p.data, p.pos
-	p.data = borrowedBytes(raw)
-	p.pos = 0
-	parsed, err := p.parseValue(depth+1, 0)
-	if err != nil {
-		p.data, p.pos = oldData, oldPos
-		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): %w", raw, err)
-	}
-	p.skipWS()
-	if p.pos != len(p.data) {
-		p.recycle(parsed)
-		p.data, p.pos = oldData, oldPos
-		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): trailing data", raw)
-	}
-	cleaned, err := p.cleanNode(nil, parsed, depth+1)
-	p.data, p.pos = oldData, oldPos
-	if err != nil {
-		p.recycle(parsed)
-		return nil, err
-	}
-	return cleaned, nil
-}
-
-func (p *processor) parseStringifiedJSONArray(raw string, depth int) (*value, bool, error) {
-	if raw == "" || raw[0] != '[' {
-		return nil, false, nil
-	}
-
-	oldData, oldPos := p.data, p.pos
-	p.data = borrowedBytes(raw)
-	p.pos = 0
-	parsed, err := p.parseValue(depth+1, 0)
-	if err != nil {
-		p.data, p.pos = oldData, oldPos
-		return nil, false, nil
-	}
-	p.skipWS()
-	if p.pos != len(p.data) || parsed.kind != kindArray {
-		p.recycle(parsed)
-		p.data, p.pos = oldData, oldPos
-		return nil, false, nil
-	}
-	cleaned, err := p.cleanNode(nil, parsed, depth+1)
-	p.data, p.pos = oldData, oldPos
-	if err != nil {
-		return nil, false, err
-	}
-	return cleaned, true, nil
-}
-
-func (p *processor) nodeString(v *value) string {
-	switch v.kind {
-	case kindString, kindNumber:
-		return v.s
-	case kindBool:
-		if v.b {
-			return "true"
-		}
-		return "false"
-	case kindNull:
-		return ""
-	default:
-		p.stringBuf.Reset()
-		p.writeValue(&p.stringBuf, v)
-		return p.stringBuf.String()
-	}
 }
 
 func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
@@ -1372,19 +1183,6 @@ func isNonEmptyValue(v *value) bool {
 	}
 }
 
-func isEmptyArrayString(s string) bool {
-	switch len(s) {
-	case 0:
-		return true
-	case 4:
-		return strings.EqualFold(s, "null")
-	case 9:
-		return strings.EqualFold(s, "undefined")
-	default:
-		return false
-	}
-}
-
 func shouldStringifyNumber(num string) bool {
 	if len(num) < 19 {
 		return false
@@ -1439,14 +1237,6 @@ func borrowedString(b []byte) string {
 	}
 	// nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- b owns the bytes for every use of the borrowed string.
 	return unsafe.String(unsafe.SliceData(b), len(b))
-}
-
-func borrowedBytes(s string) []byte {
-	if len(s) == 0 {
-		return nil
-	}
-	// nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- callers only read the slice while s remains live.
-	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 func readLine(reader *bufio.Reader) ([]byte, error) {

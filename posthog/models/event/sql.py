@@ -14,11 +14,14 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE_INDEXES,
     EVENTS_JSON_INDEXED_PROPERTY_NAMES,  # noqa: F401
+    EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
+    PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     UNPARSEABLE_PROPERTIES_KEY,
     WRITABLE_EVENTS_JSON_TABLE,
+    events_properties_string_path_sql,
 )
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
@@ -43,19 +46,19 @@ def WRITABLE_EVENTS_DATA_TABLE():
     return "writable_events"
 
 
-def _json_column_type(subcolumns: dict[str, str]) -> str:
+def _json_column_type(subcolumns: dict[str, str], max_dynamic_paths: int) -> str:
     explicit_paths = ", ".join(
         f"{escape_clickhouse_identifier(name)} {column_type}" for name, column_type in subcolumns.items()
     )
-    return f"JSON(max_dynamic_paths = 0, {explicit_paths})"
+    return f"JSON(max_dynamic_paths = {max_dynamic_paths}, {explicit_paths})"
 
 
 def EVENTS_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(EVENTS_PROPERTIES_JSON_SUBCOLUMNS, EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS)
 
 
 def PERSON_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(PERSON_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS)
 
 
 def json_property_presence_expr(column: str, prop: str) -> str:
@@ -92,8 +95,8 @@ def json_property_presence_expr(column: str, prop: str) -> str:
         head_document = head if subcolumns[parts[0]] in ("String", "Nullable(String)") else f"toJSONString({head})"
         tail = ", ".join(escape_clickhouse_string(part) for part in parts[1:])
         return f"JSONHas(ifNull({head_document}, ''), {tail})"
-    # The sub-object serializes the '' default of every declared path under it ($groups always
-    # shows organization/project/instance), so strip empty values before the emptiness check.
+    # The sub-object serializes the '' default of every declared path under it, so strip empty
+    # values before the emptiness check.
     sub_object = f"{column_sql}.^{path_sql}"
     return (
         f"(notEmpty(ifNull(toString({scalar}), '')) "
@@ -231,15 +234,19 @@ def _json_subcolumn(column: str, path: str) -> str:
     return f"{escape_clickhouse_identifier(column)}.{escape_clickhouse_identifier(path)}"
 
 
+def _json_string_subcolumn(path: str) -> str:
+    return events_properties_string_path_sql(_json_subcolumn("properties", path), path)
+
+
 EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS = f"""
-    , $group_0 String ALIAS ifNull({_json_subcolumn("properties", "$group_0")}, '')
-    , $group_1 String ALIAS ifNull({_json_subcolumn("properties", "$group_1")}, '')
-    , $group_2 String ALIAS ifNull({_json_subcolumn("properties", "$group_2")}, '')
-    , $group_3 String ALIAS ifNull({_json_subcolumn("properties", "$group_3")}, '')
-    , $group_4 String ALIAS ifNull({_json_subcolumn("properties", "$group_4")}, '')
-    , $window_id String ALIAS ifNull({_json_subcolumn("properties", "$window_id")}, '')
-    , $session_id String ALIAS ifNull({_json_subcolumn("properties", "$session_id")}, '')
-    , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull({_json_subcolumn("properties", "$session_id")}))
+    , $group_0 String ALIAS {_json_string_subcolumn("$group_0")}
+    , $group_1 String ALIAS {_json_string_subcolumn("$group_1")}
+    , $group_2 String ALIAS {_json_string_subcolumn("$group_2")}
+    , $group_3 String ALIAS {_json_string_subcolumn("$group_3")}
+    , $group_4 String ALIAS {_json_string_subcolumn("$group_4")}
+    , $window_id String ALIAS {_json_string_subcolumn("$window_id")}
+    , $session_id String ALIAS {_json_string_subcolumn("$session_id")}
+    , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull({_json_string_subcolumn("$session_id")}))
 """
 
 EVENTS_JSON_ELEMENTS_COLUMNS = """

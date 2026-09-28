@@ -43,6 +43,7 @@ from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, 
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.events_json import events_properties_string_path_sql
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -546,7 +547,9 @@ class ClickHousePrinter(BasePrinter):
                 # Proxy ALIAS expansion collides with aggregate outputs that reuse the column name.
                 prefix = field_sql.removesuffix(self._print_identifier(name))
                 path = "$session_id" if name == "$session_id_uuid" else name
-                field_sql = f"{prefix}properties.{self._print_identifier(path)}"
+                field_sql = events_properties_string_path_sql(
+                    f"{prefix}properties.{self._print_identifier(path)}", path
+                )
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
         field_sql = self._maybe_stringify_events_json_field(type, field_sql)

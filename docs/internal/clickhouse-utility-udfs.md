@@ -35,7 +35,6 @@ Small documents with deeply nested arrays and nulls can cause excessive memory a
 The eight-array limit is a conservative input policy, not a guarantee against every possible inference failure.
 
 The parser counts array nesting even inside discarded properties and checks the normalized result before emitting it.
-The second check covers arrays decoded from strings or introduced by schema normalization.
 Event and person cleaners preserve a rejected document verbatim as an escaped JSON string under `$unparseable_properties`.
 The rejected document's original properties are no longer available as individually queryable JSON paths.
 The temporary cleaner emits `{}` because the permanent cleaner preserves the original input, including temporary properties.

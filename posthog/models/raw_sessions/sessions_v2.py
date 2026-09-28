@@ -182,19 +182,28 @@ def source_string_column(column_name: str, use_new: bool = False) -> str:
     return f"JSONExtractString(properties, '{column_name}')"
 
 
+def _source_numeric_text_column(column_name: str) -> str:
+    # Dynamic paths keep the JSON number type, so render every variant as text rather than
+    # reading only the String variant.
+    column = f"properties.{escape_clickhouse_identifier(column_name)}"
+    if column_name not in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
+        column = f"CAST({column}, 'Nullable(String)')"
+    return f"CAST(ifNull({column}, ''), 'String')"
+
+
 def source_url_column(column_name: str, use_new: bool = False) -> str:
     return f"nullIf({source_string_column(column_name, use_new)}, '')"
 
 
 def source_int_column(column_name: str, use_new: bool = False) -> str:
     if use_new:
-        return f"JSONExtractInt({source_string_column(column_name, use_new)})"
+        return f"JSONExtractInt({_source_numeric_text_column(column_name)})"
     return f"JSONExtractInt(properties, '{column_name}')"
 
 
 def source_nullable_float_column(column_name: str, use_new: bool = False) -> str:
     if use_new:
-        return f"accurateCastOrNull({source_string_column(column_name, use_new)}, 'Float64')"
+        return f"accurateCastOrNull({_source_numeric_text_column(column_name)}, 'Float64')"
     # this is what we do in queries, but it seems pretty awful
     return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
 
