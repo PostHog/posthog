@@ -359,6 +359,7 @@ the row lists both.
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| heyreach                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
 | hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hitpay                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -474,6 +475,7 @@ the row lists both.
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
+| moengage                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
@@ -1119,7 +1121,6 @@ doesn't conflict with concurrent PRs.
 - heap
 - hetzner
 - heygen
-- heyreach
 - hibob
 - high_level
 - hivebrite
@@ -1218,7 +1219,6 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
-- moengage
 - moesif
 - monaco
 - moneybird
