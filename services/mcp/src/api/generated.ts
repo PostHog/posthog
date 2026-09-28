@@ -66401,6 +66401,7 @@ export namespace Schemas {
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
@@ -66436,6 +66437,7 @@ export namespace Schemas {
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
