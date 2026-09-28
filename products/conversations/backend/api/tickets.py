@@ -789,7 +789,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         # A person can have more distinct_ids than fit in a URL, so resolve them here instead.
         person_uuid_param = self.request.query_params.get("person_uuid")
-        if person_uuid_param:
+        if person_uuid_param is not None:
             person_ids = self._distinct_ids_for_person_uuid(person_uuid_param.strip())
             # Match nothing for an unknown person, rather than drop the filter and return every ticket.
             match_q |= Q(distinct_id__in=person_ids) if person_ids else Q(pk__in=[])

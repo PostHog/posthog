@@ -16,7 +16,7 @@ from posthog.test.base import (
     materialized,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
@@ -2062,7 +2062,7 @@ class TestTicketEmailFilter(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
 
-    def test_filter_by_person_uuid_matches_all_of_the_persons_distinct_ids(self, mock_on_commit):
+    def test_filter_by_person_uuid_matches_all_of_the_persons_distinct_ids(self, mock_on_commit: MagicMock) -> None:
         person = create_person(team=self.team, distinct_ids=[f"did-{i}" for i in range(150)])
         first = self._create_ticket(distinct_id="did-0")
         beyond_old_url_cap = self._create_ticket(distinct_id="did-149")
@@ -2077,11 +2077,12 @@ class TestTicketEmailFilter(APIBaseTest):
         [
             ("unknown_person", "00000000-0000-0000-0000-000000000000", status.HTTP_200_OK),
             ("invalid_uuid", "not-a-uuid", status.HTTP_400_BAD_REQUEST),
+            ("empty", "", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_filter_by_person_uuid_never_falls_back_to_all_tickets(
-        self, mock_on_commit, _name, person_uuid, expected_status
-    ):
+        self, mock_on_commit: MagicMock, _name: str, person_uuid: str, expected_status: int
+    ) -> None:
         self._create_ticket(distinct_id="did-1")
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?person_uuid={person_uuid}")

@@ -5,10 +5,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
-import { Ticket } from '../../types'
+import type { TicketApi } from '../../generated/api.schemas'
 
 interface PreviousTicketsPanelProps {
-    previousTickets: Ticket[]
+    previousTickets: TicketApi[]
     previousTicketsLoading?: boolean
     previousTicketsFailed?: boolean
     onRetry?: () => void
@@ -46,7 +46,12 @@ export function PreviousTicketsPanel({
                                 <div className="flex items-center gap-2 text-xs text-danger">
                                     Couldn't load previous tickets.
                                     {onRetry && (
-                                        <LemonButton size="xsmall" type="secondary" onClick={onRetry}>
+                                        <LemonButton
+                                            data-attr="previous-tickets-retry"
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={onRetry}
+                                        >
                                             Try again
                                         </LemonButton>
                                     )}

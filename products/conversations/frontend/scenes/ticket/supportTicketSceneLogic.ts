@@ -48,12 +48,13 @@ import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/t
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsList,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
-import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
+import type { PatchedTicketUpdateRequestApi, TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -269,7 +270,7 @@ export interface supportTicketSceneLogicValues {
     olderMessagesLoading: boolean
     person: PersonType | null
     personLoading: boolean
-    previousTickets: Ticket[]
+    previousTickets: TicketApi[]
     previousTicketsFailed: boolean
     previousTicketsLoading: boolean
     priority: TicketPriority | null
@@ -392,12 +393,12 @@ export interface supportTicketSceneLogicActions {
         errorObject?: any
     }
     loadPreviousTicketsSuccess: (
-        previousTickets: Ticket[],
+        previousTickets: TicketApi[],
         payload?: {
             value: true
         }
     ) => {
-        previousTickets: Ticket[]
+        previousTickets: TicketApi[]
         payload?: {
             value: true
         }
@@ -702,9 +703,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             },
         ],
         previousTickets: [
-            [] as Ticket[],
+            [] as TicketApi[],
             {
-                loadPreviousTickets: async (): Promise<Ticket[]> => {
+                loadPreviousTickets: async (): Promise<TicketApi[]> => {
                     const person = values.person
                     const currentTicketId = props.id
 
@@ -723,7 +724,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     // The server resolves the person's distinct_ids: a person can have too many to fit in a URL.
-                    const response = await api.conversationsTickets.list({
+                    const response = await conversationsTicketsList(String(getCurrentTeamId()), {
                         person_uuid: person.uuid,
                         ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
                     })
