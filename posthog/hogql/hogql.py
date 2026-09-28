@@ -53,9 +53,8 @@ def translate_hogql(
             )
 
         node = parse_expr(query, placeholders=placeholders)
-        select_query = ast.SelectQuery(
-            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=table_name.split(".")))
-        )
+        chain: list[str | int] = [*table_name.split(".")]
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=chain)))
 
         if events_table_alias is not None and isinstance(select_query.select_from, ast.JoinExpr):
             select_query.select_from.alias = events_table_alias
