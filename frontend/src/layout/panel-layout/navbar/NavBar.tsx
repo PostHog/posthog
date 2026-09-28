@@ -101,7 +101,7 @@ export function PanelIndicatorIcon(): JSX.Element | null {
 }
 
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Browse', icon: <IconApps /> },
+    { id: 'home', label: 'Apps', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
@@ -327,7 +327,7 @@ export function NavBar(): JSX.Element {
                                             {...props}
                                             className={cn(
                                                 'group gap-1 data-[composite-item-active]:bg-surface-tertiary justify-center',
-                                                isSimpleSidepanelEnabled ? 'flex-auto min-w-0' : 'w-1/2'
+                                                isSimpleSidepanelEnabled ? 'flex-1 min-w-0' : 'w-1/2'
                                             )}
                                             iconOnly={isSimpleSidepanelEnabled && isLayoutNavCollapsed}
                                             tooltip={isSimpleSidepanelEnabled ? tab.label : undefined}

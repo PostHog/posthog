@@ -20,6 +20,11 @@ describe("screenshotArea", () => {
       expected: { x: 340, y: 300, width: 360, height: 220 },
     },
     {
+      name: "a caret with no width still gets room around it",
+      element: rect(520, 400, 0, 20),
+      expected: { x: 340, y: 300, width: 360, height: 220 },
+    },
+    {
       name: "an element at the top left corner stays inside the page",
       element: rect(0, 0, 100, 30),
       expected: { x: 0, y: 0, width: 360, height: 222 },
