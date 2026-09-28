@@ -72,7 +72,7 @@ if (res.status < 200 or res.status >= 300) {
             key: 'routing_key',
             type: 'string',
             label: 'Routing key',
-            description: 'The integration key of an Events API v2 integration on your PagerDuty service.',
+            description: 'The Events API v2 integration key from your PagerDuty service.',
             secret: true,
             required: true,
         },
