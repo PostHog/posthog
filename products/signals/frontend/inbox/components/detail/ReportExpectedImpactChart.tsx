@@ -30,7 +30,10 @@ export function ReportExpectedImpactChart({
     if (responseLoading && !response) {
         return <LemonSkeleton className="h-36 w-full" />
     }
-    if (responseError || !points) {
+    if (responseError) {
+        return <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
+    }
+    if (!points) {
         return <p className="text-tertiary m-0">No chart data for this window. The goal is still a proposal.</p>
     }
 
