@@ -13,11 +13,13 @@ goes through the write-scoped config `create` endpoint.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -33,12 +35,20 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_config_tags_for,
     canonical_deprecation_for,
     canonical_display_name_for,
+    canonical_operational_scout_names,
     canonical_skill_names,
     canonical_structured_output_schema_for,
     is_operational_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.signals.backend.scout_harness.team_limits import resolve_max_enabled_scouts
+from products.signals.backend.scout_harness.team_limits import (
+    _canonicalize_team_config_keys,
+    _default_team_config,
+    _read_flag_payload,
+    _resolve_withheld_skills,
+    _team_configs,
+    resolve_max_enabled_scouts,
+)
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +70,7 @@ CRON_SCHEDULE_MAX_LENGTH = 100
 _CRON_SAMPLE_OCCURRENCES = 100
 
 _OPERATIONAL_RECONCILE_JOB_TYPE = "signals_scout_operational_reconcile"
+_SETUP_PAUSE_RESUME_JOB_TYPE = "signals_scout_setup_pause_resume"
 
 
 def cron_schedule_error(value: str) -> str | None:
@@ -404,6 +415,60 @@ def _backfill_unset_column(
         )
 
 
+def _harness_seeded_skill_exists() -> Exists:
+    """Whether the config's skill is the live, harness-seeded canonical row, not a team's own copy."""
+    return Exists(
+        LLMSkill.objects.filter(
+            team_id=OuterRef("team_id"),
+            name=OuterRef("skill_name"),
+            is_latest=True,
+            deleted=False,
+            metadata__seeded_by=HARNESS_SEEDED_BY,
+        )
+    )
+
+
+def operational_configs_needing_reconcile() -> dict[int, set[str]]:
+    """Operational scout names per team whose config `reconcile_operational_configs` would change.
+
+    One fleet-wide query, so the coordinator can reconcile only the wildcard teams that need it
+    instead of paying for a per-team reconcile on every tick. A row matches when it misses the
+    sweep exemption, carries an inactivity pause, or still sits disabled as the seed created it.
+    A human pause and a breaker pause match only while the exemption is missing, and the
+    reconcile stamps it on the first pass, so they stop matching after one tick.
+    """
+    operational = canonical_operational_scout_names()
+    if not operational:
+        return {}
+    rows = (
+        SignalScoutConfig.all_teams.filter(skill_name__in=operational)
+        .filter(
+            Q(auto_pause_exempt=False)
+            | Q(pause_reason__in=SignalScoutConfig.INACTIVITY_PAUSE_REASONS)
+            | Q(status=SignalScoutConfig.Status.PAUSED_BY_USER, status_changed_at__isnull=True)
+        )
+        .filter(_harness_seeded_skill_exists())
+        .values_list("team_id", "skill_name")
+    )
+    needing: dict[int, set[str]] = {}
+    for team_id, skill_name in rows:
+        needing.setdefault(team_id, set()).add(skill_name)
+    return needing
+
+
+def canonical_operational_skill_names(team_id: int) -> set[str]:
+    """The team's live, harness-seeded skills that declare the operational role."""
+    return set(
+        LLMSkill.objects.filter(
+            team_id=team_id,
+            name__in=canonical_operational_scout_names(),
+            is_latest=True,
+            deleted=False,
+            metadata__seeded_by=HARNESS_SEEDED_BY,
+        ).values_list("name", flat=True)
+    )
+
+
 @transaction.atomic
 def reconcile_operational_configs(
     team_id: int,
@@ -490,3 +555,128 @@ def _resume_operational_config(config: SignalScoutConfig, *, max_enabled_scouts:
             team_id=config.team_id,
             skill_name=config.skill_name,
         )
+
+
+def setup_paused_operational_configs(*, max_gap: timedelta, team_id: int | None = None) -> QuerySet[SignalScoutConfig]:
+    """Operational scout configs that a setup flow switched off right after the seed.
+
+    The setup flow wrote `enabled: false` through the config API without a user attribution,
+    seconds after the seed created the row. That leaves a `paused_by_user` row with no
+    `status_changed_by` and a `status_changed_at` close to `created_at`. A person's pause carries
+    an attribution, or lands long after the seed, so it does not match.
+    """
+    configs = (
+        SignalScoutConfig.all_teams.filter(
+            skill_name__in=canonical_operational_scout_names(),
+            status=SignalScoutConfig.Status.PAUSED_BY_USER,
+            status_changed_by__isnull=True,
+            status_changed_at__isnull=False,
+            status_changed_at__lte=F("created_at") + max_gap,
+        )
+        .filter(_harness_seeded_skill_exists())
+        .order_by("team_id", "skill_name")
+    )
+    if team_id is not None:
+        configs = configs.filter(team_id=team_id)
+    return configs
+
+
+def resume_setup_paused_operational_config(config: SignalScoutConfig, *, max_enabled_scouts: int) -> bool:
+    """Put one setup-paused operational scout back to `active`, exempt from the inactivity sweep.
+
+    Returns False without a write when the row moved since the caller read it, or when the team
+    is at its enabled-scout cap. The row lock covers the whole team, as in
+    `transition_status_by_system`, because the cap check counts sibling rows.
+    """
+    with transaction.atomic():
+        team_rows = {
+            row.pk: row for row in SignalScoutConfig.objects.for_team(config.team_id).select_for_update().order_by("pk")
+        }
+        locked = team_rows.get(config.pk)
+        if (
+            locked is None
+            or locked.status != SignalScoutConfig.Status.PAUSED_BY_USER
+            or locked.status_changed_by_id is not None
+            or locked.status_changed_at != config.status_changed_at
+        ):
+            return False
+        peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
+        if peers >= max_enabled_scouts:
+            return False
+        trigger = Trigger(
+            job_type=_SETUP_PAUSE_RESUME_JOB_TYPE,
+            job_id=str(locked.id),
+            payload={"skill_name": locked.skill_name},
+        )
+        with ActivityTriggerContext(trigger):
+            locked.status = SignalScoutConfig.Status.ACTIVE
+            locked.enabled = True
+            locked.pause_reason = None
+            locked.status_changed_at = timezone.now()
+            locked.auto_pause_exempt = True
+            locked.auto_pause_exempt_by_role = True
+            locked.save(
+                update_fields=[
+                    "status",
+                    "enabled",
+                    "pause_reason",
+                    "status_changed_at",
+                    "auto_pause_exempt",
+                    "auto_pause_exempt_by_role",
+                    "updated_at",
+                ]
+            )
+    logger.info(
+        "signals_scout: setup-paused operational scout resumed",
+        team_id=locked.team_id,
+        skill_name=locked.skill_name,
+    )
+    return True
+
+
+@dataclass(frozen=False)
+class ResumeSummary:
+    selected: Counter[str] = field(default_factory=Counter)
+    resumed: Counter[str] = field(default_factory=Counter)
+    skipped_withheld: Counter[str] = field(default_factory=Counter)
+    not_resumed: Counter[str] = field(default_factory=Counter)
+    team_ids: list[int] = field(default_factory=list)
+
+
+def resume_setup_paused_operational_scouts(
+    *, apply: bool, team_id: int | None, batch_size: int, max_gap: timedelta
+) -> ResumeSummary:
+    # One flag read for the whole run, so every team resolves its holdback and cap from one payload.
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    default_team_config = _default_team_config(payload)
+
+    summary = ResumeSummary()
+    seen_team_ids: set[int] = set()
+    # A pk cursor rather than re-reading the first page: a row this run skips still matches.
+    after_pk = None
+    while True:
+        configs = setup_paused_operational_configs(max_gap=max_gap, team_id=team_id).order_by("pk")
+        if after_pk is not None:
+            configs = configs.filter(pk__gt=after_pk)
+        batch = list(configs[:batch_size])
+        if not batch:
+            return summary
+        for config in batch:
+            summary.selected[config.skill_name] += 1
+            if config.team_id not in seen_team_ids:
+                seen_team_ids.add(config.team_id)
+                summary.team_ids.append(config.team_id)
+            if config.skill_name in _resolve_withheld_skills(config.team_id, team_configs, default_team_config):
+                summary.skipped_withheld[config.skill_name] += 1
+                continue
+            if not apply:
+                continue
+            max_enabled_scouts = resolve_max_enabled_scouts(
+                [team_configs.get(config.team_id) or {}, default_team_config]
+            )
+            if resume_setup_paused_operational_config(config, max_enabled_scouts=max_enabled_scouts):
+                summary.resumed[config.skill_name] += 1
+            else:
+                summary.not_resumed[config.skill_name] += 1
+        after_pk = batch[-1].pk

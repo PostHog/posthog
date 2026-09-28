@@ -2329,7 +2329,7 @@ export const getTasksRunsSetSummaryPartialUpdateUrl = (projectId: string, taskId
 }
 
 /**
- * Replace the running summary for a task run.
+ * Replace the running summary for a task run, and optionally its slug tags.
  * @summary Set task run summary
  */
 export const tasksRunsSetSummaryPartialUpdate = async (

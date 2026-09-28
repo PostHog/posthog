@@ -436,6 +436,14 @@ RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
 COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 
+# Pre-compile first-party bytecode. Site-packages are already compiled (UV_COMPILE_BYTECODE=1), but
+# the app runs as `nobody` (bin/docker-server), which cannot write __pycache__ under the posthog-owned
+# /code, so without this every process compiled ~1300 first-party modules in memory at every start.
+# Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
+# module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
+RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
+    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
+
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"

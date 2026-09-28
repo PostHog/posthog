@@ -27,12 +27,9 @@ class MeanQueryBuilder:
     Builds mean-metric queries (count, sum, avg, etc.), including the
     winsorized and session-property variants.
 
-    Mean construction reuses the shared exposure, metric-value, and CUPED
-    helpers already extracted from the experiment query builder. To keep the
-    move behavior-preserving, this class holds a reference to the owning
-    ``ExperimentQueryBuilder`` and reaches through it for shared state (the
-    metric, entity key, CUPED config, breakdown injector) and those
-    cross-cluster helpers.
+    The class holds a reference to the owning ``ExperimentQueryBuilder`` and
+    reads shared state (metric, entity key, CUPED config, breakdown injector)
+    and the shared exposure, metric-value, and CUPED helpers through it.
     """
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
@@ -40,11 +37,9 @@ class MeanQueryBuilder:
 
     def get_session_property_ctes(self) -> str:
         """
-        Returns CTEs for session property metrics with proper deduplication.
-
-        Session properties require special handling to avoid the multiplication bug:
-        - Without deduplication: each event in a session contributes the full session value
-        - With deduplication: each session contributes exactly once
+        A session property has one value per session, not per event. Without
+        deduplication, every event in a session adds the full session value, so
+        the result scales with the event count. Each session must contribute once.
 
         Pattern:
         1. metric_events_by_session: GROUP BY $session_id, get any(session.$property)
@@ -61,8 +56,6 @@ class MeanQueryBuilder:
                 {{exposure_select_query}}
             ),
 
-            -- Layer 1: Deduplicate within sessions
-            -- Each session contributes exactly one value regardless of event count
             metric_events_by_session AS (
                 SELECT
                     {{entity_key}} AS entity_id,
@@ -76,7 +69,6 @@ class MeanQueryBuilder:
                 GROUP BY {{entity_key}}, `$session_id`
             ),
 
-            -- Layer 2: Join with exposures, filter by temporal ordering
             metric_events AS (
                 SELECT
                     exposures.entity_id AS entity_id,
@@ -90,7 +82,6 @@ class MeanQueryBuilder:
                     AND {{session_conversion_window_predicate}}
             ),
 
-            -- Layer 3: Aggregate across sessions per entity
             entity_metrics AS (
                 SELECT
                     entity_id,
@@ -108,16 +99,13 @@ class MeanQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        # Check if this is a session property metric - use special CTE structure
         if isinstance(self._b.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(
             self._b.metric.source
         ):
             return self.get_session_property_ctes()
 
-        # Use MetricSourceInfo abstraction for source metadata
         source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
 
-        # Determine join condition based on source type
         if source_info.kind == "datawarehouse":
             join_condition = "{join_condition}"
         else:
@@ -138,7 +126,7 @@ class MeanQueryBuilder:
             # for eligible metrics (no breakdowns/CUPED/DW/session properties), so the
             # branches above never coexist with this one.
             # Filter by experiment date range: jobs can cover broader time ranges than
-            # the experiment for cache reusability, so we must filter on read. The upper
+            # the experiment for cache reuse, so the read must filter. The upper
             # bound includes the conversion window since metric events can occur after
             # experiment end, mirroring build_metric_predicate() on the direct path.
             # GROUP BY collapses replayed rows by event identity: ReplacingMergeTree only
@@ -209,7 +197,6 @@ class MeanQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        # Check if this is a session property metric - use different placeholders
         is_session_property = isinstance(
             self._b.metric.source, (ActionsNode, EventsNode)
         ) and is_session_property_metric(self._b.metric.source)
@@ -217,17 +204,16 @@ class MeanQueryBuilder:
         if is_session_property:
             return self.get_session_property_placeholders()
 
-        # Use MetricSourceInfo abstraction for source metadata
         source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
 
-        # Build exposure query with exposure_identifier for data warehouse
         exposure_query = self._b._get_exposure_query()
         if source_info.kind == "datawarehouse":
             assert isinstance(self._b.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self._b.metric.source.events_join_key.split("."))
 
-            # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-            # This prevents fan-out when a user has multiple exposures with different join key values
+            # argMin takes the join key from the first exposure, so each entity_id gets one
+            # exposure_identifier. Do not add the join key to GROUP BY: a user with exposures
+            # that carry different join key values would then fan out into several rows.
             exposure_query.select.append(
                 ast.Alias(
                     alias="exposure_identifier",
@@ -237,7 +223,6 @@ class MeanQueryBuilder:
                     ),
                 )
             )
-            # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
 
         metric_predicate = self._b._build_metric_predicate(
             table_alias=source_info.table_name,
@@ -276,7 +261,6 @@ class MeanQueryBuilder:
                 value=self._b._get_conversion_window_seconds()
             )
 
-        # Add join condition for data warehouse
         if source_info.kind == "datawarehouse":
             placeholders["join_condition"] = parse_expr(
                 "toString(exposures.exposure_identifier) = toString(metric_events.entity_id)"
@@ -285,10 +269,7 @@ class MeanQueryBuilder:
         return placeholders
 
     def get_session_property_placeholders(self) -> dict:
-        """
-        Returns placeholders specific to session property metrics.
-        Session properties use a different CTE structure with deduplication per session.
-        """
+        """Placeholders for the CTEs from get_session_property_ctes()."""
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
         exposure_query = self._b._get_exposure_query()
@@ -305,7 +286,7 @@ class MeanQueryBuilder:
         """
         Returns the SELECT query that the lazy computation system wraps in an
         INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it scans the events table and stores one row per matching metric
+        path. It scans the events table and stores one row per matching metric
         event with its per-event value in numeric_value. For numeric math the
         value is already coalesced to a non-null float by _build_value_expr(),
         so storing it in the non-nullable numeric_value column is lossless.
@@ -318,11 +299,8 @@ class MeanQueryBuilder:
         by the lazy computation system for each daily bucket. The experiment date
         bounds must stay named placeholders (the caller declares experiment_date_to
         a sentinel) rather than reusing _build_metric_predicate(), which bakes the
-        resolved dates into the AST — a running experiment's moving window end
-        would then change the job hash and defeat cache reuse.
-
-        Returns:
-            Tuple of (query_string, placeholders_dict)
+        resolved dates into the AST. The window end of a running experiment moves,
+        so baked dates would change the job hash and defeat cache reuse.
         """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
         source = self._b.metric.source
@@ -367,12 +345,8 @@ class MeanQueryBuilder:
         return query_string, placeholders
 
     def build_mean_query(self) -> ast.SelectQuery:
-        """
-        Builds query for mean metrics (count, sum, avg, etc.)
-        """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        # Check if we need to apply winsorization (outlier handling)
         needs_winsorization = (
             self._b.metric.lower_bound_percentile is not None or self._b.metric.upper_bound_percentile is not None
         )
@@ -424,7 +398,6 @@ class MeanQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_mean_breakdown_columns(query, final_cte_name="entity_metrics")
 
@@ -432,12 +405,11 @@ class MeanQueryBuilder:
 
     def build_mean_query_with_winsorization(self) -> ast.SelectQuery:
         """
-        Builds query for mean metrics with winsorization (outlier handling).
-        This clamps entity-level values to percentile-based bounds.
+        Clamps each entity's value to percentile-based bounds to limit the
+        effect of outliers.
         """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        # Build lower bound expression
         if self._b.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
                 "quantileExact({level})(entity_metrics.value)",
@@ -446,9 +418,7 @@ class MeanQueryBuilder:
         else:
             lower_bound_expr = parse_expr("min(entity_metrics.value)")
 
-        # Build upper bound expression
         if self._b.metric.upper_bound_percentile is not None:
-            # Handle ignore_zeros flag for upper bound calculation
             if getattr(self._b.metric, "ignore_zeros", False):
                 upper_bound_expr = parse_expr(
                     "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
@@ -479,7 +449,6 @@ class MeanQueryBuilder:
             else ""
         )
 
-        # Add winsorization-specific placeholders
         placeholders["lower_bound"] = lower_bound_expr
         placeholders["upper_bound"] = upper_bound_expr
 
@@ -522,7 +491,6 @@ class MeanQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
 

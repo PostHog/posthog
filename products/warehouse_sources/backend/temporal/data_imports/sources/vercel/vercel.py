@@ -16,6 +16,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -48,6 +50,18 @@ MAX_PAGES = 10_000
 # transient error (network failure, 429, 5xx). The token may be perfectly valid, so pointing the
 # user at their credentials would send them chasing a problem they can't fix.
 _VERCEL_UNREACHABLE_ERROR = "Couldn't reach Vercel to validate your access token. Please try again in a few minutes."
+
+# Shown when Vercel won't accept the token at all. A revoked token and a malformed one leave the
+# user with the same next step, so they share a message.
+_VERCEL_INVALID_TOKEN_ERROR = (
+    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel "
+    "account settings, then reconnect."
+)
+
+_VERCEL_UNSUPPORTED_CHARACTER_ERROR = (
+    "Your Vercel access token contains a character that can't be sent to Vercel. Copy the token "
+    "again from your Vercel account settings, then reconnect."
+)
 
 
 class VercelRetryableError(Exception):
@@ -150,6 +164,12 @@ def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | Non
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine via GET /v2/user — the cheapest authenticated probe,
     available to any valid Vercel token regardless of team scope or resource permissions."""
+    # The token rides in the Authorization header, which http.client encodes as latin-1. A character
+    # outside that range raises UnicodeEncodeError mid-request. That is not a RequestException, so it
+    # would escape as an internal error; reject it as user input instead.
+    if not access_token.isascii():
+        return False, _VERCEL_UNSUPPORTED_CHARACTER_ERROR
+
     try:
         response = make_tracked_session().get(
             f"{VERCEL_BASE_URL}/v2/user", headers=_get_headers(access_token), timeout=10
@@ -161,11 +181,11 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code == 401:
-        return (
-            False,
-            "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
-        )
+    if response.status_code in (400, 401):
+        # The probe carries no query string and no body, so a 400 is Vercel rejecting the token
+        # itself rather than anything we sent — a token pasted with stray characters reads as
+        # malformed at the gateway before it is ever looked up.
+        return False, _VERCEL_INVALID_TOKEN_ERROR
     if response.status_code == 403:
         return (
             False,
@@ -175,6 +195,9 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     # retry hint rather than telling the user to fix credentials they can't fix.
     if response.status_code == 429 or response.status_code >= 500:
         return False, _VERCEL_UNREACHABLE_ERROR
+    # Every status this endpoint is known to answer with is handled above, so keep the raw one for
+    # us — without it the generic message below is all a later triage has to work from.
+    capture_exception(Exception(f"Unexpected Vercel credential validation response ({response.status_code})"))
     return (
         False,
         "Couldn't validate your Vercel access token. Check that it's a valid token from your Vercel account settings, then try again.",

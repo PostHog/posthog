@@ -22,8 +22,12 @@ import type {
     DataDeletionRequestsListParams,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
+    EmojiSearchResponseApi,
+    EmojiSearchSuggestRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
+    EventMatchRequestApi,
+    EventMatchResponseApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -88,6 +92,8 @@ import type {
     PropertyDefinitionsListParams,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
+    SearchIntentRequestApi,
+    SearchIntentResponseApi,
     SharingConfigurationApi,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
@@ -1561,6 +1567,36 @@ export const dataDeletionRequestsPreviewCreate = async (
     })
 }
 
+export const getEmojiSearchSuggestRetrieveUrl = (projectId: string, params: EmojiSearchSuggestRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/emoji_search/suggest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/emoji_search/suggest/`
+}
+
+/**
+ * @summary Suggest emojis for an unmatched search
+ */
+export const emojiSearchSuggestRetrieve = async (
+    projectId: string,
+    params: EmojiSearchSuggestRetrieveParams,
+    options?: RequestInit
+): Promise<EmojiSearchResponseApi> => {
+    return apiMutator<EmojiSearchResponseApi>(getEmojiSearchSuggestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2543,6 +2579,48 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTaxonomicSearchIntentClassifyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/classify/`
+}
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const taxonomicSearchIntentClassifyCreate = async (
+    projectId: string,
+    searchIntentRequestApi: SearchIntentRequestApi,
+    options?: RequestInit
+): Promise<SearchIntentResponseApi> => {
+    return apiMutator<SearchIntentResponseApi>(getTaxonomicSearchIntentClassifyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchIntentRequestApi),
+    })
+}
+
+export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
+}
+
+/**
+ * Guess which PostHog core events a search that matched no event name describes.
+ * @summary Match an events search to core events
+ */
+export const taxonomicSearchIntentMatchEventsCreate = async (
+    projectId: string,
+    eventMatchRequestApi: EventMatchRequestApi,
+    options?: RequestInit
+): Promise<EventMatchResponseApi> => {
+    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventMatchRequestApi),
     })
 }
 
