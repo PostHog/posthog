@@ -49,6 +49,32 @@ describe('insightSceneLogic', () => {
         sceneLogic.mount()
     })
 
+    it('captures an insight start after the logic unmounts during the debounce', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            router.actions.push(urls.insightNew())
+            logic = insightSceneLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(capture.mock.calls.filter(([event]) => event === 'insight started')).toHaveLength(0)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(499)
+            expect(capture.mock.calls.filter(([event]) => event === 'insight started')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(1)
+
+            const insightStarts = capture.mock.calls.filter(([event]) => event === 'insight started')
+            expect(insightStarts).toEqual([
+                ['insight started', expect.objectContaining({ source: 'web', uses_data_warehouse_source: false })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
         logic = insightSceneLogic()
