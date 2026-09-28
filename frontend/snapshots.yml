@@ -749,7 +749,7 @@ snapshots:
     components-hogcharts-barchart--with-bar-track-ceiling--light:
         hash: v1.k794b7964.365e93f9895f4207a8ecf7cfcd0f34085a23777e499aafa4f42135a153901ff6.SWN1j44WxnMVxlT-r58TcihwFKUY9kew8iPkuxep2JM
     components-hogcharts-barchart--with-reference-line--dark:
-        hash: v1.k794b7964.9d805f2de4e9f4900d6f04cdb98593da777138c4677bf43449bac1aa0cc1e7ec.A5chHjq5xwwUEooiqeakdPb-zLsmSmxouwXlRS-tW9s
+        hash: v1.k794b7964.685577fde254278b40412f4aba2d86c79a6fe16f4450b79bacb48266d232e4b8.qqfUFt-TtGyG4xAhdID52O3G8-4KE8mE43btP6O-Nac
     components-hogcharts-barchart--with-reference-line--light:
         hash: v1.k794b7964.a449d5f540e81e0c65b569eba760c8069fe431ff9c927677fb60f795fb1fcb41.FNVrYrCQKWtZnHGVNeDAMzOZGlqHpypoPc5gUN8fRrs
     components-hogcharts-barchart--with-value-labels--dark:
@@ -897,7 +897,7 @@ snapshots:
     components-hogcharts-legend--vertical--light:
         hash: v1.k794b7964.2a05ac06ff596da5774c5e6ec7bb6029d634db4ecaf315628600c60819787c28.u8q-wm5x1b_jgTZO6XvOCYOZqyG18Gc5u3U8OkXo8EA
     components-hogcharts-linechart--combined-overlays--dark:
-        hash: v1.k794b7964.ff9d4456effb4eebdd9d60878b060633ae58ed58b558b5d0d5e405241c28606b.RTMz-PJjROcV40uqo2C8tcFS8Bti8amLf9T0vZtYUDc
+        hash: v1.k794b7964.7f434d44150328fe121951cc58cb8c3deff695540e7f7fc9c181adcd170264e7.FAQUl9sm9eG-jeWudOAOkBYE-Psg3VZuv2bM6N8LHss
     components-hogcharts-linechart--combined-overlays--light:
         hash: v1.k794b7964.0a00a06868199a28a3b61e75893cfa7847638084dae28fc246d55f584a041eb1.Q7DjiihtV5rDjY5m-Mv6lLWFEki5oZXiEA6PTB0ifeY
     components-hogcharts-linechart--confidence-band-below-zero--dark:
@@ -1037,15 +1037,15 @@ snapshots:
     components-hogcharts-referenceline--fill-sides--light:
         hash: v1.k794b7964.e26a8ba8166f07b6fcdaea2d1c5bc6e46b8768d5ad7376d76f4c46abfb0b8388.Bes-3Rgztdimf7hTRFZsmVhv90MqeR1ee6pPed1mQSs
     components-hogcharts-referenceline--horizontal-goal--dark:
-        hash: v1.k794b7964.a2ed3cf6087b7bf75dc7d1517dc39eed74dd36152e7f55e74c049320ac47c734.gt8D-YVKE99O-CSDE-E7vl6jAGyZGFHlj_Kk9pRj8K0
+        hash: v1.k794b7964.9e4dc985659c3691224944456c081a72ffb3af80370af0f67805d0a6a6fdc8bc.vj16qSeqBvinTBVKpd2vKjrySgZaRPBFek_uWxSX--w
     components-hogcharts-referenceline--horizontal-goal--light:
         hash: v1.k794b7964.e373c110db9e4b427cf77b6892fe4a85fa9191882ea0e7e985fe819b6338f26b.TcKFdU2WCO_uxvffF3CkkAegU13ZXZTGAj9aQt2g0FE
     components-hogcharts-referenceline--horizontal-variants--dark:
-        hash: v1.k794b7964.6a014310bc094e4613fa96b0be2111aa396c1299d2e97b1782f4d2b37fed568a.uuVFab4_D6mifN-1eKZ4reRnnhlHUbzpifw7y8z7hxA
+        hash: v1.k794b7964.08b35c857a979d7bc9e0cc4e6c57c2d9888e32a57cea34479b04a30c0b2f1d2a.AdrttYIXa6EkwSg0tGsYi9GfjkdDN8A-EvcVa1SarvM
     components-hogcharts-referenceline--horizontal-variants--light:
         hash: v1.k794b7964.a9a0445443c8e947c726655e69e74971194d62b1b399918a75fc18bf67758df4.FlA8Shp0BR5D62LvBiCSpc9Ww7AqvooyV9lLcF5NiW8
     components-hogcharts-referenceline--label-start-vs-end--dark:
-        hash: v1.k794b7964.b9c760cc99f7800fbe3a78a4aeac773d50ff8378719f852b0e139afd17e7e78b.UnxshD1c7H_kFhrenHOl024qaZKxO25oOEdNMVM2B40
+        hash: v1.k794b7964.d867f3bb4d446557c317d2e9377c4d9ba5b1e50303ab203da8ed5a6416bd1358.fl5OUZ8Q-vFMJWdJlQJvnytuKLYps6H_oIirGP2b_K0
     components-hogcharts-referenceline--label-start-vs-end--light:
         hash: v1.k794b7964.551359c1cc60520de36398d4e2b11f96938e762c996fc4e8c4f1483011e84eb2.kcuCnRwpO6GAeCj4Je93i7xUIICAFJvksdfvfNy0UV4
     components-hogcharts-referenceline--vertical-reference-lines--dark:
@@ -1165,7 +1165,7 @@ snapshots:
     components-hogcharts-timeseriescombochart--stacked-bars-and-line--light:
         hash: v1.k794b7964.0ec5c8ab016a7b6e1069ac281477caaef59541eaffbc5a72cab3f243e96317a9.STGCZxKRcu4pufZr5XU1da-Fw4DeUsbkVYcm5K4TkT8
     components-hogcharts-timeseriescombochart--with-goal-line--dark:
-        hash: v1.k794b7964.015a6da500e9324becf095ba46d950a6acf200d6d2d78370b9aaf56873c4c1a3.BzD3iNT-6wccRq7ZxfrwJhe5N7wEqrwdENuVzRct8W4
+        hash: v1.k794b7964.5b3d5e9646737f4c4170a62d658099615ed447a0eebac2094690d27781bb1ff0.EbXVW5jFKcQoOD4X4F8Mt980A2SFfritG0AoDe-R9dU
     components-hogcharts-timeseriescombochart--with-goal-line--light:
         hash: v1.k794b7964.f1f8d70d7f5788eb0b793149c446090fe5931d61f9fd7511b05b710d0a0b4177.Te7l-QUhOmT2xuLCGGXvMAjIjFsn9Y-IFO-dZWoII_U
     components-hogcharts-timeserieslinechart--basic--dark:
@@ -2729,7 +2729,7 @@ snapshots:
     errortracking-ratelimitsimulationchart--no-limit--light:
         hash: v1.k794b7964.d91ebce09824ee6edfe28d0e54b52a88ff4129967568a021b232a003e115e323.2f6tIkZYP1-GjiinEZMkyPOoipIiFTmZ9j1pH_m1Mmw
     errortracking-ratelimitsimulationchart--with-limit--dark:
-        hash: v1.k794b7964.48197d9cf132e3225936969e3d4d337db9811ab31ab2624df878317847e38109.6jga9VY3EA1ilp9PgPNPVdrux9Elev944fjSFOJjGqo
+        hash: v1.k794b7964.072e7552e432e074a0cf6d9116c64f9d7cb4e4d0988d96d8c4f6b3a252daa787.Lfy9DLDoooYZzCoSLt22tFT0yD0vJHNN5kQ_BA-t7xA
     errortracking-ratelimitsimulationchart--with-limit--light:
         hash: v1.k794b7964.3319d12b63700f0e20c2345c8706223a8940d5fe37a4278a597ba5f13d81ba65.ubh71HB2yJA2-HrliI_wUJB_HMOlOgRNmgb_o0Lhu9U
     errortracking-stacktraceactions--default--dark:
@@ -3365,7 +3365,7 @@ snapshots:
     insights-funnellinechart--edit-scene--light:
         hash: v1.k794b7964.5edeb8b8bba7b34e652cef8b8a3ba737f918405086770d0d9ff37d94f71c0c96.DVNhaUNchljBHIsNfjPqW9-1V_rxH5mMj69oFSsW1-c
     insights-funnellinechart--goal-line--dark:
-        hash: v1.k794b7964.3527a19d9ee974a4ef2f4d519d1e9c5a4a05d9f5fff31714ea2147bcd9801063.nDFqt3zOfnKhBMTLl-ZMh98T9l7UpkyshmaKBj8emSY
+        hash: v1.k794b7964.25de34550a03b15f3dee7442ae529747a918d65c4351ac8a8c89a805d874c693.KYJaTDG5l-_iQ5BDhybvBb3C0AmIfrjOmubwxY-l1p8
     insights-funnellinechart--goal-line--light:
         hash: v1.k794b7964.72ac002955def059d2484fe32eebac9d1ab0fe0068f64ac8a66b781360d30794.aH-yxAsxVxw80Lc-aQQ7k0uu6CB0TqR4wpuzgezj6oQ
     insights-funnellinechart--value-labels--dark:
