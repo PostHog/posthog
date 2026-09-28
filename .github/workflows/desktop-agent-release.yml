@@ -70,7 +70,7 @@ jobs:
 
             - name: Pack the release tarball
               id: pack
-              working-directory: products/desktop/packages/agent
+              working-directory: packages/agent/packages/agent
               env:
                   AGENT_VERSION: ${{ steps.version.outputs.version }}
               run: |
