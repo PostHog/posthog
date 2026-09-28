@@ -231,6 +231,7 @@ function ExposureCriteriaFields({
                     }}
                     bordered={false}
                     fullWidth
+                    settingsLinkIcon="new-tab"
                     className="p-0"
                 />
             </div>
@@ -382,6 +383,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     }}
                     bordered={false}
                     fullWidth
+                    settingsLinkIcon="new-tab"
                     labelClassName="text-secondary font-normal"
                     className="p-0"
                 />
