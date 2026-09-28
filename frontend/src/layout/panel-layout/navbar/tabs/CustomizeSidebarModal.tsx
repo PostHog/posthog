@@ -1,9 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonLabel,
+    LemonModal,
+    LemonSwitch,
+    LemonTextArea,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+
+import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 
 import { iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
@@ -11,9 +21,9 @@ import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { navProductsTabLogic } from './navProductsTabLogic'
 import { productsItemName } from './productsCatalog'
 
-export function ConfigureStarredModal(): JSX.Element {
+export function CustomizeSidebarModal(): JSX.Element {
     const {
-        configureStarredOpen,
+        customizeSidebarOpen,
         rankedConfigurableApps,
         appMatchGroups,
         selectedAppStars,
@@ -24,15 +34,15 @@ export function ConfigureStarredModal(): JSX.Element {
         appRankingsLoading,
         appRankingError,
     } = useValues(navProductsTabLogic)
-    const { setConfigureStarredOpen, setProductStarred, setAppRecommendationQuery } = useActions(navProductsTabLogic)
+    const { setCustomizeSidebarOpen, setProductStarred, setAppRecommendationQuery } = useActions(navProductsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
 
     return (
         <LemonModal
-            title="Configure starred"
-            description="Choose which products appear in Starred. Changes save automatically."
-            isOpen={configureStarredOpen}
-            onClose={() => setConfigureStarredOpen(false)}
+            title="Customize sidebar"
+            description="Changes save automatically."
+            isOpen={customizeSidebarOpen}
+            onClose={() => setCustomizeSidebarOpen(false)}
             width={640}
             footer={
                 <div className="flex items-center gap-4 w-full flex-wrap">
@@ -44,13 +54,24 @@ export function ConfigureStarredModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         data-attr="configure-starred-done"
-                        onClick={() => setConfigureStarredOpen(false)}
+                        onClick={() => setCustomizeSidebarOpen(false)}
                     >
                         Done
                     </LemonButton>
                 </div>
             }
         >
+            <section className="flex flex-col gap-2 mb-6">
+                <div>
+                    <LemonLabel>Homepage</LemonLabel>
+                    <p className="text-xs text-secondary mb-0">The page that opens when you select Home.</p>
+                </div>
+                <HomepageConfiguration />
+            </section>
+            <div className="mb-2">
+                <LemonLabel>Starred</LemonLabel>
+                <p className="text-xs text-secondary mb-0">Starred products appear below Home in the sidebar.</p>
+            </div>
             {appRecommendationsEnabled && (
                 <div className="flex flex-col gap-2 mb-4">
                     <LemonTextArea

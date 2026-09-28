@@ -214,6 +214,33 @@ export const Default: Story = {
     },
 }
 
+export const NoRecents: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': () => [200, EMPTY_PAGINATED_RESPONSE],
+                '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
+                ...SHARED_MOCKS,
+            },
+        })
+
+        return (
+            <SearchContainer>
+                <Search.Root logicKey="storybook-no-recents" isActive showAskAiLink={false}>
+                    <Search.Input autoFocus />
+                    <Search.Status />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
+    },
+    parameters: {
+        docs: { description: { story: 'A user with no recent items sees products without an empty Recents group.' } },
+    },
+}
+
 export const ProductRecentsAndStarred: Story = {
     render: () => {
         useStorybookMocks({

@@ -56,6 +56,10 @@ const starred: FileSystemEntry[] = [
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
     { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
+    { id: 'star-5', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+    // Starred before the rename, so the saved path still holds the old name.
+    { id: 'star-6', path: 'LLM analytics', type: 'llm_analytics', href: '/ai-observability/dashboard' },
+    { id: 'star-7', path: 'AI gateway', type: 'ai_gateway', href: '/ai-gateway' },
 ]
 
 function SidebarStory({
@@ -65,6 +69,7 @@ function SidebarStory({
     overlay = false,
     empty = false,
     recentsCollapsed = false,
+    allProductsOpen = true,
     folderToOpen,
 }: {
     tab?: NavExperimentTab
@@ -73,12 +78,13 @@ function SidebarStory({
     overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
+    allProductsOpen?: boolean
     folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
-    const { setSearch } = useActions(navProductsTabLogic)
+    const { setSearch, setAllProductsOpen } = useActions(navProductsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
     useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
@@ -87,6 +93,7 @@ function SidebarStory({
         setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        setAllProductsOpen(allProductsOpen)
         if (tab === 'files') {
             projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
         }
@@ -187,15 +194,14 @@ export default meta
 
 type Story = StoryObj<typeof SidebarStory>
 export const Products: Story = {}
-export const ConfigureStarred: Story = {
+export const ProductsClosed: Story = { args: { allProductsOpen: false } }
+export const CustomizeSidebar: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const body = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await canvas.findByLabelText('Starred options'))
-        await userEvent.click(await body.findByText('Configure starred', { exact: true }))
+        await userEvent.click(await canvas.findByLabelText('Customize sidebar'))
     },
 }
-export const ConfigureStarredWithoutAIConsent: Story = {
+export const CustomizeSidebarWithoutAIConsent: Story = {
     decorators: [
         mswDecorator({
             get: {
@@ -211,10 +217,10 @@ export const ConfigureStarredWithoutAIConsent: Story = {
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,
         })
-        await ConfigureStarred.play!(context)
+        await CustomizeSidebar.play!(context)
     },
 }
-export const ConfigureStarredSaveFailure: Story = {
+export const CustomizeSidebarSaveFailure: Story = {
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,
@@ -238,7 +244,7 @@ export const ConfigureStarredSaveFailure: Story = {
         }),
     ],
     play: async (context) => {
-        await ConfigureStarred.play!(context)
+        await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         const dialog = within(body.getByRole('dialog'))
         await userEvent.click(dialog.getByRole('switch', { name: 'Actions' }))
@@ -246,9 +252,9 @@ export const ConfigureStarredSaveFailure: Story = {
         await body.findByText('Some changes could not be saved. Toggle those apps again to retry.')
     },
 }
-export const ConfigureStarredRanked: Story = {
+export const CustomizeSidebarRanked: Story = {
     play: async (context) => {
-        await ConfigureStarred.play!(context)
+        await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.click(body.getByText('Track website visitors', { exact: true }))
         const matches = within(await body.findByRole('region', { name: 'Matching apps' }))
@@ -259,7 +265,7 @@ export const ConfigureStarredRanked: Story = {
         })
     },
 }
-export const ConfigureStarredNoMatches: Story = {
+export const CustomizeSidebarNoMatches: Story = {
     decorators: [
         mswDecorator({
             post: {
@@ -281,7 +287,7 @@ export const ConfigureStarredNoMatches: Story = {
         }),
     ],
     play: async (context) => {
-        await ConfigureStarred.play!(context)
+        await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.type(body.getByLabelText('Filter by jev'), 'Plan a hiking trip')
         await body.findByText(
@@ -289,14 +295,14 @@ export const ConfigureStarredNoMatches: Story = {
         )
     },
 }
-export const ConfigureStarredUnavailable: Story = {
+export const CustomizeSidebarUnavailable: Story = {
     decorators: [
         mswDecorator({
             post: { '/api/projects/:team_id/ml_inference/decisions/decide/': [503, { detail: 'Unavailable' }] },
         }),
     ],
     play: async (context) => {
-        await ConfigureStarred.play!(context)
+        await CustomizeSidebar.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.click(body.getByText('Query databases', { exact: true }))
         await body.findByText(
@@ -304,9 +310,9 @@ export const ConfigureStarredUnavailable: Story = {
         )
     },
 }
-export const ConfigureStarredDark: Story = { ...ConfigureStarredRanked, globals: { theme: 'dark' } }
-export const ConfigureStarredNarrow: Story = {
-    ...ConfigureStarredRanked,
+export const CustomizeSidebarDark: Story = { ...CustomizeSidebarRanked, globals: { theme: 'dark' } }
+export const CustomizeSidebarNarrow: Story = {
+    ...CustomizeSidebarRanked,
     parameters: { testOptions: { viewport: { width: 600, height: 900 } } },
 }
 export const Files: Story = { args: { tab: 'files' } }

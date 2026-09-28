@@ -37,7 +37,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Surveys',
             intents: [ProductKey.SURVEYS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'survey',
             href: urls.surveys(),
             iconType: 'survey',
