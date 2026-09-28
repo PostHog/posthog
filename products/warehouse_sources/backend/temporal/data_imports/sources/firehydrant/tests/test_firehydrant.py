@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import requests
@@ -93,7 +94,7 @@ class TestPagination:
         assert params[1]["per_page"] == PAGE_SIZE
         # Checkpoint saved once, pointing at the next page; the final (next=None) page saves nothing.
         manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FireHydrantResumeConfig(next_page=2)
+        assert manager.save_state.call_args.args[0] == FireHydrantResumeConfig(paginator_state={"cursor": 2})
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_single_unpaginated_response_terminates(self, MockSession) -> None:
@@ -126,7 +127,7 @@ class TestPagination:
         _rows(firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager))
 
         # State saved only when a next page exists — not after the final page.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
+        assert [c.args[0].paginator_state["cursor"] for c in manager.save_state.call_args_list] == [2, 3]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_region_routes_requests_to_eu_host(self, MockSession) -> None:
@@ -150,7 +151,7 @@ class TestPagination:
         session = MockSession.return_value
         params, _urls = _wire(session, [_response([{"id": "b"}], next_page=None)])
 
-        manager = _make_manager(FireHydrantResumeConfig(next_page=2))
+        manager = _make_manager(FireHydrantResumeConfig(paginator_state={"cursor": 2}))
         rows = _rows(
             firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager)
         )
@@ -177,6 +178,126 @@ class TestPagination:
             firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
         )
         assert [r["id"] for r in rows] == ["ok"]
+
+
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_child_endpoint_once_per_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, urls = _wire(
+            session,
+            [
+                _response([{"id": "inc1"}, {"id": "inc2"}], next_page=None),
+                _response([{"id": "m1"}], next_page=None),
+                _response([{"id": "m2"}], next_page=None),
+            ],
+        )
+
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "incident_milestones", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert urls == [
+            "https://api.firehydrant.io/v1/incidents",
+            "https://api.firehydrant.io/v1/incidents/inc1/milestones",
+            "https://api.firehydrant.io/v1/incidents/inc2/milestones",
+        ]
+        # The parent id is injected and renamed to `incident_id`, which the primary key depends on
+        # (milestone ids are only unique within their incident).
+        assert rows == [
+            {"id": "m1", "incident_id": "inc1"},
+            {"id": "m2", "incident_id": "inc2"},
+        ]
+        # The resolved param binds the path only; leaking it into the query string would make every
+        # child request carry a filter FireHydrant never documented.
+        assert "incident_id" not in params[1]
+        assert params[1]["per_page"] == PAGE_SIZE
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_parents_already_synced(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "t1"}, {"id": "t2"}], next_page=None),
+                _response([{"id": "task2"}], next_page=None),
+            ],
+        )
+
+        manager = _make_manager(
+            FireHydrantResumeConfig(
+                paginator_state={
+                    "completed": ["/v1/teams/t1/escalation_policies"],
+                    "current": None,
+                    "child_state": None,
+                }
+            )
+        )
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "team_escalation_policies", team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        )
+
+        # Only the unfinished parent is re-fetched, so a resumed fan-out doesn't replay the whole
+        # parent list's children.
+        assert session.send.call_count == 2
+        assert rows == [{"id": "task2", "team_id": "t2"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoint_records_completed_parents(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "inc1"}], next_page=None),
+                _response([{"id": "task1"}], next_page=None),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(firehydrant_source("fhb_test", "incident_tasks", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert manager.save_state.call_args.args[0].paginator_state["completed"] == ["/v1/incidents/inc1/tasks"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_response_without_the_data_envelope_fails_loud(self, MockSession) -> None:
+        # A shape change has to stop the sync. Reading it as an empty page would replace the whole
+        # table with no rows, and nothing downstream would report that.
+        session = MockSession.return_value
+        renamed_envelope = Response()
+        renamed_envelope.status_code = 200
+        renamed_envelope._content = json.dumps({"escalation_policies": [{"id": "ep1"}]}).encode()
+        _wire(session, [_response([{"id": "t1"}], next_page=None), renamed_envelope])
+
+        with pytest.raises(ValueError, match="data_selector"):
+            _rows(
+                firehydrant_source(
+                    "fhb_test",
+                    "team_escalation_policies",
+                    team_id=1,
+                    job_id="j",
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_child_body_is_zero_rows(self, MockSession) -> None:
+        # An empty container carries no rows and no alternative shape, so it must not fail loud.
+        session = MockSession.return_value
+        empty = Response()
+        empty.status_code = 200
+        empty._content = b"{}"
+        _wire(session, [_response([{"id": "t1"}], next_page=None), empty])
+
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "team_escalation_policies", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+        assert rows == []
 
 
 class TestSourceResponse:
