@@ -93,12 +93,13 @@ function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: n
 
     // If no payload and no version, omit payload variable entirely
     if (!hasPayload && !versionParam) {
-        return `import requests
+        return `import os
+import requests
 
 url = "${getEndpointUrl(endpoint.endpoint_path)}"
 
 headers = {
-    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
+    'Authorization': f"Bearer {os.environ['POSTHOG_PROJECT_SECRET_API_KEY']}"
 }
 
 response = requests.post(url, headers=headers)
@@ -108,14 +109,15 @@ print(response.json())`
     const payloadBody = formatPayloadForCodeExample(payload)
     const dataContent = [payloadBody, versionParam].filter(Boolean).join(',\n')
 
-    return `import requests
+    return `import os
+import requests
 import json
 
 url = "${getEndpointUrl(endpoint.endpoint_path)}"
 
 headers = {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
+    'Authorization': f"Bearer {os.environ['POSTHOG_PROJECT_SECRET_API_KEY']}"
 }
 
 payload = {
@@ -141,7 +143,7 @@ function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: num
 const url = '${getEndpointUrl(endpoint.endpoint_path)}';
 
 const headers = {
-    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
+    'Authorization': 'Bearer ' + process.env.POSTHOG_PROJECT_SECRET_API_KEY
 };
 
 fetch(url, {
@@ -162,7 +164,7 @@ const url = '${getEndpointUrl(endpoint.endpoint_path)}';
 
 const headers = {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
+    'Authorization': 'Bearer ' + process.env.POSTHOG_PROJECT_SECRET_API_KEY
 };
 
 const payload = {

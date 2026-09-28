@@ -46,7 +46,7 @@ jest.mock('scenes/urls', () => ({
 }))
 
 describe('EndpointPlayground', () => {
-    beforeEach(() => {
+    const renderPlayground = (activeCodeExampleTab: string): void => {
         ;(useValues as jest.Mock)
             .mockReturnValueOnce({
                 endpoint: {
@@ -64,7 +64,7 @@ describe('EndpointPlayground', () => {
                 viewingVersion: null,
                 debugMode: false,
             })
-            .mockReturnValueOnce({ activeCodeExampleTab: 'terminal', selectedCodeExampleVersion: null })
+            .mockReturnValueOnce({ activeCodeExampleTab, selectedCodeExampleVersion: null })
             .mockReturnValueOnce({ superpowersEnabled: false })
         ;(useActions as jest.Mock)
             .mockReturnValueOnce({
@@ -74,15 +74,17 @@ describe('EndpointPlayground', () => {
                 setDebugMode: jest.fn(),
             })
             .mockReturnValueOnce({ setActiveCodeExampleTab: jest.fn(), setSelectedCodeExampleVersion: jest.fn() })
-    })
+
+        render(<EndpointPlayground />)
+    }
 
     afterEach(() => {
         cleanup()
         jest.clearAllMocks()
     })
 
-    it('links to project secret API key settings and shows the project secret credential', () => {
-        render(<EndpointPlayground />)
+    it('links to project secret API key settings', () => {
+        renderPlayground('terminal')
 
         const apiKeyButton = screen.getByText('Project secret API keys')
         expect(apiKeyButton.closest('a')).toHaveAttribute('href', '/settings/environment-secret-api-keys')
@@ -90,6 +92,15 @@ describe('EndpointPlayground', () => {
         expect(document.body).toHaveTextContent(
             'Create a project secret API key with endpoint:read access and copy a code example to call this endpoint from your application.'
         )
-        expect(screen.getByText(/POSTHOG_PROJECT_SECRET_API_KEY/)).toBeInTheDocument()
+    })
+
+    it.each([
+        ['terminal', 'Bearer $POSTHOG_PROJECT_SECRET_API_KEY'],
+        ['python', 'f"Bearer {os.environ[\'POSTHOG_PROJECT_SECRET_API_KEY\']}"'],
+        ['nodejs', "'Bearer ' + process.env.POSTHOG_PROJECT_SECRET_API_KEY"],
+    ])('reads the project secret key from the environment in the %s example', (tab, authorizationHeader) => {
+        renderPlayground(tab)
+
+        expect(document.body).toHaveTextContent(authorizationHeader)
     })
 })
