@@ -183,8 +183,8 @@ pub enum CacheSource {
     /// S3 answered after the Redis read failed, timed out, or returned a value that would
     /// not decode. Whether the key exists in Redis is unknown. Callers that repair or
     /// rebuild the Redis tier must act on `S3` only, because acting on this variant would
-    /// write during a Redis incident, when the cluster can least afford it. Both variants
-    /// log and count as "s3": the distinction drives behavior, not dashboards.
+    /// write during a Redis incident, when the cluster can least afford it. Canonical logs
+    /// group both variants as "s3".
     S3AfterRedisError,
     Fallback,
 }

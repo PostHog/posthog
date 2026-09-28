@@ -404,6 +404,13 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
     Err(FlagError::NoAuthenticationProvided)
 }
 
+fn cache_hit_metric_source_label(source: &CacheSource) -> &'static str {
+    match source {
+        CacheSource::S3AfterRedisError => "s3_after_redis_error",
+        _ => source.as_log_str(),
+    }
+}
+
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
 ///
 /// Always uses the cache with cohorts included to match Django's behavior and ensure
@@ -427,7 +434,10 @@ async fn get_from_cache(
             let source_name = source.as_log_str();
             inc(
                 FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
-                &[("source".to_string(), source_name.to_string())],
+                &[(
+                    "source".to_string(),
+                    cache_hit_metric_source_label(&source).to_string(),
+                )],
                 1,
             );
             info!(
@@ -656,6 +666,13 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(should_rebuild_after_hit(&source, enabled), expected);
+    }
+
+    #[rstest]
+    #[case::confirmed_redis_miss(CacheSource::S3, "s3")]
+    #[case::redis_read_failed(CacheSource::S3AfterRedisError, "s3_after_redis_error")]
+    fn test_cache_hit_metric_source_label(#[case] source: CacheSource, #[case] expected: &str) {
+        assert_eq!(cache_hit_metric_source_label(&source), expected);
     }
 
     #[tokio::test]
