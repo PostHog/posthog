@@ -503,7 +503,9 @@ class TestQueryRunner(BaseTest):
         assert warmer_hit["request_trigger"] == "warmingV2"
 
     @parameterized.expand([("failed_write", LimitContext.QUERY), ("uncached_export", LimitContext.EXPORT)])
-    def test_failed_cache_write_is_not_reported_as_a_warmed_version(self, _name, limit_context) -> None:
+    def test_failed_cache_write_is_not_reported_as_a_warmed_version(
+        self, _name: str, limit_context: LimitContext
+    ) -> None:
         Runner = self.setup_test_query_runner_class()
         runner = Runner(query={"some_attr": "cache-write-failure"}, team=self.team, limit_context=limit_context)
         with (
