@@ -73,6 +73,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType,
     IncrementalFieldType,
@@ -87,7 +88,6 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 logger = structlog.get_logger(__name__)
 

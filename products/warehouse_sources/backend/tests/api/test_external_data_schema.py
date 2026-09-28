@@ -1474,7 +1474,7 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
-        def only_the_stored_column(column):
+        def only_the_stored_column(column: str) -> int | None:
             return 42 if column == "row_version" else None
 
         with (
