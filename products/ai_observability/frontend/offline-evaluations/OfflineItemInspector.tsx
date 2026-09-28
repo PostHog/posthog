@@ -78,6 +78,81 @@ export function OfflineItemInspector({
                         </div>
                     )
                 )}
+                {(props.resultId || selectedResult) && (
+                    <section>
+                        <h3>Result details</h3>
+                        {selectedResultLoading ? (
+                            <LemonSkeleton />
+                        ) : selectedResultError ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: () => loadOfflineSelectedResult() }}
+                            >
+                                {selectedResultError}
+                            </LemonBanner>
+                        ) : (
+                            selectedResult && (
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <strong>{`${selectedResult.scorer.name} v${selectedResult.scorer.version}`}</strong>
+                                        <span
+                                            className={
+                                                selectedResult.status === 'error'
+                                                    ? 'text-danger'
+                                                    : selectedResult.status === 'ok'
+                                                      ? undefined
+                                                      : 'text-muted'
+                                            }
+                                            translate="no"
+                                        >
+                                            {offlineResultLabel(selectedResult, selectedResult.scorer)}
+                                        </span>
+                                    </div>
+                                    {selectedResult.status === 'ok' && (
+                                        <div className="text-xs">
+                                            <span>Raw value: </span>
+                                            <code translate="no" className="break-all">
+                                                {JSON.stringify(selectedResult.value)}
+                                            </code>
+                                        </div>
+                                    )}
+                                    {selectedResult.error_code && (
+                                        <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
+                                    )}
+                                    <div className="text-xs text-muted flex flex-wrap gap-2">
+                                        <span>Accepted</span>
+                                        <TZLabel time={selectedResult.accepted_at} />
+                                        {selectedResult.evaluator_trace_id && (
+                                            <Link to={urls.aiObservabilityTrace(selectedResult.evaluator_trace_id)}>
+                                                Evaluator trace
+                                            </Link>
+                                        )}
+                                    </div>
+                                    {resultPayloadLoading ? (
+                                        <LemonSkeleton />
+                                    ) : resultPayloadError ? (
+                                        <LemonBanner
+                                            type="error"
+                                            action={{
+                                                children: 'Try again',
+                                                onClick: () => loadOfflineResultPayload(),
+                                            }}
+                                        >
+                                            {resultPayloadError}
+                                        </LemonBanner>
+                                    ) : (
+                                        resultPayload?.id === selectedResult.id && (
+                                            <OfflinePayload
+                                                payload={resultPayload}
+                                                fields={['reasoning', 'error_message', 'metadata']}
+                                            />
+                                        )
+                                    )}
+                                </div>
+                            )
+                        )}
+                    </section>
+                )}
                 <section>
                     <h3>Input and output</h3>
                     {itemPayloadLoading ? (
@@ -174,81 +249,6 @@ export function OfflineItemInspector({
                         </div>
                     </div>
                 </section>
-                {(props.resultId || selectedResult) && (
-                    <section>
-                        <h3>Result details</h3>
-                        {selectedResultLoading ? (
-                            <LemonSkeleton />
-                        ) : selectedResultError ? (
-                            <LemonBanner
-                                type="error"
-                                action={{ children: 'Try again', onClick: () => loadOfflineSelectedResult() }}
-                            >
-                                {selectedResultError}
-                            </LemonBanner>
-                        ) : (
-                            selectedResult && (
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <strong>{`${selectedResult.scorer.name} v${selectedResult.scorer.version}`}</strong>
-                                        <span
-                                            className={
-                                                selectedResult.status === 'error'
-                                                    ? 'text-danger'
-                                                    : selectedResult.status === 'ok'
-                                                      ? undefined
-                                                      : 'text-muted'
-                                            }
-                                            translate="no"
-                                        >
-                                            {offlineResultLabel(selectedResult, selectedResult.scorer)}
-                                        </span>
-                                    </div>
-                                    {selectedResult.status === 'ok' && (
-                                        <div className="text-xs">
-                                            <span>Raw value: </span>
-                                            <code translate="no" className="break-all">
-                                                {JSON.stringify(selectedResult.value)}
-                                            </code>
-                                        </div>
-                                    )}
-                                    {selectedResult.error_code && (
-                                        <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
-                                    )}
-                                    <div className="text-xs text-muted flex flex-wrap gap-2">
-                                        <span>Accepted</span>
-                                        <TZLabel time={selectedResult.accepted_at} />
-                                        {selectedResult.evaluator_trace_id && (
-                                            <Link to={urls.aiObservabilityTrace(selectedResult.evaluator_trace_id)}>
-                                                Evaluator trace
-                                            </Link>
-                                        )}
-                                    </div>
-                                    {resultPayloadLoading ? (
-                                        <LemonSkeleton />
-                                    ) : resultPayloadError ? (
-                                        <LemonBanner
-                                            type="error"
-                                            action={{
-                                                children: 'Try again',
-                                                onClick: () => loadOfflineResultPayload(),
-                                            }}
-                                        >
-                                            {resultPayloadError}
-                                        </LemonBanner>
-                                    ) : (
-                                        resultPayload?.id === selectedResult.id && (
-                                            <OfflinePayload
-                                                payload={resultPayload}
-                                                fields={['reasoning', 'error_message', 'metadata']}
-                                            />
-                                        )
-                                    )}
-                                </div>
-                            )
-                        )}
-                    </section>
-                )}
             </div>
         </LemonModal>
     )

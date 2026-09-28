@@ -208,6 +208,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                             <OfflineOverviewTrend
                                 key={scorerId}
                                 teamId={props.teamId}
+                                timezone={props.timezone}
                                 scorerId={scorerId}
                                 dateFrom={trendRange.dateFrom}
                                 dateTo={trendRange.dateTo}

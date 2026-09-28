@@ -9,7 +9,7 @@ import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from '
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
 import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreMetricLabel } from './offlineScoreTrends'
 
-export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps): JSX.Element {
+export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps & { timezone: string }): JSX.Element {
     const logic = offlineOverviewTrendLogic(props)
     const { trend, trendLoading, trendError } = useValues(logic)
     const { loadOfflineOverviewTrend } = useActions(logic)
@@ -38,6 +38,7 @@ export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps): JSX
                     {trend.page.results.length ? (
                         <OfflineScoreTrendChart
                             heightClassName="h-40"
+                            timezone={props.timezone}
                             periods={[
                                 {
                                     key: 'overview',
@@ -58,7 +59,7 @@ export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps): JSX
                     ) : (
                         <p className="text-muted my-4">No completed experiments with this score in this period.</p>
                     )}
-                    <p className="text-xs text-muted mb-0">{getOfflineHistoryCoverage(trend.page)}</p>
+                    <p className="text-xs text-muted mb-0">{getOfflineHistoryCoverage(trend.page, props.timezone)}</p>
                     <LemonButton
                         size="small"
                         type="secondary"
