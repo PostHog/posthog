@@ -282,12 +282,16 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
     // Pending removal — no endpoint enforces these, so they do nothing when granted.
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    // The registry is behind a feature flag, so the picker waits for its owners to decide whether
+    // every user should see the row.
+    mcp_registry: 'Behind a feature flag: the row waits for the product owners.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
@@ -509,6 +513,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'business_knowledge',
             'data_catalog',
             'data_catalog_approval',
+            'mcp_registry',
             'task',
             'loop',
             'signal_scout',
@@ -573,6 +578,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'signal_scout_report',
             'signal_scratchpad_internal',
             'wizard_session',
+            'wizard_run',
         ],
     },
 ]
