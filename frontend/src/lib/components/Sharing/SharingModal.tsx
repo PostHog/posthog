@@ -242,7 +242,9 @@ export function SharingModalContent({
                         ) : (
                             <>
                                 <p className="mb-2 text-sm text-secondary">
-                                    Anyone with this link can view the {resource} without logging in to PostHog.
+                                    {sharingConfiguration.password_required
+                                        ? `Anyone with this link and a valid password can view the ${resource} without logging in to PostHog.`
+                                        : `Anyone with this link can view the ${resource} without logging in to PostHog.`}
                                 </p>
                                 <LemonSwitch
                                     id="sharing-switch"
