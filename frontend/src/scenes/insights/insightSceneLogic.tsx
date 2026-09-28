@@ -81,6 +81,7 @@ import type { insightDataLogicType } from './insightDataLogic'
 import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
+let insightStartedTimeout: ReturnType<typeof setTimeout> | undefined
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 function normalizeItemId(itemId: string | undefined): number | null {
     if (!itemId) {
@@ -756,12 +757,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
     })),
     listeners(({ sharedListeners, values }) => ({
-        reportInsightStarted: async ({ query }, breakpoint) => {
+        reportInsightStarted: ({ query }) => {
             // "insight started" means the user opened a blank insight editor (intent — it may never be
             // persisted). The actual creation is tracked server-side as "insight created".
-            await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-
-            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
+            // Debounce to avoid multiple quick "New insight" clicks being reported
+            clearTimeout(insightStartedTimeout)
+            insightStartedTimeout = setTimeout(() => {
+                posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
+            }, 500)
         },
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: [

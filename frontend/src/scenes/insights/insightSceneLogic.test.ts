@@ -61,6 +61,30 @@ describe('insightSceneLogic', () => {
             })
     })
 
+    it('captures an insight start after leaving the scene during the debounce', async () => {
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            logic.actions.reportInsightStarted(null)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(501)
+
+            const insightStarts = capture.mock.calls.filter(([event]) => event === 'insight started')
+            expect(insightStarts).toEqual([
+                ['insight started', expect.objectContaining({ source: 'web', uses_data_warehouse_source: false })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     it('updates the generated breadcrumb when cohort names arrive after the query', async () => {
         router.actions.push(urls.insightNew())
         logic = insightSceneLogic()
