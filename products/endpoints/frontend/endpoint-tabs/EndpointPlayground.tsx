@@ -69,14 +69,14 @@ function generateTerminalExample(endpoint: EndpointVersionType, selectedVersion:
     // If no payload and no version, omit the -d flag entirely
     if (!hasPayload && !versionParam) {
         return `curl -X POST ${getEndpointUrl(endpoint.endpoint_path)} \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"`
+  -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY"`
     }
 
     const payloadBody = formatPayloadForCodeExample(payload)
     const dataContent = [payloadBody, versionParam].filter(Boolean).join(',\n')
 
     return `curl -X POST ${getEndpointUrl(endpoint.endpoint_path)} \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+  -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
 ${dataContent}
@@ -98,7 +98,7 @@ function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: n
 url = "${getEndpointUrl(endpoint.endpoint_path)}"
 
 headers = {
-    'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
+    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
 }
 
 response = requests.post(url, headers=headers)
@@ -115,7 +115,7 @@ url = "${getEndpointUrl(endpoint.endpoint_path)}"
 
 headers = {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
+    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
 }
 
 payload = {
@@ -141,7 +141,7 @@ function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: num
 const url = '${getEndpointUrl(endpoint.endpoint_path)}';
 
 const headers = {
-    'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
+    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
 };
 
 fetch(url, {
@@ -162,7 +162,7 @@ const url = '${getEndpointUrl(endpoint.endpoint_path)}';
 
 const headers = {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
+    'Authorization': 'Bearer {POSTHOG_PROJECT_SECRET_API_KEY}'
 };
 
 const payload = {
@@ -361,7 +361,7 @@ export function EndpointPlayground(): JSX.Element {
             </div>
             <LemonDivider className="my-4" />
             <div className="flex flex-col gap-4">
-                <LemonLabel info="Create a personal API key and copy a code example to call this endpoint from your application.">
+                <LemonLabel info="Create a project secret API key with endpoint:read access and copy a code example to call this endpoint from your application.">
                     Example usage
                 </LemonLabel>
                 <div className="flex gap-2">
@@ -385,13 +385,13 @@ export function EndpointPlayground(): JSX.Element {
                         value={activeCodeExampleTab}
                     />
                     <LemonButton
-                        to={urls.settings('user', 'personal-api-keys')}
+                        to={urls.settings('environment-secret-api-keys')}
                         type="secondary"
                         size="small"
                         icon={<IconExternal />}
                         targetBlank
                     >
-                        Personal API keys
+                        Project secret API keys
                     </LemonButton>
                 </div>
                 <div>
