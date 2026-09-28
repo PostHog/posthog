@@ -1,7 +1,7 @@
 # Feature Flag Rules v2 contract
 
 This package defines Feature Flag Rules v2 configuration, definitions, response, management diagnostic and event contracts, plus the canonical evaluation corpus.
-Contract package 2.2.0 contains config schema 1.0.0, registry 2.0.0, corpus 1.1.0, wire schemas/fixtures 1.0.0, and person boolean evaluation corpus 1.0.0.
+Contract package 2.2.1 contains config schema 1.0.0, registry 2.0.0, corpus 1.1.0, wire schemas 1.0.1 with wire fixtures 1.0.0, and person boolean evaluation corpus 1.0.0.
 The contract version is independent of the test harness package version.
 
 The package does not enable config writes or runtime evaluation.
@@ -162,6 +162,10 @@ python3 bin/update-feature-flag-rules-v2-checksums.py --verify-sdist dist/postho
 ```
 
 The verifier reads the archive without extraction, requires its checksum index to match the checkout, and checks exact file coverage and every digest against that index.
+
+## Variant key charset correction (2.2.1)
+
+Contract 2.2.1 corrects `metadata.variant_key` in `schemas/flags_response_v3.schema.json` and `$feature_flag_variant` in the two event schemas from `^[a-zA-Z0-9_-]+$` to any string: the PostHog API has never restricted version 1 variant keys (stored flags carry dots, slashes and spaces because variant keys double as configuration values), so the 1.0.0 pattern rejected records the server legitimately produces for config version 1. Version 2 variant keys stay constrained by `schemas/config.schema.json` at admission. The three schemas are republished under their existing `$id`s as wire schemas 1.0.1; the wire fixtures keep their published bytes and version.
 
 ## Person boolean evaluation corpus
 

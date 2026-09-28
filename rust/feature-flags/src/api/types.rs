@@ -542,25 +542,26 @@ impl From<FlagDetails> for FlagDetailsV3 {
                 (value, flag.reason, None, 1, flag.variant)
             }
             ConfigOutcome::V2(evaluation) => {
-                let (value, code, rule) = match evaluation {
-                    Some(Evaluation::TargetingMatch { value, rule }) => {
-                        (Value::from(value), "targeting_match", Some(rule))
-                    }
-                    Some(Evaluation::RolloutMiss { value, rule }) => {
-                        (Value::from(value), "rollout_miss", Some(rule))
-                    }
-                    Some(Evaluation::NoRuleMatch { value }) => {
-                        (Value::from(value), "no_rule_match", None)
-                    }
-                    None => (Value::Null, "error", None),
-                };
-                let description = match (evaluation, rule) {
-                    (None, _) => flag.reason.description,
-                    (_, Some(rule)) if code == "rollout_miss" => {
-                        Some(format!("Rule {} rollout miss", rule.index + 1))
-                    }
-                    (_, Some(rule)) => Some(format!("Matched rule {}", rule.index + 1)),
-                    (_, None) => Some("No rule matched".to_string()),
+                let (value, code, rule, description) = match evaluation {
+                    Some(Evaluation::TargetingMatch { value, rule }) => (
+                        Value::from(value),
+                        "targeting_match",
+                        Some(rule),
+                        Some(format!("Matched rule {}", rule.index + 1)),
+                    ),
+                    Some(Evaluation::RolloutMiss { value, rule }) => (
+                        Value::from(value),
+                        "rollout_miss",
+                        Some(rule),
+                        Some(format!("Rule {} rollout miss", rule.index + 1)),
+                    ),
+                    Some(Evaluation::NoRuleMatch { value }) => (
+                        Value::from(value),
+                        "no_rule_match",
+                        None,
+                        Some("No rule matched".to_string()),
+                    ),
+                    None => (Value::Null, "error", None, flag.reason.description),
                 };
                 let reason = FlagEvaluationReason {
                     code: code.to_string(),

@@ -42,8 +42,8 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     let revision = source["source_revision"].as_str().unwrap();
     assert_eq!(revision.len(), 40);
     assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(source["release_status"], "released");
-    assert_eq!(source["source_release"], "1.8.0");
+    assert_eq!(source["release_status"], "unreleased");
+    assert_eq!(source["source_release"], serde_json::Value::Null);
     let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),

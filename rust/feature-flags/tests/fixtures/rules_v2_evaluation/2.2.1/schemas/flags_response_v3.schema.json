@@ -70,7 +70,7 @@
         "rule_type": { "enum": ["targeted_release", "percentage_rollout", "experiment"] },
         "rule_id": { "type": "string", "format": "uuid" },
         "experiment_id": { "type": "integer" },
-        "variant_key": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+        "variant_key": { "type": "string" },
         "holdout_id": { "type": "integer" },
         "forced_variant": { "const": true }
       }

@@ -46,7 +46,7 @@ fn email(pattern: &str) -> Value {
     json!([{"key": "email", "type": "person", "operator": "icontains", "value": pattern}])
 }
 
-/// A team with one person, two v1 flags and six v2 flags covering every boolean outcome.
+/// A team with one person, three v1 flags and six v2 flags covering every boolean outcome.
 async fn server() -> Result<(ServerHandle, String)> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.internal_request_token = Some(INTERNAL_TOKEN.to_string());
@@ -73,6 +73,14 @@ async fn server() -> Result<(ServerHandle, String)> {
                 "groups": [{"properties": [], "rollout_percentage": 100, "variant": "compact"}],
                 "multivariate": {"variants": [{"key": "compact", "name": "Compact", "rollout_percentage": 100}]},
                 "payloads": {"compact": "{\"columns\":2}"},
+            },
+        }),
+        json!({
+            "id": 9, "team_id": team.id, "key": "v1-free-key", "name": "v1-free-key", "active": true,
+            "deleted": false, "version": 7, "has_experiment": false,
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100, "variant": "provider/model-1.2 beta"}],
+                "multivariate": {"variants": [{"key": "provider/model-1.2 beta", "name": "Free key", "rollout_percentage": 100}]},
             },
         }),
         v2(
@@ -163,7 +171,7 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
     wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
     assert_eq!(v3["errorsWhileComputingFlags"], true);
     let flags = &v3["flags"];
-    assert_eq!(flags.as_object().unwrap().len(), 8);
+    assert_eq!(flags.as_object().unwrap().len(), 9);
 
     let expected = [
         (
@@ -178,6 +186,15 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
         (
             "v1-variant",
             json!("compact"),
+            "condition_match",
+            json!(0),
+            1,
+            None,
+            None,
+        ),
+        (
+            "v1-free-key",
+            json!("provider/model-1.2 beta"),
             "condition_match",
             json!(0),
             1,
@@ -269,6 +286,10 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
         }
     }
     assert_eq!(flags["v1-variant"]["metadata"]["variant_key"], "compact");
+    assert_eq!(
+        flags["v1-free-key"]["metadata"]["variant_key"],
+        "provider/model-1.2 beta"
+    );
     assert_eq!(
         flags["v1-variant"]["metadata"]["payload"],
         "{\"columns\":2}"

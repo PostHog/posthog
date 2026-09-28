@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "config_version": 2
   },
   "corpus": {
@@ -548,7 +548,7 @@
     {
       "path": "schemas/flags_response_v3.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "schemas/flags_response_v3_presence.schema.json",
@@ -568,12 +568,12 @@
     {
       "path": "schemas/feature_flag_called_context.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "schemas/experiment_exposure_properties.schema.json",
       "kind": "schema",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "path": "rules/response_presence.json",
@@ -1180,10 +1180,10 @@
     }
   ],
   "wire_contract": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "fixture_version": "1.0.0",
     "published_versions_are_immutable": true,
-    "producer_schema_sha256": "1dd97730c746bc4534c4f47eebd82dac0cc67ceb1e4c53e7540960e7f74b00d9",
+    "producer_schema_sha256": "98c1397bb7b5a1ceb3f317b34c6c57cff0ab30e94bf5945ee7b56f293536b70f",
     "fixture_encoding": "Each case deep-copies its named template, removes the listed existing JSON Pointer members, then sets members by JSON Pointer. Set requires an existing parent. Templates and expectations are JSON, not executable SDK suites.",
     "compatibility": "New artifacts are additive to contract 1.2.0. Published schema bytes and fixture expectations are immutable. Accepted/rejected wire-contract changes require a new major wire component version; additive cases require a new minor fixture version. Reader expectations never relax producer validation."
   },
