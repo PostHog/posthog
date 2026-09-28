@@ -2,9 +2,6 @@ import { z } from "zod";
 import {
   TASK_SUMMARY_MAX_CHARS,
   TASK_SUMMARY_TOOL_NAME,
-  TASK_TAG_MAX_CHARS,
-  TASK_TAG_PATTERN,
-  TASK_TAGS_MAX_COUNT,
 } from "../../task-system-prompt/task-summary";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import {
@@ -19,8 +16,8 @@ function errorResult(message: string): LocalToolResult {
 export const taskSummaryUpdateTool = defineLocalTool({
   name: TASK_SUMMARY_TOOL_NAME,
   description:
-    "Replace this task's running summary and slug tags. Write the goal, reason, current state, important files, branch, pull request, stopped approaches, and required human action. " +
-    `The limit is ${TASK_SUMMARY_MAX_CHARS} characters. Each call replaces the prior summary, and replaces the prior tags when you send tags.`,
+    "Replace this task's running summary. Write the goal, reason, current state, important files, branch, pull request, stopped approaches, and required human action. " +
+    `The limit is ${TASK_SUMMARY_MAX_CHARS} characters. Each call replaces the prior summary.`,
   schema: {
     summary: z
       .string()
@@ -28,13 +25,6 @@ export const taskSummaryUpdateTool = defineLocalTool({
       .max(TASK_SUMMARY_MAX_CHARS)
       .describe(
         "The complete summary, replacing any previous one. Plain text or short markdown.",
-      ),
-    tags: z
-      .array(z.string().max(TASK_TAG_MAX_CHARS).regex(TASK_TAG_PATTERN))
-      .max(TASK_TAGS_MAX_COUNT)
-      .optional()
-      .describe(
-        "The complete set of lowercase kebab-case slugs that classify this task, for example `bug-fix` or `feature-flags`. Replaces the prior tags. Omit to keep them.",
       ),
   },
   alwaysLoad: true,
@@ -62,7 +52,6 @@ export const taskSummaryUpdateTool = defineLocalTool({
             ctx.taskId as string,
             ctx.taskRunId as string,
             summary,
-            args.tags,
             signal,
           ),
         "task summary update",

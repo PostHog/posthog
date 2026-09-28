@@ -103,13 +103,12 @@ export class TaskToolsApiClient {
     taskId: string,
     runId: string,
     summary: string,
-    tags: string[] | undefined,
     signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.http.getTeamId();
     return this.http.request<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/set_summary/`,
-      { method: "PATCH", body: JSON.stringify({ summary, tags }), signal },
+      { method: "PATCH", body: JSON.stringify({ summary }), signal },
     );
   }
 
