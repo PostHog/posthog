@@ -66,7 +66,7 @@ class TestPostGraphql:
         with pytest.raises(Exception, match="Unexpected pganalyze response format"):
             _post_graphql(session, "https://app.pganalyze.com/graphql", "query {}", {})
 
-    def test_retries_on_read_timeout(self):
+    def test_retries_on_read_timeout(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
             requests.ReadTimeout("Read timed out. (read timeout=60)"),
@@ -78,7 +78,7 @@ class TestPostGraphql:
         assert result == {"getServers": []}
         assert session.post.call_count == 2
 
-    def test_retries_on_connection_error(self):
+    def test_retries_on_connection_error(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
             requests.ConnectionError("Connection aborted"),
