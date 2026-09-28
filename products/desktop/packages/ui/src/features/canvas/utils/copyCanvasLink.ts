@@ -7,7 +7,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { canvasShareUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
- * Copy a canvas's shareable https link (`<instance>/code/canvas/<channelId>/
+ * Copy a canvas's shareable https link (`<instance>/desktop/canvas/<channelId>/
  * <dashboardId>`) to the clipboard, toasting success or failure. Shared by every
  * "Copy link" affordance (canvas toolbar, dashboards grid) so the link format
  * and feedback stay in one place. This copies an https link that resolves to a
