@@ -11,6 +11,14 @@ are strings. Depot CI sets ``GITHUB_RUN_ID`` to the run id read as a base-30 num
 ``_ID_ALPHABET``, which the per-test traces its jobs emit confirm. A run with one workflow therefore
 takes its decoded run id, which joins those traces to its jobs. A run with several workflows takes
 each workflow's decoded id instead, because one shared id would fan every join on it out.
+
+While a repository moves a workflow to Depot CI, GitHub Actions decides per pull request which engine
+runs it, and both engines record a run of the same commit. The engine that did not run the tests
+leaves a hand-off shell: a GitHub run whose hand-off job succeeded and whose gate only relays Depot's
+verdict, or a Depot workflow that waited for a hand-off that never came and skipped everything else.
+Neither is a CI execution, so the union leaves out both, with their jobs. A GitHub shell stays when
+Depot holds no execution of its commit, because its relayed verdict is then the only record of that
+push.
 """
 
 import re
@@ -58,6 +66,11 @@ _DEFAULT_SANDBOX_LABELS = '["depot-ubuntu-24.04"]'
 # Depot reports no repository id. Any positive id on both sides lets the runs builder accept the
 # pull request association as the run's own.
 _REPOSITORY_ID = 1
+
+# The hand-off between the engines, as .github/workflows/ci-backend.yml and .depot/workflows/ci-backend.yml
+# name its two ends.
+_GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
+_DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
 
 
 def _is_id(column: str) -> str:
@@ -201,26 +214,70 @@ def _jobs(attempts: str) -> str:
     """
 
 
-def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: str) -> str:
+def _executions(depot: DepotJobAttempts) -> str:
+    # A workflow executed unless it has the wait job and no other job ever started.
+    job_key = "ifNull(job_key, '')"
+    return f"""
+        SELECT github_run_id, any(head_sha) AS head_sha
+        FROM {_attempts(depot, pull_requests_table=None)}
+        GROUP BY github_run_id
+        HAVING countIf(endsWith({job_key}, '{_DEPOT_WAIT_JOB_KEY_SUFFIX}')) = 0
+            OR countIf(NOT endsWith({job_key}, '{_DEPOT_WAIT_JOB_KEY_SUFFIX}') AND ifNull(attempt_started_at, '') != '') > 0
+    """
+
+
+def _executed_attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
+    return f"""(
+        SELECT * FROM {_attempts(depot, pull_requests_table)}
+        WHERE github_run_id IN (SELECT github_run_id FROM ({_executions(depot)}))
+    )"""
+
+
+def _github_shells(jobs_table: str, depot: DepotJobAttempts) -> str:
+    return f"""
+        SELECT run_id FROM {jobs_table}
+        WHERE name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success'
+            AND head_sha IN (SELECT head_sha FROM ({_executions(depot)}))
+    """
+
+
+def _union(
+    github_table: str, columns: dict[str, dict[str, str]], run_id_column: str, shells: str | None, depot_select: str
+) -> str:
     # UNION ALL matches columns by position, so the GitHub side names them in the contract order the
     # Depot side follows.
-    return f"(SELECT {', '.join(columns)} FROM {github_table} UNION ALL {depot_select})"
+    where = f" WHERE {run_id_column} NOT IN ({shells})" if shells else ""
+    return f"(SELECT {', '.join(columns)} FROM {github_table}{where} UNION ALL {depot_select})"
 
 
-def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None) -> str:
-    """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced."""
+def with_depot_runs(
+    runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None, jobs_table: str | None
+) -> str:
+    """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
+
+    Hand-off shells are left out. Without ``jobs_table`` the GitHub shells cannot be told apart, so they stay.
+    """
     if depot is None:
         return runs_table
-    return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(depot, pull_requests_table)))
+    shells = _github_shells(jobs_table, depot) if jobs_table else None
+    return _union(
+        runs_table, WORKFLOW_RUNS_COLUMNS, "id", shells, _runs(_executed_attempts(depot, pull_requests_table))
+    )
 
 
 def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Depot job rows carry no branch: the jobs builder scans its source twice, so a PR snapshot lookup here
-    would cost two PR scans per jobs read. A reader that joins a job to its run reads the branch through
-    ``workflow_jobs.branch``, which falls back to the run's.
+    Hand-off shells are left out, as in ``with_depot_runs``. Depot job rows carry no branch: the jobs builder
+    scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A reader that
+    joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back to the run's.
     """
     if depot is None:
         return jobs_table
-    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table=None)))
+    return _union(
+        jobs_table,
+        WORKFLOW_JOBS_COLUMNS,
+        "run_id",
+        _github_shells(jobs_table, depot),
+        _jobs(_executed_attempts(depot, pull_requests_table=None)),
+    )

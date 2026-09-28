@@ -222,7 +222,9 @@ class JobSourceTables:
     @property
     def runs_source(self) -> str:
         """The runs to read: the GitHub runs table plus this repo's Depot CI runs when synced."""
-        return depot_ci.with_depot_runs(self.github_workflow_runs, self.depot_job_attempts, self.pull_requests)
+        return depot_ci.with_depot_runs(
+            self.github_workflow_runs, self.depot_job_attempts, self.pull_requests, self.github_workflow_jobs
+        )
 
     @property
     def jobs_source(self) -> str:

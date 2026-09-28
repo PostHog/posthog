@@ -247,7 +247,10 @@ class CuratedGitHubSource:
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
-            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+            self._tables.workflow_runs,
+            self._depot_job_attempts(),
+            self._tables.pull_requests,
+            self._tables.workflow_jobs,
         )
 
     def _jobs_table(self, workflow_jobs_table: str) -> str:
