@@ -58,6 +58,12 @@ Both activities are unified — they handle trace-level and generation-level sum
 ### Coordinator: `llma-trace-summarization-coordinator`
 
 Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
+Guaranteed teams come first, and the sampled teams keep a random order.
+
+The coordinator keeps up to `max_concurrent_teams` per-team workflows running at once.
+It starts the next team when any running team finishes, so one slow team holds one slot and does not delay the others.
+The coordinator fixes one window when the run starts, and passes it to every per-team workflow as `window_start` and `window_end`.
+So each team covers the same hour however late in the run it starts, and consecutive runs cover consecutive windows with no gap or overlap.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
