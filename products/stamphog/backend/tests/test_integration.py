@@ -41,7 +41,6 @@ from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
-    RunReviewInSandboxInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -54,6 +53,7 @@ from products.stamphog.backend.temporal.constants import (
     NETWORK_RESTRICTED_AGENT_ENV,
     SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
+    STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     SandboxPhaseError,
 )
@@ -405,13 +405,11 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
         assert "fast_path" not in run.output
         return
 
-    # The sandbox starts beside the context fetch, so it exists, but the release sends it away before
-    # the reviewer runs.
-    commands = stamphog_chain.sandbox_class.executed_commands
-    assert not any("review_local.py" in command for command in commands)
+    _assert_no_review_ran(stamphog_chain)
     assert run.status == ReviewRunStatus.GATED
     assert run.output["fast_path"] is True
-    assert "pregate" in run.output["timings_ms"]
+    # The pre-check and the sandbox start each time their own steps, and neither write drops the other.
+    assert {"pregate", "sandbox_create", "fetch_head"} <= set(run.output["timings_ms"])
     # The fast path has no checkout, so the commit trailers come from the server's messages alone.
     assert json.loads(run.output["reviewer_raw"])["provenance"]["task_ids"] == ["t-1"]
     refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
@@ -516,7 +514,7 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     # otherwise provision successfully and run the reviewer again.
     stamphog_chain.sandbox_class.create_error = None
     with pytest.raises(SandboxPhaseError):
-        _run_activity(run_review_in_sandbox, RunReviewInSandboxInput(review_run_id=str(run.id), team_id=team.id))
+        _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
 
@@ -806,6 +804,13 @@ def _mint_response(
     return response
 
 
+def _assert_no_review_ran(stamphog_chain: StamphogChain) -> None:
+    # The sandbox starts beside the context fetch, so it can exist. The reviewer must not have run,
+    # and the workflow must have torn the unused sandbox down.
+    assert not any("review_local.py" in command for command in stamphog_chain.sandbox_class.executed_commands)
+    assert stamphog_chain.sandbox_class.destroy_returned
+
+
 def _register_review(stamphog_chain: StamphogChain, number: int, head_sha: str) -> dict:
     recorder = stamphog_chain.recorder
     recorder.register_pr(REPO, number, _pr_object(number, "devex-dev", head_sha), _pr_files())
@@ -835,7 +840,10 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     config = stamphog_chain.sandbox_class.created_configs[0]
     env = config.environment_variables
     assert env["AI_GATEWAY_URL"] == "https://ai-gateway.test/v1"
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    # The phe_ is minted after the sandbox exists. It arrives as a file the reviewer command reads,
+    # so it is in no creation env and no command line.
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
+    assert not any("phe_run" in command for command in stamphog_chain.sandbox_class.executed_commands)
     # Nothing long-lived crosses into the sandbox: not the worker's phs_, not an Anthropic key, and
     # no key outside the documented set (a widened passthrough goes red here).
     assert "phs_stamphog_mint" not in env.values()
@@ -843,7 +851,6 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     assert set(env) <= {
         "STAMPHOG_REPO_DIR",
         "AI_GATEWAY_URL",
-        "AI_GATEWAY_API_KEY",
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
@@ -893,7 +900,7 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
     assert mint.call_count == activities._MINT_ATTEMPTS
-    assert not stamphog_chain.sandbox_class.created_configs
+    _assert_no_review_ran(stamphog_chain)
     assert not (run.error or "").startswith("SandboxPhaseError")
 
 
@@ -922,7 +929,7 @@ def test_scoped_token_mint_waits_out_a_rate_limit_and_obeys_retry_after(team, st
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
-    assert stamphog_chain.sandbox_class.created_configs[0].environment_variables["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
     # The header wins the first wait; the second grows on its own, jittered but bounded.
     assert sleeps[0] == 7.0
     assert 2.0 <= sleeps[1] <= 2.5
@@ -945,7 +952,7 @@ def test_scoped_token_mint_does_not_retry_a_credential_rejection(team, stamphog_
     assert "HTTP 403" in (run.error or "")
     assert "only a standard credential" in (run.error or "")
     assert mint.call_count == 1
-    assert not stamphog_chain.sandbox_class.created_configs
+    _assert_no_review_ran(stamphog_chain)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2506,8 +2513,7 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
 
     # Empty entries (a trailing comma in the env value) never reach the gateway, which would 400.
     assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2525,8 +2531,7 @@ def test_mint_omits_allowed_models_by_default(team, stamphog_chain: StamphogChai
 
     assert "allowed_models" not in mint.call_args_list[0].kwargs["json"]
     # No pin was asked for, so a missing echo is not a dropped pin and the review runs.
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2549,7 +2554,7 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
     assert "model pin" in (run.error or "")
-    assert stamphog_chain.sandbox_class.created_configs == []
+    _assert_no_review_ran(stamphog_chain)
     _, revoke_call = mint.call_args_list
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
@@ -2581,8 +2586,7 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    assert (STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH, b"phe_run") in stamphog_chain.sandbox_writes
     assert [call.args[0] for call in mint.call_args_list] == [
         "https://ai-gateway.test/v1/tokens",
         "https://ai-gateway.test/v1/tokens",
@@ -2602,12 +2606,12 @@ def test_product_tag_matches_the_engine_blob() -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_scoped_token_is_revoked_when_the_sandbox_phase_fails(team, stamphog_chain: StamphogChain) -> None:
-    # The revoke exists for the runs that end badly: a sandbox that cannot be provisioned still had
-    # a live token minted for it, and the token dies with the attempt.
+    # The revoke exists for the runs that end badly: a review whose sandbox phase fails still had a
+    # live token minted for it, and the token dies with the attempt.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 123, "sha123a")
     broken_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
-    broken_sandbox.create_error = RuntimeError("modal is down")
+    broken_sandbox.reviewer_exit_code = 1
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
 
     with (

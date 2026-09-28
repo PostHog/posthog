@@ -99,7 +99,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
   the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
-  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  without waiting for the sandbox teardown. The review mints the token after the sandbox exists, so
+  the token reaches it as a file (`STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH`), never in the creation env
+  or a command line. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
@@ -270,7 +272,8 @@ T2-never with it, so it answers False for every PR it exists to catch.
   registry-completeness test guards this, don't bypass it.
 - Workflow bodies follow the repo-wide determinism rules (`workflow.patched()` for new commands).
 - Activity payloads stay small; large context rides in `run.output`, not through the workflow.
-- The sandbox activity runs beside the context fetch, the pre-check and the bot polls, so every activity that can overlap it writes `run.output` through `_merge_run_output` (a JSONB `||` merge), never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox.
+- The sandbox start and checkout run beside the context fetch, the pre-check and the bot polls, so every activity that can overlap them writes `run.output` through `_merge_run_output` (a JSONB `||` merge), or `_merge_run_timings` for `timings_ms`, never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox.
+- No activity waits inside for another activity's write. A waiting activity holds a worker thread and an activity slot, and enough of them starve the activities they wait for. Put the wait in the workflow and split the activity at it.
 
 ## Tests
 
