@@ -245,7 +245,7 @@ fn parse_remote_urls(config_content: &str) -> Vec<(String, String)> {
         let mut line = strip_config_comment(line.trim());
 
         if line.starts_with('[') {
-            let Some(header_end) = line.find(']') else {
+            let Some(header_end) = find_section_header_end(line) else {
                 // The section is unreadable, so every key below it is too.
                 remote_name = None;
                 continue;
@@ -274,6 +274,30 @@ fn parse_remote_urls(config_content: &str) -> Vec<(String, String)> {
     remotes
 }
 
+/// Returns the index of the `]` that closes a section header. A subsection name is quoted and
+/// can hold a `]` of its own, which git accepts: `git remote add 'deploy]prod' <url>` writes
+/// `[remote "deploy]prod"]`.
+fn find_section_header_end(line: &str) -> Option<usize> {
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match character {
+            '\\' => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            ']' if !in_quotes => return Some(index),
+            _ => {}
+        }
+    }
+
+    None
+}
+
 /// Returns the remote name of a `remote "<name>"` section header, and `None` for every other
 /// section. Section names are case insensitive, subsection names are not.
 fn parse_remote_section_header(header: &str) -> Option<String> {
@@ -282,12 +306,12 @@ fn parse_remote_section_header(header: &str) -> Option<String> {
         return None;
     }
 
-    let name = subsection.strip_suffix('"')?;
+    let name = unescape_config_string(subsection.strip_suffix('"')?);
     if name.is_empty() {
         return None;
     }
 
-    Some(name.to_string())
+    Some(name)
 }
 
 /// Drops a trailing `#` or `;` comment. A `#` inside a quoted value is part of the value, and a
@@ -316,7 +340,12 @@ fn strip_config_comment(line: &str) -> &str {
 /// Unwraps a git config value: it can be quoted, and a quoted value can escape a quote or a
 /// backslash.
 fn parse_config_value(value: &str) -> String {
-    let value = value.trim();
+    unescape_config_string(value.trim())
+}
+
+/// Drops the quotes around a git config string, and resolves the escapes a quoted string can
+/// hold.
+fn unescape_config_string(value: &str) -> String {
     let mut parsed = String::with_capacity(value.len());
     let mut characters = value.chars();
 
@@ -750,6 +779,11 @@ mod tests {
                 "[remote \"origin\"]\n\tpushurl = https://github.com/PostHog/fork.git\n",
                 vec![],
             ),
+            (
+                "an unterminated section header",
+                "[remote \"origin\"\n\turl = https://github.com/PostHog/posthog.git\n",
+                vec![],
+            ),
         ];
 
         for (name, config, expected) in cases {
@@ -758,6 +792,40 @@ mod tests {
                 .map(|(_, url)| url)
                 .collect();
             assert_eq!(urls, expected, "case: {name}");
+        }
+    }
+
+    #[test]
+    fn parse_remote_urls_reads_a_remote_name_that_holds_config_syntax() {
+        // `git remote add 'deploy]prod' <url>` is accepted and writes this header, so the
+        // closing bracket of the header is the one outside the quoted name.
+        let cases = [
+            (
+                "a bracket in the name",
+                "[remote \"deploy]prod\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+                "deploy]prod",
+            ),
+            (
+                "a comment character in the name",
+                "[remote \"deploy#1\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+                "deploy#1",
+            ),
+            (
+                "an escaped quote in the name",
+                "[remote \"deploy\\\"prod\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+                "deploy\"prod",
+            ),
+        ];
+
+        for (name, config, expected_remote) in cases {
+            assert_eq!(
+                parse_remote_urls(config),
+                vec![(
+                    expected_remote.to_string(),
+                    "https://github.com/PostHog/posthog.git".to_string()
+                )],
+                "case: {name}"
+            );
         }
     }
 
