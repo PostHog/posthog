@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
@@ -16,11 +20,41 @@ import { BroadcastScheduleStep } from './steps/BroadcastScheduleStep'
 export function BroadcastWizard(): JSX.Element {
     const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
-    const { setStep, prevStep, continueStep, launchBroadcast } = useActions(broadcastWizardLogic)
+    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
+    const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
 
     return (
         <SceneContent className="min-h-full w-full shrink-0" data-attr="broadcast-wizard">
-            <BroadcastSceneHeader canEdit />
+            <BroadcastSceneHeader
+                canEdit
+                actions={
+                    // A draft not saved yet has nothing to archive.
+                    broadcastId ? (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Archive',
+                                    status: 'danger',
+                                    onClick: archiveBroadcast,
+                                    disabledReason:
+                                        manageDisabledReason(broadcast?.user_access_level) ??
+                                        (saving || launching ? 'Wait for the broadcast to finish saving' : undefined),
+                                    'data-attr': 'broadcast-archive',
+                                },
+                            ]}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                sideIcon={<IconChevronDown />}
+                                data-attr="broadcast-actions"
+                            >
+                                Actions
+                            </LemonButton>
+                        </LemonMenu>
+                    ) : undefined
+                }
+            />
             <div className="mx-auto w-full max-w-4xl space-y-5">
                 <div className="space-y-3">
                     <div className="flex justify-center">

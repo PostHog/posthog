@@ -64,11 +64,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
+    SERIALIZED_BATCHES,
+    SLOT_WAITING_BATCHES,
+    TOP_GROUPS_CLAIMABLE_SHARE,
     observe_queue_query,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -748,8 +752,12 @@ class DeltaBatchConsumerAdapter:
                 # of the queue is, depth says how much sits behind it — a stall and a
                 # burst are indistinguishable on age alone.
                 with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_claimable_batch_count(conn)
-                CLAIMABLE_BATCHES.set(depth)
+                    depth = await BatchQueue.get_queue_depth(conn)
+                CLAIMABLE_BATCHES.set(depth.claimable_batches)
+                CLAIMABLE_GROUPS.set(depth.claimable_groups)
+                TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
+                SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
+                SERIALIZED_BATCHES.set(depth.serialized_batches)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
