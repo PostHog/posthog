@@ -95,18 +95,26 @@ def keyset_last_key(state: KeysetResumeState | None, *, key_length: int) -> tupl
     return tuple(stored)
 
 
-def keyset_key_of_last_row(table: pa.Table, keyset_columns: Sequence[str]) -> tuple[Any, ...]:
-    """The key tuple of the last row of `table`, which the next page seeks past.
+def checked_keyset_key(key: tuple[Any, ...], keyset_columns: Sequence[str]) -> tuple[Any, ...]:
+    """Return `key` unchanged, or raise `KeysetNullKeyError` if any part of it is NULL.
 
-    Raises `KeysetNullKeyError` if any part is NULL. Every predicate form compares as UNKNOWN against
-    a NULL, so a single-column key would re-read the same page forever while a composite one would
-    come back empty and silently truncate the load. See `KeysetNullKeyError`.
+    Every predicate form compares as UNKNOWN against a NULL, so a single-column key would re-read the
+    same page forever while a composite one would come back empty and silently truncate the load.
+    See `KeysetNullKeyError`.
+
+    Takes the values rather than the page, because a driver that seeks on an expression (Postgres
+    leads an xmin seek with a cast cursor) has the key in its cursor row under an alias that the
+    projected Arrow table does not carry.
     """
-    key = tuple(table.column(column)[-1].as_py() for column in keyset_columns)
     null_columns = [column for column, value in zip(keyset_columns, key) if value is None]
     if null_columns:
         raise KeysetNullKeyError(f"Keyset page ended on a NULL key for {null_columns}, so the walk cannot advance")
     return key
+
+
+def keyset_key_of_last_row(table: pa.Table, keyset_columns: Sequence[str]) -> tuple[Any, ...]:
+    """The key tuple of the last row of `table`, which the next page seeks past."""
+    return checked_keyset_key(tuple(table.column(column)[-1].as_py() for column in keyset_columns), keyset_columns)
 
 
 def is_orderable_keyset_type(arrow_type: pa.DataType) -> bool:
