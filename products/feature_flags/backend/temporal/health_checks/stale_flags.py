@@ -146,13 +146,23 @@ class StaleFeatureFlagsCheck(HealthCheck):
         stale_threshold = stale_flag_threshold()
 
         stale_rows = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
-        stale_candidates = _v1_flags(stale_rows)
+        # A never-called row's evidence is its configuration, and the SQL still accepts a
+        # multivariate flag whose reachable paths serve two variants. The checker settles that row
+        # the same way `get_status` does, so the payload never claims a fixed result the checker
+        # denies. A usage-stale row keeps its evidence whatever the configuration serves.
+        stale_candidates = [
+            flag
+            for flag in _v1_flags(stale_rows)
+            if flag.last_called_at is not None
+            or FeatureFlagStatusChecker(feature_flag=flag).is_flag_fully_rolled_out(flag)[0]
+        ]
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
         # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity. It reads
         # `stale_rows`, not `stale_candidates`, so a never-called non-v1 row also stays out of the
-        # rollout query instead of being fetched and logged a second time.
+        # rollout query instead of being fetched and logged a second time. A never-called row the
+        # checker rejected above stays out too, because the rollout query asks the same checker.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
@@ -232,8 +242,9 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     class needs, because each one decides the result ahead of the release conditions the checker
     reads and none of them changes which variant a reached condition serves.
 
-    The other candidate source is left alone. Its evidence is that PostHog stopped receiving calls,
-    which none of this contradicts.
+    The other candidate source is left alone. A usage-stale row's evidence is that PostHog stopped
+    receiving calls, which none of this contradicts. `detect` confirms a never-called row with the
+    checker's full-rollout verdict only, not with this function.
     """
     filters = flag.filters or {}
     # Two siblings encode part of the same evaluation order. `group_cohort_restriction_blocker` in

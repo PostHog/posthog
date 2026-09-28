@@ -337,6 +337,32 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # Never called, so the evidence is the configuration. The SQL still accepts the 100%
+            # variant under the blanket condition, and only the checker keeps this flag out.
+            (
+                "never_called_with_targeted_variant_override_first",
+                {
+                    **stale_by_config(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                None,
+                False,
+            ),
             # The same two conditions the other way round. The matcher stops at the blanket one, so
             # the override below it is unreachable and the flag really does serve one variant.
             (
