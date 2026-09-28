@@ -12,9 +12,11 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -3966,5 +3968,58 @@ describe('a flag in config version 2', () => {
             active: false,
             version: 3,
         })
+    })
+})
+
+describe('the editor a flag opens in', () => {
+    const V1_FLAG = { ...NEW_FLAG, id: 8, key: 'v1-flag', version: 1 }
+    const V2_FLAG = {
+        ...NEW_FLAG,
+        id: 7,
+        key: 'rules-v2-flag',
+        version: 3,
+        filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    }
+
+    beforeEach(() => {
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, V2_FLAG],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/8/`]: () => [200, V1_FLAG],
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(resumeKeaLoadersErrors)
+
+    async function editorKind(id: 7 | 8 | 'new', editorEnabled: boolean, search = ''): Promise<string | null> {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]: editorEnabled,
+        })
+        router.actions.push(`${urls.featureFlag(id)}${search}`)
+        const logic = featureFlagLogic({ id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        if (id !== 'new') {
+            logic.actions.editFeatureFlag(true)
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
+        }
+        const kind = logic.values.editorKind
+        logic.unmount()
+        return kind
+    }
+
+    it.each([
+        ['a v1 flag', 'v1', 8, true, ''],
+        ['a v1 flag with the editor off', 'v1', 8, false, ''],
+        ['a v2 flag', 'rules_v2', 7, true, ''],
+        ['a v2 flag with the editor off', null, 7, false, ''],
+        ['a new flag', 'v1', 'new', true, ''],
+        ['a new rules v2 flag', 'rules_v2', 'new', true, '?format=rules_v2'],
+        ['a new rules v2 flag with the editor off', 'v1', 'new', false, '?format=rules_v2'],
+    ] as const)('%s opens the %s editor', async (_label, expected, id, editorEnabled, search) => {
+        expect(await editorKind(id, editorEnabled, search)).toBe(expected)
     })
 })

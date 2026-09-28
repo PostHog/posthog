@@ -83,7 +83,7 @@ import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
-import { featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
+import { featureFlagConfigFormatLabel, isRulesV2EditableConfig } from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
@@ -91,6 +91,7 @@ import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
+import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
@@ -131,7 +132,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlag,
         featureFlagLoading,
         featureFlagMissing,
-        isEditingFlag,
         activeTab,
         availableTabs,
         accessDeniedToFeatureFlag,
@@ -139,6 +139,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlagActiveUpdateLoading,
         dependentFlags,
         configFormat,
+        editorKind,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -210,7 +211,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
     // user clicks Edit on the readonly view, defer one frame so the click flips state and the loading
     // skeleton paints before that render — otherwise the click blocks the thread and reads as dead.
-    const shouldShowForm = isNewFeatureFlag || (isEditingFlag && isV1Config)
+    const shouldShowForm = editorKind === 'v1'
     const [isFormMounted, setIsFormMounted] = useState(shouldShowForm)
     useEffect(() => {
         if (!shouldShowForm) {
@@ -243,6 +244,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     if (featureFlagLoading) {
         return <FeatureFlagFormSkeleton />
+    }
+
+    if (editorKind === 'rules_v2') {
+        return <FeatureFlagRulesV2Editor id={props.id} />
     }
 
     // Use the form UI for creating new flags or editing existing flags.
@@ -645,9 +650,31 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )}
                                 </AccessControlAction>
                             ) : (
-                                <LemonTag type="highlight" data-attr="feature-flag-config-format">
-                                    {featureFlagConfigFormatLabel(featureFlag.filters)}
-                                </LemonTag>
+                                <div className="flex items-center gap-2">
+                                    <LemonTag type="highlight" data-attr="feature-flag-config-format">
+                                        {featureFlagConfigFormatLabel(featureFlag.filters)}
+                                    </LemonTag>
+                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR] &&
+                                        isRulesV2EditableConfig(featureFlag.filters) && (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.FeatureFlag}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={featureFlag.user_access_level}
+                                            >
+                                                {({ disabledReason }) => (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        disabledReason={disabledReason}
+                                                        onClick={() => editFeatureFlag(true)}
+                                                        data-attr="edit-rules-v2-flag"
+                                                    >
+                                                        Edit
+                                                    </LemonButton>
+                                                )}
+                                            </AccessControlAction>
+                                        )}
+                                </div>
                             )
                         }
                     />

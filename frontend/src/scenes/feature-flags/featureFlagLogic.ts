@@ -128,7 +128,12 @@ import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from '
 import type { DefaultReleaseConditionsResponse } from './defaultReleaseConditionsLogic'
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-import { FeatureFlagConfigFormat, featureFlagConfigFormat, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import {
+    FeatureFlagConfigFormat,
+    featureFlagConfigFormat,
+    isRulesV2EditableConfig,
+    isV1FeatureFlagConfig,
+} from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import {
@@ -525,6 +530,9 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
     return undefined
 }
 
+/** The editor the flag scene mounts, if any; a document never reaches the editor of another config format. */
+export type FeatureFlagEditorKind = 'v1' | 'rules_v2' | null
+
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
@@ -900,6 +908,7 @@ export interface featureFlagLogicValues {
     customPairEnableCronPreview: string | null
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
+    editorKind: FeatureFlagEditorKind
     disableCopiedFlag: boolean
     earlyAccessFeaturesList: MinimalEarlyAccessFeatureType[]
     emailDomain: string
@@ -2058,6 +2067,13 @@ export interface featureFlagLogicMeta {
         props: (arg: any) => any
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
+        editorKind: (
+            props: FeatureFlagLogicProps,
+            isEditingFlag: boolean,
+            featureFlag: FeatureFlagType,
+            enabledFeatures: FeatureFlagsSet,
+            searchParams: Record<string, any>
+        ) => FeatureFlagEditorKind
         rowVersionToken: (featureFlag: FeatureFlagType) => {
             version?: number
         }
@@ -4609,6 +4625,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         configFormat: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
+        ],
+        editorKind: [
+            (s) => [s.props, s.isEditingFlag, s.featureFlag, s.enabledFeatures, router.selectors.searchParams],
+            (
+                props: FeatureFlagLogicProps,
+                isEditingFlag: boolean,
+                featureFlag: FeatureFlagType,
+                enabledFeatures: FeatureFlagsSet,
+                searchParams: Record<string, any>
+            ): FeatureFlagEditorKind => {
+                const rulesV2 = !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
+                if (props.id === 'new') {
+                    return rulesV2 && searchParams.format === 'rules_v2' ? 'rules_v2' : 'v1'
+                }
+                if (!isEditingFlag) {
+                    return null
+                }
+                if (isV1FeatureFlagConfig(featureFlag.filters)) {
+                    return 'v1'
+                }
+                return rulesV2 && isRulesV2EditableConfig(featureFlag.filters) ? 'rules_v2' : null
+            },
         ],
         // Every write to a row in another config version must carry the row version; v1 keeps its merge semantics.
         rowVersionToken: [

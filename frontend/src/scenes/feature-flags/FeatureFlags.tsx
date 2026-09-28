@@ -807,6 +807,7 @@ export function FeatureFlags(): JSX.Element {
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
+    const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
 
     return (
         <SceneContent className="feature_flags">
@@ -822,6 +823,21 @@ export function FeatureFlags(): JSX.Element {
                             surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
                             data-attr="feature-flags-feedback-button"
                         />
+                        {showRulesV2Editor && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                    data-attr="new-rules-v2-feature-flag"
+                                >
+                                    New rules v2 flag
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
                             minAccessLevel={AccessControlLevel.Editor}

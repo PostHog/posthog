@@ -28,3 +28,13 @@ export function featureFlagConfigFormatLabel(filters: FeatureFlagConfig | null |
     const version = filters?.version
     return featureFlagConfigFormat(filters) === 'v2' ? 'Rules v2' : `Config v${String(version)} (unsupported)`
 }
+
+/** Whether the rules v2 editor can edit this document: boolean return type, person assignment, no experiment rules. */
+export function isRulesV2EditableConfig(filters: FeatureFlagConfig | null | undefined): boolean {
+    return (
+        isRulesV2FeatureFlagConfig(filters) &&
+        filters.return_type === 'boolean' &&
+        filters.aggregation_group_type_index == null &&
+        filters.rules.every((rule) => rule.rule_type !== 'experiment' && typeof rule.value === 'boolean')
+    )
+}
