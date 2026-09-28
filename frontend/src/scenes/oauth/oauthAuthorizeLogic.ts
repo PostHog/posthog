@@ -910,7 +910,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => {
                 const rowsByLabel = new Map<string, OAuthScopeRow[]>()
                 for (const row of adjustableScopeRows) {
-                    const label = row.key === '*' ? OTHER_SCOPE_GROUP_LABEL : getScopeGroupLabel(row.key)
+                    const label = getScopeGroupLabel(row.key)
                     rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
                 }
                 return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
