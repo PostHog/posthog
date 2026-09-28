@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -53,11 +54,10 @@ describe('aiChartRecommendationLogic', () => {
     let decide: jest.SpyInstance
     let unmountData: () => void
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         decide = jest.spyOn(decisionsApi, 'mlInferenceDecisionsDecideCreate').mockResolvedValue(decision)
         featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.JEV_CHART_AUTODETECTION]: true,
             [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
         })
         organizationLogic.actions.loadCurrentOrganizationSuccess({
@@ -82,6 +82,8 @@ describe('aiChartRecommendationLogic', () => {
         logic = aiChartRecommendationLogic({ visualizationProps, tabId: 'jev-test' })
         logic.mount()
         visualization = dataVisualizationLogic(visualizationProps)
+        await expectLogic(preflightLogic).toFinishAllListeners()
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
     })
 
     afterEach(() => {
@@ -90,16 +92,23 @@ describe('aiChartRecommendationLogic', () => {
         decide.mockRestore()
     })
 
-    it('selects axes, chart and split layout after a query completes', async () => {
-        await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
-        expect(decide).toHaveBeenCalledTimes(1)
-        expect(visualization.values.query.display).toBe(ChartDisplayType.ActionsBar)
-        expect(visualization.values.selectedXAxis).toBe('category')
-        expect(visualization.values.selectedYAxis?.map((axis) => axis?.name)).toEqual(['value'])
-        expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Both)
-    })
+    it.each(['production', 'local development'])(
+        'selects axes, chart and split layout after a query completes in %s',
+        async (environment) => {
+            if (environment === 'local development') {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: true })
+            }
+            await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
+            expect(decide).toHaveBeenCalledTimes(1)
+            expect(visualization.values.query.display).toBe(ChartDisplayType.ActionsBar)
+            expect(visualization.values.selectedXAxis).toBe('category')
+            expect(visualization.values.selectedYAxis?.map((axis) => axis?.name)).toEqual(['value'])
+            expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Both)
+        }
+    )
 
-    it.each(['consent', 'flag', 'manual chart'])(
+    it.each(['consent', 'decisions service', 'manual chart'])(
         'keeps the existing behavior without %s eligibility',
         async (reason) => {
             if (reason === 'consent') {
@@ -107,7 +116,7 @@ describe('aiChartRecommendationLogic', () => {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     is_ai_data_processing_approved: false,
                 })
-            } else if (reason === 'flag') {
+            } else if (reason === 'decisions service') {
                 featureFlagLogic.actions.setFeatureFlags([], {})
             } else {
                 visualization.actions.setVisualizationType(ChartDisplayType.ActionsTable)
