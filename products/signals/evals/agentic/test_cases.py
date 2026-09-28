@@ -32,6 +32,17 @@ def test_research_cases_include_seeded_multisource_scenarios() -> None:
     assert any(len(case.signals) > 1 for case in seeded)
 
 
+def test_research_replay_signals_name_one_segment() -> None:
+    replay_signals = [
+        signal for case in RESEARCH_CASES for signal in case.signals if signal.source_type == "session_problem"
+    ]
+
+    assert replay_signals
+    for signal in replay_signals:
+        extra = signal.extra
+        assert signal.source_id == f"{extra['session_id']}:{extra['start_time']}:{extra['end_time']}"
+
+
 def test_implementation_cases_include_multifile_product_flows() -> None:
     complex_case_ids = {
         "impl_hedgebox_download_flow",
