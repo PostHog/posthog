@@ -250,7 +250,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=1,
                 tags={"productKey": "error_tracking"},
             )
-            return Response({"summary": map_event_summary(self._run_events_query(summary_query, request))})
+            summary = map_event_summary(self._run_events_query(summary_query, request))
+            return Response(ErrorTrackingIssueEventsResponseSerializer(instance={"summary": summary}).data)
         requested_includes = params.get("include")
         includes = (
             cast(list[str], requested_includes)
