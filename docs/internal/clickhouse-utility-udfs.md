@@ -3,6 +3,8 @@
 `JSONCleanPostHogEventProperties` groups `$feature/<key>` event properties into `$feature_flags`.
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
+A flag value that is the JSON string `"false"` (a variant named false) is stored as `$false`, so it stays distinct from a flag that was evaluated and switched off (JSON `false`, which the typed map stores as `false`).
+`$false` is a reserved variant key; the flag API rejects it.
 Flag values and person-property ordering follow the existing cleanup rules.
 
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
@@ -69,6 +71,18 @@ SELECT
 Both functions use the same executable. The temporary entry point uses `--temporary-properties` with the existing chunk protocol.
 
 Documents exceeding the shared depth limit produce `{}` in the temporary output; the permanent cleaner quarantines the original document.
+
+Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
+Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
+
+Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. `$false` counts as active, and reads of `$feature/<key>`, `$feature_flags.<key>` and the `$feature_flags` map return it as `false`. Whole-document reads of `properties`, and batch exports of the whole `$feature_flags` map, return it as stored; single-flag export fields and filters map it back. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
+
+Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
+becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
+
+On native events, HogQL `JSONExtract*` calls with `$feature_flags` as their first property key read the same restricted-property-aware map as dotted `$feature_flags` access.
+The original extractor still determines the return type and missing-value default.
+The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner
 
@@ -161,6 +175,38 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
+
+### `JSONDropKeysPool(json, keys)`
+
+Removes the given keys from a JSON document and returns the result as a `String`.
+It produces the same output as `JSONDropKeys(keys)(json)`, including dotted-key expansion.
+Each key is a dot-separated path, such as `properties.secret`.
+
+```sql
+SELECT JSONDropKeysPool('{"a":1,"b":{"c":2,"d":3}}', ['a', 'b.c']);
+-- {"b":{"d":3}}
+```
+
+`JSONDropKeys` receives its keys as a query parameter in the command line.
+ClickHouse accepts parameters only for the `executable` type, which starts a new process for every block.
+`JSONDropKeysPool` receives the keys as a regular argument, so it can use `executable_pool`.
+The worker stays alive across blocks and queries, and the keys can differ between rows.
+The worker keeps the parsed filter for the most recent key array and parses it again only when the array changes.
+
+Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
+RowBinary transport lets the JSON contain raw newlines and tabs.
+Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
+
+With 1,000,000 small synthetic rows, `max_threads = 1`, and ClickHouse 26.6.2.158 on an Apple M4 Pro, best of three runs, recorded September 24, 2026:
+
+| `max_block_size` | `JSONDropKeys` | `JSONDropKeysPool` |
+| ---------------- | -------------: | -----------------: |
+| 65,536           |        0.346 s |             0.26 s |
+| 8,192            |        0.873 s |             0.30 s |
+| 1,024            |        4.885 s |            0.504 s |
+
+A `countIf` comparison of both functions over the same rows returned zero differences.
+These timings measure process startup and transport, not production block sizes or concurrent load.
 
 ### `decompress(data, codec)`
 

@@ -12,11 +12,11 @@ import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic, handleDashboardUpdateFailure } from './addSavedInsightsModalLogic'
 
-const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
+const createInsight = (id: number, name = 'test'): InsightModel =>
     ({
         id,
         name: `${name} ${id}`,
@@ -35,7 +35,7 @@ const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    }) as any as QueryBasedInsightModel
+    }) as any as InsightModel
 
 function enableVariant(variant: 'filtered' | 'smart-filtered'): void {
     featureFlagLogic.mount()
@@ -272,7 +272,7 @@ describe('addSavedInsightsModalLogic', () => {
     describe('dashboard membership updates', () => {
         const MESSAGES = { timedOut: 'Timed out', failed: 'Failed to add' }
 
-        const insightOnDashboards = (dashboardIds: number[]): QueryBasedInsightModel =>
+        const insightOnDashboards = (dashboardIds: number[]): InsightModel =>
             ({
                 ...createInsight(53),
                 dashboard_tiles: dashboardIds.map((dashboardId, index) => ({
@@ -280,7 +280,7 @@ describe('addSavedInsightsModalLogic', () => {
                     dashboard_id: dashboardId,
                     deleted: false,
                 })),
-            }) as QueryBasedInsightModel
+            }) as InsightModel
 
         it('keeps the other dashboards when adding', async () => {
             initKeaTests()

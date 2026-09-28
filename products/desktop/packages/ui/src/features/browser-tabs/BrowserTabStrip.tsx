@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { useService } from "@posthog/di/react";
 import {
@@ -29,6 +29,7 @@ import {
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
@@ -58,7 +59,10 @@ import { useFocusTab } from "@posthog/ui/features/tab-tiling/useFocusTab";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
+import {
+  hrefPath,
+  reportIdFromHref,
+} from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { isMac } from "@posthog/ui/utils/platform";
@@ -98,6 +102,8 @@ import { useActiveTabId } from "./useActiveTabId";
 import { useTabsSnapshot } from "./useBrowserTabs";
 import { useGoToTab } from "./useGoToTab";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
+
+const NEW_SESSION_TAB_HREF = "/new";
 
 /**
  * Module-level caches of display info, keyed by id. Tabs store only references;
@@ -154,6 +160,8 @@ function BrowserTabStripImpl() {
   const router = useRouter();
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const openBrowserTab = useOpenBrowserTab();
+  const workLayout = useWorkLayout();
+  const defaultTabHref = workLayout ? NEW_SESSION_TAB_HREF : DEFAULT_TAB_HREF;
   const params = useParams({ strict: false }) as {
     channelId?: string;
     dashboardId?: string;
@@ -651,6 +659,15 @@ function BrowserTabStripImpl() {
           pinned,
         };
       }
+      if (workLayout && hrefPath(t.href ?? "") === NEW_SESSION_TAB_HREF) {
+        return {
+          id: t.id,
+          label: "New session",
+          icon: <PlusIcon size={13} />,
+          channelName: null,
+          pinned,
+        };
+      }
       return {
         id: t.id,
         label: t.viewState?.title ?? "New tab",
@@ -720,6 +737,7 @@ function BrowserTabStripImpl() {
     routeFeedId,
     feedName,
     spacesLayout,
+    workLayout,
   ]);
 
   // Navigate to a tab, tagging the history entry with its id so the switch is
@@ -774,7 +792,7 @@ function BrowserTabStripImpl() {
     const next = applyLocalTransform(
       (s) =>
         closeTabLocal(s, tabId, {
-          href: DEFAULT_TAB_HREF,
+          href: defaultTabHref,
           makeId: () => newTabId,
           now: Date.now,
         }).snapshot,
@@ -810,7 +828,7 @@ function BrowserTabStripImpl() {
         s,
         tabIds,
         {
-          href: DEFAULT_TAB_HREF,
+          href: defaultTabHref,
           makeId: () => newTabId,
           now: Date.now,
         },
@@ -881,10 +899,10 @@ function BrowserTabStripImpl() {
 
   const landOnDefault = (tabId?: string): void => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
-    navigate({ to: DEFAULT_TAB_HREF, state });
+    navigate({ to: defaultTabHref, state });
   };
 
-  const handleNewTab = (): void => openBrowserTab(DEFAULT_TAB_HREF);
+  const handleNewTab = (): void => openBrowserTab(defaultTabHref);
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.

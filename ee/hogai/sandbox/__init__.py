@@ -7,6 +7,7 @@ from ee.hogai.sandbox.types import (
     is_turn_complete,
     pi_turn_error,
     turn_complete_trace_id,
+    turn_completed_successfully,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "is_turn_complete",
     "pi_turn_error",
     "turn_complete_trace_id",
+    "turn_completed_successfully",
 ]

@@ -73,13 +73,15 @@ def enforce_organization_dashboard_template_limit(*, organization_id: UUID) -> N
 
 def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
     """Featured rows first, then order by `template_name` or `created_at` (when `ordering` requests it)."""
+    # Neither template_name nor created_at is unique across the visible templates, so each order needs `id`
+    # to page reliably. The `id` direction mirrors the column above it.
     if ordering == "-template_name":
-        return ["-is_featured", OrderBy(Lower("template_name"), descending=True)]
+        return ["-is_featured", OrderBy(Lower("template_name"), descending=True), "-id"]
     if ordering == "created_at":
-        return ["-is_featured", "created_at"]
+        return ["-is_featured", "created_at", "id"]
     if ordering == "-created_at":
-        return ["-is_featured", "-created_at"]
-    return ["-is_featured", Lower("template_name")]
+        return ["-is_featured", "-created_at", "-id"]
+    return ["-is_featured", Lower("template_name"), "id"]
 
 
 def _collect_warehouse_table_names(node: Any) -> set[str]:
@@ -661,7 +663,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 rank=build_rank({"template_name": "A", "dashboard_description": "C", "tags": "B"}, search),
             )
             qs = qs.filter(rank__gt=0.05)
-            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"))
+            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"), "id")
         else:
             qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
 

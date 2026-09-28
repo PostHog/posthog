@@ -6,15 +6,17 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.facade import api as signals_facade
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_fork_context import get_pending_fork
+from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -94,7 +96,22 @@ def project_label(integration: Integration) -> str:
     return f"{integration.team.organization.name} · {integration.team.name}"
 
 
-def format_project_candidate_list(candidates: list[Integration]) -> str:
+def format_project_candidate_list(candidates: list[Integration], *, first: Integration | None = None) -> str:
+    """One line per project, ``first`` at the head of the list.
+
+    The order is otherwise ``check_integrations_auth_and_filter``'s, which sorts by
+    freshest auth verdict and so reshuffles as cache entries expire. Leading with the
+    project a caller is already on gives the list its one stable landmark.
+
+    Every line carries the project's own name and nothing else. A caller marking one of
+    them says so around the list, by id, because a team may be called anything at all —
+    including whatever that marker would have been.
+
+    ``first`` outside ``candidates`` is ignored rather than prepended: for the classifier
+    this list and the reply schema's enum have to offer the same projects.
+    """
+    if first is not None and any(c.id == first.id for c in candidates):
+        candidates = [first, *(c for c in candidates if c.id != first.id)]
     return "\n".join(f"• `{c.team_id}` — {project_label(c)}" for c in candidates)
 
 
@@ -178,6 +195,21 @@ def resolve_from_candidates(
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
                 return ResolutionResult(integration=target, source="thread", candidates=accessible)
+
+        for candidate in accessible:
+            if get_pending_fork(candidate.id, channel, thread_ts) is not None:
+                return ResolutionResult(integration=candidate, source="thread", candidates=accessible)
+
+        report_team_id = signals_facade.report_team_id_for_slack_thread(
+            team_ids=[candidate.team_id for candidate in accessible],
+            slack_workspace_id=slack_team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        if report_team_id is not None:
+            return ResolutionResult(
+                integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
+            )
 
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the

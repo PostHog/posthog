@@ -74,6 +74,19 @@ def all_saved_query_columns(team_id: int) -> dict[str, dict[str, str]]:
     }
 
 
+def get_saved_query_sql(team_id: int, saved_query_id: UUID | str) -> str | None:
+    """The HogQL text of the saved query exactly as stored, or None when it no longer resolves or
+    stores no text. Soft-deleted rows are excluded for the reason ``get_saved_query_summary`` gives."""
+    stored = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .values_list("query", flat=True)
+        .first()
+    )
+    sql = stored.get("query") if isinstance(stored, dict) else None
+    return sql if isinstance(sql, str) else None
+
+
 def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")

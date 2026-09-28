@@ -12,6 +12,7 @@ from products.stamphog.backend.temporal.activities import (
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
+    refuse_on_pre_gates,
     run_review_in_sandbox,
     signal_review_started,
 )
@@ -23,6 +24,7 @@ ACTIVITIES = [
     dismiss_stale_approvals,
     signal_review_started,
     fetch_review_context,
+    refuse_on_pre_gates,
     list_in_flight_reviewer_bots,
     run_review_in_sandbox,
     post_verdict,

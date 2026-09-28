@@ -12,7 +12,19 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsFilter,
+    AssistantFunnelsQuery,
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    ContextMessage,
+    FunnelAggregateByHogQL,
+    HumanMessage,
+)
 
 from posthog.models import User
 
@@ -25,7 +37,7 @@ from products.posthog_ai.backend.conversation_mirror import (
     origin_key_for_conversation,
     project_legacy_messages,
 )
-from products.posthog_ai.backend.models.assistant import Conversation, ConversationCheckpoint
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation, ConversationCheckpoint
 from products.posthog_ai.backend.temporal.activities import (
     MirrorConversationInputs,
     mirror_conversation_to_task_activity,
@@ -38,6 +50,7 @@ from ee.hogai.api.serializers import (
     aget_conversation_state as real_aget_conversation_state,
 )
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 SERIALIZERS = "ee.hogai.api.serializers"
 MIRROR = "products.posthog_ai.backend.conversation_mirror"
@@ -224,9 +237,12 @@ class TestMirrorConversation(APIBaseTest):
     def _mirror(self):
         return async_to_sync(amirror_conversation)(self.conversation.id, self.team.id, self.user.id)
 
-    def _log_methods(self) -> list[str]:
+    def _log_frames(self) -> list[dict[str, Any]]:
         (content,) = self.logs.values()
-        return [_method(json.loads(line)) for line in content.strip().split("\n")]
+        return [json.loads(line) for line in content.strip().split("\n")]
+
+    def _log_methods(self) -> list[str]:
+        return [_method(frame) for frame in self._log_frames()]
 
     def test_first_touch_creates_task_and_import_run_then_appends(self) -> None:
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi there", id="a1")]
@@ -286,19 +302,40 @@ class TestMirrorConversation(APIBaseTest):
         assert len(self._log_methods()) == 7
 
     def test_artifact_query_survives_the_round_trip(self) -> None:
+        # A funnel aggregated by session carries a plain Enum member, which only JSON mode can encode.
+        query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview"), AssistantFunnelsEventsNode(event="signed_up")],
+            funnelsFilter=AssistantFunnelsFilter(funnelAggregateByHogQL=FunnelAggregateByHogQL.PROPERTIES__SESSION_ID),
+        )
+        artifact = AgentArtifact.objects.create(
+            name="Signups",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"name": "Signups", "query": query.model_dump(mode="json", exclude_none=True)},
+            conversation=self.conversation,
+            team=self.team,
+        )
         self.state_messages = [
-            HumanMessage(content="pageviews?", id="h1"),
+            HumanMessage(content="pageviews to signup?", id="h1"),
             AssistantMessage(
                 content="",
                 id="a1",
-                tool_calls=[AssistantToolCall(id="toolu_1", name="create_insight", args={"insight_type": "trends"})],
+                tool_calls=[AssistantToolCall(id="toolu_1", name="create_insight", args={"insight_type": "funnel"})],
             ),
-            AssistantToolCallMessage(content="Name: Pageviews", id="t1", tool_call_id="toolu_1"),
+            ArtifactRefMessage(
+                id="art1",
+                artifact_id=artifact.short_id,
+                source=ArtifactSource.ARTIFACT,
+                content_type=ArtifactContentType.VISUALIZATION,
+            ),
+            AssistantToolCallMessage(content="Name: Signups", id="t1", tool_call_id="toolu_1"),
             AssistantMessage(content="done", id="a2"),
         ]
         result = self._mirror()
         assert result.appended_frames == 7
-        assert "session/update:tool_call_update" in self._log_methods()
+        updates = [frame["notification"]["params"].get("update", {}) for frame in self._log_frames()]
+        (output,) = [update["rawOutput"] for update in updates if "rawOutput" in update]
+        assert output["artifact_id"] == artifact.short_id
+        assert output["query"]["funnelsFilter"]["funnelAggregateByHogQL"] == "properties.$session_id"
 
     def test_compaction_that_keeps_the_last_copied_message_copies_only_what_follows(self) -> None:
         self.state_messages = [

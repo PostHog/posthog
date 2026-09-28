@@ -16,14 +16,10 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_identity import (
-    resolve_posthog_user_for_slack,
-    resolve_slack_avatar_by_email,
-    resolve_slack_user,
-)
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_avatar_by_email, resolve_slack_user
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
@@ -39,18 +35,29 @@ from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.services.delivery import (
     DELIVERY_PART_KEY_BODY,
+    DELIVERY_PART_KEY_FALLBACK,
     DELIVERY_SWEEP_BATCH_SIZE,
+    IMAGE_UPLOAD_STEP_BYTES,
+    IMAGE_UPLOAD_STEP_COMPLETE,
+    IMAGE_UPLOAD_STEP_GET,
     DeliveryClaim,
     PermanentDeliveryError,
     TransientDeliveryError,
     accept_delivery_part,
     claim_delivery_part,
     cleanup_delivery_snapshots,
+    complete_slack_body_delivery,
+    defer_delivery_part,
     drain_delivery_retention,
     due_delivery_part_ids,
     fail_delivery_part,
+    is_slack_image_part_key,
+    maybe_enqueue_slack_fallback,
+    persist_delivery_part_payload,
+    pin_slack_fallback_payload,
     record_delivery_queue_metrics,
     schedule_delivery_retry,
+    slack_fallback_payload,
 )
 from products.conversations.backend.services.inbound_events import (
     INBOUND_SWEEP_BATCH_SIZE,
@@ -99,6 +106,8 @@ from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_miss
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+# How long the fallback waits when a redrive puts an image back in flight.
+SLACK_FALLBACK_WAIT_SECONDS = 30
 PromptUpdateResult = Literal["updated", "missing", "transient", "permanent"]
 _PERMANENT_PROMPT_UPDATE_ERROR_CODES = frozenset(
     {
@@ -689,6 +698,19 @@ def wake_delivery_part(row: ConversationDeliveryPart, *, countdown: int | None =
     return True
 
 
+def _wake_fallback_if_ready(part: ConversationDeliveryPart) -> None:
+    fallback = maybe_enqueue_slack_fallback(part)
+    if fallback is not None:
+        wake_delivery_part(fallback)
+
+
+def _fail_claimed_delivery_part(claim: DeliveryClaim, *, error_code: str, error: str) -> bool:
+    if not fail_delivery_part(claim, error_code=error_code, error=error):
+        return False
+    _wake_fallback_if_ready(claim.part)
+    return True
+
+
 def _retry_delivery_claim(
     claim: DeliveryClaim,
     *,
@@ -697,7 +719,7 @@ def _retry_delivery_claim(
     retry_after_seconds: int | None = None,
 ) -> None:
     if not claim.allow_retry:
-        fail_delivery_part(claim, error_code=error_code, error=error)
+        _fail_claimed_delivery_part(claim, error_code=error_code, error=error)
         return
     delay = schedule_delivery_retry(
         claim,
@@ -749,6 +771,10 @@ def _slack_response_ts(response: Any) -> str:
         if isinstance(nested, str) and nested:
             return nested
     return ""
+
+
+class ExpiredSlackUploadURLError(TransientDeliveryError):
+    """The Slack upload URL is gone, so the next attempt must start at get-upload."""
 
 
 def _raise_slack_body_error(exc: Exception) -> NoReturn:
@@ -843,99 +869,41 @@ def _post_slack_body(
     return ts
 
 
-def _best_effort_post_slack_images(
-    *,
-    client: Any,
-    team: Team,
-    payload: dict[str, Any],
-    route: dict[str, Any],
-    ticket_id: str,
-) -> None:
-    images = payload.get("images")
-    if not isinstance(images, list) or not images:
-        return
-    slack_channel_id = str(route.get("channel") or "")
-    slack_thread_ts = str(route.get("thread_ts") or "")
-    if not slack_channel_id or not slack_thread_ts:
-        return
-    raw_media_team_id = payload.get("media_team_id")
-    media_team_id = raw_media_team_id if isinstance(raw_media_team_id, int) else team.id
-    sender = _slack_sender(client=client, team=team, payload=payload, ticket_id=ticket_id)
-    failed_image_urls: list[str] = []
-    for image in images:
-        if not isinstance(image, dict):
-            continue
-        image_url = image.get("url")
-        image_url = image_url if isinstance(image_url, str) else ""
-        image_alt = image.get("alt")
-        image_alt = image_alt if isinstance(image_alt, str) else None
-        image_bytes = _read_image_bytes_for_slack_upload(media_team_id, image_url)
-        if image_bytes is None:
-            failed_image_urls.append(image_url)
-            continue
-        try:
-            _upload_image_to_slack_thread(
-                client=client,
-                slack_channel_id=slack_channel_id,
-                slack_thread_ts=slack_thread_ts,
-                image_name=_filename_for_slack_image(image_alt, image_url),
-                image_bytes=image_bytes,
-            )
-        except Exception:
-            logger.warning(
-                "slack_delivery_image_upload_failed",
-                ticket_id=ticket_id,
-                image_url=image_url,
-                exc_info=True,
-            )
-            failed_image_urls.append(image_url)
-    unique_urls = [url for url in dict.fromkeys(failed_image_urls) if url]
-    if not unique_urls:
-        return
-    fallback_kwargs: dict[str, Any] = {
-        "channel": slack_channel_id,
-        "thread_ts": slack_thread_ts,
-        "text": "Images:\n" + "\n".join(unique_urls),
-        "username": sender.username,
-    }
-    if sender.icon_url:
-        fallback_kwargs["icon_url"] = sender.icon_url
-    try:
-        client.chat_postMessage(**fallback_kwargs)
-    except Exception:
-        logger.warning("slack_delivery_image_fallback_failed", ticket_id=ticket_id, exc_info=True)
+@frozen
+class SlackDeliveryRuntime:
+    client: Any
+    team: Team
+    payload: dict[str, Any]
+    route: dict[str, Any]
 
 
-def _process_slack_delivery_part(delivery_part_id: str) -> None:
-    claim = claim_delivery_part(delivery_part_id)
-    if claim is None:
-        return
+def _reset_image_upload_step(claim: DeliveryClaim) -> bool:
+    payload = claim.part.payload if isinstance(claim.part.payload, dict) else {}
+    next_payload = {key: value for key, value in payload.items() if key not in {"file_id", "upload_url", "length"}}
+    next_payload["step"] = IMAGE_UPLOAD_STEP_GET
+    return persist_delivery_part_payload(claim, next_payload)
+
+
+def _load_slack_delivery_runtime(claim: DeliveryClaim) -> SlackDeliveryRuntime | None:
     part = claim.part
-    if part.part_key != DELIVERY_PART_KEY_BODY:
-        fail_delivery_part(
-            claim,
-            error_code="unsupported_part",
-            error=f"Slack body worker cannot process part_key={part.part_key}",
-        )
-        return
     payload = part.payload if isinstance(part.payload, dict) else None
     route = part.route if isinstance(part.route, dict) else None
     if payload is None or route is None:
-        fail_delivery_part(
+        _fail_claimed_delivery_part(
             claim,
             error_code="poison_payload",
             error="delivery part snapshot is missing or not an object",
         )
-        return
+        return None
     channel = str(route.get("channel") or "")
     thread_ts = str(route.get("thread_ts") or "")
     if not channel or not thread_ts:
-        fail_delivery_part(
+        _fail_claimed_delivery_part(
             claim,
             error_code="poison_route",
             error="delivery part route is missing channel or thread_ts",
         )
-        return
+        return None
     delivery = part.delivery
     config = _slack_config_for_workspace(
         delivery.provider_account_id,
@@ -943,27 +911,165 @@ def _process_slack_delivery_part(delivery_part_id: str) -> None:
     )
     if not config:
         _retry_delivery_claim(claim, error_code="no_team", error="slack workspace is not connected")
-        return
+        return None
     team = config.team
     if not (team.conversations_settings or {}).get("slack_enabled"):
-        fail_delivery_part(claim, error_code="slack_disabled", error="Slack replies are disabled")
-        return
+        _fail_claimed_delivery_part(claim, error_code="slack_disabled", error="Slack replies are disabled")
+        return None
     try:
         client = get_slack_client(team)
     except ValueError:
-        fail_delivery_part(claim, error_code="no_credentials", error="Support Slack bot token is not configured")
+        _fail_claimed_delivery_part(
+            claim, error_code="no_credentials", error="Support Slack bot token is not configured"
+        )
+        return None
+    return SlackDeliveryRuntime(client=client, team=team, payload=payload, route=route)
+
+
+def _deliver_slack_body(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
+    ts = _post_slack_body(
+        client=runtime.client,
+        team=runtime.team,
+        payload=runtime.payload,
+        route=runtime.route,
+        client_msg_id=claim.part.client_msg_id,
+    )
+    if not ts:
+        logger.info("slack_delivery_body_empty", delivery_part_id=str(claim.part.id))
+    for part in complete_slack_body_delivery(claim, provider_message_id=ts):
+        wake_delivery_part(part)
+
+
+def _deliver_slack_fallback(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
+    snapshot = pin_slack_fallback_payload(claim)
+    if snapshot is None:
+        # A redrive put an image back in flight. Waiting is not a failed
+        # attempt, so re-arm without spending the retry budget.
+        defer_delivery_part(claim, seconds=SLACK_FALLBACK_WAIT_SECONDS, reason="images_in_flight")
+        return
+    if not snapshot.urls:
+        accept_delivery_part(claim, provider_message_id="")
+        return
+    payload = {**runtime.payload, **slack_fallback_payload(snapshot)}
+    ts = _post_slack_body(
+        client=runtime.client,
+        team=runtime.team,
+        payload=payload,
+        route=runtime.route,
+        client_msg_id=claim.part.client_msg_id,
+    )
+    accept_delivery_part(claim, provider_message_id=ts)
+
+
+def _image_step(payload: dict[str, Any]) -> str:
+    step = payload.get("step")
+    if step in {IMAGE_UPLOAD_STEP_GET, IMAGE_UPLOAD_STEP_BYTES, IMAGE_UPLOAD_STEP_COMPLETE}:
+        return str(step)
+    return IMAGE_UPLOAD_STEP_GET
+
+
+def _deliver_slack_image(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
+    payload = dict(runtime.payload)
+    route = runtime.route
+    step = _image_step(payload)
+    image_url = payload.get("url")
+    image_url = image_url if isinstance(image_url, str) else ""
+    image_alt = payload.get("alt")
+    image_alt = image_alt if isinstance(image_alt, str) else None
+    media_team_id = payload.get("media_team_id")
+    media_team_id = media_team_id if isinstance(media_team_id, int) else runtime.team.id
+    image_name = _filename_for_slack_image(image_alt, image_url)
+    slack_channel_id = str(route.get("channel") or "")
+    slack_thread_ts = str(route.get("thread_ts") or "")
+
+    if step == IMAGE_UPLOAD_STEP_BYTES and (not payload.get("upload_url") or not payload.get("file_id")):
+        step = IMAGE_UPLOAD_STEP_GET
+    if step == IMAGE_UPLOAD_STEP_COMPLETE and not payload.get("file_id"):
+        step = IMAGE_UPLOAD_STEP_GET
+
+    image_bytes: bytes | None = None
+    if step in {IMAGE_UPLOAD_STEP_GET, IMAGE_UPLOAD_STEP_BYTES}:
+        image_bytes = _read_image_bytes_for_slack_upload(media_team_id, image_url)
+        if image_bytes is None:
+            raise PermanentDeliveryError("Image bytes are not readable for Slack upload", error_code="image_unreadable")
+
+    if step == IMAGE_UPLOAD_STEP_GET:
+        if image_bytes is None:
+            raise PermanentDeliveryError("Image bytes are not readable for Slack upload", error_code="image_unreadable")
+        target = _slack_get_upload_url_external(runtime.client, filename=image_name, length=len(image_bytes))
+        payload = {
+            **payload,
+            "step": IMAGE_UPLOAD_STEP_BYTES,
+            "file_id": target.file_id,
+            "upload_url": target.upload_url,
+            "length": len(image_bytes),
+        }
+        if not persist_delivery_part_payload(claim, payload):
+            return
+        step = IMAGE_UPLOAD_STEP_BYTES
+
+    if step == IMAGE_UPLOAD_STEP_BYTES:
+        if image_bytes is None:
+            raise PermanentDeliveryError("Image bytes are not readable for Slack upload", error_code="image_unreadable")
+        upload_url = str(payload.get("upload_url") or "")
+        if not _is_allowed_slack_upload_url(upload_url):
+            raise PermanentDeliveryError("Slack returned a disallowed upload URL", error_code="disallowed_upload_url")
+        _slack_post_upload_bytes(upload_url, image_bytes)
+        payload = {**payload, "step": IMAGE_UPLOAD_STEP_COMPLETE}
+        payload.pop("upload_url", None)
+        if not persist_delivery_part_payload(claim, payload):
+            return
+
+    file_id = str(payload.get("file_id") or "")
+    _slack_complete_upload_external(
+        runtime.client,
+        file_id=file_id,
+        image_name=image_name,
+        slack_channel_id=slack_channel_id,
+        slack_thread_ts=slack_thread_ts,
+    )
+    if accept_delivery_part(claim, provider_message_id=file_id):
+        _wake_fallback_if_ready(claim.part)
+
+
+def _process_slack_delivery_part(delivery_part_id: str) -> None:
+    claim = claim_delivery_part(delivery_part_id)
+    if claim is None:
+        return
+    part = claim.part
+    if (
+        part.part_key != DELIVERY_PART_KEY_BODY
+        and part.part_key != DELIVERY_PART_KEY_FALLBACK
+        and not is_slack_image_part_key(part.part_key)
+    ):
+        _fail_claimed_delivery_part(
+            claim,
+            error_code="unsupported_part",
+            error=f"Slack worker cannot process part_key={part.part_key}",
+        )
+        return
+    runtime = _load_slack_delivery_runtime(claim)
+    if runtime is None:
         return
     try:
-        ts = _post_slack_body(
-            client=client,
-            team=team,
-            payload=payload,
-            route=route,
-            client_msg_id=part.client_msg_id,
+        if part.part_key == DELIVERY_PART_KEY_BODY:
+            _deliver_slack_body(claim, runtime)
+            return
+        if part.part_key == DELIVERY_PART_KEY_FALLBACK:
+            _deliver_slack_fallback(claim, runtime)
+            return
+        _deliver_slack_image(claim, runtime)
+    except ExpiredSlackUploadURLError as exc:
+        if not _reset_image_upload_step(claim):
+            return
+        _retry_delivery_claim(
+            claim,
+            error_code="upload_url_expired",
+            error=str(exc)[:DELIVERY_ERROR_MAX_LENGTH],
+            retry_after_seconds=exc.retry_after_seconds,
         )
     except PermanentDeliveryError as exc:
-        fail_delivery_part(claim, error_code=exc.error_code, error=str(exc))
-        return
+        _fail_claimed_delivery_part(claim, error_code=exc.error_code, error=str(exc))
     except TransientDeliveryError as exc:
         _retry_delivery_claim(
             claim,
@@ -971,22 +1077,9 @@ def _process_slack_delivery_part(delivery_part_id: str) -> None:
             error=str(exc)[:DELIVERY_ERROR_MAX_LENGTH],
             retry_after_seconds=exc.retry_after_seconds,
         )
-        return
     except Exception as exc:
         logger.exception("slack_delivery_handler_failed", delivery_part_id=delivery_part_id, error=str(exc))
         _retry_delivery_claim(claim, error_code="handler_failed", error=str(exc)[:DELIVERY_ERROR_MAX_LENGTH])
-        return
-    if not ts:
-        logger.info("slack_delivery_body_empty", delivery_part_id=delivery_part_id)
-    if not accept_delivery_part(claim, provider_message_id=ts):
-        return
-    _best_effort_post_slack_images(
-        client=client,
-        team=team,
-        payload=payload,
-        route=route,
-        ticket_id=str(delivery.ticket_id or ""),
-    )
 
 
 @shared_task(
@@ -1200,6 +1293,93 @@ def _filename_for_slack_image(alt: str | None, image_url: str | None) -> str:
     return "image"
 
 
+@frozen
+class SlackUploadTarget:
+    file_id: str
+    upload_url: str
+
+
+def _slack_get_upload_url_external(client: Any, *, filename: str, length: int) -> SlackUploadTarget:
+    try:
+        get_upload_url = client.api_call(
+            api_method="files.getUploadURLExternal",
+            params={
+                "filename": filename,
+                "length": length,
+            },
+        )
+    except Exception as exc:
+        _raise_slack_body_error(exc)
+    if not get_upload_url.get("ok"):
+        error = str(get_upload_url.get("error") or "get_upload_failed")
+        message = f"files.getUploadURLExternal failed: {error}"
+        if error in _PERMANENT_CHAT_POST_ERROR_CODES:
+            raise PermanentDeliveryError(message, error_code=error)
+        raise TransientDeliveryError(message)
+    upload_url = get_upload_url.get("upload_url")
+    file_id = get_upload_url.get("file_id")
+    if not isinstance(upload_url, str) or not upload_url or not isinstance(file_id, str) or not file_id:
+        raise TransientDeliveryError("files.getUploadURLExternal missing upload_url/file_id")
+    if not _is_allowed_slack_upload_url(upload_url):
+        raise PermanentDeliveryError(
+            "files.getUploadURLExternal returned disallowed upload URL",
+            error_code="disallowed_upload_url",
+        )
+    return SlackUploadTarget(file_id=file_id, upload_url=upload_url)
+
+
+def _slack_post_upload_bytes(upload_url: str, image_bytes: bytes) -> None:
+    try:
+        upload_response = requests.post(
+            upload_url,
+            data=image_bytes,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=10,
+        )
+    except Exception as exc:
+        _raise_slack_body_error(exc)
+    if upload_response.status_code in (404, 410):
+        raise ExpiredSlackUploadURLError("Slack upload URL expired")
+    try:
+        upload_response.raise_for_status()
+    except Exception as exc:
+        _raise_slack_body_error(exc)
+
+
+def _slack_complete_upload_external(
+    client: Any,
+    *,
+    file_id: str,
+    image_name: str,
+    slack_channel_id: str,
+    slack_thread_ts: str,
+) -> None:
+    try:
+        complete_upload = client.api_call(
+            api_method="files.completeUploadExternal",
+            json={
+                "files": [{"id": file_id, "title": image_name}],
+                "channel_id": slack_channel_id,
+                "thread_ts": slack_thread_ts,
+            },
+        )
+    except SlackApiError as exc:
+        error_code = _slack_api_error_code(exc) or ""
+        if error_code in {"file_not_found", "not_found"}:
+            raise ExpiredSlackUploadURLError(str(exc)) from exc
+        _raise_slack_body_error(exc)
+    except Exception as exc:
+        _raise_slack_body_error(exc)
+    if not complete_upload.get("ok"):
+        error = str(complete_upload.get("error") or "complete_upload_failed")
+        message = f"files.completeUploadExternal failed: {error}"
+        if error in {"file_not_found", "not_found"}:
+            raise ExpiredSlackUploadURLError(message)
+        if error in _PERMANENT_CHAT_POST_ERROR_CODES:
+            raise PermanentDeliveryError(message, error_code=error)
+        raise TransientDeliveryError(message)
+
+
 def _upload_image_to_slack_thread(
     *,
     client,
@@ -1209,41 +1389,15 @@ def _upload_image_to_slack_thread(
     image_bytes: bytes,
 ) -> None:
     # Slack deprecated files.upload; use external upload API flow.
-    get_upload_url = client.api_call(
-        api_method="files.getUploadURLExternal",
-        params={
-            "filename": image_name,
-            "length": len(image_bytes),
-        },
+    target = _slack_get_upload_url_external(client, filename=image_name, length=len(image_bytes))
+    _slack_post_upload_bytes(target.upload_url, image_bytes)
+    _slack_complete_upload_external(
+        client,
+        file_id=target.file_id,
+        image_name=image_name,
+        slack_channel_id=slack_channel_id,
+        slack_thread_ts=slack_thread_ts,
     )
-    if not get_upload_url.get("ok"):
-        raise ValueError(f"files.getUploadURLExternal failed: {get_upload_url.get('error')}")
-
-    upload_url = get_upload_url.get("upload_url")
-    file_id = get_upload_url.get("file_id")
-    if not upload_url or not file_id:
-        raise ValueError("files.getUploadURLExternal missing upload_url/file_id")
-    if not _is_allowed_slack_upload_url(upload_url):
-        raise ValueError("files.getUploadURLExternal returned disallowed upload URL")
-
-    upload_response = requests.post(
-        upload_url,
-        data=image_bytes,
-        headers={"Content-Type": "application/octet-stream"},
-        timeout=10,
-    )
-    upload_response.raise_for_status()
-
-    complete_upload = client.api_call(
-        api_method="files.completeUploadExternal",
-        json={
-            "files": [{"id": file_id, "title": image_name}],
-            "channel_id": slack_channel_id,
-            "thread_ts": slack_thread_ts,
-        },
-    )
-    if not complete_upload.get("ok"):
-        raise ValueError(f"files.completeUploadExternal failed: {complete_upload.get('error')}")
 
 
 def _is_allowed_slack_upload_url(url: str) -> bool:

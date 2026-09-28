@@ -1,12 +1,16 @@
 from typing import Literal, cast
+from uuid import uuid4
 
 from django.http import HttpRequest, HttpResponseRedirect
 from django.views.decorators.http import require_http_methods
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback import personal_finish, redirects, state, team_services
 from posthog.api.github_callback.types import CallbackContext, FinishResult, FlowKind, is_personal_github_setup_state
 from posthog.auth import session_auth_required
 from posthog.models import User
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import UserIntegration
 from posthog.views import login_required
 
@@ -116,12 +120,44 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
     return team_services.finish_team_setup(http_request)
 
 
+def _audit_finish_failure(request: HttpRequest, ctx: CallbackContext, result: FinishResult) -> None:
+    if not result.error:
+        return
+    origin = ctx.authorize_state
+    GitHubAudit(
+        organization_id=origin.originating_organization_id if origin else None, user=cast(User, request.user)
+    ).record(
+        "setup_failed",
+        flow_id=str(origin.flow_id if origin else uuid4()),
+        callback_type=ctx.entry,
+        failure_category=result.error,
+    )
+
+
+def _finish_with_audit(request: HttpRequest, ctx: CallbackContext) -> FinishResult:
+    try:
+        result = _finish(request, ctx)
+    except ValidationError as exc:
+        origin = ctx.authorize_state
+        GitHubAudit(
+            organization_id=origin.originating_organization_id if origin else None, user=cast(User, request.user)
+        ).record(
+            "setup_failed",
+            flow_id=str(origin.flow_id if origin else uuid4()),
+            callback_type=ctx.entry,
+            failure_category=exc.get_codes(),
+        )
+        raise
+    _audit_finish_failure(request, ctx, result)
+    return result
+
+
 @require_http_methods(["GET"])
 @login_required
 def github_setup_callback(request: HttpRequest) -> HttpResponseRedirect:
     """GitHub App Setup URL — team finish or personal install."""
     ctx = _parse_callback(request, "setup_url")
-    result = _finish(request, ctx)
+    result = _finish_with_audit(request, ctx)
     return redirects.redirect_from_finish_result(result)
 
 
@@ -130,5 +166,5 @@ def github_setup_callback(request: HttpRequest) -> HttpResponseRedirect:
 def github_oauth_callback(request: HttpRequest) -> HttpResponseRedirect:
     """GitHub User OAuth redirect_uri — personal and team-oauth recovery flows."""
     ctx = _parse_callback(request, "oauth_redirect")
-    result = _finish(request, ctx)
+    result = _finish_with_audit(request, ctx)
     return redirects.redirect_from_finish_result(result)

@@ -106,6 +106,11 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    supports_resume: bool = True
+    """Whether *this run* can cheaply resume after a bail (source checkpoints, or an ascending
+    incremental watermark). Gated by the pipeline together with a non-None resumable-source manager,
+    so a resumable-source class whose current table isn't actually resumable (e.g. a SQL full load
+    with no orderable primary key) sets this False and is treated as non-resumable for shutdown."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
@@ -150,9 +155,8 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
-    # True when this schema is a fan-out child whose parent should be read from the warehouse
-    # (flag on + parents verified synced). Evaluated once by the run-time gate in
-    # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
+    # True when this schema is a fan-out child whose parents are all readable from the
+    # warehouse. Evaluated once by the run-time gate in `import_data_activity_sync`.
     fanout_warehouse_reuse: bool = False
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.

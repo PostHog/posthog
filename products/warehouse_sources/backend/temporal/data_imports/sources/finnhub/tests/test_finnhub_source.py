@@ -45,13 +45,23 @@ class TestGetSchemas:
             "basic_financials",
             "recommendation_trends",
             "earnings_surprises",
+            "financials_reported",
+            "stock_candles",
+            "sec_filings",
+            "insider_transactions",
         }
 
-    def test_only_company_news_is_incremental(self) -> None:
+    def test_incremental_endpoints_advertise_their_cursor(self) -> None:
+        # Only endpoints Finnhub lets us filter server-side may advertise incremental sync.
         schemas = {s.name: s for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {"company_news"}
-        assert schemas["company_news"].incremental_fields[0]["field"] == "datetime"
+        incremental = {name: s.incremental_fields[0]["field"] for name, s in schemas.items() if s.supports_incremental}
+        assert incremental == {
+            "company_news": "datetime",
+            "financials_reported": "endDate",
+            "stock_candles": "t",
+            "sec_filings": "filedDate",
+            "insider_transactions": "transactionDate",
+        }
 
     @parameterized.expand(
         [
@@ -66,6 +76,10 @@ class TestGetSchemas:
             ("basic_financials", False),
             ("recommendation_trends", False),
             ("earnings_surprises", False),
+            ("financials_reported", False),
+            ("stock_candles", False),
+            ("sec_filings", False),
+            ("insider_transactions", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
@@ -91,7 +105,7 @@ class TestDocumentedTables:
     def test_lists_tables_without_credentials(self) -> None:
         assert FinnhubSource.lists_tables_without_credentials is True
         tables = FinnhubSource().get_documented_tables()
-        assert len(tables) == 11
+        assert len(tables) == 15
 
 
 class TestSourceForPipeline:

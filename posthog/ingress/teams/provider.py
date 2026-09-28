@@ -94,6 +94,13 @@ class TeamsProvider(WebhookProvider):
     # same activity id. A forward that never landed, or a handoff that raised, must therefore
     # answer a 5xx rather than the receipt, or the activity is lost.
     retry_status = 503
+    # The status this endpoint answered before it moved here: an instance with no bot registration
+    # reads as a request it refuses, not as a server that broke. A failed signing-key discovery is
+    # not this case and never reaches it, because `BearerJwt` answers UNAVAILABLE for that.
+    unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe. Bot Framework reads the status only.
+    explains_rejections = False
 
     def __init__(
         self,

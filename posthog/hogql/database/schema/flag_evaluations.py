@@ -1,14 +1,19 @@
+from posthog.hogql.database.lazy_join_tags import PERSON_DISTINCT_ID_OVERRIDES
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
+    LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     UUIDDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.parser import parse_expr
 
 # The physical read table is the Distributed `flag_evaluations` on the DATA nodes, defined in
 # posthog/models/flag_evaluations/sql.py. That module imports django.conf, and
@@ -17,8 +22,28 @@ from posthog.hogql.database.models import (
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 
+# The expression the events table uses under the persons-on-events modes that apply overrides. This table
+# applies it for every team instead of following the mode, because the mode decides where person properties
+# come from and this table stores none. A team on `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore
+# reads a merge-aware person here, and from `events` the write-time person until the squash rewrites it.
+# The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
+# `person_id` and `person.id` together, so the two drifting apart fails there.
+def _person_id() -> ExpressionField:
+    return ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
+            start=None,
+        ),
+        isolate_scope=True,
+        description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
+        "`uniq(person_id)` counts a merged person once.",
+    )
+
+
 class FlagEvaluationsPersonSubTable(VirtualTable):
-    """The person column carried on the flag-evaluation row itself.
+    """The person the flag-evaluation row resolves to, corrected by `person_distinct_id_overrides`.
 
     Narrower than EventsPersonSubTable, which also declares `person_created_at` and `properties` --
     columns this table does not store, so reusing it would let `person.created_at`,
@@ -26,7 +51,7 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
     """
 
     fields: dict[str, FieldOrTable] = {
-        "id": UUIDDatabaseField(name="person_id", nullable=False),
+        "id": _person_id(),
     }
 
     def to_printed_clickhouse(self, context):
@@ -74,12 +99,25 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="When the row was written to ClickHouse; later than `created_at` by the ingestion lag.",
         ),
-        "person_id": UUIDDatabaseField(
+        # Left visible because it is the only person filter the `person_id_idx` bloom filter can serve,
+        # and a hidden field reaches neither the schema browser nor `system.information_schema.columns`.
+        "flag_evaluation_person_id": UUIDDatabaseField(
             name="person_id",
             nullable=False,
-            description="The person the evaluation was attributed to when it happened. A later identify or merge "
-            "does not rewrite it, so it can differ from the person `events` resolves for the same `distinct_id`.",
+            description="The person written onto the row at ingestion time, before any later identify or "
+            "merge. Unlike `person_id` it is a stored column, so filtering on it can use the table's index; "
+            "it stays stale until the person-overrides squash rewrites it.",
         ),
+        # Joined only when a query reads `person_id`, so every other query pays nothing for it. Hidden
+        # because it is an implementation detail of that correction: it carries person columns the row
+        # does not store, and `person` is the documented way to reach the person.
+        "override": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            resolver=PERSON_DISTINCT_ID_OVERRIDES,
+            hidden=True,
+        ),
+        "person_id": _person_id(),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -99,12 +137,13 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Identifier of the flag-evaluation request, shared by every flag evaluated in it.",
         ),
-        # The person column on the row itself. Should not be used directly; reached via `person`.
+        # Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
         "person": FieldTraverser(
             chain=["poe"],
-            description="The person the evaluation was attributed to when it happened. Carries the id alone: the "
-            "row stores no person properties, so join to `persons` to read them.",
+            description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
+            "`uniq(person.id)` counts a merged person once. Carries the id alone: the row stores no person "
+            "properties, so join to `persons` to read them.",
         ),
         # Group keys only. The row carries no group properties, so there is nothing to traverse to:
         # join to `groups` on one of these keys to read a group's current properties.
@@ -119,6 +158,11 @@ class FlagEvaluationsTable(Table):
         "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
     }
+
+    def avoid_asterisk_fields(self) -> list[str]:
+        # The stored person is a filtering escape hatch, not a second person column in `SELECT *`. Only the
+        # asterisk reads this list, so the column stays in the schema browser and in `information_schema`.
+        return ["flag_evaluation_person_id"]
 
     def to_printed_clickhouse(self, context):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE

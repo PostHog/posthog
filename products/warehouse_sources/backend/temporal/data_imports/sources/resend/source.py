@@ -194,7 +194,10 @@ Either way, the connection needs **full access** so the following resources can 
 
         if config.auth_method.selection == "oauth":
             return False, "Your Resend connection is invalid or expired. Please reconnect it."
-        return False, "Invalid Resend API key"
+        return (
+            False,
+            "Resend rejected the API key. Generate a new API key in your Resend dashboard, then enter it here.",
+        )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
