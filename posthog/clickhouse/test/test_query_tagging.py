@@ -435,7 +435,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
     @parameterized.expand(
         [
             ("events", "events", True, False, 7000),
-            ("unsupported_join", "events e JOIN persons p ON p.id = e.person_id", True, False, None),
+            ("join_to_an_unsized_table", "events e JOIN persons p ON p.id = e.person_id", True, False, None),
             ("missing_statistics", "events", False, False, None),
             ("statistics_failure", "events", True, True, None),
         ]
@@ -471,6 +471,25 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         else:
             assert comment["estimated_rows"] == expected_rows
         assert any(key.endswith("/scan_estimate") for key in comment["timings"])
+
+    def test_a_subquery_outside_from_gets_no_estimate_tag(self) -> None:
+        marker = str(uuid.uuid4())
+        sql = (
+            f"SELECT count() FROM events WHERE event = '{marker}' "  # noqa: S608
+            "AND person_id IN (SELECT id FROM persons) LIMIT 100"
+        )
+        provider = FixedStatisticsProvider(
+            event_volume={self.team.pk: EventVolume(total=1000, by_event={marker: 1000}, days=1)}
+        )
+        reset_query_tags()
+
+        response = execute_hogql_query(sql, team=self.team, query_type="HogQLQuery", statistics_provider=provider)
+
+        assert response.error is None
+        comment = self._get_log_comment(marker)
+        assert "plan_fingerprint" in comment
+        # The walk does not follow a subquery in WHERE, so read_rows would cover a table the total left out.
+        assert "estimated_rows" not in comment
 
     @override_settings(HOGQL_SCAN_ESTIMATE_AT_EXECUTION=False)
     def test_execution_estimate_can_be_switched_off(self) -> None:

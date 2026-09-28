@@ -48,12 +48,22 @@ TABLE_ROWS_CACHE_SECONDS = 24 * 60 * 60
 # so an hour and a day are well inside how precise the estimate is.
 EVENT_VOLUME_CACHE_SECONDS = 60 * 60
 PROPERTY_NDV_CACHE_SECONDS = 24 * 60 * 60
+# A lookup with nothing to give, because the team has no rows yet or ClickHouse refused, is asked again soon
+# and not on every query. The sentinel keeps "asked, nothing there" apart from "never asked".
+LOOKUP_RETRY_SECONDS = 5 * 60
+_NOTHING = "none"
+# The lookups run inside a user's request, so a slow offline cluster must not hold it for long.
+LOOKUP_MAX_EXECUTION_SECONDS = 5
+# Event names beyond the most common ones are folded into one remainder, so a team that sends many distinct
+# names does not put a huge map through the cache on every query.
+EVENT_VOLUME_MAX_EVENTS = 5_000
 
 # Tables whose rows arrive over time, sized as a daily rate the estimator scales to the query's range. The
 # column is the one their sort key or partition is on, so the count reads only the window it asks for.
 TIME_ORDERED_TABLES: dict[str, str] = {
     "sessions": "min_timestamp",
-    "raw_sessions": "min_timestamp",
+    # v2 sorts and partitions on the time inside the session id, not on min_timestamp.
+    "raw_sessions": "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))",
     "raw_sessions_v3": "session_timestamp",
 }
 DAILY_ROWS_WINDOW_DAYS = 7
@@ -67,6 +77,8 @@ class EventVolume:
     by_event: Mapping[str, int]
     # Distinct days that had data. Divides ``total`` into a daily rate the estimator can scale to any range.
     days: int
+    # Volume of the event names not listed in ``by_event``. An unlisted name is taken to be at most all of it.
+    other: int = 0
 
     def __post_init__(self) -> None:
         if self.total < 0 or self.days < 0:
@@ -81,7 +93,9 @@ class EventVolume:
         if not self.total:
             return None
         count = self.by_event.get(event)
-        return None if count is None else count / self.total
+        if count is None:
+            return self.other / self.total if self.other else None
+        return count / self.total
 
 
 class StatisticsProvider(Protocol):
@@ -143,6 +157,8 @@ class ClickHouseStatisticsProvider:
             return None
         cache_key = f"hogql_cost:table_rows:{team_id}:{table}"
         cached = cache.get(cache_key)
+        if cached == _NOTHING:
+            return None
         if cached is not None:
             return int(cached)
         try:
@@ -159,11 +175,13 @@ class ClickHouseStatisticsProvider:
                     f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE team_id = %(team_id)s",
                     {"team_id": team_id},
                     workload=Workload.OFFLINE,
+                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
                 )
         except Exception:
             logger.warning("hogql_cost_table_rows_unavailable", team_id=team_id, table=table, exc_info=True)
+            cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
             return None
         count = int(rows[0][0]) if rows else 0
         cache.set(cache_key, count, timeout=TABLE_ROWS_CACHE_SECONDS)
@@ -182,6 +200,8 @@ class ClickHouseStatisticsProvider:
             return None
         cache_key = f"hogql_cost:daily_rows:{team_id}:{table}"
         cached = cache.get(cache_key)
+        if cached == _NOTHING:
+            return None
         if cached is not None:
             return float(cached)
         today = self._today or date.today()
@@ -201,11 +221,13 @@ class ClickHouseStatisticsProvider:
                     f"WHERE team_id = %(team_id)s AND {time_column} >= %(since)s AND {time_column} < %(today)s",
                     {"team_id": team_id, "since": since, "today": today},
                     workload=Workload.OFFLINE,
+                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
                 )
         except Exception:
             logger.warning("hogql_cost_daily_rows_unavailable", team_id=team_id, table=table, exc_info=True)
+            cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
             return None
         per_day = (int(rows[0][0]) if rows else 0) / DAILY_ROWS_WINDOW_DAYS
         cache.set(cache_key, per_day, timeout=TABLE_ROWS_CACHE_SECONDS)
@@ -214,20 +236,35 @@ class ClickHouseStatisticsProvider:
     def _load_event_volume(self, team_id: int) -> EventVolume | None:
         cache_key = f"hogql_cost:event_volume:{team_id}"
         cached = cache.get(cache_key)
+        if cached == _NOTHING:
+            return None
         if cached is not None:
-            return EventVolume(total=int(cached["total"]), by_event=dict(cached["by_event"]), days=int(cached["days"]))
+            return EventVolume(
+                total=int(cached["total"]),
+                by_event=dict(cached["by_event"]),
+                days=int(cached["days"]),
+                other=int(cached.get("other", 0)),
+            )
         volume = self._query_event_volume(team_id)
-        if volume is not None:
+        if volume is None:
+            cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
+        else:
             cache.set(
                 cache_key,
-                {"total": volume.total, "by_event": dict(volume.by_event), "days": volume.days},
+                {"total": volume.total, "by_event": dict(volume.by_event), "days": volume.days, "other": volume.other},
                 timeout=EVENT_VOLUME_CACHE_SECONDS,
             )
         return volume
 
     def _query_event_volume(self, team_id: int) -> EventVolume | None:
+        """Two aggregations, both done by ClickHouse: the days and total, then the most common event names.
+
+        The rollup is keyed by lib and person mode too, so both re-sum across them. Only the top names come
+        back; the rest is one remainder, so a team with many distinct names does not ship them all.
+        """
         today = self._today or date.today()
         since = today - timedelta(days=EVENT_VOLUME_WINDOW_DAYS)
+        params = {"team_id": team_id, "since": since, "today": today, "limit": EVENT_VOLUME_MAX_EVENTS}
         try:
             with tags_context(
                 product=Product.INTERNAL,
@@ -238,16 +275,34 @@ class ClickHouseStatisticsProvider:
                 estimated_rows=None,
                 estimated_bytes=None,
             ):
-                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id is bound as a parameter
-                rows = sync_execute(
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id and the dates are bound as parameters
+                totals = sync_execute(
                     f"""
-                    SELECT date, event, sumMerge(event_count) AS event_count
+                    SELECT uniqExact(date), sumMerge(event_count)
                     FROM {settings.CLICKHOUSE_DATABASE}.{USAGE_REPORT_EVENTS_PREAGG_TABLE}
                     WHERE team_id = %(team_id)s AND date >= %(since)s AND date < %(today)s
-                    GROUP BY date, event
                     """,
-                    {"team_id": team_id, "since": since, "today": today},
+                    params,
                     workload=Workload.OFFLINE,
+                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    team_id=team_id,
+                    readonly=True,
+                )
+                if not totals or not totals[0][0]:
+                    return None
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id, the dates and the limit are bound as parameters
+                rows = sync_execute(
+                    f"""
+                    SELECT event, sumMerge(event_count) AS event_count
+                    FROM {settings.CLICKHOUSE_DATABASE}.{USAGE_REPORT_EVENTS_PREAGG_TABLE}
+                    WHERE team_id = %(team_id)s AND date >= %(since)s AND date < %(today)s
+                    GROUP BY event
+                    ORDER BY event_count DESC
+                    LIMIT %(limit)s
+                    """,
+                    params,
+                    workload=Workload.OFFLINE,
+                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
                 )
@@ -256,22 +311,21 @@ class ClickHouseStatisticsProvider:
             logger.warning("hogql_cost_event_volume_unavailable", team_id=team_id, exc_info=True)
             return None
 
-        if not rows:
-            return None
-        by_event: dict[str, int] = {}
-        days: set[date] = set()
-        for row_date, event, count in rows:
-            by_event[str(event)] = by_event.get(str(event), 0) + int(count)
-            days.add(row_date)
-        return EventVolume(total=sum(by_event.values()), by_event=by_event, days=len(days))
+        days, total = int(totals[0][0]), int(totals[0][1])
+        by_event = {str(event): int(count) for event, count in rows}
+        return EventVolume(total=total, by_event=by_event, days=days, other=total - sum(by_event.values()))
 
     def _load_property_ndv(self, team_id: int, property_name: str) -> int | None:
         cache_key = f"hogql_cost:property_ndv:{team_id}:{property_name}"
         cached = cache.get(cache_key)
+        if cached == _NOTHING:
+            return None
         if cached is not None:
             return int(cached) or None
         distinct_values = self._query_property_ndv(team_id, property_name)
-        if distinct_values is not None:
+        if distinct_values is None:
+            cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
+        else:
             # Zero is cached too: a property nobody sends is asked about on every keystroke otherwise.
             cache.set(cache_key, distinct_values, timeout=PROPERTY_NDV_CACHE_SECONDS)
         return distinct_values or None
@@ -302,6 +356,7 @@ class ClickHouseStatisticsProvider:
                     """,
                     {"team_id": team_id, "property_name": property_name},
                     workload=Workload.OFFLINE,
+                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
                     team_id=team_id,
                     readonly=True,
                 )

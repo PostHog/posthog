@@ -66,6 +66,11 @@ describe('queryScanSummary', () => {
             'Reads about 42M events (no date range, assuming a year)',
         ],
         [
+            'a lower bound alone reads as its length, not as the assumed year',
+            estimate({ tables: [eventsTable({ time_range: ScanEstimateTimeRange.Open, days: 7 })] }),
+            'Reads about 42M events (7 days)',
+        ],
+        [
             'several estimated tables count rows, not events',
             estimate({ tables: [eventsTable({ rows: 40_000_000 }), eventsTable({ rows: 2_000_000 })] }),
             'Reads about 42M rows · 2 tables',
@@ -73,7 +78,7 @@ describe('queryScanSummary', () => {
         [
             'a table with no estimate is called out',
             estimate({ tables: [eventsTable(), unknownTable('persons')] }),
-            'Reads about 42M rows · 1 of 2 tables estimated',
+            'Reads about 42M rows · 1 of 2 tables sized',
         ],
     ])('%s', (_name, input, expected) => {
         expect(summarizeScan(input)?.text).toBe(expected)

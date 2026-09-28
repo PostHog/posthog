@@ -44,7 +44,7 @@ from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, Sessio
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
-from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
+from posthog.hogql.property_planner import PropertyScope, plan_property_access, plan_property_comparison
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -105,6 +105,10 @@ class TableScanEstimate:
     time_range: Literal["bounded", "open"] | None = None
     # Events only: the indexed property filters that were considered, whether or not they narrowed the read.
     filters: tuple[FilterEstimate, ...] = ()
+    # The alias the query gave this scan, so a self-join's two scans can be told apart.
+    alias: str | None = None
+    # True when a filter on this scan may narrow the read by an amount that was not modelled.
+    upper_bound: bool = False
 
     def __post_init__(self) -> None:
         if (self.rows is not None and self.rows < 0) or (self.bytes is not None and self.bytes < 0):
@@ -119,9 +123,14 @@ class ScanEstimate:
     rows: int
     # True when an indexed filter may narrow the read by an amount the estimator could not model, or when a
     # table is known only by its size, so the query reads at most ``rows`` of the tables that have a number.
-    # False when every table is measured and ``rows`` is a point estimate.
+    # False when every table that has a number is measured. A table with no number is not in ``rows`` at all.
     upper_bound: bool
     tables: tuple[TableScanEstimate, ...]
+    # True when the tables are joined. False when they are read one after another, as in a UNION.
+    has_join: bool = False
+    # False when the query reads a table somewhere the walk does not follow, such as a subquery in WHERE or the
+    # select list, so the total leaves that read out.
+    complete: bool = True
 
     @property
     def events(self) -> tuple[TableScanEstimate, ...]:
@@ -149,6 +158,8 @@ def estimate_scan(
     scans = _table_scans(node, now, context, ctes={})
     if not scans:
         return None
+    has_join = _JoinFinder.found_in(node)
+    complete = not _SubqueryOutsideFromFinder.found_in(node)
 
     volume: EventVolume | None = None
     if any(isinstance(scan, _EventsScan) for scan in scans):
@@ -175,7 +186,72 @@ def estimate_scan(
         rows=sum(table.rows for table in tables if table.rows is not None),
         upper_bound=upper_bound,
         tables=tuple(tables),
+        has_join=has_join,
+        complete=complete,
     )
+
+
+class _SubqueryOutsideFromFinder(TraversingVisitor):
+    """Whether a select reads a table anywhere but its FROM clause: a subquery in WHERE, HAVING or the select list."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    @classmethod
+    def found_in(cls, node: ast.Expr) -> bool:
+        finder = cls()
+        finder.visit(node)
+        return finder.found
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for expr in (*node.select, node.where, node.prewhere, node.having):
+            if expr is not None and _holds_select(expr):
+                self.found = True
+        if node.select_from is not None:
+            self.visit(node.select_from)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        # A subquery in FROM is walked by the estimator; only its own clauses are checked here.
+        self.visit(node.table)
+        if node.next_join is not None:
+            self.visit(node.next_join)
+
+
+def _holds_select(expr: ast.Expr) -> bool:
+    class Finder(TraversingVisitor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found = False
+
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+    finder = Finder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _JoinFinder(TraversingVisitor):
+    """Whether any select in the tree joins two sources, as opposed to reading them in sequence."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    @classmethod
+    def found_in(cls, node: ast.Expr) -> bool:
+        finder = cls()
+        finder.visit(node)
+        return finder.found
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.next_join is not None:
+            self.found = True
+        super().visit_join_expr(node)
 
 
 def _estimate_events_scan(
@@ -188,7 +264,7 @@ def _estimate_events_scan(
     filters: list[FilterEstimate] = []
     for property_filter in scan.property_filters:
         distinct_values = provider.property_ndv(team_id, property_filter.property_name)
-        if distinct_values is None:
+        if distinct_values is None or distinct_values <= 0:
             unmodelled = True
             filters.append(
                 FilterEstimate(
@@ -205,16 +281,23 @@ def _estimate_events_scan(
                 property_name=property_filter.property_name, values=property_filter.values, granules_read=share
             )
         )
+    unfiltered = volume.per_day * scan.days * fraction
+    rows = int(unfiltered * granules_read)
+    if granules_read < 1:
+        # ClickHouse reads a whole granule for any match, so a filter never gets the read below one.
+        rows = max(rows, int(min(GRANULE_ROWS, unfiltered)))
     return (
         TableScanEstimate(
             name=scan.name,
             source="events",
             precision="measured",
-            rows=int(volume.per_day * scan.days * fraction * granules_read),
+            rows=rows,
             days=scan.days,
             events=tuple(sorted(scan.events)) if fraction < 1 else (),
             time_range="bounded" if scan.bounded else "open",
             filters=tuple(filters),
+            alias=scan.alias,
+            upper_bound=unmodelled,
         ),
         unmodelled,
     )
@@ -260,6 +343,7 @@ class _EventsScan:
     """One read of the events table, after the predicates that apply to it were folded in."""
 
     name: str
+    alias: str | None
     days: float
     bounded: bool
     events: frozenset[str]
@@ -319,8 +403,31 @@ _SESSIONS_TABLES: dict[type[Table], str] = {
     SessionsTableV3: "raw_sessions_v3",
     RawSessionsTableV3: "raw_sessions_v3",
 }
-# Columns on which a comparison bounds a sessions scan: the lazy table's start time and the raw columns behind it.
-_SESSION_START_COLUMNS = frozenset({"$start_timestamp", "min_timestamp", "session_timestamp"})
+# Columns on which a comparison bounds a sessions scan. The lazy tables push a start-time bound into the sort key
+# themselves. On the raw tables only a column in the sort key prunes: v1 sorts on the day of ``min_timestamp``
+# and v3 on ``session_timestamp``, but v2 sorts on the session id's own time, so a raw v2 scan is never narrowed.
+_SESSION_START_COLUMNS: dict[type[Table], frozenset[str]] = {
+    SessionsTableV1: frozenset({"$start_timestamp"}),
+    RawSessionsTableV1: frozenset({"min_timestamp"}),
+    SessionsTableV2: frozenset({"$start_timestamp"}),
+    RawSessionsTableV2: frozenset(),
+    SessionsTableV3: frozenset({"$start_timestamp"}),
+    RawSessionsTableV3: frozenset({"session_timestamp"}),
+}
+
+
+def _indexed_property(expr: ast.Expr, context: HogQLContext) -> bool:
+    """Whether ``expr`` reads a property whose storage carries any skip index."""
+    plan = plan_property_access(expr, context)
+    if plan is None:
+        return False
+    source = plan.source
+    return (
+        source.has_minmax_index
+        or source.has_bloom_filter_index
+        or source.has_ngram_lower_index
+        or source.has_bloom_filter_lower_index
+    )
 
 
 def _table_scans(
@@ -427,7 +534,7 @@ def _other_table_estimate(scan: _OtherScan, team_id: int, provider: StatisticsPr
     if isinstance(table, S3Table):
         return TableScanEstimate(name=name, source="warehouse", precision="unknown")
     if isinstance(table, DirectSQLTable):
-        if table.estimated_row_count is None:
+        if table.estimated_row_count is None or table.estimated_row_count < 0:
             return TableScanEstimate(name=name, source="direct", precision="unknown")
         # The remote catalog's figure for the whole table. Nothing returns read_rows for a query that ran on
         # the customer's database, so this entry is never scored.
@@ -477,8 +584,10 @@ class _WherePredicates(TraversingVisitor):
         since = self._lower_bounds.get((kind, alias))
         until = self._upper_bounds.get((kind, alias))
         bounded = since is not None and until is not None
-        since = since or (self._now - timedelta(days=DEFAULT_RANGE_DAYS))
+        # The missing end defaults relative to the one that was given, so ``timestamp < a year ago`` still
+        # reads as a year of history and not as nothing.
         until = until or self._now
+        since = since or (until - timedelta(days=DEFAULT_RANGE_DAYS))
         return max((until - since).total_seconds() / 86_400, 0.0), bounded
 
     def sessions_scan_for(self, name: str, alias: str | None, table: str) -> _SessionsScan:
@@ -489,6 +598,7 @@ class _WherePredicates(TraversingVisitor):
         days, bounded = self._range("events", alias)
         return _EventsScan(
             name=name,
+            alias=alias,
             days=days,
             bounded=bounded,
             events=frozenset(self._events.get(alias, ())),
@@ -500,18 +610,39 @@ class _WherePredicates(TraversingVisitor):
         self._skip(node)
 
     def visit_not(self, node: ast.Not) -> None:
-        self._skip(node)
+        self._skip(node, negated=True)
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> None:
+        if node.negated:
+            self._skip(node)
+            return
+        located = _table_column(node.expr)
+        if located is None:
+            # A property read is not a plain column. An index on it would prune a BETWEEN, which is not modelled.
+            if _indexed_property(node.expr, self._context):
+                self._unmodelled_filter = True
+            return
+        ref, column = located
+        if isinstance(ref.table, EventsTable) and column == "timestamp":
+            key: tuple[str, str | None] = ("events", ref.alias)
+        elif column in _SESSION_START_COLUMNS.get(type(ref.table), ()):
+            key = ("sessions", ref.alias)
+        else:
+            return
+        self._record_timestamp(key, ast.CompareOperationOp.GtEq, node.low, False)
+        self._record_timestamp(key, ast.CompareOperationOp.LtEq, node.high, False)
 
     def visit_call(self, node: ast.Call) -> None:
         # ``not (x)`` and ``or(x, y)`` parse to calls, and any other function can turn a comparison into
         # something that no longer restricts rows. Only the call form of AND keeps its arguments as filters.
-        if node.name.lower() == "and":
+        name = node.name.lower()
+        if name == "and":
             super().visit_call(node)
         else:
-            self._skip(node)
+            self._skip(node, negated=name == "not")
 
-    def _skip(self, node: ast.Expr) -> None:
-        finder = _IndexedFilterFinder(self._context)
+    def _skip(self, node: ast.Expr, *, negated: bool = False) -> None:
+        finder = _IndexedFilterFinder(self._context, negated=negated)
         finder.visit(node)
         self._unmodelled_filter = self._unmodelled_filter or finder.found
 
@@ -529,7 +660,7 @@ class _WherePredicates(TraversingVisitor):
                     self._record_timestamp(("events", ref.alias), node.op, value_side, flipped)
                 elif column == "event" and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
                     self._events.setdefault(ref.alias, set()).update(_string_constants(value_side))
-            elif type(ref.table) in _SESSIONS_TABLES and column in _SESSION_START_COLUMNS:
+            elif column in _SESSION_START_COLUMNS.get(type(ref.table), ()):
                 self._record_timestamp(("sessions", ref.alias), node.op, value_side, flipped)
         self._record_property_filter(node)
 
@@ -578,9 +709,12 @@ class _WherePredicates(TraversingVisitor):
 class _IndexedFilterFinder(TraversingVisitor):
     """Reports whether a subtree holds a property comparison that a skip index can prune."""
 
-    def __init__(self, context: HogQLContext) -> None:
+    def __init__(self, context: HogQLContext, *, negated: bool = False) -> None:
         super().__init__()
         self._context = context
+        # Under a negation no skip index can rule a granule out, so an indexed comparison there is not a
+        # filter the estimate left out.
+        self._negated = negated
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -588,9 +722,14 @@ class _IndexedFilterFinder(TraversingVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         plan = plan_property_comparison(node, self._context)
-        if plan is not None and eligibility_from_plan(plan).prunes_data:
+        if plan is not None and eligibility_from_plan(plan, negated=self._negated).prunes_data:
             self.found = True
         super().visit_compare_operation(node)
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> None:
+        if not node.negated and _indexed_property(node.expr, self._context):
+            self.found = True
+        super().visit_between_expr(node)
 
 
 def _table_column(expr: ast.Expr) -> tuple[_TableRef, str] | None:
@@ -634,6 +773,8 @@ def _constant_datetime(expr: ast.Expr, now: datetime) -> datetime | None:
         return _parse_literal(expr.value)
     if isinstance(expr, ast.Call) and expr.name == "now" and not expr.args:
         return now
+    if isinstance(expr, ast.Call) and expr.name in ("toDateTime", "toDate") and len(expr.args) == 1:
+        return _constant_datetime(expr.args[0], now)
     if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
         ast.ArithmeticOperationOp.Sub,
         ast.ArithmeticOperationOp.Add,

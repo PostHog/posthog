@@ -111,7 +111,7 @@ class TestEstimateEventsScan(BaseTest):
         [table] = estimate.tables
         assert table.rows == estimate.rows
         # The per-filter shares are the explain's concern; these cases assert the rows they produce.
-        return dataclasses.replace(table, filters=())
+        return dataclasses.replace(table, filters=(), alias=None, upper_bound=False)
 
     @parameterized.expand(
         [
@@ -131,6 +131,26 @@ class TestEstimateEventsScan(BaseTest):
                 _events_table(
                     rows=14_600_000, days=float(DEFAULT_RANGE_DAYS), events=("never_seen", "signup"), time_range="open"
                 ),
+            ),
+            (
+                "between_bounds_both_ends",
+                "SELECT count() FROM events WHERE timestamp BETWEEN '2026-09-04' AND '2026-09-11'",
+                _events_table(rows=700_000, days=7.0, events=(), time_range="bounded"),
+            ),
+            (
+                "upper_bound_alone_keeps_a_year_before_it",
+                "SELECT count() FROM events WHERE timestamp < '2025-09-11'",
+                _events_table(rows=36_500_000, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "todatetime_wrapped_literal",
+                "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-09-08') AND timestamp < toDateTime('2026-09-11')",
+                _events_table(rows=300_000, days=3.0, events=(), time_range="bounded"),
+            ),
+            (
+                "indexed_equality_over_one_day_reads_at_least_a_granule",
+                "SELECT count() FROM events WHERE properties.order_id = 'a1' AND timestamp > '2026-09-10' AND timestamp < '2026-09-11'",
+                _events_table(rows=8_192, days=1.0, events=(), time_range="bounded"),
             ),
             (
                 "flipped_comparison_and_datetime_literal",
@@ -202,6 +222,7 @@ class TestEstimateEventsScan(BaseTest):
         [
             ("indexed_filter_without_a_distinct_count", "SELECT count() FROM events WHERE properties.uncounted = 'x'"),
             ("indexed_range_filter", "SELECT count() FROM events WHERE properties.duration > '100'"),
+            ("indexed_between_filter", "SELECT count() FROM events WHERE properties.duration BETWEEN '1' AND '5'"),
             (
                 "indexed_filter_under_or",
                 "SELECT count() FROM events WHERE properties.order_id = 'a1' OR event = 'signup'",
@@ -213,6 +234,26 @@ class TestEstimateEventsScan(BaseTest):
 
         assert estimate is not None
         assert estimate.upper_bound is True
+
+    def test_a_negated_indexed_filter_is_not_an_upper_bound(self):
+        estimate = self._estimate("SELECT count() FROM events WHERE NOT properties.order_id = 'a1'")
+
+        assert estimate is not None
+        assert estimate.rows == WHOLE_TABLE_ROWS
+        assert estimate.upper_bound is False
+
+    @parameterized.expand(
+        [
+            ("subquery_in_where", "SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)", False),
+            ("subquery_in_select", "SELECT (SELECT count() FROM persons) FROM events", False),
+            ("subquery_in_from", "SELECT count() FROM (SELECT event FROM events)", True),
+        ]
+    )
+    def test_a_subquery_outside_from_marks_the_estimate_incomplete(self, _name, sql, complete):
+        estimate = self._estimate(sql)
+
+        assert estimate is not None
+        assert estimate.complete is complete
 
     @parameterized.expand(
         [
@@ -316,10 +357,17 @@ class TestEstimateEventsScan(BaseTest):
                 "bounded",
             ),
             (
-                "raw_table_and_relative_bound",
-                "SELECT count() FROM raw_sessions WHERE min_timestamp > now() - interval 2 day",
+                "raw_v3_table_and_relative_bound_on_its_sort_key",
+                "SELECT count() FROM raw_sessions_v3 WHERE session_timestamp > now() - interval 2 day",
                 20_000,
                 2.0,
+                "open",
+            ),
+            (
+                "raw_v2_table_is_not_narrowed_because_min_timestamp_is_not_in_its_sort_key",
+                "SELECT count() FROM raw_sessions WHERE min_timestamp > now() - interval 2 day",
+                3_650_000,
+                float(DEFAULT_RANGE_DAYS),
                 "open",
             ),
             ("no_bound_assumes_a_year", "SELECT count() FROM sessions", 3_650_000, float(DEFAULT_RANGE_DAYS), "open"),

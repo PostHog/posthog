@@ -24924,7 +24924,8 @@ class ScanEstimate(BaseModel):
         description=(
             "True when the query reads at most `rows` of the tables that have a number:"
             " an indexed filter went unmodeled, or a table is known only by its size."
-            " False when every table is measured."
+            " False when every table that has a number is measured. A table with no"
+            " number is not in `rows` at all; its `precision` says so."
         ),
     )
 

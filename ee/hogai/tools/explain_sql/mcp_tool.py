@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import CostPlanStep, HogLanguage, HogQLMetadata, HogQLMetadataResponse
 
-from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.metadata import _scan_estimate_enabled, get_hogql_metadata
 
 from posthog.sync import database_sync_to_async
 
@@ -41,7 +41,7 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
             errors = "; ".join(error.message for error in response.errors) or "unknown error"
             raise MaxToolRetryableError(f"Query is not valid: {errors}")
         return MCPToolResult(
-            content=_format_plan(response),
+            content=_format_plan(response, enabled=await self._enabled()),
             structured_content={
                 "scan_estimate": response.scan_estimate.model_dump(mode="json", exclude_none=True)
                 if response.scan_estimate
@@ -49,6 +49,10 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
                 "cost_plan": [step.model_dump(mode="json", exclude_none=True) for step in response.cost_plan or []],
             },
         )
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _enabled(self) -> bool:
+        return _scan_estimate_enabled(self._team)
 
     @database_sync_to_async(thread_sensitive=False)
     def _metadata(self, query: str, connection_id: str | None) -> HogQLMetadataResponse:
@@ -65,19 +69,19 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
         )
 
 
-def _format_plan(response: HogQLMetadataResponse) -> str:
+def _format_plan(response: HogQLMetadataResponse, *, enabled: bool) -> str:
     estimate = response.scan_estimate
+    if not enabled:
+        return "Scan estimates are not enabled for this project. The query is valid and can be run."
     if estimate is None or not response.cost_plan:
-        return "No estimate is available for this query. It is valid and can be run."
+        return "This query reads no table, so there is nothing to estimate. It is valid and can be run."
     qualifier = "up to" if estimate.upper_bound else "about"
-    not_estimated = [table.name for table in estimate.tables if table.rows is None]
-    if not_estimated:
-        coverage = (
-            f"from {len(estimate.tables) - len(not_estimated)} of {len(estimate.tables)} tables. "
-            f"Not estimated: {', '.join(not_estimated)}."
-        )
+    not_sized = [table.name for table in estimate.tables if table.rows is None]
+    total = len(estimate.tables)
+    if not_sized:
+        coverage = f"from {total - len(not_sized)} of {total} tables. Not sized: {', '.join(not_sized)}."
     else:
-        coverage = f"across {len(estimate.tables)} table(s)."
+        coverage = "from one table." if total == 1 else f"from {total} tables."
     lines = [f"Reads {qualifier} {estimate.rows:,} rows {coverage}", ""]
     for step in response.cost_plan:
         lines.append(_format_step(step))

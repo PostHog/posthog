@@ -38,6 +38,12 @@ class TestEventVolume(SimpleTestCase):
         assert volume.event_fraction("$pageview") == 0.6
         assert volume.event_fraction("never_seen") is None
 
+    def test_an_unlisted_event_is_bounded_by_the_remainder(self):
+        volume = EventVolume(total=1_000, by_event={"$pageview": 900}, days=10, other=100)
+
+        assert volume.event_fraction("rare") == 0.1
+        assert EventVolume(total=1_000, by_event={"$pageview": 1_000}, days=10).event_fraction("rare") is None
+
     def test_empty_volume_does_not_divide_by_zero(self):
         volume = EventVolume(total=0, by_event={}, days=0)
 
@@ -164,6 +170,20 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert "raw_sessions_v3" in sql and "session_timestamp" in sql
         assert params == {"team_id": self.team_id, "since": TODAY - timedelta(days=7), "today": TODAY}
 
+    def test_a_lookup_that_found_nothing_is_not_asked_again_immediately(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
+        cache.delete(f"hogql_cost:table_rows:{self.team_id}:person")
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=RuntimeError("boom")) as execute:
+            assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person") is None
+            assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person") is None
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as counted:
+            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+            assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
+
+        assert execute.call_count == 1
+        assert counted.call_count == 1
+
     def test_table_rows_refuses_a_table_it_does_not_count(self):
         with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
             assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "events") is None
@@ -185,7 +205,8 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
 
         assert first == EventVolume(total=7, by_event={"$pageview": 7}, days=1)
         assert second == first
-        assert execute.call_count == 1
+        # One read is the totals, the other the event names; a second provider makes neither.
+        assert execute.call_count == 2
 
     def test_property_ndv_is_cached_including_a_property_nobody_sends(self):
         for name in ("plan", "never_sent"):

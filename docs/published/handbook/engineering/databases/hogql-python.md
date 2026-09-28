@@ -67,7 +67,7 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 ## Scan estimate accuracy
 
-ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when at least one table in the query has a measured estimate.
+ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when every table in the query has a measured estimate and the printed SQL has no join the estimate did not see, so `read_rows` is compared only with a number that tried to cover all of it.
 This uses the same estimator as the SQL editor, independently of the editor's display flag.
 Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
 The `scan_estimate` timing measures the added planning work.

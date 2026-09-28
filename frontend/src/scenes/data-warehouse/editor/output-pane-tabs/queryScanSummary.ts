@@ -34,24 +34,29 @@ export function summarizeFilters(predicates: PredicateIndexUsage[]): QueryScanSu
     return { text: `${scanning} of ${total} filters read every row`, warn: true }
 }
 
-/** Tables the estimate has a row count for. */
-export function estimatedTables(estimate: ScanEstimate): TableScanEstimate[] {
+/** Tables the estimate has a row count for, measured or size only. */
+export function sizedTables(estimate: ScanEstimate): TableScanEstimate[] {
     return estimate.tables.filter((table) => table.rows !== undefined && table.rows !== null)
 }
+
+// The estimator assumes this many days when a query gives no timestamp bound at all.
+const ASSUMED_RANGE_DAYS = 365
 
 function describeRange(table: TableScanEstimate): string | null {
     if (table.days === undefined || table.days === null) {
         return null
     }
-    if (table.time_range === ScanEstimateTimeRange.Open) {
+    // An open range still has a real length when one bound was given: the other end defaults to now or
+    // to a year back. Only a range with neither bound is the assumed year.
+    if (table.time_range === ScanEstimateTimeRange.Open && table.days >= ASSUMED_RANGE_DAYS) {
         return 'no date range, assuming a year'
     }
     return table.days >= 2 ? `${Math.round(table.days)} days` : `${Math.round(table.days * 24)} hours`
 }
 
 export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
-    const estimated = estimatedTables(estimate)
-    if (estimated.length === 0) {
+    const sized = sizedTables(estimate)
+    if (sized.length === 0) {
         return null
     }
     const rows = humanFriendlyLargeNumber(estimate.rows)
@@ -61,12 +66,17 @@ export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
 
     const [only] = estimate.tables
     if (estimate.tables.length === 1 && only.source === ScanEstimateSource.Events) {
-        return { text: `Reads ${qualifier} ${rows} events (${describeRange(only)})`, warn }
+        const range = describeRange(only)
+        return {
+            text: range ? `Reads ${qualifier} ${rows} events (${range})` : `Reads ${qualifier} ${rows} events`,
+            warn,
+        }
     }
+    // "Sized" and not "estimated": a size-only table is in the total, but its read is not modeled.
     const coverage =
-        estimated.length === estimate.tables.length
+        sized.length === estimate.tables.length
             ? `${estimate.tables.length} tables`
-            : `${estimated.length} of ${estimate.tables.length} tables estimated`
+            : `${sized.length} of ${estimate.tables.length} tables sized`
     return { text: `Reads ${qualifier} ${rows} rows · ${coverage}`, warn }
 }
 

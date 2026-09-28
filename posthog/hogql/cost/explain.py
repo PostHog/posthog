@@ -7,7 +7,7 @@ is this slow": which scan carries the cost, which filter reads every row anyway,
 
 from typing import Literal
 
-from posthog.hogql.cost.estimate import FilterEstimate, ScanEstimate, TableScanEstimate
+from posthog.hogql.cost.estimate import DEFAULT_RANGE_DAYS, FilterEstimate, ScanEstimate, TableScanEstimate
 from posthog.hogql.index_eligibility import IndexEligibilityReport, PredicateIndexEligibility, PredicateIndexVerdict
 from posthog.hogql.property_planner import PropertyScope
 
@@ -39,7 +39,7 @@ def build_cost_plan(estimate: ScanEstimate | None, report: IndexEligibilityRepor
         steps.append(_scan_step(table))
         for predicate in _filters_for(table, estimate, predicates):
             steps.append(_filter_step(predicate, table))
-    if len(estimate.tables) > 1:
+    if len(estimate.tables) > 1 and estimate.has_join:
         steps.append(
             CostPlanStep(
                 kind="join",
@@ -52,12 +52,15 @@ def build_cost_plan(estimate: ScanEstimate | None, report: IndexEligibilityRepor
 
 
 def _scan_step(table: TableScanEstimate) -> CostPlanStep:
+    label = f"{table.name} {table.alias}" if table.alias and table.alias != table.name else table.name
     if table.precision == "measured":
+        # "up to" when a filter on this scan may skip more than the model says, matching the header.
+        qualifier = "up to" if table.upper_bound else "about"
         return CostPlanStep(
             kind="scan",
             table=table.name,
             rows=table.rows,
-            message=f"Scan {table.name}, about {_rows(table.rows)} ({_range(table)})",
+            message=f"Scan {label}, {qualifier} {_rows(table.rows)} ({_range(table)})",
             detail=_measured_detail(table),
         )
     if table.precision == "size_only":
@@ -68,13 +71,13 @@ def _scan_step(table: TableScanEstimate) -> CostPlanStep:
             kind="scan",
             table=table.name,
             rows=table.rows,
-            message=f"Scan {table.name}, up to {size} on disk",
+            message=f"Scan {label}, up to {size} on disk",
             detail="The whole table as it was last measured. How much of it the query reads is not estimated.",
         )
     return CostPlanStep(
         kind="scan",
         table=table.name,
-        message=f"Scan {table.name}, size unknown",
+        message=f"Scan {label}, size unknown",
         detail="No statistics for this table yet, so it is not counted in the total.",
     )
 
@@ -91,9 +94,10 @@ def _filters_for(
 ) -> list[PredicateIndexEligibility]:
     """The predicates that filter this scan.
 
-    The index report does not say which table a predicate reads, so the property scope decides: an event
-    property filters the first events scan, a person or group property the first scan of that table, or the
-    first events scan when there is none, because that is where those properties are read from otherwise.
+    The index report does not say which table a predicate reads. A filter the estimator modelled is placed on
+    the scan that modelled it, which tells a self-join's sides apart. For the rest the property scope decides:
+    an event property filters the first events scan, a person or group property the first scan of that table,
+    or the first events scan when there is none, because that is where those properties are read from otherwise.
     """
     first_of: dict[str, TableScanEstimate] = {}
     for candidate in estimate.tables:
@@ -101,7 +105,16 @@ def _filters_for(
     events_scan = next((candidate for candidate in estimate.tables if candidate.source == "events"), None)
     matched: list[PredicateIndexEligibility] = []
     for predicate in predicates:
-        target = _scan_for_scope(predicate.scope, first_of, events_scan)
+        modelled_on = next(
+            (
+                candidate
+                for candidate in estimate.tables
+                if predicate.scope == PropertyScope.EVENT
+                and any(f.property_name == predicate.property_name for f in candidate.filters)
+            ),
+            None,
+        )
+        target = modelled_on or _scan_for_scope(predicate.scope, first_of, events_scan)
         if target is table:
             matched.append(predicate)
     return matched
@@ -118,7 +131,8 @@ def _scan_for_scope(
 
 
 def _filter_step(predicate: PredicateIndexEligibility, table: TableScanEstimate) -> CostPlanStep:
-    name = f"{'person.' if predicate.scope == PropertyScope.PERSON else ''}{predicate.property_name}"
+    prefixes = {PropertyScope.PERSON: "person.", PropertyScope.GROUP: "group."}
+    name = f"{prefixes.get(predicate.scope, '')}{predicate.property_name}"
     operator = "=" if predicate.operator.value == "==" else predicate.operator.value
     head = f"Filter {name} {operator} …"
     modelled = _modelled_filter(predicate, table)
@@ -157,7 +171,8 @@ def _rows(rows: int | None) -> str:
     if rows is None:
         return "an unknown number of rows"
     for unit, label in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
-        if rows >= unit:
+        # Half a unit below the threshold already rounds up to it, so it is printed in that unit.
+        if rows >= unit - unit // 2000:
             value = rows / unit
             return f"{value:.1f}{label} rows" if value < 10 else f"{value:.0f}{label} rows"
     return f"{rows} rows"
@@ -175,6 +190,9 @@ def _bytes(size: int | None) -> str | None:
 def _range(table: TableScanEstimate) -> str:
     if table.days is None:
         return "range unknown"
-    if table.time_range == "open":
+    # An open range still has a real length when one bound was given: the other end defaults to now or to
+    # a year back. Only a range with neither bound is the assumed year.
+    if table.time_range == "open" and table.days >= DEFAULT_RANGE_DAYS:
         return "no date range, assuming a year"
-    return f"{round(table.days)} days" if table.days >= 2 else f"{round(table.days * 24)} hours"
+    # Half rounds up, as the editor's Math.round does, so the two never disagree on "2 days" and "3 days".
+    return f"{int(table.days + 0.5)} days" if table.days >= 2 else f"{int(table.days * 24 + 0.5)} hours"

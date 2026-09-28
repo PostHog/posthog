@@ -1622,7 +1622,8 @@ def _row_estimates_from_conn(
     for schema_name, table_name, reltuples, n_live_tup in rows:
         if reltuples is not None and float(reltuples) >= 0:
             estimates[(str(schema_name), str(table_name))] = int(float(reltuples))
-        elif n_live_tup is not None:
+        elif n_live_tup:
+            # A partitioned parent reports -1 and 0: its rows live in the children, so it stays unsized.
             estimates[(str(schema_name), str(table_name))] = int(n_live_tup)
     return estimates
 

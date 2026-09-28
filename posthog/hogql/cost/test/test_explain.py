@@ -68,7 +68,7 @@ class TestBuildCostPlan(SimpleTestCase):
                 _predicate("tier", PropertyScope.PERSON, PredicateIndexVerdict.UNINDEXED_JSON),
             )
         )
-        estimate = ScanEstimate(rows=42_200_000, upper_bound=True, tables=(EVENTS, ORDERS, PERSONS))
+        estimate = ScanEstimate(rows=42_200_000, upper_bound=True, tables=(EVENTS, ORDERS, PERSONS), has_join=True)
 
         steps = build_cost_plan(estimate, report)
 
@@ -96,6 +96,11 @@ class TestBuildCostPlan(SimpleTestCase):
             ),
             ("hours", dataclasses.replace(EVENTS, days=1.5), "Scan events, about 41M rows (36 hours)"),
             (
+                "lower_bound_only_reads_as_its_length",
+                dataclasses.replace(EVENTS, time_range="open", days=7.0),
+                "Scan events, about 41M rows (7 days)",
+            ),
+            (
                 "size_only_rows_without_bytes",
                 TableScanEstimate(name="persons", source="clickhouse", precision="size_only", rows=2_400_000),
                 "Scan persons, up to 2.4M rows on disk",
@@ -106,6 +111,31 @@ class TestBuildCostPlan(SimpleTestCase):
         [step] = build_cost_plan(ScanEstimate(rows=table.rows or 0, upper_bound=False, tables=(table,)), None)
 
         assert step.message == expected
+
+    def test_a_union_lists_its_scans_without_a_join_line(self):
+        estimate = ScanEstimate(rows=82_000_000, upper_bound=False, tables=(EVENTS, EVENTS))
+
+        assert [step.kind for step in build_cost_plan(estimate, None)] == ["scan", "scan"]
+
+    def test_a_modelled_filter_goes_to_the_scan_that_modelled_it_in_a_self_join(self):
+        left = dataclasses.replace(EVENTS, alias="a", filters=())
+        right = dataclasses.replace(
+            EVENTS, alias="b", filters=(FilterEstimate(property_name="order_id", values=1, granules_read=0.0008),)
+        )
+        report = IndexEligibilityReport(
+            predicates=(_predicate("order_id", PropertyScope.EVENT, PredicateIndexVerdict.INDEXED),)
+        )
+
+        steps = build_cost_plan(
+            ScanEstimate(rows=82_000_000, upper_bound=False, tables=(left, right), has_join=True), report
+        )
+
+        assert [(step.kind, step.message) for step in steps] == [
+            ("scan", "Scan events a, about 41M rows (30 days)"),
+            ("scan", "Scan events b, about 41M rows (30 days)"),
+            ("filter", "Filter order_id = … skips over 99% of the scan"),
+            ("join", "Join 2 tables. Rows after the join are not estimated."),
+        ]
 
     def test_a_person_property_filters_the_events_scan_when_persons_is_not_scanned(self):
         report = IndexEligibilityReport(

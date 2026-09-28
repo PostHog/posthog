@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.conf import settings as django_settings
 
+import structlog
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -86,6 +87,7 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
+logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
@@ -585,10 +587,12 @@ class HogQLQueryExecutor:
         return sources
 
     def _plan_fingerprint(self) -> str | None:
-        # The tag is advisory. A query that compiles must never fail because fingerprinting it did.
+        # The tag is advisory. A query that compiles must never fail because fingerprinting it did. A failure
+        # switches accuracy tracking off for every query it hits, so it is logged rather than dropped.
         try:
             return fingerprint_query(self.select_query)
         except Exception:
+            logger.warning("hogql_plan_fingerprint_failed", team_id=self.team.pk, exc_info=True)
             return None
 
     def _estimated_rows(self) -> int | None:
@@ -604,8 +608,14 @@ class HogQLQueryExecutor:
                 resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
                 estimate = estimate_scan(resolved, context, self.statistics_provider)
                 # ``read_rows`` covers every table the query touched, so a total that leaves a table out would
-                # be scored against a number it never tried to predict.
-                if estimate is None or any(table.precision != "measured" for table in estimate.tables):
+                # be scored against a number it never tried to predict. A join in the printed SQL that the
+                # estimate did not see is a lazy join the printer added, such as person properties read from
+                # the persons table.
+                if estimate is None or not estimate.complete:
+                    return None
+                if any(table.precision != "measured" for table in estimate.tables):
+                    return None
+                if self.clickhouse_sql is not None and "JOIN" in self.clickhouse_sql and not estimate.has_join:
                     return None
                 return estimate.rows
         except Exception:

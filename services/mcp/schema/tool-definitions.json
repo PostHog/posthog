@@ -729,7 +729,7 @@
         }
     },
     "explain-sql": {
-        "description": "Estimate how much an SQL (HogQL) query will read before running it, without running it. Returns one plan line per table the query scans, with the rows it is expected to read and whether that number is measured or only the table's size, the property filters on each scan and how much each skips, and the join. Use it before execute-sql on a query over a long date range, many events, or a large table, and narrow the timestamp range or the event names when the plan reads more than needed. The estimate counts rows read, not rows returned: a filter with no index behind it does not lower it. A table on a live external connection is shown by its size only and is never a cost.",
+        "description": "Estimate how much an SQL (HogQL) query will read before running it, without running it. Returns one plan line per table the query scans, with the rows it is expected to read and whether that number is measured or only the table's size, the property filters on each scan and how much each skips, and the join. Use it before execute-sql on a query over a long date range, many events, or a large table, and narrow the timestamp range or the event names when the plan reads more than needed. The estimate counts rows read, not rows returned: a filter with no index behind it does not lower it. A table on a live external connection is shown by its size from that database's catalog; nothing measures what the query reads there, and with a connectionId set the plan has no filter lines.",
         "category": "SQL",
         "feature": "sql",
         "summary": "Estimate what an SQL query will read before running it.",

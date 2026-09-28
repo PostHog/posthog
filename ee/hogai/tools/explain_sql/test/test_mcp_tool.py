@@ -28,7 +28,7 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
                 )
             )
 
-        assert result.content.startswith("Reads about 700,000 rows across 1 table(s).")
+        assert result.content.startswith("Reads about 700,000 rows from one table.")
         assert "- Scan events, about 700K rows (7 days)" in result.content
         assert result.structured_content is not None
         estimate = result.structured_content["scan_estimate"]
@@ -46,13 +46,21 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
                 ExplainSQLMCPToolArgs(query="SELECT count() FROM events e JOIN persons p ON p.id = e.person_id")
             )
 
-        assert result.content.startswith("Reads about 36,500,000 rows from 1 of 2 tables. Not estimated: persons.")
+        assert result.content.startswith("Reads about 36,500,000 rows from 1 of 2 tables. Not sized: persons.")
 
-    async def test_says_when_no_estimate_is_available(self):
+    async def test_says_when_estimates_are_not_enabled_for_the_project(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):
+            result = await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT count() FROM events"))
+
+        assert result.content == "Scan estimates are not enabled for this project. The query is valid and can be run."
+
+    async def test_says_when_the_query_reads_no_table(self):
+        with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True):
             result = await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT 1"))
 
-        assert result.content == "No estimate is available for this query. It is valid and can be run."
+        assert (
+            result.content == "This query reads no table, so there is nothing to estimate. It is valid and can be run."
+        )
 
     async def test_rejects_an_invalid_query_with_the_error(self):
         with self.assertRaises(MaxToolRetryableError) as raised:
