@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -121,6 +122,11 @@ describe('navProductsTabLogic', () => {
         navProductsTabLogic.actions.setSearch('logs')
         expect(navProductsTabLogic.values.allProductsVisible).toBe(true)
         navProductsTabLogic.actions.setSearch('')
+
+        navProductsTabLogic.actions.revealAllProductsForFind()
+        expect(navProductsTabLogic.values).toMatchObject({ allProductsVisible: true, allProductsOpen: false })
+        router.actions.push(urls.dashboards())
+        expect(navProductsTabLogic.values.allProductsVisible).toBe(false)
 
         projectTreeDataLogic.actions.loadShortcutsSuccess([])
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: false, allProductsVisible: true })

@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -65,6 +67,7 @@ export interface navProductsTabLogicValues {
     allItems: FileSystemImport[]
     allProductsCollapsible: boolean
     allProductsOpen: boolean
+    allProductsRevealedByFind: boolean
     allProductsVisible: boolean
     appMatchGroups: AppMatchGroups | null
     appRankingError: string | null
@@ -124,6 +127,27 @@ export interface navProductsTabLogicActions {
         }
         shortcutData: FileSystemEntry[]
     } // projectTreeDataLogic
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
     loadCurrentTeamSuccess: (
         currentTeam: null | import('~/types').TeamPublicType,
         payload?: any
@@ -165,6 +189,9 @@ export interface navProductsTabLogicActions {
         }
     }
     resetAppConfiguration: () => {
+        value: true
+    }
+    revealAllProductsForFind: () => {
         value: true
     }
     saveStarredProducts: () => {
@@ -255,6 +282,7 @@ export interface navProductsTabLogicMeta {
         allProductsCollapsible: (shortcutDataHasLoaded: boolean, starredProductIds: Record<string, string>) => boolean
         allProductsVisible: (
             allProductsOpen: boolean,
+            allProductsRevealedByFind: any,
             allProductsCollapsible: boolean,
             search: string,
             shortcutDataHasLoaded: boolean
@@ -289,6 +317,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         actions: [
             projectTreeDataLogic,
             ['deleteShortcutSuccess', 'loadShortcutsFailure', 'loadShortcutsSuccess'],
+            router,
+            ['locationChanged'],
             teamLogic,
             ['loadCurrentTeamSuccess'],
             uiCustomizationLogic,
@@ -303,6 +333,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         setAppRankingError: (error: string | null) => ({ error }),
         setCustomizeSidebarOpen: (open: boolean) => ({ open }),
         setAllProductsOpen: (open: boolean) => ({ open }),
+        revealAllProductsForFind: true,
         openStarredSetup: true,
         dismissStarredSetup: true,
         setDraftStarred: (productPath: string, starred: boolean) => ({ productPath, starred }),
@@ -446,6 +477,16 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             inStorybook() || inStorybookTestRunner(),
             { persist: true },
             { setAllProductsOpen: (_, { open }) => open },
+        ],
+        // The browser's find-in-page opened the list to show a match. Not persisted, so the list
+        // closes again on the next navigation instead of staying open for good.
+        allProductsRevealedByFind: [
+            false,
+            {
+                revealAllProductsForFind: () => true,
+                setAllProductsOpen: () => false,
+                locationChanged: () => false,
+            },
         ],
     }),
     selectors({
@@ -631,13 +672,24 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         ],
         // A search always shows its matches, even when the list is closed.
         allProductsVisible: [
-            (s) => [s.allProductsOpen, s.allProductsCollapsible, s.search, s.shortcutDataHasLoaded],
+            (s) => [
+                s.allProductsOpen,
+                s.allProductsRevealedByFind,
+                s.allProductsCollapsible,
+                s.search,
+                s.shortcutDataHasLoaded,
+            ],
             (
                 allProductsOpen: boolean,
+                allProductsRevealedByFind: boolean,
                 allProductsCollapsible: boolean,
                 search: string,
                 shortcutDataHasLoaded: boolean
-            ): boolean => allProductsOpen || !!search.trim() || (shortcutDataHasLoaded && !allProductsCollapsible),
+            ): boolean =>
+                allProductsOpen ||
+                allProductsRevealedByFind ||
+                !!search.trim() ||
+                (shortcutDataHasLoaded && !allProductsCollapsible),
         ],
     }),
     listeners(({ actions, values, cache }) => {
@@ -661,6 +713,9 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             loadShortcutsSuccess: keepAllProductsOpenWithoutStars,
             loadShortcutsFailure: keepAllProductsOpenWithoutStars,
             deleteShortcutSuccess: keepAllProductsOpenWithoutStars,
+            revealAllProductsForFind: () => {
+                posthog.capture('sidebar all products revealed by find')
+            },
             openStarredSetup: () => {
                 posthog.capture('sidebar starred setup opened', {
                     custom_products_count: values.customProducts.length,
