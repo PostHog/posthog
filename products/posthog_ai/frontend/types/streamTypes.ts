@@ -118,6 +118,25 @@ export interface TurnCompleteEvent {
     streamKey: string
 }
 
+/** What a send hands its own echo: enough to draw the file before it has an artifact. */
+export interface StagedAttachment {
+    name: string
+    previewId?: string
+}
+
+/**
+ * A file a send carried. The ids are what let the thread build a download URL, and are absent until the
+ * upload lands — until then `previewId` finds the staged file to draw instead.
+ */
+export interface ThreadAttachment {
+    name: string
+    taskId?: string
+    runId?: string
+    artifactId?: string
+    /** Looks up the staged `File` in `attachmentPreviews`, so a send can show its image before it uploads. */
+    previewId?: string
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'
@@ -147,6 +166,8 @@ export interface ThreadItem {
     endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
+    /** For `human_message` items — the files the send carried. */
+    attachments?: ThreadAttachment[]
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */

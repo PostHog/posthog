@@ -17,6 +17,7 @@ import re
 import ast
 import json
 import math
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -26,6 +27,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from posthog.hogql.errors import BaseHogQLError
 
 from products.signals.backend.report_charts import validate_report_query
+
+logger = logging.getLogger(__name__)
 
 _METRIC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _RELATIVE_DATE_FROM_RE = re.compile(r"^-([1-9]\d*)(h|d|w|m|y)$")
@@ -480,18 +483,14 @@ class ReportMetric(BaseModel):
 
     @field_validator("value_at")
     @classmethod
-    def value_at_must_be_a_bounded_past_timestamp(cls, value: datetime | None) -> datetime | None:
+    def value_at_must_be_an_instant_in_utc(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return value
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("must include a timezone")
-        # The snapshot time is authored, not stamped by the server, so an LLM can emit a wrong year
-        # or a clock-confused date. A future time makes every later refresh look older than the
-        # stored snapshot, so the stale value would stay until real time catches up. Reject a
-        # time past now plus a small clock-skew allowance.
-        if value > datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
-            raise ValueError("must not be in the future")
-        return value
+        # An offset names one instant, so keep the snapshot in UTC: the author's local time
+        # `2026-09-18T00:20:00+05:30` is the same moment as `2026-09-17T18:50:00Z`.
+        return value.astimezone(UTC)
 
     @field_validator("unit")
     @classmethod
@@ -517,10 +516,31 @@ class ReportMetric(BaseModel):
     def query_must_be_a_live_trends_node(cls, value: dict[str, Any]) -> dict[str, Any]:
         return validate_live_metric_query(value)
 
+    def _drop_a_snapshot_measured_in_the_future(self) -> None:
+        """Clear a snapshot whose measurement time is still ahead of the server clock.
+
+        The time is authored, not stamped by the server, so an agent can emit a wrong year or a
+        clock-confused date, and a future time would hold the stale value until real time catches
+        up. The snapshot is an optional fallback that a read replaces, so drop it and keep the
+        metric: the live query stays the source of truth and the report still publishes.
+        """
+
+        if self.value_at is None or self.value_at <= datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
+            return
+        logger.warning(
+            "report metric %s dropped a snapshot measured at %s, ahead of the server clock",
+            self.metric_id,
+            self.value_at.isoformat(),
+        )
+        self.value = None
+        self.value_at = None
+        self.series = None
+
     @model_validator(mode="after")
     def measurement_must_be_available_and_consistent(self) -> ReportMetric:
         if (self.value is None) != (self.value_at is None):
             raise ValueError("value and value_at must be provided together")
+        self._drop_a_snapshot_measured_in_the_future()
         if self.series is not None and self.value_at is None:
             raise ValueError("series is part of the snapshot and needs value and value_at")
         if self.kind == "affected_users":

@@ -83,6 +83,11 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
 # which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
 #
+# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
+# one URL for as long as their code is unchanged, so they must not carry the per-release id that the
+# first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
+# resolves no release and injects only the chunk id, which it derives from the file's own content.
+#
 # The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
@@ -118,12 +123,19 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         export PATH="/root/.posthog:$PATH" && \
         export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
         export POSTHOG_CLI_ENV_ID=2 && \
+        STABLE_CHUNKS='**/*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js' && \
         posthog-cli sourcemap process \
             --directory /code/frontend/dist \
+            --exclude "$STABLE_CHUNKS" \
             --public-path-prefix /static \
             --release-mode event \
             --release-name posthog \
-            --release-version "${COMMIT_HASH:-unknown}" \
+            --release-version "${COMMIT_HASH:-unknown}" && \
+        env -u GITHUB_ACTIONS posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --include "$STABLE_CHUNKS" \
+            --public-path-prefix /static \
+            --release-mode event \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \
@@ -423,6 +435,14 @@ RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
 COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
+
+# Pre-compile first-party bytecode. Site-packages are already compiled (UV_COMPILE_BYTECODE=1), but
+# the app runs as `nobody` (bin/docker-server), which cannot write __pycache__ under the posthog-owned
+# /code, so without this every process compiled ~1300 first-party modules in memory at every start.
+# Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
+# module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
+RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
+    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

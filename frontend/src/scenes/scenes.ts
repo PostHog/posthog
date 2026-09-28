@@ -611,6 +611,8 @@ export const redirects: Record<
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
+    '/activity/explore': (_params, searchParams, hashParams) =>
+        combineUrl(urls.activity(ActivityTab.ExploreEvents), searchParams, hashParams).url,
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
@@ -911,9 +913,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
-    [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],

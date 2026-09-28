@@ -4372,7 +4372,9 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_claude_plan_from_personal_api_key(self, mock_workflow):
+    def test_run_endpoint_accepts_claude_plan_from_api_key(self, mock_workflow):
+        """Unattended automation has no Desktop to start from, but it can still relay the
+        token its own key's owner saved — so the key is allowed to make the choice."""
         task = self.create_task()
         api_key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -4383,6 +4385,29 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"claude_model_access": "own-subscription"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["claude_model_access"] == "own-subscription"
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_still_rejects_claude_plan_from_a_session(self, mock_workflow):
+        """The relaxation is for Desktop and API keys only. A browser session has nothing
+        that can answer the run's credential request.
+
+        A fresh client with `force_login`, not `self.client`: the shared one is wired up
+        with `force_authenticate`, which leaves no `successful_authenticator` at all, so it
+        would pass this test without ever exercising SessionAuthentication."""
+        task = self.create_task()
+        client = APIClient()
+        client.force_login(self.user)
 
         response = client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
@@ -14264,6 +14289,80 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
+        HOGLAND_API_URL="https://hogland.prod-us.posthog.dev",
+    )
+    @patch("products.tasks.backend.presentation.views.api.internal_requests_session")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_to_hogland_sandbox_bypasses_egress_proxy(self, mock_post, mock_session_factory):
+        # A hogland box-proxy URL resolves in-cluster to a private address the egress
+        # proxy refuses (407), so the command must ride the proxy-bypassing session —
+        # never the env-proxied module-level post.
+        reset_sandbox_jwt_key_cache()
+        session = mock_session_factory.return_value.__enter__.return_value
+        self._mock_agent_response(session.post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task, sandbox_url="https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080"
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_cancel(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_post.assert_not_called()
+        session.post.assert_called_once()
+        self.assertEqual(
+            session.post.call_args[0][0],
+            "https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080/command",
+        )
+
+    def test_command_blocks_hogland_sandbox_url_when_unconfigured(self):
+        # Regression: on a pod without HOGLAND_API_URL, a hogland box-proxy URL matches
+        # no allowlist entry, so the command must be refused instead of proxied. This is
+        # the exact failure that killed every own-subscription run on hogland sandboxes
+        # (the credential_response died here with "Invalid sandbox URL").
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task, sandbox_url="https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080"
+        )
+
+        with override_settings(HOGLAND_API_URL=None):
+            response = self.client.post(
+                self._command_url(task, run),
+                self._make_cancel(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid sandbox URL", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.internal_requests_session")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_to_modal_sandbox_keeps_env_proxied_post(self, mock_post, mock_session_factory):
+        # Modal tunnel hosts are public: they keep the default (env-proxied) transport.
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="https://sb-abc123.modal.run")
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_cancel(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_session_factory.assert_not_called()
+        mock_post.assert_called_once()
 
     def test_command_with_empty_state(self):
         task = self.create_task()

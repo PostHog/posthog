@@ -167,7 +167,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise. A signed-out visitor has no user to bucket, so on login, signup, password reset and email verification the `csp-enforce-signed-out-pages` flag enforces it per page load instead. Other signed-out pages stay report-only. Embeddable documents, such as shared dashboards, stay report-only under both flags.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every signed-in user, and for every visitor on login, signup, password reset and email verification. A self-hosted install only reports it, because its violations reach nobody. Other signed-out pages follow the `csp-enforce-other-signed-out-pages` flag, drawn per page load because a signed-out visitor has no user to bucket. They stay report-only while the flag is off. Embeddable documents, such as shared dashboards, always stay report-only.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
@@ -193,6 +193,9 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
+On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
+A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
 Say why the source is needed in a comment either way, then run `posthog/test/test_csp_middleware.py`.

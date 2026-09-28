@@ -56,6 +56,18 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
+
+
+@dataclass(frozen=True)
 class SignalImplementationRunDTO:
     """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
 
@@ -117,6 +129,15 @@ class TaskRunDTO:
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
+
+
+@dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -665,6 +686,10 @@ SPACE_SETUP_SCOPES = (
     "task:write",
     "canvas:write",
     "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
     "query:read",
     "data_catalog:read",
     "insight:read",

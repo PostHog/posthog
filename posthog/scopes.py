@@ -94,6 +94,7 @@ APIScopeObject = Literal[
     "mcp_registry",
     "metrics",
     "notebook",
+    "offline_evaluation_ingestion",
     "organization",
     "organization_integration",
     "organization_member",
@@ -139,6 +140,7 @@ APIScopeObject = Literal[
     "web_analytics",
     "webhook",
     "wizard_session",
+    "wizard_run",
 ]
 
 
@@ -213,6 +215,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
+        "wizard_run",
         "query_performance",
         # Staff-only managed-migrations (batch import) support diagnostics, also gated by
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
@@ -239,6 +242,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    ("offline_evaluation_ingestion", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -415,6 +419,15 @@ def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
 
 def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
     return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
+
+
+def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
+    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
+    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
+    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
+    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    covered = _with_read_halves(frozenset(held_scopes))
+    return [scope for scope in required_scopes if scope not in covered]
 
 
 def scopes_within_ceiling(
