@@ -2743,7 +2743,7 @@ jobs:
                       "json-targets": true,
                       "person-on-events": false,
                       "new-events-schema": true,
-                      "python-version": "3.13.13",
+                      "python-version": "3.14.7",
                       "clickhouse-server-image": $image,
                       concurrency: $n,
                       group: .,
