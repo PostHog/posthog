@@ -234,7 +234,8 @@ jobs:
         steps:
             # Depot hands out ambient tokens from more than one installation, and one can be spent
             # for the hour. A spent token answers 403, and the wait would decline a real hand-off.
-            - name: Mint hand-off read token
+            # The same token posts this job's check again, because Depot delivers its own late then.
+            - name: Mint hand-off token
               id: handoff-token
               if: github.event.pull_request.head.repo.fork != true
               continue-on-error: true
@@ -242,7 +243,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-checks: read
+                  permission-checks: write
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
               env:
@@ -307,6 +308,25 @@ jobs:
                       fi
                   fi
                   echo "handed_off=$handed_off" >> "$GITHUB_OUTPUT"
+            # .github/scripts/ci_backend_relay.py reads these checks from both apps. They carry the
+            # names Depot gives its own checks; a declined event also gets the gate's skipped check.
+            - name: Post the hand-off checks for the relay
+              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  WAIT_CHECK: Backend CI on Depot / Wait for GitHub Actions to hand off backend tests (PR ${{ github.event.pull_request.number }}, event ${{ github.event.pull_request.updated_at }})
+                  GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
+                  HANDED_OFF: ${{ steps.handoff.outputs.handed_off }}
+              run: |
+                  post() {
+                      gh api "repos/$REPO/check-runs" --method POST -f name="$1" -f head_sha="$SHA" \
+                          -f status=completed -f conclusion="$2" -f details_url="$DEPOT_JOB_URL" --silent
+                  }
+                  post "$WAIT_CHECK" success
+                  [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
@@ -4130,6 +4150,7 @@ jobs:
                   done
 
             - name: Check dependency results
+              id: verdict
               run: |
                   # Per-test failure rollup, emitted from THIS step because GitHub only
                   # auto-expands the failed step in the log view. Best-effort via `|| true`
@@ -4231,6 +4252,30 @@ jobs:
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
+
+            # A separate checks:write token, minted in a job that runs no pull request code.
+            - name: Mint gate check token
+              id: gate-token
+              if: ${{ always() && github.event_name == 'pull_request' }}
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: write
+            # Depot delivers its own copy of this check late when its GitHub budget runs out, so the
+            # relay also reads this one.
+            - name: Post the gate check for the relay
+              if: ${{ always() && steps.gate-token.outputs.token != '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.gate-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="Backend CI on Depot / Django Tests Pass on Depot" \
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict

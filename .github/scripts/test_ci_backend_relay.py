@@ -2,12 +2,15 @@ import re
 import json
 import http.client
 import urllib.error
+import urllib.parse
 import importlib.util
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+import yaml
 
 SCRIPT_PATH = Path(__file__).with_name("ci_backend_relay.py")
 SPEC = importlib.util.spec_from_file_location("ci_backend_relay", SCRIPT_PATH)
@@ -51,6 +54,23 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
         + "', github.event.pull_request.number, github.event.pull_request.updated_at) || '' }}"
     )
     assert name.group(1) == expected
+
+
+def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
+    jobs = yaml.safe_load(DEPOT_WORKFLOW_FILE.read_text())["jobs"]
+    steps = [step for job in jobs.values() for step in job.get("steps", [])]
+    handoff = next(step for step in steps if step.get("name") == "Post the hand-off checks for the relay")
+    gate = next(step for step in steps if step.get("name") == "Post the gate check for the relay")
+    event = {
+        "${{ github.event.pull_request.number }}": str(PR),
+        "${{ github.event.pull_request.updated_at }}": EVENT_AT,
+    }
+    wait_check = handoff["env"]["WAIT_CHECK"]
+    for expression, value in event.items():
+        wait_check = wait_check.replace(expression, value)
+    assert wait_check == EVENT_WAIT
+    assert handoff["env"]["GATE_CHECK"] == relay.GATE_CHECK
+    assert f'name="{relay.GATE_CHECK}"' in gate["run"]
 
 
 @pytest.mark.parametrize(
@@ -327,7 +347,7 @@ def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> Non
             raise answer
         return answer
 
-    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener)
+    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener, app_ids=(relay.DEPOT_APP_ID,))
     assert [check.state for check in reader.read(relay.GATE_CHECK)] == ["success"]
     assert [check.state for check in reader.read(relay.GATE_CHECK)] == ["success"]
     assert sent[1]["If-none-match"] == '"e1"'
@@ -355,7 +375,7 @@ def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: 
             raise answer
         return answer
 
-    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener)
+    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener, app_ids=(relay.DEPOT_APP_ID,))
     assert reader.read(relay.GATE_CHECK)[0].state == "success"
     assert reader.read(relay.GATE_CHECK) == []
     assert reader.read(relay.GATE_CHECK) == []
@@ -467,3 +487,34 @@ def test_reader_keeps_valid_checks_beside_a_malformed_one() -> None:
         "PostHog/posthog", "abc", "token", pr_number=PR, opener=lambda *a, **kw: FakeResponse(answer, "")
     )
     assert len(reader.read(relay.GATE_CHECK)) == 1
+
+
+def test_relay_reads_the_mirrored_verdict_while_depots_own_checks_lag() -> None:
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        name, app_id = query["check_name"][0], int(query["app_id"][0])
+        # Depot's app has posted nothing yet; the mirror app posted the wait and the gate.
+        state = {EVENT_WAIT: "success", relay.GATE_CHECK: "failure"}[name] if app_id == relay.MIRROR_APP_ID else None
+        runs = (
+            []
+            if state is None
+            else [
+                {
+                    "id": 7,
+                    "name": name,
+                    "head_sha": EVENT.sha,
+                    "app": {"id": app_id},
+                    "status": "completed",
+                    "conclusion": state,
+                    "details_url": f"https://depot.dev/orgs/{relay.DEPOT_ORG}/workflows/w1?job=j",
+                }
+            ]
+        )
+        return FakeResponse(json.dumps({"check_runs": runs}).encode(), "")
+
+    reader = relay.CheckRunReader(EVENT.repo, EVENT.sha, "token", opener=opener)
+    clock = FakeClock()
+    result = relay.poll(
+        reader, EVENT, relay.GATE_CHECK, deadline_minutes=90, absent_minutes=15, clock=clock, sleep=clock.sleep
+    )
+    assert (result.phase, result.state) == (relay.Phase.FINISHED, "failure")

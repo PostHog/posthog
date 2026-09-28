@@ -43,6 +43,9 @@ from typing import Any, Protocol
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
+# The PostHog tests GitHub App. Depot's wait and gate jobs post the same checks with it, because
+# Depot posts its own checks from a budget that runs out at peak and then delivers them late.
+MIRROR_APP_ID = 2492437
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -168,7 +171,7 @@ class CheckReader(Protocol):
 
 
 class CheckRunReader:
-    """Reads one commit's Depot check runs by name, with conditional requests.
+    """Reads one commit's Depot check runs by name from each app that posts them, with conditional requests.
 
     A 304 answer is free against the rate limit, so polling stays cheap.
     """
@@ -180,18 +183,20 @@ class CheckRunReader:
         token: str,
         opener: Callable[..., Any] = urllib.request.urlopen,
         pr_number: int | None = None,
+        app_ids: Sequence[int] = (DEPOT_APP_ID, MIRROR_APP_ID),
     ) -> None:
         self._repo = repo
         self._sha = sha
         self._token = token
         self._pr_number = pr_number
         self._opener = opener
-        self._cache: dict[str, tuple[str, list[CheckRun]]] = {}
+        self._app_ids = app_ids
+        self._cache: dict[tuple[str, int], tuple[str, list[CheckRun]]] = {}
         self._refusals = 0
 
-    def _url(self, name: str, page: int) -> str:
+    def _url(self, name: str, app_id: int, page: int) -> str:
         query = urllib.parse.urlencode(
-            {"check_name": name, "app_id": DEPOT_APP_ID, "filter": "all", "per_page": PAGE_SIZE, "page": page}
+            {"check_name": name, "app_id": app_id, "filter": "all", "per_page": PAGE_SIZE, "page": page}
         )
         return f"{API_ROOT}/repos/{self._repo}/commits/{self._sha}/check-runs?{query}"
 
@@ -213,14 +218,18 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
+        """Either app's copy can arrive first, and check ids order both apps' checks by creation."""
+        return [run for app_id in self._app_ids for run in self._read_app(name, app_id)]
+
+    def _read_app(self, name: str, app_id: int) -> list[CheckRun]:
         """Read every page, reusing a cached answer only when the API confirms it with 304."""
-        etag, cached = self._cache.get(name, ("", []))
+        etag, cached = self._cache.get((name, app_id), ("", []))
         raw: list[dict[str, Any]] = []
         page = 1
         new_etag = ""
         try:
             while True:
-                code, page_etag, body = self._get(self._url(name, page), etag if page == 1 else "")
+                code, page_etag, body = self._get(self._url(name, app_id, page), etag if page == 1 else "")
                 if page == 1 and code == 304:
                     self._refusals = 0
                     return cached
@@ -246,7 +255,7 @@ class CheckRunReader:
                 for run in raw
                 # One malformed record is skipped rather than discarding the whole answer.
                 if isinstance(run, dict)
-                and (run.get("app") or {}).get("id") == DEPOT_APP_ID
+                and (run.get("app") or {}).get("id") == app_id
                 and run.get("name") == name
                 and run.get("head_sha") == self._sha
                 and (
@@ -260,7 +269,7 @@ class CheckRunReader:
             sys.stdout.write("::warning::check-runs API read failed\n")
             return []
         # One page's ETag cannot validate the other pages of a paginated response.
-        self._cache[name] = (new_etag if page == 1 else "", runs)
+        self._cache[(name, app_id)] = (new_etag if page == 1 else "", runs)
         return runs
 
 
