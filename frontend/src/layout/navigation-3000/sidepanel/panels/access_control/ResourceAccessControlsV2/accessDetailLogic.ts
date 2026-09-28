@@ -311,6 +311,7 @@ export interface accessDetailLogicActions {
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
+            | 'support_ticket'
             | 'survey'
             | 'tagger'
             | 'task'
