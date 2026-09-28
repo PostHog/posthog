@@ -776,7 +776,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 >
                                                     <h4 className="text-xs font-semibold uppercase opacity-60 mb-0">
                                                         Selected people (
-                                                        {Object.keys(personsToCreateStaticCohort).length})
+                                                        <span translate="no">
+                                                            {Object.keys(personsToCreateStaticCohort).length}
+                                                        </span>
+                                                        )
                                                     </h4>
                                                     <div className="flex flex-wrap gap-1">
                                                         {Object.entries(personsToCreateStaticCohort).map(
