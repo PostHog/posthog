@@ -365,10 +365,58 @@ async def prepare_s3_files_for_querying(
                 if await s3._exists(s3_path_for_querying):
                     files_to_delete.append(s3_path_for_querying)
 
-        # Copy files concurrently with limited concurrency to avoid overwhelming S3
-        await _log(f"Copying {len(file_uris)} files to {s3_path_for_querying}")
+        import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_transient_object_store_error,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_object_store_permission_denied,
+        )
 
         semaphore = asyncio.Semaphore(50)
+
+        async def delete_folder(file: str) -> None:
+            async with semaphore:
+                delete_attempt = 0
+                while True:
+                    delete_attempt += 1
+                    try:
+                        await s3._rm(file, recursive=True)
+                        return
+                    except FileNotFoundError:
+                        # The folder is already gone: another sync's cleanup pass took it, or an
+                        # earlier attempt of this one deleted it and lost the response. That is
+                        # the outcome this delete wanted, so there is nothing to report.
+                        await _log(f"Old query folder was already deleted: {file}")
+                        return
+                    except Exception as e:
+                        if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
+                            await _log(
+                                f"S3 throttled the delete of old query folder {file} (attempt "
+                                f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
+                                level="error",
+                            )
+                            await asyncio.sleep(2**delete_attempt)
+                            continue
+
+                        await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                        if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
+                            capture_exception(S3OperationError("delete an old query folder for this table", e))
+                        # Cleanup stays best effort: the folder is timestamped, so the age-based
+                        # GC above picks it up on a later sync. Failing the sync over it would
+                        # throw away a load that has already landed.
+                        return
+
+        # The copy writes into the folder itself when it is not timestamped, so clear it first,
+        # or the delete after the copy removes the files this call just copied.
+        if delete_existing and not use_timestamped_folders and files_to_delete:
+            await _log(f"Clearing query folder {s3_path_for_querying} before copying")
+            await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+            files_to_delete = []
+
+        # Copy files concurrently with limited concurrency to avoid overwhelming S3
+        await _log(f"Copying {len(file_uris)} files to {s3_path_for_querying}")
 
         async def copy_file(file: str) -> None:
             async with semaphore:
@@ -379,15 +427,6 @@ async def prepare_s3_files_for_querying(
                 # files copied concurrently, that multiplies into enough LIST traffic to trigger
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
-
-        import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-            is_transient_object_store_error,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-            is_object_store_permission_denied,
-        )
 
         attempt = 0
         while True:
@@ -451,42 +490,9 @@ async def prepare_s3_files_for_querying(
                 )
                 await asyncio.sleep(2**attempt)
 
-        # Delete existing files after copying new ones
+        # Delete old timestamped folders after copying new ones, so the live folder is never empty
         if delete_existing and files_to_delete:
             await _log(f"Deleting {len(files_to_delete)} old query folders")
-
-            async def delete_folder(file: str) -> None:
-                async with semaphore:
-                    delete_attempt = 0
-                    while True:
-                        delete_attempt += 1
-                        try:
-                            await s3._rm(file, recursive=True)
-                            return
-                        except FileNotFoundError:
-                            # The folder is already gone: another sync's cleanup pass took it, or an
-                            # earlier attempt of this one deleted it and lost the response. That is
-                            # the outcome this delete wanted, so there is nothing to report.
-                            await _log(f"Old query folder was already deleted: {file}")
-                            return
-                        except Exception as e:
-                            if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
-                                await _log(
-                                    f"S3 throttled the delete of old query folder {file} (attempt "
-                                    f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
-                                    level="error",
-                                )
-                                await asyncio.sleep(2**delete_attempt)
-                                continue
-
-                            await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
-                                capture_exception(S3OperationError("delete an old query folder for this table", e))
-                            # Cleanup stays best effort: the folder is timestamped, so the age-based
-                            # GC above picks it up on a later sync. Failing the sync over it would
-                            # throw away a load that has already landed.
-                            return
-
             await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")

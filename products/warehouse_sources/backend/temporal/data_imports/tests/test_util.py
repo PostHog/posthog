@@ -95,6 +95,34 @@ class TestPrepareS3FilesForQuerying:
         assert s3._cp_file.await_count == 2
         s3._copy.assert_not_awaited()
 
+    async def test_rebuilding_a_fixed_query_folder_keeps_the_copied_files(self):
+        stored_keys = {"s3://bucket/job/my_table__query/stale.parquet"}
+
+        async def cp_file(source: str, destination: str) -> None:
+            stored_keys.add(destination)
+
+        async def rm(path: str, recursive: bool = False) -> None:
+            stored_keys.difference_update({key for key in stored_keys if key.startswith(f"{path}/")})
+
+        s3 = _fake_s3(_exists=AsyncMock(return_value=True), _cp_file=cp_file, _rm=rm)
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch.object(util_module.settings, "BUCKET_URL", "s3://bucket"),
+        ):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet", "s3://bucket/job/my_table/part-1.parquet"],
+                use_timestamped_folders=False,
+                delete_existing=True,
+            )
+
+        assert stored_keys == {
+            "s3://bucket/job/my_table__query/part-0.parquet",
+            "s3://bucket/job/my_table__query/part-1.parquet",
+        }
+
     async def test_retries_with_fresh_listing_when_source_file_vanishes_mid_copy(self):
         # A concurrent compact/vacuum pass on the same Delta table can delete a source file
         # between get_file_uris() listing it and this copy step reading it, raising
