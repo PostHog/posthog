@@ -63,7 +63,7 @@ class TestSharedAsyncS3ClientLoopEviction(SimpleTestCase):
 
         async def run() -> None:
             with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
-                return await _shared_async_s3_client(None)
+                await _shared_async_s3_client(None)
 
         asyncio.run(run())
 

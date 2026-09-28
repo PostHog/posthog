@@ -62,7 +62,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     record_ducklake_register_data_imports_stage_duration,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
-from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id, schema_sync_type_config
+from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
@@ -537,8 +537,9 @@ def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityI
 
 
 def _publishing_job_id(*, team_id: int, schema_uuid: uuid.UUID, prepared_queryable_folder: str) -> str | None:
-    sync_type_config = schema_sync_type_config(team_id=team_id, schema_id=schema_uuid)
-    return query_folder_publishing_job_id(sync_type_config, prepared_queryable_folder)
+    return query_folder_publishing_job_id(
+        team_id=team_id, schema_id=schema_uuid, queryable_folder=prepared_queryable_folder
+    )
 
 
 def _register_completed_for_generation(*, team_id: int, schema_id: str, prepared_queryable_folder: str) -> bool:

@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -459,6 +460,7 @@ class TestValidateSchemaAndUpdateTable:
             pytest.param("orders__query_c", True, id="unrecorded_move"),
         ],
     )
+    @time_machine.travel("2026-01-02T12:00:00Z", tick=False)
     def test_records_the_pointer_move_and_restarts_the_history_after_a_gap(
         self, team, recorded_active: str, expect_restart: bool
     ):
