@@ -29,6 +29,8 @@ from urllib.parse import urlparse
 
 from requests import Response
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     Endpoint,
@@ -336,12 +338,30 @@ def netlify_source(
     )
 
 
-def validate_credentials(api_token: str) -> bool:
+_NETLIFY_INVALID_TOKEN_ERROR = (
+    "Your Netlify personal access token is invalid or has been revoked. Create a new token under "
+    "User settings > Applications in Netlify, then reconnect."
+)
+
+_NETLIFY_UNREACHABLE_ERROR = "Couldn't reach Netlify to validate your access token. Try again in a few minutes."
+
+
+def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Probe the token with a cheap single-row /sites request. Netlify personal access tokens have
     full account access (no granular scopes), so one authenticated call confirms the whole token."""
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
         f"{NETLIFY_BASE_URL}/sites?per_page=1",
         headers={"Authorization": f"Bearer {api_token}", **_non_secret_headers()},
     )
-    return ok
+    if ok:
+        return True, None
+    # A token carries no scopes, so Netlify refusing it at all means the token itself is wrong.
+    if status in (401, 403):
+        return False, _NETLIFY_INVALID_TOKEN_ERROR
+    # No status means the request never completed. That, a rate limit and a Netlify-side error are
+    # all transient, so none of them should point the user at a token that may be fine.
+    if status is None or status == 429 or status >= 500:
+        return False, _NETLIFY_UNREACHABLE_ERROR
+    capture_exception(Exception(f"Unexpected Netlify credential validation response ({status})"))
+    return False, _NETLIFY_INVALID_TOKEN_ERROR
