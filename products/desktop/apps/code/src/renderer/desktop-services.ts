@@ -1,3 +1,4 @@
+import { EMBEDDED_WEB_APP_SOURCE } from "@posthog/platform/embedded-web-app";
 import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
@@ -461,6 +462,13 @@ container.bind(HOST_CAPABILITIES).toConstantValue({
   // writes, so the option never appears in a build that cannot serve it.
   customCloud: import.meta.env.VITE_POSTHOG_CUSTOM_CLOUD_BUILD === "true",
 } satisfies HostCapabilities);
+
+// The renderer can reach git, the filesystem and terminals through the host bridge, so it must not
+// run code fetched at runtime. Library opens PostHog in the browser until the app ships the web app
+// bundle inside its own build.
+container.bind(EMBEDDED_WEB_APP_SOURCE).toConstantValue({
+  getConfig: () => null,
+});
 
 container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);
 

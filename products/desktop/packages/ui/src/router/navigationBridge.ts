@@ -1,4 +1,5 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import { toLibraryHref } from "@posthog/ui/features/library/libraryPaths";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import {
   navigationSourceHref,
@@ -32,6 +33,14 @@ import { getRouterOrNull } from "./routerRef";
 const keepTabTag = (prev: { tabId?: string }): { tabId?: string } => ({
   tabId: prev.tabId,
 });
+
+/** Opens a PostHog web app path, such as `/project/2/insights/abc`, in Library. */
+export function navigateToLibrary(webAppUrl = "/"): void {
+  void getRouterOrNull()?.navigate({
+    href: toLibraryHref(webAppUrl),
+    state: keepTabTag,
+  });
+}
 
 export function navigateToNewTask(): void {
   void getRouterOrNull()?.navigate({ to: "/new", state: keepTabTag });

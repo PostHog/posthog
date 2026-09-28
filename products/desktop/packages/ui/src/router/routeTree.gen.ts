@@ -54,6 +54,7 @@ import { Route as ShellSpacesContextRouteImport } from './routes/_shell/spaces/c
 import { Route as ShellSettingsCategoryRouteImport } from './routes/_shell/settings/$category'
 import { Route as ShellLoopsNewRouteImport } from './routes/_shell/loops/new'
 import { Route as ShellLoopsLoopIdRouteImport } from './routes/_shell/loops/$loopId'
+import { Route as ShellLibrarySplatRouteImport } from './routes/_shell/library.$'
 import { Route as ShellFeedsFeedIdRouteImport } from './routes/_shell/feeds/$feedId'
 import { Route as ShellSpacesChannelIdIndexRouteImport } from './routes/_shell/spaces/$channelId/index'
 import { Route as ShellLoopsLoopIdIndexRouteImport } from './routes/_shell/loops/$loopId/index'
@@ -295,6 +296,11 @@ const ShellLoopsLoopIdRoute = ShellLoopsLoopIdRouteImport.update({
   path: '/loops/$loopId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellLibrarySplatRoute = ShellLibrarySplatRouteImport.update({
+  id: '/library/$',
+  path: '/library/$',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellFeedsFeedIdRoute = ShellFeedsFeedIdRouteImport.update({
   id: '/feeds/$feedId',
   path: '/feeds/$feedId',
@@ -418,6 +424,7 @@ export interface FileRoutesByFullPath {
   '/inbox/': typeof InboxIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/library/$': typeof ShellLibrarySplatRoute
   '/loops/$loopId': typeof ShellLoopsLoopIdRouteWithChildren
   '/loops/new': typeof ShellLoopsNewRoute
   '/settings/$category': typeof ShellSettingsCategoryRoute
@@ -475,6 +482,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxIndexRoute
   '/website': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/library/$': typeof ShellLibrarySplatRoute
   '/loops/new': typeof ShellLoopsNewRoute
   '/settings/$category': typeof ShellSettingsCategoryRoute
   '/spaces/context': typeof ShellSpacesContextRoute
@@ -538,6 +546,7 @@ export interface FileRoutesById {
   '/inbox/': typeof InboxIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/_shell/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/_shell/library/$': typeof ShellLibrarySplatRoute
   '/_shell/loops/$loopId': typeof ShellLoopsLoopIdRouteWithChildren
   '/_shell/loops/new': typeof ShellLoopsNewRoute
   '/_shell/settings/$category': typeof ShellSettingsCategoryRoute
@@ -602,6 +611,7 @@ export interface FileRouteTypes {
     | '/inbox/'
     | '/website/'
     | '/feeds/$feedId'
+    | '/library/$'
     | '/loops/$loopId'
     | '/loops/new'
     | '/settings/$category'
@@ -659,6 +669,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/website'
     | '/feeds/$feedId'
+    | '/library/$'
     | '/loops/new'
     | '/settings/$category'
     | '/spaces/context'
@@ -721,6 +732,7 @@ export interface FileRouteTypes {
     | '/inbox/'
     | '/website/'
     | '/_shell/feeds/$feedId'
+    | '/_shell/library/$'
     | '/_shell/loops/$loopId'
     | '/_shell/loops/new'
     | '/_shell/settings/$category'
@@ -1089,6 +1101,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellLoopsLoopIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/library/$': {
+      id: '/_shell/library/$'
+      path: '/library/$'
+      fullPath: '/library/$'
+      preLoaderRoute: typeof ShellLibrarySplatRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/feeds/$feedId': {
       id: '/_shell/feeds/$feedId'
       path: '/feeds/$feedId'
@@ -1226,6 +1245,7 @@ interface ShellRouteChildren {
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
+  ShellLibrarySplatRoute: typeof ShellLibrarySplatRoute
   ShellLoopsLoopIdRoute: typeof ShellLoopsLoopIdRouteWithChildren
   ShellLoopsNewRoute: typeof ShellLoopsNewRoute
   ShellSettingsCategoryRoute: typeof ShellSettingsCategoryRoute
@@ -1258,6 +1278,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSkillsRoute: ShellSkillsRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,
+  ShellLibrarySplatRoute: ShellLibrarySplatRoute,
   ShellLoopsLoopIdRoute: ShellLoopsLoopIdRouteWithChildren,
   ShellLoopsNewRoute: ShellLoopsNewRoute,
   ShellSettingsCategoryRoute: ShellSettingsCategoryRoute,

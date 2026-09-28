@@ -4,6 +4,7 @@ import {
   SPEECH_USER_NAME_PROVIDER,
 } from "@posthog/core/speech/identifiers";
 import type { HostCapabilityRequirement } from "@posthog/di/hostCapabilities";
+import { EMBEDDED_WEB_APP_SOURCE } from "@posthog/platform/embedded-web-app";
 import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import { SPEECH_SERVICE } from "@posthog/platform/speech";
@@ -101,5 +102,9 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: SPEECH_NOTIFY_SETTINGS,
       description: "per-kind gating for spoken notifications",
+    },
+    {
+      token: EMBEDDED_WEB_APP_SOURCE,
+      description: "where Library loads the PostHog web app from",
     },
   ];

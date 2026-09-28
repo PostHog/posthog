@@ -158,6 +158,10 @@ import {
   type IDiskCacheImages,
 } from "@posthog/platform/disk-cache";
 import {
+  EMBEDDED_WEB_APP_SOURCE,
+  type IEmbeddedWebAppSource,
+} from "@posthog/platform/embedded-web-app";
+import {
   FEEDBACK_CONTEXT_SERVICE,
   type IFeedbackContext,
 } from "@posthog/platform/feedback-context";
@@ -394,6 +398,7 @@ export interface RendererBindings {
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [SETUP_STORE]: ISetupStore;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [EMBEDDED_WEB_APP_SOURCE]: IEmbeddedWebAppSource;
   [DISK_CACHE_IMAGES]: IDiskCacheImages;
 
   // --- desktop-contributions.ts ---

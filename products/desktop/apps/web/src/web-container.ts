@@ -187,6 +187,10 @@ import {
   type IAnalytics,
 } from "@posthog/platform/analytics";
 import {
+  EMBEDDED_WEB_APP_SOURCE,
+  type IEmbeddedWebAppSource,
+} from "@posthog/platform/embedded-web-app";
+import {
   FEEDBACK_CONTEXT_SERVICE,
   type IFeedbackContext,
 } from "@posthog/platform/feedback-context";
@@ -312,6 +316,7 @@ import {
 import { WebAuthSideEffects } from "./web-auth-side-effects";
 import { webBrowserTabsStore } from "./web-browser-tabs-store";
 import { webConnectivityClient } from "./web-connectivity-client";
+import { WebEmbeddedWebAppSource } from "./web-embedded-web-app";
 import {
   webExternalAppsFocusCoordinator,
   webExternalAppsWorkspaceClient,
@@ -382,6 +387,7 @@ interface WebBindings {
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [EMBEDDED_WEB_APP_SOURCE]: IEmbeddedWebAppSource;
   [TASK_SERVICE]: TaskServiceType;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
   [TASK_CREATION_HOST]: ITaskCreationHost;
@@ -493,6 +499,10 @@ container.bind(HOST_CAPABILITIES).toConstantValue({
   localWorkspaces: false,
   customCloud: false,
 } satisfies HostCapabilities);
+
+container
+  .bind(EMBEDDED_WEB_APP_SOURCE)
+  .toConstantValue(new WebEmbeddedWebAppSource());
 
 container.load(authUiModule);
 

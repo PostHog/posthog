@@ -3,6 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: [
     "src/host-capabilities.ts",
+    "src/embedded-web-app.ts",
     "src/url-launcher.ts",
     "src/storage-paths.ts",
     "src/app-meta.ts",

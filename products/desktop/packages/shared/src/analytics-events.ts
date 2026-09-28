@@ -1247,6 +1247,22 @@ export interface TaskFeedActionProperties {
   query_length?: number;
 }
 
+/**
+ * How opening Library went: the web app loaded and mounted, the host has no web app to load, the
+ * bundle failed to load, or it answered with an embed contract version this app does not speak.
+ */
+export type LibraryLoadOutcome =
+  | "mounted"
+  | "unavailable"
+  | "load_failed"
+  | "version_mismatch";
+
+export interface LibraryLoadedProperties {
+  outcome: LibraryLoadOutcome;
+  /** From opening Library to the mount call returning. Absent when nothing was fetched. */
+  duration_ms?: number;
+}
+
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
   surface: ChannelsSurface;
@@ -1822,6 +1838,9 @@ export const ANALYTICS_EVENTS = {
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
 
+  // Library (the PostHog web app hosted inside the shell)
+  LIBRARY_LOADED: "Library loaded",
+
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
@@ -2033,6 +2052,7 @@ export type EventPropertyMap = {
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
+  [ANALYTICS_EVENTS.LIBRARY_LOADED]: LibraryLoadedProperties;
   [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;

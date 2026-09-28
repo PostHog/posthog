@@ -8,6 +8,10 @@
       "types": "./dist/host-capabilities.d.ts",
       "import": "./dist/host-capabilities.js"
     },
+    "./embedded-web-app": {
+      "types": "./dist/embedded-web-app.d.ts",
+      "import": "./dist/embedded-web-app.js"
+    },
     "./url-launcher": {
       "types": "./dist/url-launcher.d.ts",
       "import": "./dist/url-launcher.js"
