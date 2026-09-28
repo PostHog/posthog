@@ -408,6 +408,47 @@ describe('webAnalyticsLogic compare filter', () => {
     })
 })
 
+describe('webAnalyticsLogic graphs tabs', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const sessionTabs = [GraphsTab.SESSION_DURATION, GraphsTab.BOUNCE_RATE]
+
+    const graphsTabIds = (): string[] => {
+        const graphsTile = logic.values.tiles.find((tile) => tile.tileId === TileId.GRAPHS)
+        if (graphsTile?.kind !== 'tabs') {
+            throw new Error('graphs tile is not a tabs tile')
+        }
+        return graphsTile.tabs.map((tab) => tab.id)
+    }
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // No test sets a feature flag, so these cases also lock the session charts to every team.
+    it('offers the session duration and bounce rate tabs', () => {
+        expect(graphsTabIds()).toEqual(expect.arrayContaining(sessionTabs))
+    })
+
+    it('drops the session tabs for a conversion goal', () => {
+        logic.actions.setConversionGoal({ actionId: 42 })
+        expect(graphsTabIds()).toEqual(expect.not.arrayContaining(sessionTabs))
+    })
+})
+
 describe('webAnalyticsLogic URL restoration', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
