@@ -383,10 +383,11 @@ class TestMintableGate:
     """Mint scope needs server-side provenance: `internal` and some origin_product
     values are API-settable, so a routed-but-unmintable product must never mint."""
 
-    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings):
+    @pytest.mark.parametrize("origin_product", ["image_builder", "business_knowledge"])
+    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings, origin_product):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
-            env = ai_gateway_env_vars(team_id=123, origin_product="image_builder", internal=True)
+            env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 

@@ -569,8 +569,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fireworks_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/first_promoter.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/flagsmith.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/fleetio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/flexmail.py

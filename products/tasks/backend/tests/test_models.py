@@ -1089,6 +1089,22 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
+            ("current_tags", {"task_tags": ["bug-fix"], "prior_run_tags": ["research"]}, ["bug-fix"]),
+            ("inherited_tags", {"prior_run_tags": ["research"]}, ["research"]),
+            ("no_tags", {"task_tags": []}, None),
+        ]
+    )
+    def test_create_run_carries_the_resume_source_tags(self, _name, source_state, expected):
+        previous_run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=source_state
+        )
+
+        run = self.task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+        self.assertEqual(run.state.get("prior_run_tags"), expected)
+
+    @parameterized.expand(
+        [
             ("message_only", {"pending_user_message": "Look at this"}, True),
             ("artifacts_only", {"pending_user_artifact_ids": ["artifact-1"]}, True),
             ("nothing_pending", {"mode": "interactive"}, False),
