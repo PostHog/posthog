@@ -258,14 +258,22 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
-    @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
-    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
+    @parameterized.expand(
+        [
+            ("the_sandbox", True, True),
+            ("a_human_reader", False, True),
+            ("a_human_reader_of_a_creatorless_task", False, False),
+        ]
+    )
+    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state, has_creator):
         # The agent reads initial_prompt_override off this payload to build its first
         # message; dropping it strips it silently and the run falls back to
         # task.description. But it embeds the triggering event wholesale (for a Slack
         # trigger, a private channel's content) and workflow tasks are team-readable,
         # so human readers must not receive it.
-        task = self._make_task(origin_product=Task.OriginProduct.WORKFLOW)
+        task = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, created_by=self.user if has_creator else None
+        )
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -277,6 +285,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
                 "task_summary": "Private workflow context",
+                "task_tags": ["private-tag"],
             },
         )
 
@@ -293,6 +302,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
         assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
+        assert detail.task_tags == (["private-tag"] if include_agent_state else [])
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()

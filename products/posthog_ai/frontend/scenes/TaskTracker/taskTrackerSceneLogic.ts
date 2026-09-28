@@ -67,6 +67,7 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
+    seedContextItems?: AttachedContextItem[]
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -467,7 +468,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
             },
         ],
@@ -662,7 +672,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
         applySuggestion: ({ item }) => {
-            actions.setNewTaskData({ description: item.content })
+            actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
                 actions.submitNewTask()
             }
@@ -704,7 +714,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = props.contextItems ?? values.contextItems
+            const seededContext = [
+                ...(props.contextItems ?? values.contextItems),
+                ...(values.newTaskData.seedContextItems ?? []),
+            ]
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -944,6 +957,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()
@@ -962,6 +976,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         },
         openExistingTask: ({ task }) => {
+            actions.setNewTaskData({ seedContextItems: undefined })
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
                 actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
@@ -1007,7 +1022,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({ description: seed.prompt })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }
