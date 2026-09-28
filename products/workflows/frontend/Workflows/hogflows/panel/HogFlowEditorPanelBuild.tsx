@@ -93,6 +93,17 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
+const JEV_CLASSIFY_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Classify with Jev',
+    description: 'Ask Jev to pick one category for the context. Branch on the result with a condition step.',
+    config: { template_id: 'template-posthog-jev-classify', inputs: {} },
+    output_variable: [
+        { key: 'jev_category', result_path: 'category', label: 'Jev category' },
+        { key: 'jev_confidence', result_path: 'confidence', label: 'Jev confidence' },
+    ],
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
@@ -411,6 +422,18 @@ export function HogFlowEditorPanelBuild({
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
+                {featureFlags[FEATURE_FLAGS.WORKFLOW_JEV_CLASSIFY_ACTION] && (
+                    <HogFlowEditorToolbarNode
+                        key="jev-classify"
+                        action={JEV_CLASSIFY_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            {JEV_CLASSIFY_ACTION_NODE.name}
+                            <LemonTag type="completion">Beta</LemonTag>
+                        </span>
+                    </HogFlowEditorToolbarNode>
+                )}
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 

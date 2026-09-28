@@ -1,3 +1,4 @@
+import './classify'
 import './conversations'
 import './create-customer-task'
 import './create-task'
