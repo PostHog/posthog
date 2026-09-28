@@ -49,6 +49,11 @@ describe('StripePortalButton', () => {
             billing: { external_billing_provider_invoices_url: EXTERNAL_INVOICES_URL },
             expectedHref: EXTERNAL_INVOICES_URL,
         },
+        {
+            name: 'the external provider invoices page when billing has no customer id',
+            billing: { external_billing_provider_invoices_url: EXTERNAL_INVOICES_URL, customer_id: '' },
+            expectedHref: EXTERNAL_INVOICES_URL,
+        },
     ])('links to $name', async ({ billing, expectedHref }) => {
         await renderForBilling(billing)
 
