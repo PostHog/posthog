@@ -173,6 +173,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -228,6 +229,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -295,6 +297,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -377,6 +380,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             xmin_num_wraparound=None,
             byte_bounded_extraction=False,
             activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
