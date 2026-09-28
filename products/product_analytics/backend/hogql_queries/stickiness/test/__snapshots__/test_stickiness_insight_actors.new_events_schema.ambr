@@ -10,10 +10,10 @@
           (SELECT aggregation_target AS aggregation_target,
                   count() AS num_intervals
            FROM
-             (SELECT e.properties.`$group_0` AS aggregation_target,
+             (SELECT ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '') AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
               FROM events_json AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.properties.`$group_0`, ''))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), ''))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING greater(count(), 0))

@@ -8,7 +8,7 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE equals(raw_sessions_v3.team_id, 99999)
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''))), events__session.session_id_v7)
   WHERE and(equals(events.team_id, 99999), equals(events__session.`$entry_pathname`, '/pathname'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -33,7 +33,7 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), greaterOrEquals(raw_sessions_v3.session_timestamp, minus('1970-01-01', toIntervalDay(3))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''))), events__session.session_id_v7)
   WHERE and(equals(events.team_id, 99999), equals(session_id, '00000000-0000-0000-0000-000000000000'), greaterOrEquals(events.timestamp, toDateTime64('1970-01-01', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -59,7 +59,7 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), or(equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80))))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''))), events__session.session_id_v7)
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -87,7 +87,7 @@
   '''
   SELECT events__session.`$channel_type` AS `$channel_type`
   FROM
-    (SELECT toUInt128(toUUIDOrNull(events.properties.`$session_id`)) AS `$session_id_uuid`
+    (SELECT toUInt128(toUUIDOrNull(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''))) AS `$session_id_uuid`
      FROM events_json AS events
      WHERE and(equals(events.team_id, 99999), equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))))
      LIMIT 100) AS events

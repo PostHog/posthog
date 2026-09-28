@@ -27,10 +27,10 @@
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.properties.`$group_0` AS aggregation_target,
+                  ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '') AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events_json AS e
@@ -86,10 +86,10 @@
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.properties.`$group_0` AS aggregation_target,
+                  ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '') AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events_json AS e
@@ -100,7 +100,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -147,8 +147,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
@@ -218,8 +218,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
@@ -292,8 +292,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), e.elements_chain_texts)), 1, 0) AS step_1,
                   if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), equals(e.elements_chain_href, '/movie')), 1, 0) AS step_2
@@ -361,8 +361,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                  (SELECT cohortpeople.person_id AS person_id
                                                                   FROM cohortpeople
@@ -422,8 +422,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha.com'), 0)), 1, 0) AS step_1,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha2.com'), 0)), 1, 0) AS step_2
@@ -480,8 +480,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha.com'), 0)), 1, 0) AS step_1,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha2.com'), 0)), 1, 0) AS step_2
@@ -538,8 +538,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha.com'), 0)), 1, 0) AS step_1,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha2.com'), 0)), 1, 0) AS step_2
@@ -609,8 +609,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha.com'), 0)), 1, 0) AS step_1,
                   if(and(equals(e.event, '$pageview'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$current_url`)), if(isNull(nullIf(toString(e.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$current_url`), '[]'), '{}'), toString(e.properties.`$current_url`))))), 'aloha2.com'), 0)), 1, 0) AS step_2
@@ -678,8 +678,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                  (SELECT person_static_cohort.person_id AS person_id
                                                                   FROM person_static_cohort
@@ -747,8 +747,8 @@
           (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events_json AS e
@@ -813,8 +813,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), if(isNull(nullIf(toString(e.properties.`$version`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$version`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$version`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$version`), '[]'), '{}'), toString(e.properties.`$version`))))), 'xyz'), 0)), 1, 0) AS step_1,
                   [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), '')] AS prop_basic,
@@ -881,8 +881,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), if(isNull(nullIf(toString(e.properties.`$version`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$version`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$version`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$version`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$version`), '[]'), '{}'), toString(e.properties.`$version`))))), 'xyz'), 0)), 1, 0) AS step_1,
                   [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), '')] AS prop_basic,
@@ -949,8 +949,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'buy'), 1, 0) AS step_1,
                   [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))))), ''),
@@ -1023,10 +1023,10 @@
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.properties.`$group_0` AS aggregation_target,
+                  ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '') AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1040,7 +1040,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1090,8 +1090,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1112,7 +1112,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1159,8 +1159,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1181,7 +1181,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1228,8 +1228,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1250,7 +1250,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1297,8 +1297,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1319,7 +1319,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1380,8 +1380,8 @@
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   e.uuid AS uuid,
-                  e.properties.`$session_id` AS `$session_id`,
-                  e.properties.`$window_id` AS `$window_id`,
+                  ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                  ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'play movie'), 1, 0) AS step_1,
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
@@ -1402,7 +1402,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))

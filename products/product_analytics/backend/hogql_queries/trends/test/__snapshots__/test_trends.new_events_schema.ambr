@@ -57,8 +57,8 @@
        (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e.uuid AS uuid,
-               e.properties.`$session_id` AS `$session_id`,
-               e.properties.`$window_id` AS `$window_id`,
+               ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+               ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                e.distinct_id AS distinct_id
         FROM events_json AS e
         LEFT OUTER JOIN
@@ -75,7 +75,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                    groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
@@ -87,7 +87,7 @@
                                                           FROM
                                                             (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
                                                              FROM
-                                                               (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.properties.`$session_id` AS `$session_id`, e.properties.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
+                                                               (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`, ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`, e.distinct_id AS distinct_id
                                                                 FROM events_json AS e
                                                                 LEFT OUTER JOIN
                                                                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -99,7 +99,7 @@
                                                                   (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
                                                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                              GROUP BY actor_id) AS source)))
      GROUP BY person.id
@@ -149,7 +149,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -203,7 +203,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), if(isNull(nullIf(toString(e.person_properties.key), '')), NULL, if(startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.person_properties.key, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.person_properties.key), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.person_properties.key), '[]'), '{}'), toString(e.person_properties.key))))), 'value'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -579,7 +579,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -640,7 +640,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -937,8 +937,8 @@
        (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e.uuid AS uuid,
-               e.properties.`$session_id` AS `$session_id`,
-               e.properties.`$window_id` AS `$window_id`,
+               ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+               ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                e.distinct_id AS distinct_id
         FROM events_json AS e
         LEFT OUTER JOIN
@@ -955,7 +955,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 2))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
+                    groups.group_key) AS e__group_2 ON equals(ifNull(dynamicElement(e.properties.`$group_2`, 'String'), ''), e__group_2.key)
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
@@ -963,7 +963,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                    groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
         WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
@@ -975,7 +975,7 @@
                                                           FROM
                                                             (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
                                                              FROM
-                                                               (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.properties.`$session_id` AS `$session_id`, e.properties.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
+                                                               (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`, ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`, e.distinct_id AS distinct_id
                                                                 FROM events_json AS e
                                                                 LEFT OUTER JOIN
                                                                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -987,12 +987,12 @@
                                                                   (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 2))
-                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(ifNull(dynamicElement(e.properties.`$group_2`, 'String'), ''), e__group_2.key)
                                                                 LEFT JOIN
                                                                   (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
                                                                 WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(e.event, 'sign up')))
                                                              GROUP BY actor_id) AS source)))
      GROUP BY person.id
@@ -1034,7 +1034,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 2))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
+                    groups.group_key) AS e__group_2 ON equals(ifNull(dynamicElement(e.properties.`$group_2`, 'String'), ''), e__group_2.key)
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
@@ -1042,7 +1042,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                    groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1081,7 +1081,7 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
+                    groups.group_key) AS e__group_0 ON equals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^key)), if(isNull(nullIf(toString(e.person_properties.key), '')), NULL, if(startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.person_properties.key, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.person_properties.key), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.person_properties.key, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.person_properties.key), '[]'), '{}'), toString(e.person_properties.key))))), 'value'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2523,9 +2523,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value)
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
@@ -2574,9 +2574,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value_1)
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
@@ -2625,9 +2625,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value_1)
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
@@ -2676,9 +2676,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value)
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
@@ -2937,10 +2937,10 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT count(DISTINCT e.properties.`$group_0`) AS total,
+       (SELECT count(DISTINCT ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '')) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), notEquals(e.properties.`$group_0`, ''))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), notEquals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), ''))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2972,11 +2972,11 @@
        (SELECT sum(total) AS count,
                day_start AS day_start
         FROM
-          (SELECT count(DISTINCT e.properties.`$group_0`) AS total,
+          (SELECT count(DISTINCT ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '')) AS total,
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), notEquals(e.properties.`$group_0`, ''))
-           GROUP BY e.properties.`$group_0`)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-06 23:59:59', 'UTC'))), equals(e.event, 'viewed video'), notEquals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), ''))
+           GROUP BY ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''))
         GROUP BY day_start
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
@@ -3098,9 +3098,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value_1)
            GROUP BY breakdown_value_1)
         GROUP BY breakdown_value_1
@@ -3149,9 +3149,9 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-              GROUP BY e.properties.`$session_id`,
+              GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value)
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
@@ -3218,9 +3218,9 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
      WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-     GROUP BY e.properties.`$session_id`
+     GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '')
      ORDER BY 1 DESC)
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
@@ -3247,9 +3247,9 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
      WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
-     GROUP BY e.properties.`$session_id`
+     GROUP BY ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '')
      ORDER BY 1 DESC)
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
@@ -3285,10 +3285,10 @@
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
               WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-              GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+              GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
-                    e.properties.`$session_id`,
+                    ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                     day_start)
         GROUP BY day_start)
      GROUP BY day_start
@@ -3328,10 +3328,10 @@
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
               WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-              GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+              GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
-                    e.properties.`$session_id`,
+                    ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                     day_start)
         GROUP BY day_start)
      GROUP BY day_start
@@ -3380,10 +3380,10 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
-                       e.properties.`$session_id`,
+                       ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value,
                        day_start)
            GROUP BY breakdown_value,
@@ -3440,10 +3440,10 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
-                       e.properties.`$session_id`,
+                       ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value_1,
                        day_start)
            GROUP BY breakdown_value_1,
@@ -3500,10 +3500,10 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
-                       e.properties.`$session_id`,
+                       ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value_1,
                        day_start)
            GROUP BY breakdown_value_1,
@@ -3560,10 +3560,10 @@
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
                  WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
-                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(e.properties.`$session_id`)), e__session.session_id_v7)
+                 GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(toUUIDOrNull(ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''))), e__session.session_id_v7)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
-                       e.properties.`$session_id`,
+                       ifNull(dynamicElement(e.properties.`$session_id`, 'String'), ''),
                        breakdown_value,
                        day_start)
            GROUP BY breakdown_value,
@@ -3607,9 +3607,9 @@
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
-                     e.properties.`$group_0` AS actor_id
+                     ifNull(dynamicElement(e.properties.`$group_0`, 'String'), '') AS actor_id
               FROM events_json AS e
-              WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.properties.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))))
+              WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(ifNull(dynamicElement(e.properties.`$group_0`, 'String'), ''), '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp

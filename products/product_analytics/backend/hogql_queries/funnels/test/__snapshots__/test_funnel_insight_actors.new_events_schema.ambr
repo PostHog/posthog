@@ -20,8 +20,8 @@
              (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                      e.uuid AS uuid,
-                     e.properties.`$session_id` AS `$session_id`,
-                     e.properties.`$window_id` AS `$window_id`,
+                     ifNull(dynamicElement(e.properties.`$session_id`, 'String'), '') AS `$session_id`,
+                     ifNull(dynamicElement(e.properties.`$window_id`, 'String'), '') AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_1
               FROM events_json AS e
