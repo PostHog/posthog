@@ -1834,6 +1834,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: {
                         pending_user_message: wrapWithPosthogContext(content, [
@@ -2624,6 +2625,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 }
@@ -2712,6 +2714,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                     runtime_adapter: null,
@@ -2767,6 +2770,7 @@ describe('runStreamLogic', () => {
                 error_message: 'Failed to start task workflow',
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
                 runtime_adapter: null,
@@ -3136,6 +3140,7 @@ describe('runStreamLogic', () => {
                 error_message: null,
                 output: null,
                 task_summary: null,
+                task_tags: [],
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
             } satisfies TaskRunDetailDTOApi
@@ -3247,6 +3252,7 @@ describe('runStreamLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     artifacts: [],
                     state: { resume_from_run_id: 'run-1' },
                 })
@@ -3669,6 +3675,7 @@ describe('runStreamLogic', () => {
                         error_message: null,
                         output: null,
                         task_summary: null,
+                        task_tags: [],
                         artifacts: [],
                         state: { resume_from_run_id: 'run-0' },
                     })
