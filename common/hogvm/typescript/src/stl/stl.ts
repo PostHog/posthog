@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { DEFAULT_MAX_MEMORY } from '../constants'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
-import { COST_PER_UNIT, HogVMException, getNestedValue, like } from '../utils'
+import { COST_PER_UNIT, HogVMException, calculateCost, getNestedValue, like } from '../utils'
 import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
@@ -413,33 +413,31 @@ function toDateTimeFromDate(date: HogDate): HogDateTime {
     }
 }
 
-// The stack charges a value for memory only after it is built, and a range that the heap cannot hold
-// stops the process before that check runs. The VM checks `memoryCost` against the caller's limit
-// before the call, but it skips that check when the limit is off, so this ceiling applies in all cases.
-// The ceiling agrees with the stack accounting: an array of N elements costs (N + 1) * COST_PER_UNIT
-// (one unit for the array itself), so the largest length the default limit accepts is
-// DEFAULT_MAX_MEMORY / COST_PER_UNIT - 1.
-const MAX_SEQUENCE_LENGTH = DEFAULT_MAX_MEMORY / COST_PER_UNIT - 1
+// `Array.from` truncates the length and treats a negative or NaN length as 0.
+function rangeLength(args: any[]): number {
+    const length = Math.trunc(args.length === 1 ? Number(args[0]) : args[1] - args[0])
+    return length > 0 ? length : 0
+}
 
-function guardSequenceLength(length: number): void {
-    if (length > MAX_SEQUENCE_LENGTH) {
+// `args[0] + i` builds strings when `args[0]` is a string. The last element is the longest, so its cost prices every element.
+function rangeMemoryCost(args: any[]): number {
+    const length = rangeLength(args)
+    if (length === 0) {
+        return COST_PER_UNIT
+    }
+    const last = args.length === 1 ? length - 1 : args[0] + (length - 1)
+    return COST_PER_UNIT + length * calculateCost(last)
+}
+
+// The VM skips the `memoryCost` check when the caller turns the limit off, so this ceiling applies in all cases.
+function rangeFn(args: any[]): any[] {
+    const cost = rangeMemoryCost(args)
+    if (cost > DEFAULT_MAX_MEMORY) {
         throw new HogVMException(
-            `Memory limit of ${DEFAULT_MAX_MEMORY} bytes exceeded. Tried to allocate ${(length + 1) * COST_PER_UNIT} bytes.`,
+            `Memory limit of ${DEFAULT_MAX_MEMORY} bytes exceeded. Tried to allocate ${cost} bytes.`,
             'limit'
         )
     }
-}
-
-function rangeLength(args: any[]): number {
-    return args.length === 1 ? Number(args[0]) : args[1] - args[0]
-}
-
-function rangeMemoryCost(args: any[]): number {
-    return (Math.max(0, rangeLength(args)) + 1) * COST_PER_UNIT
-}
-
-function rangeFn(args: any[]): any[] {
-    guardSequenceLength(rangeLength(args))
     if (args.length === 1) {
         return Array.from({ length: args[0] }, (_, i) => i)
     }

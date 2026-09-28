@@ -310,8 +310,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         return stack.push(value)
     }
 
-    // pushStack charges a result only after the STL function has built it. A result that the heap
-    // cannot hold stops the process with a fatal V8 error first, so check the declared cost before the call.
+    // pushStack charges a result after it is built, which is too late for a result the heap cannot hold.
     function callStlWithinMemory(stlFn: STLFunction, args: any[], name: string): any {
         if (stlFn.memoryCost && memLimit > 0) {
             const attempted = memUsed + stlFn.memoryCost(args)

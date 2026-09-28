@@ -552,9 +552,13 @@ describe('hogvm execute', () => {
             ],
             { memoryLimit: 2048 },
         ],
+        [
+            "range('000…0', 10) of long strings",
+            ['_H', 1, op.STRING, '0'.repeat(100), op.INTEGER, 10, op.CALL_GLOBAL, 'range', 2, op.RETURN],
+            { memoryLimit: 1000 },
+        ],
     ])('%s is refused before the array is built', (_name, bytecode, options) => {
-        // The spy fails every allocation, because a real range that the heap cannot hold stops the whole
-        // process with a fatal V8 error that no catch can stop.
+        // A real oversized range stops the process with a fatal V8 error, so the spy fails every allocation.
         const arrayFrom = jest.spyOn(Array, 'from').mockImplementation(() => {
             throw new Error('Allocated range')
         })

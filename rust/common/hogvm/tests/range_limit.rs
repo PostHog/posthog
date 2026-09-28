@@ -1,11 +1,8 @@
-//! Regression for `range` with a length past the heap limit: the VM must refuse it before it builds
-//! the array. The heap is charged only after the native function returns, so a range the process
-//! cannot hold aborts the process instead of returning an error.
+//! A range past the heap limit must fail with OutOfResource before the VM builds it, not abort the process.
 
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use serde_json::json;
 
-// Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
 const OP_INTEGER: i64 = 33;
 const OP_RETURN: i64 = 38;
