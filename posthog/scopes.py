@@ -377,7 +377,8 @@ def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
     """An app's explicit scope ceiling, or `None` when it has none (empty `scopes`,
     which falls back to the `UNPRIVILEGED_SCOPES` default). A `@default` sentinel
     expands to `UNPRIVILEGED_SCOPES` unioned with the other listed scopes; without it,
-    a non-empty ceiling stays an exhaustive allow-list. Entries are stripped so a
+    a non-empty ceiling stays an exhaustive allow-list, except that
+    `wizard_session:write` also grants `wizard_run:write`. Entries are stripped so a
     fat-fingered `" @default"` still resolves (real scopes never have whitespace).
 
     This is the literal ceiling, which is also what a token carries on the paths that
@@ -388,6 +389,8 @@ def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
     app.discard("")
     if not app:
         return None
+    if "wizard_session:write" in app:
+        app.add("wizard_run:write")
     if DEFAULT_CEILING_SENTINEL in app:
         return frozenset(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL}))
     return frozenset(app)
