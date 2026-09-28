@@ -2418,7 +2418,7 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
  * Turning it off stops a producer reading the workflow. Suggestions already made are left
  * alone: someone still has them to resolve.
  */
-export const HogFlowsOptimisationCreateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsOptimizationCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
 })
 

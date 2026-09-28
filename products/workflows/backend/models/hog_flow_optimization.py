@@ -6,7 +6,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 
-class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
+class HogFlowOptimization(TeamScopedRootMixin, UUIDTModel):
     """One row per workflow whose owner asked PostHog to suggest improvements to it.
 
     `enabled` is the opt-in: no row, or a disabled one, means nothing reads the workflow, so a
@@ -24,7 +24,7 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
     # db_constraint=False on team: a real FK to a hot table takes a parent-table lock on creation;
     # enforcement stays app-level, as it does on WorkflowProposal.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    hog_flow = models.OneToOneField("workflows.HogFlow", on_delete=models.CASCADE, related_name="optimisation")
+    hog_flow = models.OneToOneField("workflows.HogFlow", on_delete=models.CASCADE, related_name="optimization")
 
     enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this workflow was first opted in.")
@@ -35,4 +35,4 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"HogFlowOptimisation {self.hog_flow_id} ({'on' if self.enabled else 'off'})"
+        return f"HogFlowOptimization {self.hog_flow_id} ({'on' if self.enabled else 'off'})"

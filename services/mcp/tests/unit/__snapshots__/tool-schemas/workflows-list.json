@@ -25,7 +25,7 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
-        "optimisation_enabled": {
+        "optimization_enabled": {
             "description": "Only workflows someone turned suggestions on for.",
             "type": "boolean"
         },

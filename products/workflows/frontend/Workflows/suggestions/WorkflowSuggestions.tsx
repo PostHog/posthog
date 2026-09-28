@@ -34,25 +34,25 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         pendingProposals,
         appliedProposals,
         outcomes,
-        optimisationEnabled,
-        optimisation,
-        optimisationLoading,
-        optimisationUnreadable,
+        optimizationEnabled,
+        optimization,
+        optimizationLoading,
+        optimizationUnreadable,
         proposalsResponse,
         proposalsResponseLoading,
     } = useValues(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
 
-    if (optimisation === null && optimisationLoading) {
+    if (optimization === null && optimizationLoading) {
         return <Spinner />
     }
 
     const nothingFiled = pendingProposals.length === 0 && measuredApplied.length === 0
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
-    const notice = optimisationUnreadable ? (
+    const notice = optimizationUnreadable ? (
         <SuggestionsUnreadableNotice />
-    ) : !optimisationEnabled ? (
+    ) : !optimizationEnabled ? (
         <SuggestionsOffNotice />
     ) : null
 

@@ -216,17 +216,17 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
-    if (logItem.activity == 'optimisation_enabled' || logItem.activity == 'optimisation_disabled') {
+    if (logItem.activity == 'optimization_enabled' || logItem.activity == 'optimization_disabled') {
         return {
             summary: activityLogSummary(
                 logItem,
-                logItem.activity == 'optimisation_enabled' ? 'Turned on suggestions' : 'Turned off suggestions',
+                logItem.activity == 'optimization_enabled' ? 'Turned on suggestions' : 'Turned off suggestions',
                 nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
             ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} />{' '}
-                    {logItem.activity == 'optimisation_enabled' ? 'turned on' : 'turned off'} suggestions for the{' '}
+                    {logItem.activity == 'optimization_enabled' ? 'turned on' : 'turned off'} suggestions for the{' '}
                     {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),

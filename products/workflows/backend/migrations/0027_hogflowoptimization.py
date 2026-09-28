@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="HogFlowOptimisation",
+            name="HogFlowOptimization",
             fields=[
                 (
                     "id",
@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
                     "hog_flow",
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="optimisation",
+                        related_name="optimization",
                         to="workflows.hogflow",
                     ),
                 ),

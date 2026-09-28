@@ -9,10 +9,10 @@ import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element {
-    const { optimisationEnabled, optimisationLoading, optimisationUnreadable } = useValues(
+    const { optimizationEnabled, optimizationLoading, optimizationUnreadable } = useValues(
         workflowProposalsLogic({ id })
     )
-    const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
+    const { setOptimizationEnabled } = useActions(workflowProposalsLogic({ id }))
     const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
 
     // A viewer cannot flip it, so the item is inert instead of a request that ends in an error toast.
@@ -24,9 +24,9 @@ export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element
 
     return (
         <SceneMenuBarCheckboxItem
-            checked={optimisationEnabled}
-            disabled={optimisationLoading || optimisationUnreadable || !!accessDisabledReason}
-            onCheckedChange={(checked) => setOptimisationEnabled(checked)}
+            checked={optimizationEnabled}
+            disabled={optimizationLoading || optimizationUnreadable || !!accessDisabledReason}
+            onCheckedChange={(checked) => setOptimizationEnabled(checked)}
             data-attr="workflow-menubar-suggest-improvements"
         >
             Suggest improvements

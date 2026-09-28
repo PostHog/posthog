@@ -18,7 +18,7 @@ import type {
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
-    HogFlowOptimisationApi,
+    HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
@@ -746,8 +746,8 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
-export const getHogFlowsOptimisationRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/optimisation/`
+export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
 }
 
 /**
@@ -756,19 +756,19 @@ export const getHogFlowsOptimisationRetrieveUrl = (projectId: string, id: string
  * Turning it off stops a producer reading the workflow. Suggestions already made are left
  * alone: someone still has them to resolve.
  */
-export const hogFlowsOptimisationRetrieve = async (
+export const hogFlowsOptimizationRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<HogFlowOptimisationApi> => {
-    return apiMutator<HogFlowOptimisationApi>(getHogFlowsOptimisationRetrieveUrl(projectId, id), {
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsOptimisationCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/optimisation/`
+export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
 }
 
 /**
@@ -777,17 +777,17 @@ export const getHogFlowsOptimisationCreateUrl = (projectId: string, id: string) 
  * Turning it off stops a producer reading the workflow. Suggestions already made are left
  * alone: someone still has them to resolve.
  */
-export const hogFlowsOptimisationCreate = async (
+export const hogFlowsOptimizationCreate = async (
     projectId: string,
     id: string,
-    hogFlowOptimisationApi: HogFlowOptimisationApi,
+    hogFlowOptimizationApi: HogFlowOptimizationApi,
     options?: RequestInit
-): Promise<HogFlowOptimisationApi> => {
-    return apiMutator<HogFlowOptimisationApi>(getHogFlowsOptimisationCreateUrl(projectId, id), {
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowOptimisationApi),
+        body: JSON.stringify(hogFlowOptimizationApi),
     })
 }
 

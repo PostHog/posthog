@@ -1170,7 +1170,7 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
-export interface HogFlowOptimisationApi {
+export interface HogFlowOptimizationApi {
     /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
     enabled: boolean
 }
@@ -1958,7 +1958,7 @@ export type HogFlowsListParams = {
     /**
      * Only workflows someone turned suggestions on for.
      */
-    optimisation_enabled?: boolean
+    optimization_enabled?: boolean
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */

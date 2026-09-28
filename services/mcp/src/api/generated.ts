@@ -50167,7 +50167,7 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
-    export interface HogFlowOptimisation {
+    export interface HogFlowOptimization {
       /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
       enabled: boolean;
     }
@@ -112355,7 +112355,7 @@ export namespace Schemas {
     /**
      * Only workflows someone turned suggestions on for.
      */
-    optimisation_enabled?: boolean;
+    optimization_enabled?: boolean;
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
