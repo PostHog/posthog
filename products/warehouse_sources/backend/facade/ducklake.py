@@ -5,6 +5,7 @@ from typing import Any
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from products.warehouse_sources.backend.duckgres_naming import duckgres_data_imports_table_name_for_version
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
     QueryFolderPointerHistory,
@@ -57,3 +58,17 @@ def query_folder_publishing_job_id(sync_type_config: Any, queryable_folder: str)
     if history is None or history.active != queryable_folder:
         return None
     return history.active_job_id
+
+
+def schema_sync_type_config(*, team_id: int, schema_id: Any) -> Any | None:
+    """The schema's raw `sync_type_config`, or None when the schema no longer exists.
+
+    A plain field read behind the facade, so a caller outside this product (e.g. the DuckLake
+    registration workflow, which needs it to resolve `query_folder_publishing_job_id`) never has to
+    reach for `ExternalDataSchema` directly.
+    """
+    return (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("sync_type_config", flat=True)
+        .first()
+    )
