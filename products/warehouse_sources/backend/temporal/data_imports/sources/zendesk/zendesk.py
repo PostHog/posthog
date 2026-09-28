@@ -525,13 +525,36 @@ def normalize_subdomain(subdomain: str) -> str:
     return re.sub(r"\.zendesk\.com$", "", subdomain, flags=re.IGNORECASE)
 
 
-def zendesk_client_config(subdomain: str, api_key: str, email_address: str) -> ClientConfig:
+@dataclasses.dataclass(frozen=True)
+class ZendeskCredentials:
+    """Sign-in for one Zendesk account: an OAuth access token, or an admin email with an API token."""
+
+    subdomain: str
+    email_address: str | None = None
+    api_key: str | None = dataclasses.field(default=None, repr=False)
+    access_token: str | None = dataclasses.field(default=None, repr=False)
+
+    @property
+    def base_url(self) -> str:
+        return f"https://{normalize_subdomain(self.subdomain)}.zendesk.com"
+
+    @property
+    def authorization_header(self) -> str:
+        if self.access_token:
+            return f"Bearer {self.access_token}"
+        basic_token = base64.b64encode(f"{self.email_address}/token:{self.api_key}".encode("ascii")).decode("ascii")
+        return f"Basic {basic_token}"
+
+
+def zendesk_client_config(credentials: ZendeskCredentials) -> ClientConfig:
     return {
-        "base_url": f"https://{normalize_subdomain(subdomain)}.zendesk.com/",
-        "auth": {
+        "base_url": f"{credentials.base_url}/",
+        "auth": {"type": "bearer", "token": credentials.access_token}
+        if credentials.access_token
+        else {
             "type": "http_basic",
-            "username": f"{email_address}/token",
-            "password": api_key,
+            "username": f"{credentials.email_address}/token",
+            "password": credentials.api_key or "",
         },
     }
 
@@ -596,9 +619,7 @@ def zendesk_fanout_source(
 
 
 def zendesk_source(
-    subdomain: str,
-    api_key: str,
-    email_address: str,
+    credentials: ZendeskCredentials,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -608,7 +629,7 @@ def zendesk_source(
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
 ):
-    client_config = zendesk_client_config(subdomain, api_key, email_address)
+    client_config = zendesk_client_config(credentials)
 
     endpoint_config = ZENDESK_ENDPOINTS.get(endpoint)
     if endpoint_config is not None and endpoint_config.fanout is not None:
@@ -640,11 +661,10 @@ def zendesk_source(
     return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
 
-def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
-    basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
+def validate_credentials(credentials: ZendeskCredentials) -> bool:
     res = make_tracked_session().get(
-        f"https://{normalize_subdomain(subdomain)}.zendesk.com/api/v2/tickets/count",
-        headers={"Authorization": f"Basic {basic_token}"},
+        f"{credentials.base_url}/api/v2/tickets/count",
+        headers={"Authorization": credentials.authorization_header},
     )
 
     return res.status_code == 200

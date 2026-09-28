@@ -59,6 +59,7 @@ export interface organizationIntegrationsLogicValues {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
         )[]
     ) => IntegrationType[]
     organizationIntegrations: IntegrationType[] | null
@@ -136,6 +137,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
         }[],
         payload?: any
     ) => {
@@ -195,6 +197,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
         }[]
         payload?: any
     }
@@ -252,6 +255,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
             )[]
         ) => IntegrationType[]
     }

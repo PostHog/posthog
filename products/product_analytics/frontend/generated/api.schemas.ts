@@ -4348,6 +4348,7 @@ export const IntegrationKindApi = {
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
+    Zendesk: 'zendesk',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {

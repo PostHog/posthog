@@ -199,6 +199,7 @@ export interface RoleLookupResponseApi {
  * * `twilio` - Twilio
  * * `vercel` - Vercel
  * * `youtube-analytics` - Youtube Analytics
+ * * `zendesk` - Zendesk
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
@@ -251,6 +252,7 @@ export const IntegrationKindEnumApi = {
     Twilio: 'twilio',
     Vercel: 'vercel',
     YoutubeAnalytics: 'youtube-analytics',
+    Zendesk: 'zendesk',
 } as const
 
 /**
@@ -619,7 +621,8 @@ export interface IntegrationAccessRequestApi {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
-     * * `youtube-analytics` - Youtube Analytics */
+     * * `youtube-analytics` - Youtube Analytics
+     * * `zendesk` - Zendesk */
     kind: IntegrationKindEnumApi
     /**
      * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -784,6 +787,7 @@ export type IntegrationsListParams = {
      * * `twilio` - Twilio
      * * `vercel` - Vercel
      * * `youtube-analytics` - Youtube Analytics
+     * * `zendesk` - Zendesk
      */
     kind?: IntegrationsListKind
     /**
@@ -847,6 +851,7 @@ export const IntegrationsListKind = {
     Twilio: 'twilio',
     Vercel: 'vercel',
     YoutubeAnalytics: 'youtube-analytics',
+    Zendesk: 'zendesk',
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {

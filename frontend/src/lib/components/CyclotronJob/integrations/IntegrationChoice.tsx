@@ -218,6 +218,8 @@ export function IntegrationChoice({
                     integration={integrationKind || undefined}
                     onComplete={handleModalComplete}
                     onClose={closeNewIntegrationModal}
+                    redirectUrl={redirectUrl}
+                    beforeRedirect={beforeRedirect}
                 />
             ) : null}
         </>

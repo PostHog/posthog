@@ -7,6 +7,7 @@ import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLS
 import { RedshiftSetupModal } from 'scenes/integrations/redshift/RedshiftSetupModal'
 import { S3CompatibleSetupModal } from 'scenes/integrations/s3-compatible/S3CompatibleSetupModal'
 import { SnowflakeSetupModal } from 'scenes/integrations/snowflake/SnowflakeSetupModal'
+import { ZendeskSetupModal } from 'scenes/integrations/zendesk/ZendeskSetupModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
@@ -143,5 +144,21 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <SnowflakeSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'zendesk',
+    menuItem: ({ openModal }) => ({
+        label: 'Connect to Zendesk',
+        onClick: () => openModal('zendesk'),
+    }),
+    SetupModal: ({ isOpen, onClose, redirectUrl, beforeRedirect }) => (
+        <ZendeskSetupModal
+            isOpen={isOpen}
+            onClose={onClose}
+            redirectUrl={redirectUrl}
+            beforeRedirect={beforeRedirect}
+        />
     ),
 })

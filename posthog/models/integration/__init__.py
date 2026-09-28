@@ -79,6 +79,7 @@ from .oauth import (
     SALESFORCE_OAUTH_KINDS,
     OauthConfig,
     OauthIntegration,
+    normalize_zendesk_subdomain,
     posthog_connect_base_url,
     resolve_aliased_oauth_kind,
 )
@@ -184,6 +185,7 @@ __all__ = [
     "POSTHOG_CONNECT_IDENTITY_SCOPES",
     "POSTHOG_CONNECT_GRANTABLE_SCOPES",
     "posthog_connect_base_url",
+    "normalize_zendesk_subdomain",
     "resolve_aliased_oauth_kind",
     "OauthIntegration",
     "PRIVATE_CHANNEL_WITHOUT_ACCESS",

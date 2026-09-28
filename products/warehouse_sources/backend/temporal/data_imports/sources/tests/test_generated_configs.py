@@ -482,11 +482,19 @@ def test_vitally_config():
 
 def test_zendesk_config():
     config = ZendeskSourceConfig.from_dict(
-        {"subdomain": "subdomain", "api_key": "api_key", "email_address": "email_address"}
+        {
+            "auth_method": {
+                "selection": "api_key",
+                "subdomain": "subdomain",
+                "api_key": "api_key",
+                "email_address": "email_address",
+            }
+        }
     )
-    assert config.subdomain == "subdomain"
-    assert config.api_key == "api_key"
-    assert config.email_address == "email_address"
+    assert config.auth_method.selection == "api_key"
+    assert config.auth_method.subdomain == "subdomain"
+    assert config.auth_method.api_key == "api_key"
+    assert config.auth_method.email_address == "email_address"
 
 
 def test_get_config_for_source_resolves_every_registered_source():

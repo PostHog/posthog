@@ -159,6 +159,7 @@ export interface destinationModalLogicActions {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
     }
     submitDestinationForm: () => {
         value: boolean

@@ -43,6 +43,7 @@ import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
+import IconZendesk from 'public/services/zendesk.png'
 
 /**
  * What a "link an existing installation" banner offered, reported as counts on
@@ -130,6 +131,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    zendesk: IconZendesk,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -170,6 +172,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'GitHub'
         case 'helpscout':
             return 'Help Scout'
+        case 'zendesk':
+            return 'Zendesk'
         case 'firebase':
             return 'Firebase'
         case 'apns':

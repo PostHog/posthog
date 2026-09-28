@@ -18,6 +18,17 @@ if (empty(inputs.email) or empty(inputs.name)) {
     return
 }
 
+let subdomain := inputs.subdomain
+let authorization := ''
+if (not empty(inputs.oauth)) {
+    subdomain := inputs.oauth.subdomain
+    authorization := f'Bearer {inputs.oauth.access_token}'
+} else if (not empty(inputs.subdomain) and not empty(inputs.admin_email) and not empty(inputs.token)) {
+    authorization := f'Basic {base64Encode(f'{inputs.admin_email}/token:{inputs.token}')}'
+} else {
+    throw Error('Connect a Zendesk account, or enter a Zendesk subdomain, API user email, and API token.')
+}
+
 let body := {
     'user': {
         'email': inputs.email,
@@ -33,9 +44,9 @@ for (let key, value in inputs.attributes) {
     }
 }
 
-fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
+fetch(f'https://{subdomain}.zendesk.com/api/v2/users/create_or_update', {
   'headers': {
-    'Authorization': f'Basic {base64Encode(f'{inputs.admin_email}/token:{inputs.token}')}',
+    'Authorization': authorization,
     'Content-Type': 'application/json'
   },
   'body': body,
@@ -44,28 +55,37 @@ fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
 """.strip(),
     inputs_schema=[
         {
+            "key": "oauth",
+            "type": "integration",
+            "integration": "zendesk",
+            "label": "Zendesk account",
+            "secret": False,
+            "required": False,
+            "description": "Connect your Zendesk account. If you connect an account, you can leave the API token fields empty.",
+        },
+        {
             "key": "subdomain",
             "type": "string",
             "label": "Zendesk subdomain",
-            "description": "Generally, Your Zendesk URL has two parts: a subdomain name you chose when you set up your account, followed by zendesk.com (for example: mycompany.zendesk.com). Please share the subdomain name with us so we can set up your account.",
+            "description": "Only needed with an API token. Your Zendesk URL has two parts: a subdomain name you chose when you set up your account, followed by zendesk.com (for example: mycompany.zendesk.com). Enter the subdomain name.",
             "secret": False,
-            "required": True,
+            "required": False,
         },
         {
             "key": "admin_email",
             "type": "string",
             "label": "API user email",
             "secret": True,
-            "required": True,
-            "description": "Enter the email of an admin in Zendesk. Activity using the API key will be attributed to this user.",
+            "required": False,
+            "description": "Only needed with an API token. Enter the email of an admin in Zendesk. Activity using the API token will be attributed to this user.",
         },
         {
             "key": "token",
             "type": "string",
             "label": "API token",
             "secret": True,
-            "required": True,
-            "hint": "Enter your Zendesk API Token",
+            "required": False,
+            "hint": "Only needed if you do not connect a Zendesk account. Zendesk is retiring API tokens.",
         },
         {
             "key": "email",
