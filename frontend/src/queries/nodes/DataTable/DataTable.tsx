@@ -14,7 +14,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -92,6 +91,7 @@ import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketin
 import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { ViewLinkButton } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { PersonDeleteModal } from 'products/persons/frontend/components/PersonDeleteModal'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'

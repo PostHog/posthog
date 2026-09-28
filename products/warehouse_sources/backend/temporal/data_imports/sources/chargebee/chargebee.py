@@ -105,6 +105,46 @@ def get_resource(
             },
             "table_format": "delta",
         },
+        # Items and item prices have no `include_deleted` param; the list endpoints return
+        # deleted records with `deleted: true` and `status: "deleted"`.
+        "ItemPrices": {
+            "name": "ItemPrices",
+            "table_name": "item_prices",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].item_price",
+                "path": "/v2/item_prices",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Items": {
+            "name": "Items",
+            "table_name": "items",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].item",
+                "path": "/v2/items",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
         "Orders": {
             "name": "Orders",
             "table_name": "orders",

@@ -48,7 +48,7 @@ describe("SessionInitialization", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(["no hooks", "hooks complete", "hooks still running"])(
+  it.each(["no hooks", "hooks complete", "hooks still running"] as const)(
     "bounds stalled initialization with %s",
     async (scenario) => {
       const stdout = new PassThrough();
@@ -69,10 +69,40 @@ describe("SessionInitialization", () => {
         result: "timeout",
         phase: hooksRunning ? "setup_hooks" : "sdk_initialization",
         timeoutMs,
+        cliOutput: {
+          lines: {
+            "no hooks": 1,
+            "hooks complete": 3,
+            "hooks still running": 2,
+          }[scenario],
+          hasPartialLine: false,
+          msSinceLastLine: 1,
+          lastMessageType: "system/hook_progress",
+        },
       });
       expect(stdout.listenerCount("data")).toBe(0);
     },
   );
+
+  it("reports partial output and bounds message type labels", async () => {
+    const stdout = new PassThrough();
+    const monitor = new SessionInitialization(vi.fn());
+    monitor.observe(stdout);
+    const result = monitor.wait(new Promise<never>(() => {}));
+    stdout.write(`${JSON.stringify({ type: "x".repeat(150) })}\npartial`);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(result).resolves.toMatchObject({
+      result: "timeout",
+      cliOutput: {
+        lines: 1,
+        hasPartialLine: true,
+        msSinceLastLine: 30_000,
+        lastMessageType: "x".repeat(100),
+      },
+    });
+  });
 
   it("waits for all concurrent hooks and ignores oversized unrelated output", async () => {
     const stdout = new PassThrough();

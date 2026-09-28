@@ -8,16 +8,19 @@ This persists the broken state across three surfaces that the UI and health chec
 
 - ``source.status = ERROR`` — the source-level "something is wrong" signal.
 - per-CDC-schema ``sync_type_config["cdc_broken"]`` plus ``status=FAILED`` / friendly ``latest_error``.
-- the Temporal extraction schedule is paused so it stops firing against a resource that is gone.
+- the Temporal extraction schedule and each marked table's schedule are paused so they stop firing
+  against a resource that is gone.
 
-Clearing ``cdc_broken`` and unpausing the schedule (done by ``repair_cdc`` / ``disable_cdc``)
-restores operation — see the recovery contract in those API actions.
+Clearing ``cdc_broken`` and unpausing the schedules (done by ``repair_cdc``) restores operation — see
+the recovery contract in that API action.
 """
 
 from __future__ import annotations
 
 import typing
 import datetime as dt
+
+from django.db import transaction
 
 import structlog
 import posthoganalytics
@@ -35,6 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 logger = structlog.get_logger(__name__)
+
+SELF_MANAGED_LAG_REASON = "critical_lag_self_managed"
 
 
 def mark_cdc_broken(
@@ -58,40 +63,44 @@ def mark_cdc_broken(
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
 
-    source.status = ExternalDataSource.Status.ERROR
-    source.save(update_fields=["status", "updated_at"])
-
     broken_marker = {"reason": reason, "at": dt.datetime.now(tz=dt.UTC).isoformat(), **extra}
-    cdc_schemas = list(
-        ExternalDataSchema.objects.filter(
-            source=source,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=True,
-        ).exclude(deleted=True)
-    )
-    # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
-    # Report once: only schemas newly entering this broken state produce failure-digest
-    # evidence, otherwise an ongoing condition would re-email the team daily and pile a
-    # synthetic FAILED run per sweep onto the Syncs tab.
-    newly_broken = [
-        schema
-        for schema in cdc_schemas
-        if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
-    ]
-    for schema in cdc_schemas:
-        # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
-        update_sync_type_config_keys(
-            schema.id,
-            source.team_id,
-            updates={"cdc_broken": broken_marker},
-            extra_model_fields={
-                "status": ExternalDataSchema.Status.FAILED,
-                "latest_error": message,
-            },
+    # The source row lock serializes this with clear_recovered_self_managed_lag, which must not
+    # see the source status and the markers half-written.
+    with transaction.atomic():
+        ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id, team_id=source.team_id)
+        source.status = ExternalDataSource.Status.ERROR
+        source.save(update_fields=["status", "updated_at"])
+
+        cdc_schemas = list(
+            ExternalDataSchema.objects.filter(
+                source=source,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            ).exclude(deleted=True)
         )
+        # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
+        # Report once: only schemas newly entering this broken state produce failure-digest
+        # evidence, otherwise an ongoing condition would re-email the team daily and pile a
+        # synthetic FAILED run per sweep onto the Syncs tab.
+        newly_broken = [
+            schema
+            for schema in cdc_schemas
+            if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
+        ]
+        for schema in cdc_schemas:
+            # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
+            update_sync_type_config_keys(
+                schema.id,
+                source.team_id,
+                updates={"cdc_broken": broken_marker},
+                extra_model_fields={
+                    "status": ExternalDataSchema.Status.FAILED,
+                    "latest_error": message,
+                },
+            )
 
     if pause:
-        _pause_schedule(source, log)
+        _pause_schedules(source, cdc_schemas, log)
 
     # Breakage often originates outside a run (the lag sweeper), so no FAILED job row exists.
     # The failure digest email needs one: its schema query requires a failed job newer than the
@@ -105,6 +114,42 @@ def mark_cdc_broken(
     _capture(source, reason, paused=pause, log=log)
 
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
+
+
+def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
+    """Lift the ``critical_lag_self_managed`` marker once the slot's lag is back under the warning threshold.
+
+    PostHog never drops a self-managed slot, so this marker reports a condition, not lost state.
+    Left in place it keeps absorbing every status update and makes resume refuse the source,
+    long after the customer has recovered. Returns how many schemas were cleared.
+    """
+
+    def _clear(config: dict[str, typing.Any]) -> None:
+        if (config.get("cdc_broken") or {}).get("reason") == SELF_MANAGED_LAG_REASON:
+            config.pop("cdc_broken")
+
+    marked = ExternalDataSchema.objects.filter(
+        team_id=source.team_id, source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
+    )
+    if not marked.exists():
+        return 0
+    # Source lock first, the order mark_cdc_broken takes, so a concurrent re-mark cannot interleave.
+    with transaction.atomic():
+        locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id, team_id=source.team_id)
+        schema_ids = list(
+            ExternalDataSchema.objects.filter(
+                team_id=source.team_id, source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
+            ).values_list("id", flat=True)
+        )
+        for schema_id in schema_ids:
+            update_sync_type_config_keys(schema_id, source.team_id, mutate=_clear)
+        still_broken = ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type_config__has_key="cdc_broken"
+        ).exists()
+        if schema_ids and not still_broken:
+            locked.status = ExternalDataSource.Status.RUNNING
+            locked.save(update_fields=["status", "updated_at"])
+    return len(schema_ids)
 
 
 def _create_failure_visibility_jobs(
@@ -142,15 +187,22 @@ def _schedule_failure_digest(source: ExternalDataSource, log: typing.Any) -> Non
         log.warning("cdc_broken_digest_schedule_failed", exc_info=True)
 
 
-def _pause_schedule(source: ExternalDataSource, log: typing.Any) -> None:
-    try:
-        # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
-        from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
+def _pause_schedules(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema], log: typing.Any) -> None:
+    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+    from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule, pause_external_data_schedule
 
+    # Best-effort: a failed pause must not block persisting the broken state.
+    try:
         pause_cdc_extraction_schedule(str(source.id))
     except Exception:
-        # Best-effort: a failed pause must not block persisting the broken state.
         log.warning("cdc_broken_pause_schedule_failed", exc_info=True)
+    # A table's schedule would otherwise keep firing against a source with no slot, and every tick
+    # would record a failed or billing-blocked job until someone repairs the source.
+    for schema in cdc_schemas:
+        try:
+            pause_external_data_schedule(str(schema.id))
+        except Exception:
+            log.warning("cdc_broken_pause_table_schedule_failed", schema_id=str(schema.id), exc_info=True)
 
 
 def _notify(source: ExternalDataSource, message: str, log: typing.Any) -> None:

@@ -7,21 +7,6 @@ export function isAiEventName(event: string): boolean {
     return event.startsWith(AI_EVENT_NAME_PREFIX)
 }
 
-// Billing only (billable-events.ts); ingestion uses `isAiEventName`.
-export const AI_EVENT_TYPES = new Set([
-    '$ai_generation',
-    '$ai_embedding',
-    '$ai_evaluation',
-    '$ai_span',
-    '$ai_trace',
-    '$ai_metric',
-    '$ai_feedback',
-    '$ai_tag',
-    '$ai_generation_summary',
-    '$ai_trace_summary',
-    '$ai_evaluation_report',
-])
-
 // Anything that writes a cost onto an event must gate on this set. A cost on any
 // other event type is never priced or labeled by processCost, and the AI
 // observability usage report sums $ai_total_cost_usd across every AI event type,

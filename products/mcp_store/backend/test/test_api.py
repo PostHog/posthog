@@ -1,6 +1,6 @@
 import hashlib
 from datetime import timedelta
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
@@ -46,7 +46,10 @@ from products.mcp_store.backend.presentation.gateway_views import (
     GatewayPoliciesUpsertSerializer,
     ServiceAccountAccessUpdateSerializer,
 )
-from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
+from products.mcp_store.backend.presentation.views import (
+    MCPServerInstallationViewSet,
+    _is_valid_posthog_code_callback_url,
+)
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
@@ -3877,6 +3880,61 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "/api/mcp_store/oauth_redirect/", {"state": state_token, "error": "access_denied"}
         )
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestBuildAuthorizeUrlFromMetadata(SimpleTestCase):
+    def test_merges_query_params_when_authorization_endpoint_already_has_query(self) -> None:
+        """Railway (and similar AS) advertise authorization_endpoint with ?resource=...
+
+        Appending another '?' buries client_id inside the resource value, and the
+        AS responds with: missing required parameter 'client_id'.
+        """
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={
+                # Shape from https://backboard.railway.com/.well-known/oauth-authorization-server
+                "authorization_endpoint": (
+                    "https://backboard.railway.com/oauth/auth?resource=https%3A%2F%2Fbackboard.railway.com"
+                ),
+                "scopes_supported": ["openid", "offline_access", "workspace:member"],
+                # From https://mcp.railway.com/.well-known/oauth-protected-resource
+                "resource": "https://mcp.railway.com",
+            },
+            client_id="rlwy_oaci_test_client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        parts = urlsplit(authorize_url)
+        assert parts.scheme == "https"
+        assert parts.netloc == "backboard.railway.com"
+        assert parts.path == "/oauth/auth"
+        assert authorize_url.count("?") == 1
+
+        params = parse_qs(parts.query)
+        assert params["client_id"] == ["rlwy_oaci_test_client"]
+        assert params["redirect_uri"] == ["https://us.posthog.com/api/mcp_store/oauth_redirect/"]
+        assert params["response_type"] == ["code"]
+        assert params["state"] == ["test-state"]
+        assert params["code_challenge"] == ["test-challenge"]
+        assert params["code_challenge_method"] == ["S256"]
+        # PostHog's PRM resource must win over the AS-baked issuer resource
+        assert params["resource"] == ["https://mcp.railway.com"]
+
+    def test_keeps_repeated_endpoint_query_params(self) -> None:
+        view = MCPServerInstallationViewSet()
+        authorize_url = view._build_authorize_url_from_metadata(
+            metadata={"authorization_endpoint": "https://auth.example.com/authorize?tenant=a&tenant=b&state=stale"},
+            client_id="test-client",
+            redirect_uri="https://us.posthog.com/api/mcp_store/oauth_redirect/",
+            state_token="test-state",
+            code_challenge="test-challenge",
+        )
+
+        params = parse_qs(urlsplit(authorize_url).query)
+        assert params["tenant"] == ["a", "b"]
+        assert params["state"] == ["test-state"]
 
 
 class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):

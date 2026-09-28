@@ -1,23 +1,35 @@
 import re
+import time
 import errno
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Literal, Optional
+from functools import wraps
+from typing import Literal, Optional, ParamSpec, TypeVar
 from uuid import uuid4
 
 from django.conf import settings
+from django.db import OperationalError as DjangoOperationalError
 
+import psycopg
 import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_stale_db_connections
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+LOGGER = get_logger(__name__)
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 # A best-effort delete of old query folders can hit a transient S3 connectivity blip
 # (connect/read timeout, dropped connection). The folder is timestamped and simply gets
@@ -117,6 +129,107 @@ class PostHogInternalDatabaseError(Exception):
     message intentionally avoids those substrings to keep it retryable instead of being
     misclassified as a permanent failure of the source being synced.
     """
+
+
+# Transient failures reaching PostHog's own database, matched on the wording psycopg reports.
+# `is_transient_db_error` deliberately leaves connect-time failures out, because it also classifies
+# errors raised against a customer-supplied host, where a name that does not resolve or a port that
+# refuses a connection is permanent misconfiguration. Code whose only database is ours reads the
+# same wording the other way round: our host stops resolving, or refuses a connection, while
+# infrastructure moves under a long-lived worker, and a later attempt reaches the database again.
+# The list stays this narrow because psycopg reports a rejected password and a missing database
+# through the same OperationalError class, and those must keep failing fast.
+_TRANSIENT_INTERNAL_DB_MARKERS = (
+    # Our host did not resolve. psycopg resolves the host itself and reports whatever
+    # getaddrinfo returned, so which of these wordings arrives depends on how resolution failed
+    # (EAI_NONAME, EAI_AGAIN, EAI_NODATA and EAI_FAIL respectively), and the last one is libpq's
+    # equivalent. EAI_FAIL belongs here too: our host name comes from our own configuration, so a
+    # resolver that answers "non-recoverable" is describing the resolver, not the name.
+    "name or service not known",
+    "temporary failure in name resolution",
+    "no address associated with hostname",
+    "non-recoverable failure in name resolution",
+    "could not translate host name",
+    # Nothing accepts a connection on the port, because the pooler or the database is restarting
+    # or its endpoint is being re-pointed.
+    "connection refused",
+)
+
+# The tightest start_to_close timeout among the activities that use this is one minute, so the
+# retry budget has to stay well inside it. 4 attempts spend 14s on backoff (2+4+8s), and a failed
+# attempt adds almost nothing because an unresolvable name and a refused port both fail at once.
+_INTERNAL_DB_MAX_ATTEMPTS = 4
+
+
+def is_transient_internal_db_error(error: BaseException) -> bool:
+    """Whether `error` is a transient failure reaching PostHog's own database.
+
+    Only for code that talks to our database. Never classify a connection to a customer's source
+    database with this, because there the same psycopg wording means the customer's host is
+    misconfigured and the sync has to stop instead of retrying.
+    """
+    if is_transient_db_error(error):
+        return True
+    if not isinstance(error, DjangoOperationalError | psycopg.OperationalError):
+        return False
+    message = str(error).lower()
+    return any(marker in message for marker in _TRANSIENT_INTERNAL_DB_MARKERS)
+
+
+def retry_internal_db_operation(operation: Callable[[], T]) -> T:
+    """Run `operation`, and retry it with backoff while reaching PostHog's own database fails
+    transiently.
+
+    An activity that reads our database at its start fails through no fault of its own when the
+    host briefly stops resolving or refuses a connection, and each failed attempt reports an
+    exception nobody can action. Absorb the blip here, so only an exhausted budget reaches error
+    tracking, where it describes a database that is really unreachable.
+
+    `posthog.temporal.common.utils.retry_on_db_connection_drop` covers the neighboring case of a
+    stale pooled connection, which one immediate retry on a fresh connection resolves. A connect
+    failure needs the delay as well, because the name or the port has to become reachable first.
+
+    Pass a zero-arg callable that produces the result, so a retry issues a fresh query:
+
+        schema = retry_internal_db_operation(lambda: ExternalDataSchema.objects.get(id=schema_id))
+    """
+    attempt = 0
+
+    while True:
+        attempt += 1
+        try:
+            return operation()
+        except Exception as e:
+            if attempt >= _INTERNAL_DB_MAX_ATTEMPTS or not is_transient_internal_db_error(e):
+                raise
+            # A failed attempt can leave a broken connection in this worker's pool, so evict it
+            # and let the next attempt reconnect.
+            close_stale_db_connections()
+            LOGGER.warning(
+                f"Transient failure reaching PostHog's database (attempt {attempt}/{_INTERNAL_DB_MAX_ATTEMPTS}), retrying",
+                exc_info=e,
+            )
+            time.sleep(2**attempt)
+
+
+def with_internal_db_retries(fn: Callable[P, T]) -> Callable[P, T]:
+    """Decorator form of `retry_internal_db_operation`, for an activity whose whole body is
+    idempotent work against PostHog's own database. Stack it under `@activity.defn`:
+
+        @activity.defn
+        @with_internal_db_retries
+        def my_activity(inputs: MyInputs) -> None: ...
+
+    An activity that also does expensive work of its own, such as an S3 listing or an extraction,
+    wraps its individual queries with `retry_internal_db_operation` instead, so a blip on a late
+    write does not repeat the work before it.
+    """
+
+    @wraps(fn)
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+        return retry_internal_db_operation(lambda: fn(*args, **kwargs))
+
+    return inner
 
 
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
@@ -272,6 +385,9 @@ async def prepare_s3_files_for_querying(
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
             is_transient_object_store_error,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_object_store_permission_denied,
+        )
 
         attempt = 0
         while True:
@@ -308,11 +424,21 @@ async def prepare_s3_files_for_querying(
                         level="error",
                     )
             except OSError as e:
+                if is_object_store_permission_denied(e):
+                    # An explicit AccessDenied/lacked-privileges response is never a race - every
+                    # retry would repeat the same refused call, so fail on the first attempt.
+                    raise S3OperationError("copy this table's files into its query folder", e)
                 # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
                 # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
                 # bug here - retry the whole (idempotent) copy batch with backoff before giving up.
+                # A bare PermissionError is included too: AWS omits the error code from a HeadObject
+                # response body, so s3fs's _cp_file (which HEADs the destination) raises the same
+                # PermissionError("Forbidden") for a brief credential-resolution race as it does for a
+                # genuine denial (is_object_store_permission_denied only catches the latter, via an
+                # explicit code). _purge_s3_prefix retries this same ambiguous case for the same
+                # reason - see _is_retryable_purge_error.
                 if attempt >= _COPY_FILES_MAX_ATTEMPTS or not (
-                    is_transient_object_store_error(e) or _is_s3_throttling_error(e)
+                    is_transient_object_store_error(e) or _is_s3_throttling_error(e) or isinstance(e, PermissionError)
                 ):
                     # Either the failure needs a human (denied permissions, a storage backend with no
                     # free space) or the retries ran out. Both leave the raw s3fs message, so re-raise
@@ -354,7 +480,7 @@ async def prepare_s3_files_for_querying(
                                 continue
 
                             await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not _is_transient_s3_connection_error(e):
+                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
                                 capture_exception(S3OperationError("delete an old query folder for this table", e))
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would

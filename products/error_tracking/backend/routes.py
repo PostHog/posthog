@@ -107,6 +107,7 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_error_tracking_spike_events",
         ["team_id"],
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     routers.projects.register(
         r"error_tracking/git-provider-file-links",
         GitProviderFileLinksViewSet,
