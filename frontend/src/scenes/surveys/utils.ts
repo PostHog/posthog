@@ -956,6 +956,15 @@ function chooseColumns(columns: SurveyResponseColumn[]): ChosenColumn[] {
     })
 }
 
+/** A property can share its label with a fixed export column, and HogQL rejects a repeated alias. */
+function uniqueColumnName(name: string, taken: string[]): string {
+    let unique = name
+    for (let suffix = 2; taken.includes(unique); suffix++) {
+        unique = `${name} (${suffix})`
+    }
+    return unique
+}
+
 function propertyReadsFor(chosen: ChosenColumn[]): PropertyRead[] {
     return chosen.flatMap(({ read }) => (read ? [read] : []))
 }
@@ -1012,7 +1021,7 @@ export function buildSurveyResponsesExportQuery(
     ]
 
     for (const { column, source } of chosen) {
-        columns.push(surveyResponseColumnLabel(column))
+        columns.push(uniqueColumnName(surveyResponseColumnLabel(column), columns))
         expressions.push(source)
     }
 

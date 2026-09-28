@@ -1471,6 +1471,12 @@ describe('survey filters', () => {
             exportLabel: 'plan tier',
         },
         {
+            column: { type: TaxonomicFilterGroupType.PersonProperties, key: 'Status' } as const,
+            read: 'person.properties.Status AS column_0',
+            select: 'column_0 AS "person.properties.Status"',
+            exportLabel: 'Status (2)',
+        },
+        {
             column: { type: 'person_id' } as const,
             read: null,
             select: 'person_id AS person_id',
