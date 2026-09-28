@@ -6,12 +6,10 @@ import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { Link } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
@@ -22,6 +20,7 @@ import type { Experiment, MultivariateFlagVariant } from '~/types'
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 
 import { ensureIsPercent, isEvenlyDistributed } from '../utils'
+import { PersistFlagAcrossAuthentication } from './PersistFlagAcrossAuthentication'
 import {
     computeUpdatedVariantSplit,
     distributeVariantsEvenly,
@@ -319,35 +318,21 @@ export const VariantsPanelCreateFeatureFlag = ({
                 </div>
             </div>
 
-            <div>
-                <LemonCheckbox
-                    label="Persist flag across authentication steps"
-                    onChange={(checked) => {
-                        onChange({
-                            variants,
-                            ensure_experience_continuity: checked,
-                            rollout_percentage: rolloutPercentage,
-                        })
-                    }}
-                    fullWidth
-                    checked={ensureExperienceContinuity}
-                    disabledReason={
-                        disabled
-                            ? 'You cannot change the persist flag across authentication steps when editing an experiment.'
-                            : undefined
-                    }
-                />
-                <div className="text-secondary text-sm pl-6 mt-2">
-                    This is only relevant if your feature flag is shown to both logged out AND logged in users. Note
-                    that this feature is not compatible with all setups,{' '}
-                    <Link
-                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                        target="_blank"
-                    >
-                        learn more
-                    </Link>
-                </div>
-            </div>
+            <PersistFlagAcrossAuthentication
+                checked={ensureExperienceContinuity}
+                onChange={(checked) => {
+                    onChange({
+                        variants,
+                        ensure_experience_continuity: checked,
+                        rollout_percentage: rolloutPercentage,
+                    })
+                }}
+                disabledReason={
+                    disabled
+                        ? 'You cannot change the persist flag across authentication steps when editing an experiment.'
+                        : undefined
+                }
+            />
         </div>
     )
 }
