@@ -2560,7 +2560,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "definition": definition.json()["id"],
                 "external_data_schema": str(schema.id),
-                "column_property_map": {"plan": "plan_tier"},
+                "column_property_map": {"plan": "plan_tier_pending"},
                 "key_column": "org_id",
             },
             format="json",
@@ -2568,7 +2568,14 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
 
-        # Stamping the initial mapping is synchronous (no value backfill needed to attribute it).
+        # Settle the mapping to its tested value via an update. Provenance is stamped as soon as an
+        # enabled source's effective mapping changes, without waiting for a value backfill.
+        settled = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "plan_tier"}},
+            format="json",
+        )
+        assert settled.status_code == status.HTTP_200_OK, settled.content
         old_definition = PropertyDefinition.objects.get(
             team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="plan_tier"
         )
