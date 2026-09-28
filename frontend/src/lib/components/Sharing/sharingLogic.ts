@@ -310,7 +310,7 @@ export interface sharingLogicMeta {
             sharingConfiguration: SharingConfigurationType | null,
             params: any
         ) => string
-        teamLink: (siteUrl: string | undefined, arg: any, arg2: any) => string | null
+        teamLink: (arg: any, arg2: any) => string | null
         iframeProperties: (
             embedLink: string,
             iframeKey: number
@@ -476,14 +476,13 @@ export const sharingLogic = kea<sharingLogicType>([
 
         // The in-app URL. It grants no access, so only people who can already open the resource can use it.
         teamLink: [
-            (s) => [s.siteUrl, (_, props) => props.dashboardId, (_, props) => props.insightShortId],
-            (siteUrl: string | undefined, dashboardId?: number, insightShortId?: InsightShortId): string | null => {
-                const origin = siteUrl || window.location.origin
+            () => [(_, props) => props.dashboardId, (_, props) => props.insightShortId],
+            (dashboardId?: number, insightShortId?: InsightShortId): string | null => {
                 if (dashboardId) {
-                    return origin + urls.currentProject(urls.dashboard(dashboardId))
+                    return urls.absolute(urls.currentProject(urls.dashboard(dashboardId)))
                 }
                 if (insightShortId) {
-                    return origin + urls.currentProject(urls.insightView(insightShortId))
+                    return urls.absolute(urls.currentProject(urls.insightView(insightShortId)))
                 }
                 return null
             },
