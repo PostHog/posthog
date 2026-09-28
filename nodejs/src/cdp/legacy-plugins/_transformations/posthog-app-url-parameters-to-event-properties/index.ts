@@ -49,7 +49,13 @@ export const setupPlugin = (meta: LocalMeta): void => {
 
 export const processEvent = (event: PluginEvent, meta: LocalMeta): PluginEvent => {
     if (event.properties?.$current_url) {
-        const url = new URL(event.properties.$current_url)
+        let url: URL
+        try {
+            url = new URL(event.properties.$current_url)
+        } catch {
+            // Skip relative or malformed URLs so that the invocation does not fail
+            return event
+        }
         const params = meta.global.ignoreCase
             ? convertSearchParams(new URLSearchParams(url.searchParams))
             : new URLSearchParams(url.searchParams)
