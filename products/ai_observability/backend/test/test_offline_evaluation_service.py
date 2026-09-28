@@ -501,7 +501,7 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 1)
 
     def test_concurrent_experiment_creation_returns_one_identity(self) -> None:
-        submission = ExperimentSubmission(id=uuid4(), name="Retried creation", started_at=timezone.now())
+        submission = ExperimentSubmission(id=uuid4(), name="Retried creation", started_at=self.experiment.started_at)
         second_started = Event()
         with ThreadPoolExecutor(max_workers=1) as executor:
             with transaction.atomic():

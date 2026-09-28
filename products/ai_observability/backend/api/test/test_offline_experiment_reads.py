@@ -346,7 +346,11 @@ class TestOfflineExperimentReads(APIBaseTest):
 
     def test_nested_reads_reject_valid_ids_from_another_experiment(self) -> None:
         other = OfflineExperiment.objects.for_team(self.team.id).create(
-            id=uuid4(), team=self.team, name="Other run", started_at=timezone.now(), submission_fingerprint="e" * 64
+            id=uuid4(),
+            team=self.team,
+            name="Other run",
+            started_at=self.experiment.started_at,
+            submission_fingerprint="e" * 64,
         )
         for suffix in [
             f"{other.id}/items/{self.item.id}/",
@@ -402,7 +406,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             {
                 "id": experiment_id,
                 "name": "Child run",
-                "started_at": timezone.now().isoformat(),
+                "started_at": self.experiment.started_at.isoformat(),
                 "dataset_revision_id": dataset_item.data["dataset_revision_id"],
             },
             format="json",
