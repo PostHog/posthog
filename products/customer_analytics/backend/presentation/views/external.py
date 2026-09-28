@@ -216,11 +216,14 @@ def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team
     return psak.team, None
 
 
-def _authenticate_team_or_psak(request: Request, psak_scope: str) -> tuple[Team | None, Response | None, str]:
-    """Also returns the auth method label for ``ACCOUNT_ACTION_AUTH_COUNTER``."""
+def _authenticate_team_or_psak(request: Request, psak_scope: str) -> tuple[Team, None] | tuple[None, Response]:
     if is_authenticated_via_project_secret_api_key(request):
-        return *_authenticate_psak_team(request, psak_scope), "project_secret_api_key"
-    return *_authenticate_team(request), "secret_api_token"
+        return _authenticate_psak_team(request, psak_scope)
+    return _authenticate_team(request)
+
+
+def _get_auth_method_label(request: Request) -> str:
+    return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "secret_api_token"
 
 
 def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
@@ -337,12 +340,12 @@ class ExternalAccountView(APIView):
         ),
     )
     def get(self, request: Request) -> Response:
-        team, error, auth_method = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_READ_SCOPE)
+        team, error = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_READ_SCOPE)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=auth_method, http_method="get").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="get").inc()
 
         external_id = request.query_params.get("external_id", "").strip()
         if not external_id:
@@ -371,12 +374,12 @@ class ExternalAccountView(APIView):
         ),
     )
     def post(self, request: Request) -> Response:
-        team, error, auth_method = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
+        team, error = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=auth_method, http_method="post").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="post").inc()
         return handle_account_create(request, team)
 
     # PATCH stays out of the generated schema. drf-spectacular renders its body as fully optional
