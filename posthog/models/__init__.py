@@ -48,6 +48,7 @@ from .organization_domain import OrganizationDomain
 from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
+from .organization_provisioning import OrganizationProvisioning
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
@@ -135,6 +136,7 @@ __all__ = [
     "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
     "OAuthGrant",

@@ -11,6 +11,8 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -38,7 +40,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
             is_provisioning_partner=is_provisioning_partner,
         )
 
-    def _run_command(self, rows: list[tuple[object, object]], *args: str) -> str:
+    def _run_command(self, rows: list[tuple[object, object]], *args: str) -> dict[str, str]:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir:
             csv_path = Path(tmp_dir) / "attribution.csv"
@@ -47,7 +49,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
                 writer.writerow(["team_id", "partner_id"])
                 writer.writerows(rows)
             call_command("backfill_agentic_provisioning_attribution", str(csv_path), *args, stdout=out)
-        return out.getvalue()
+        return dict(line.rsplit(": ", 1) for line in out.getvalue().splitlines() if ": " in line)
 
     def _seed_config(self, team: Team, application: str | None) -> None:
         TeamProvisioningConfig.objects.create(team=team, application=self.apps[application] if application else None)
@@ -85,11 +87,14 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
 
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(null_team) is None
-        assert "would create: 1" in output
-        assert "would fill: 1" in output
+        assert not OrganizationProvisioning.objects.exists()
+        assert output["would create"] == "1"
+        assert output["would fill"] == "1"
+        assert output["provisioning_api organizations, would create"] == "1"
 
     def test_live_run_skips_unresolvable_rows_and_attributes_the_rest(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
+        conflicting_team = Team.objects.create(organization=self.organization, name="Conflicting team")
         partner_id = self.apps["partner"].id
 
         output = self._run_command(
@@ -98,12 +103,67 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
                 (self.team.id, uuid.uuid4()),
                 ("not-a-team-id", partner_id),
                 (other_team.id, partner_id),
+                (conflicting_team.id, partner_id),
+                (conflicting_team.id, self.apps["other_partner"].id),
             ],
             "--live-run",
         )
 
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(other_team) == "partner"
-        assert "skipped_team_not_found: 1" in output
-        assert "skipped_application_not_found: 1" in output
-        assert "skipped_invalid_row: 1" in output
+        assert self._attribution(conflicting_team) == NO_ROW
+        assert output["skipped_team_not_found"] == "1"
+        assert output["skipped_application_not_found"] == "1"
+        assert output["skipped_invalid_row"] == "1"
+        assert output["skipped_conflicting_partners"] == "1"
+
+    def _recorded_creator(self) -> tuple[str, str | None] | None:
+        record = OrganizationProvisioning.objects.filter(organization=self.organization).first()
+        if record is None:
+            return None
+        application = next((name for name, app in self.apps.items() if app.id == record.application_id), None)
+        return record.partner, application
+
+    def _add_vercel_installation(self, config: dict) -> None:
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_backfill_test",
+            config=config,
+        )
+
+    @parameterized.expand(
+        [
+            ("csv_partner_on_first_team", "csv", "first_team", ("provisioning_api", "partner")),
+            ("csv_partner_on_later_team", "csv", "later_team", None),
+            ("vercel_marketplace_install", "vercel_marketplace", None, ("vercel", None)),
+            ("vercel_connectable_link", "vercel_connectable", None, None),
+            ("csv_and_vercel_claim_the_same_organization", "csv+vercel_marketplace", "first_team", None),
+        ]
+    )
+    def test_live_run_records_organization_creator(self, _name, sources, team_choice, expected):
+        later_team = Team.objects.create(organization=self.organization, name="Later team")
+        team = self.team if team_choice == "first_team" else later_team
+        rows: list[tuple[object, object]] = []
+        if "csv" in sources:
+            rows.append((team.id, self.apps["partner"].id))
+        if "vercel_marketplace" in sources:
+            self._add_vercel_installation({"scopes": ["read-write:integration-configuration"]})
+        if "vercel_connectable" in sources:
+            self._add_vercel_installation({"type": "connectable"})
+
+        self._run_command(rows, "--live-run")
+
+        assert self._recorded_creator() == expected
+
+    def test_live_run_never_replaces_recorded_organization_creator(self):
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=self.apps["other_partner"],
+        )
+
+        output = self._run_command([(self.team.id, self.apps["partner"].id)], "--live-run")
+
+        assert self._recorded_creator() == ("provisioning_api", "other_partner")
+        assert output["provisioning_api organizations, skipped_other_partner"] == "1"

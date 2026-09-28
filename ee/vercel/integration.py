@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -321,6 +322,9 @@ class VercelIntegration:
             # Note: We won't create a team here, that's done during Vercel resource creation.
             organization = Organization.objects.create(
                 name=config.account.name or f"Vercel Installation {installation_id}"
+            )
+            OrganizationProvisioning.objects.create(
+                organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
 
             existing_user = User.objects.filter(email=config.account.contact.email).first()
