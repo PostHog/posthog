@@ -231,6 +231,22 @@ async def a_external_data_workflow_exists(id: str) -> bool:
     return await a_schedule_exists(temporal, schedule_id=id)
 
 
+@async_to_sync
+async def is_external_data_schedule_paused(id: str) -> bool:
+    """Whether a schema's extraction schedule exists and is currently paused.
+
+    A missing schedule reads as not paused — there is nothing to resume.
+    """
+    temporal = await async_connect()
+    try:
+        desc = await a_describe_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.schedule.state.paused
+
+
 def pause_external_data_schedule(id: str):
     temporal = sync_connect()
     try:

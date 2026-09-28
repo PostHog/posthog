@@ -187,6 +187,6 @@ class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
             context = get_context_for_template("index.html", request)
 
         assert context.get("stable_chunks", False) == expect_stable
-        assert json.loads(context["posthog_bootstrap"]).get("featureFlags") == flags
+        assert context["posthog_bootstrap"].get("featureFlags") == flags
         get_all_flags.assert_called_once()
         assert get_all_flags.call_args.kwargs["only_evaluate_locally"] is True
