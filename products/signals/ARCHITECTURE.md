@@ -687,6 +687,7 @@ One conditional format correction is shared across both steps. The generator doe
 Criteria for complex policies identify the specific source rules governing a decision or outcome. Later evaluations must include those reference instructions alongside the rubric.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
 Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
+Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.
 A request that cannot start, because of the daily limit or a dispatch failure, restores the last completed suggestions.
 
 ### `SignalScoutRun`

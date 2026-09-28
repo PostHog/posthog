@@ -192,6 +192,9 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(len(reloaded["generation"]["suggestions"]), 1)
         fail_generation(self.team.id, str(self.config.id), generation.id, "A delayed activity reported a failure.")
         self.assertEqual(self.client.get(self.url).json(), reloaded)
+        generation.status = ScoutRubricGenerationStatus.RUNNING
+        self.assertFalse(update_generation(self.team.id, str(self.config.id), generation))
+        self.assertEqual(self.client.get(self.url).json(), reloaded)
 
     def test_timed_out_generation_is_retryable_and_old_worker_cannot_replace_it(self) -> None:
         config = reserve_generation(self.team.id, str(self.config.id)).config
@@ -200,6 +203,13 @@ class TestScoutRubricsAPI(APIBaseTest):
         old.requested_at = timezone.now() - GENERATION_TIMEOUT - timedelta(seconds=1)
         update_generation(self.team.id, str(self.config.id), old)
         self.assertEqual(self.client.get(self.url).json()["generation"]["status"], "failed")
+        old.status = ScoutRubricGenerationStatus.COMPLETED
+        self.assertFalse(update_generation(self.team.id, str(self.config.id), old))
+        timed_out = self.client.get(self.url).json()["generation"]
+        self.assertEqual(timed_out["status"], "failed")
+        self.assertIsNotNone(timed_out["completed_at"])
+        self.assertFalse(update_generation(self.team.id, str(self.config.id), old))
+        self.assertEqual(self.client.get(self.url).json()["generation"], timed_out)
         with patch(
             "products.signals.backend.scout_harness.rubrics.sync_connect",
             return_value=SimpleNamespace(start_workflow=AsyncMock()),

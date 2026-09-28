@@ -233,13 +233,23 @@ def update_generation(team_id: int, config_id: str, generation: ScoutRubricGener
         if config is None:
             return False
         state = read_rubric_state(config)
-        if state.generation is None or state.generation.id != generation.id:
+        if (
+            state.generation is None
+            or state.generation.id != generation.id
+            or state.generation.status not in (ScoutRubricGenerationStatus.QUEUED, ScoutRubricGenerationStatus.RUNNING)
+        ):
             return False
         # A worker finishing late must not replace a newer draft or a user's saved criteria.
-        state.generation = generation
+        expired = generation_expired(state.generation)
+        if expired:
+            state.generation.status = ScoutRubricGenerationStatus.FAILED
+            state.generation.error = "Generation timed out. Try generating again."
+            state.generation.completed_at = timezone.now()
+        else:
+            state.generation = generation
         config.rubrics = state.model_dump(mode="json")
         config.save(update_fields=["rubrics", "updated_at"])
-        return True
+        return not expired
 
 
 def fail_generation(team_id: int, config_id: str, generation_id: str, message: str) -> None:
