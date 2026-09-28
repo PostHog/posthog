@@ -1128,17 +1128,15 @@
   '''
   
   SELECT distinct_id as team,
-         sum(toInt64OrZero(ifNull(if(JSONStripEmptyStringsAndNulls(toJSONString(properties.^count)) != '{}', JSONStripEmptyStringsAndNulls(toJSONString(properties.^count)), if(startsWith(dynamicType(accurateCast(properties.count, 'Dynamic')), 'Array')
-                                                                                                                                                                                OR startsWith(dynamicType(accurateCast(properties.count, 'Dynamic')), 'Map')
-                                                                                                                                                                                OR startsWith(dynamicType(accurateCast(properties.count, 'Dynamic')), 'Tuple'), nullIf(nullIf(toJSONString(properties.count), '[]'), '{}'), if(startsWith(dynamicType(accurateCast(properties.count, 'Dynamic')), 'DateTime'), concat(replaceOne(substring(toString(accurateCastOrNull(properties.count, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T'), substring(toString(properties.count), 20, 10), 'Z'), toString(properties.count)))), ''))) as sum
+         sum(toInt64OrZero(ifNull(if(JSONStripEmptyStringsAndNulls(toJSONString(properties.^count)) != '{}', JSONStripEmptyStringsAndNulls(toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
+                                                                                                                                                                                AND ascii(toJSONString(properties.count)) IN (91, 123), nullIf(nullIf(toJSONString(properties.count), '[]'), '{}'), toString(properties.count))), ''))) as sum
   FROM events_json
   WHERE team_id = 99999
     AND event='local evaluation not modified usage'
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], ifNull(if(JSONStripEmptyStringsAndNulls(toJSONString(properties.^token)) != '{}', JSONStripEmptyStringsAndNulls(toJSONString(properties.^token)), if(startsWith(dynamicType(accurateCast(properties.token, 'Dynamic')), 'Array')
-                                                                                                                                                                              OR startsWith(dynamicType(accurateCast(properties.token, 'Dynamic')), 'Map')
-                                                                                                                                                                              OR startsWith(dynamicType(accurateCast(properties.token, 'Dynamic')), 'Tuple'), nullIf(nullIf(toJSONString(properties.token), '[]'), '{}'), if(startsWith(dynamicType(accurateCast(properties.token, 'Dynamic')), 'DateTime'), concat(replaceOne(substring(toString(accurateCastOrNull(properties.token, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T'), substring(toString(properties.token), 20, 10), 'Z'), toString(properties.token)))), ''))
+    AND has(['correct'], ifNull(if(JSONStripEmptyStringsAndNulls(toJSONString(properties.^token)) != '{}', JSONStripEmptyStringsAndNulls(toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
+                                                                                                                                                                              AND ascii(toJSONString(properties.token)) IN (91, 123), nullIf(nullIf(toJSONString(properties.token), '[]'), '{}'), toString(properties.token))), ''))
   GROUP BY team
   '''
 # ---
