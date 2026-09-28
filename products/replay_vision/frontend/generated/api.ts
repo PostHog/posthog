@@ -1639,7 +1639,7 @@ export const getVisionScannersWatchFeedRetrieveUrl = (
 }
 
 /**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Succeeded observations in the window worth watching, ranked and paged — feeds the What to watch tab.
  */
 export const visionScannersWatchFeedRetrieve = async (
     projectId: string,

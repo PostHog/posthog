@@ -2119,7 +2119,7 @@ export const VisionScannersSuggestTagsCreateBody = () => zod
     .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
 
 /**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Succeeded observations in the window worth watching, ranked and paged — feeds the What to watch tab.
  */
 export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
     project_id: zod
@@ -2133,6 +2133,10 @@ export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
 
 export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
+
+export const visionScannersWatchFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMin = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMax = 1000
 
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
     date_from: zod
@@ -2155,7 +2159,15 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .max(visionScannersWatchFeedRetrieveQueryLimitMax)
         .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
         .describe(
-            'Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.'
+            'Ceiling on feed items to return per page, at most 50. Pair with `offset` to page deeper into the ranked window. A page routinely carries fewer: a window is not padded to this number with clips that carry no finding.'
+        ),
+    offset: zod
+        .number()
+        .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
+        .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
+        .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
+        .describe(
+            'Number of ranked items to skip, for paging deeper into the window. Pass `next_offset` from the previous page, along with the `date_from` and `date_to` it echoed, so the window — and with it the ranking — stays fixed across pages.'
         ),
     scanner_ids: zod
         .string()
