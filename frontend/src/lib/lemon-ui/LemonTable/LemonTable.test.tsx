@@ -234,4 +234,35 @@ describe('LemonTable', () => {
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
     })
+
+    describe('sticky header', () => {
+        const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? viewportWidth : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} {...props} />)
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('pins the header when the table fits its container', () => {
+            renderWithWidths({ stickyHeader: true }, 400)
+            expect(document.querySelector('.LemonTable')).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('keeps horizontal scrolling instead when the table is wider than its container', () => {
+            renderWithWidths({ stickyHeader: true }, 800)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('does not pin the header by default', () => {
+            renderWithWidths({}, 400)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+    })
 })

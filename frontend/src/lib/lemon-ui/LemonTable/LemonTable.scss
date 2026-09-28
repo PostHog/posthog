@@ -386,3 +386,29 @@ body:not(.storybook-test-runner) {
         }
     }
 }
+
+// Sticky header: the header row pins to the scene's scroll container, from the same breakpoint as
+// SceneStickyBar. A sticky element pins to its nearest scroll container, so the table must not be one.
+// `overflow: clip` still clips (rounded corners, wide content) but does not make a scroll container.
+// LemonTable only adds the class while the table fits its container, so nothing needs to scroll horizontally.
+// Stickiness is disabled in snapshots due to flakiness, the same as sticky columns.
+body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
+    @container main-content (min-width: 42rem) {
+        overflow: clip;
+
+        > .ScrollableShadows,
+        > .ScrollableShadows > .ScrollableShadows__inner {
+            overflow: clip !important; // Override the inline overflow style of the scroll viewport
+        }
+
+        .LemonTable__content > table > thead {
+            position: sticky;
+            top: var(--lemon-table-sticky-header-top, 0);
+            z-index: 7; // Above sticky and pinned cells (6), below the scrollable shadows (8)
+
+            > tr > th {
+                background: var(--lemon-table-background-color);
+            }
+        }
+    }
+}
