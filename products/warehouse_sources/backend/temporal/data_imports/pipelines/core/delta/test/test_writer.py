@@ -119,7 +119,11 @@ def _make_writer() -> DeltaWriter:
 # exist specifically to exercise deltalite opt back in (`TestDeltaliteWritePath` drives the real
 # method directly / fakes the `deltalite` module itself, and `TestNullabilityDriftGuardOrder`
 # already sets this mock explicitly in both directions).
-_DELTALITE_OPT_IN_CLASSES = {"TestDeltaliteWritePath", "TestNullabilityDriftGuardOrder"}
+_DELTALITE_OPT_IN_CLASSES = {
+    "TestDeltaliteWritePath",
+    "TestNullabilityDriftGuardOrder",
+    "TestDeltaliteHandleReuseInWriter",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -1363,7 +1367,6 @@ class TestDeltaLiteHandleCache:
 
 
 class TestDeltaliteHandleReuseInWriter:
-    _FLAG = TestDeltaliteWritePath._FLAG
     _HANDLES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles"
 
     @pytest.fixture(autouse=True)
@@ -1398,7 +1401,6 @@ class TestDeltaliteHandleReuseInWriter:
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         cache = DeltaLiteHandleCache(maxsize=4)
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch(f"{self._HANDLES}.get_handle_cache", return_value=cache),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
@@ -1420,7 +1422,6 @@ class TestDeltaliteHandleReuseInWriter:
         ]
         cache = DeltaLiteHandleCache(maxsize=4)
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch(f"{self._HANDLES}.get_handle_cache", return_value=cache),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
@@ -1439,7 +1440,6 @@ class TestDeltaliteHandleReuseInWriter:
         fake_deltalite.DeltaLiteTable.open.return_value = _fake_handle(1)
         cache = DeltaLiteHandleCache(maxsize=4)
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch(f"{self._HANDLES}.get_handle_cache", return_value=cache),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
