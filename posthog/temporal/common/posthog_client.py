@@ -37,6 +37,8 @@ logger = get_write_only_logger()
 # retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
 # list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
 # The "tagger_" types are runs RunTaggerWorkflow skips; `SKIPPED_RESULT_ERROR_TYPES` is tested against this set.
+# "IneligibleSession" is replay vision's INELIGIBLE_SESSION_ERROR_TYPE. The apply-scanner workflow marks the
+# observation INELIGIBLE before it re-raises, so the user already sees the reason and nobody can action an issue.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
@@ -51,6 +53,7 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "tagger_provider_key_required",
         "tagger_key_invalid",
         "tagger_no_default_model",
+        "IneligibleSession",
     }
 )
 
@@ -175,6 +178,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if isinstance(e, temporalio.exceptions.ApplicationError) and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES:
+                raise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
