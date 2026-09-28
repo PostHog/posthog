@@ -22,6 +22,7 @@ import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
@@ -736,6 +737,38 @@ describe('ToolExecutor', () => {
                     results: [{ count: 28, label: '$pageview' }],
                 })
             }
+        })
+    })
+
+    describe('a query wrapper called with its payload nested under `query`', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it('runs query-trends with the payload lifted to the top level', async () => {
+            const received: unknown[] = []
+            const { schema } = GENERATED_TOOL_MAP['query-trends']!()
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema,
+                    handler: async (_context: unknown, params: unknown) => (received.push(params), { results: [] }),
+                },
+            } as any)
+            const payload = { series: [{ kind: 'EventsNode', event: '$pageview' }], dateRange: { date_from: '-7d' } }
+
+            const result = (await executor.handleToolCall(
+                { name: 'query-trends', arguments: { query: payload } },
+                makeToolExecutorState([{ name: 'query-trends' }], { useSingleExec: false })
+            )) as any
+
+            expect(result.isError).toBeFalsy()
+            expect(received).toEqual([schema.parse(payload)])
         })
     })
 

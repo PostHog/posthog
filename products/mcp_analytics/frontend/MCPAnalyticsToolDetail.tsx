@@ -31,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -108,6 +109,9 @@ interface ResultColumn {
     header: string
     align?: 'left' | 'right'
     expand?: boolean
+    // Applied to both the header and cell, e.g. `@max-2xl:hidden` to drop a lower-priority column
+    // once the card narrows past a container breakpoint instead of letting the table overflow it.
+    className?: string
     render: (row: unknown[]) => React.ReactNode
 }
 
@@ -137,7 +141,7 @@ function ResultTable({
     onRowClick?: (rowIndex: number) => void
 }): JSX.Element {
     return (
-        <Card size="sm" className="gap-0">
+        <Card size="sm" className="@container gap-0">
             {title != null && (
                 <CardHeader
                     className={`border-b border-border pb-3${
@@ -153,7 +157,7 @@ function ResultTable({
                 <TableHeader>
                     <TableRow>
                         {columns.map((col, i) => (
-                            <TableHead key={i} align={col.align} expand={col.expand}>
+                            <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
                                 {col.header}
                             </TableHead>
                         ))}
@@ -196,7 +200,7 @@ function ResultTable({
                                 }
                             >
                                 {columns.map((col, ci) => (
-                                    <TableCell key={ci} align={col.align} expand={col.expand}>
+                                    <TableCell key={ci} align={col.align} expand={col.expand} className={col.className}>
                                         {col.render(row)}
                                     </TableCell>
                                 ))}
@@ -221,6 +225,31 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 // Coalesce latency gaps (NaN) to 0 so the sparkline draws a continuous line over the window.
 function spark(values: number[]): number[] {
     return values.map((v) => (Number.isFinite(v) ? v : 0))
+}
+
+// formatPercentage keeps two significant digits, so a tiny share would read like "0.00004%".
+const MIN_DISPLAYED_SHARE_PCT = 0.01
+
+// undefined when there's nothing to divide by, so the caller can fall back to the date range subtitle.
+function formatShare(part: number, total: number): string | undefined {
+    if (total === 0) {
+        return undefined
+    }
+    const pct = (part / total) * 100
+    if (pct > 0 && pct < MIN_DISPLAYED_SHARE_PCT) {
+        return `<${MIN_DISPLAYED_SHARE_PCT}%`
+    }
+    return formatPercentage(pct, { compact: true })
+}
+
+function formatCallShare(calls: number, totalCalls: number): string | undefined {
+    const share = formatShare(calls, totalCalls)
+    return share === undefined ? undefined : `${share} of all calls`
+}
+
+function formatSessionShare(sessions: number, totalSessions: number): string | undefined {
+    const share = formatShare(sessions, totalSessions)
+    return share === undefined ? undefined : `In ${share} of sessions`
 }
 
 function StatTiles({
@@ -255,6 +284,7 @@ function StatTiles({
         data: number[]
         color: string
         goodDirection: 'up' | 'down'
+        subtitle?: string
     }[] = [
         {
             label: 'Calls',
@@ -263,6 +293,7 @@ function StatTiles({
             data: spark(daily.calls),
             color: theme.colors[0],
             goodDirection: 'up',
+            subtitle: formatCallShare(calls, summary?.total_calls ?? 0),
         },
         {
             label: 'Error rate',
@@ -303,6 +334,7 @@ function StatTiles({
             data: spark(daily.sessions),
             color: theme.colors[6],
             goodDirection: 'up',
+            subtitle: formatSessionShare(summary?.conversations ?? 0, summary?.total_conversations ?? 0),
         },
     ]
 
@@ -316,7 +348,7 @@ function StatTiles({
                     labels={daily.labels}
                     interval={interval}
                     theme={theme}
-                    restingSubtitle={dateRangeLabel}
+                    restingSubtitle={tile.subtitle ?? dateRangeLabel}
                     sparklineHeight={40}
                     sparklineDashedFromIndex={incompleteTail ? daily.labels.length - 1 : undefined}
                 />
@@ -686,13 +718,20 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Sessions',
                                 align: 'right',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[4] ?? 0)),
+                            },
+                            {
+                                header: 'Session share',
+                                align: 'right',
+                                render: (r) => formatShare(Number(r[4] ?? 0), Number(r[5] ?? 0)) ?? '-',
                             },
                         ]}
                     />
@@ -710,6 +749,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
@@ -717,7 +757,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Harnesses',
                                 render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
                             },
-                            { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
+                            {
+                                header: 'Last seen',
+                                className: '@max-2xl:hidden',
+                                render: (r) => <TZLabel time={String(r[5])} />,
+                            },
                         ]}
                     />
                 </div>

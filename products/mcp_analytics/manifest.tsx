@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor } from '../../frontend/src/types'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -77,10 +76,7 @@ export const manifest: ProductManifest = {
             visualOrder: 2,
             type: 'mcp_analytics',
             iconType: 'mcp_analytics' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-mcp-analytics-light)',
-                'var(--color-product-mcp-analytics-dark)',
-            ] as FileSystemIconColor,
+            iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
             href: urls.mcpAnalytics(),
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
