@@ -1004,9 +1004,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         showSavedDraftUrl: () => {
-            // Until now the page was /broadcasts/new, so a reload would start over and orphan the saved
-            // draft. The draft's own page resumes on the step the user is on.
-            if (props.id === 'new' && values.broadcastId && values.broadcast?.status === 'draft') {
+            // On /broadcasts/new a reload starts over and orphans the saved draft. The new URL remounts the
+            // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
+            if (
+                props.id === 'new' &&
+                !cache.emailEditPending &&
+                values.broadcastId &&
+                values.broadcast?.status === 'draft'
+            ) {
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
@@ -1015,12 +1020,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // sees rather than from the last Continue.
             // The editor is live while the draft is still being created, so wait for it before the
             // draft check. Otherwise edits made during the create never reach the saved draft.
-            const saves = getSaveQueue(cache, values)
-            await saves.whenIdle()
-            if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
-                return
-            }
-            // Overlapping autosaves share the pending flag, so only the latest edit may clear it.
+            // Overlapping autosaves share the pending flag, so only the latest edit may clear it. It is set
+            // before the wait, so a draft created meanwhile does not leave /broadcasts/new without this edit.
             const generation = (cache.emailEditGeneration = (cache.emailEditGeneration ?? 0) + 1)
             const clearPending = (): void => {
                 if (cache.emailEditGeneration === generation) {
@@ -1028,6 +1029,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
             }
             cache.emailEditPending = true
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
+                clearPending()
+                return
+            }
             await breakpoint(1000)
             if (
                 !values.broadcastId ||
@@ -1047,6 +1054,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.draftAutosaved(await saveWithoutClobbering(projectId, values.broadcastId!, values))
                     clearPending()
                 })
+                actions.showSavedDraftUrl()
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
                     clearPending()
