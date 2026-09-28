@@ -1,5 +1,8 @@
+from datetime import datetime
+
 from django.core.validators import URLValidator
 from django.db import models
+from django.utils import timezone
 
 from rest_framework import serializers
 
@@ -71,6 +74,14 @@ class GoalSerializer(serializers.Serializer):
     )
 
 
+class ProjectTimezoneDateTimeField(serializers.DateTimeField):
+    def enforce_timezone(self, value: datetime) -> datetime:
+        # DRF converts aware values to the active timezone, which is UTC, so the project offset is lost.
+        if timezone.is_aware(value):
+            return value
+        return super().enforce_timezone(value)
+
+
 class DigestMetadataSerializer(serializers.Serializer):
     data_status = serializers.ChoiceField(
         choices=DigestDataStatus.choices,
@@ -81,8 +92,8 @@ class DigestMetadataSerializer(serializers.Serializer):
             "count them. 'no_sessions': the project has no sessions in the period."
         ),
     )
-    date_from = serializers.DateTimeField(help_text="Start of the current period, in the project timezone.")
-    date_to = serializers.DateTimeField(help_text="End of the current period, in the project timezone.")
+    date_from = ProjectTimezoneDateTimeField(help_text="Start of the current period, in the project timezone.")
+    date_to = ProjectTimezoneDateTimeField(help_text="End of the current period, in the project timezone.")
     timezone = serializers.CharField(help_text="Project timezone for the period boundaries.")
     filter_test_accounts = serializers.BooleanField(
         help_text="True when every metric excludes events from test accounts."
