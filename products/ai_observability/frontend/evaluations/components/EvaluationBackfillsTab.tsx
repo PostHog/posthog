@@ -64,7 +64,8 @@ function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null
     if (!backfill.remaining_count) {
         return null
     }
-    return `${pluralize(backfill.remaining_count, backfill.target)} weren't evaluated. Start another backfill over this range to retry them.`
+    const one = backfill.remaining_count === 1
+    return `${pluralize(backfill.remaining_count, backfill.target)} ${one ? "wasn't" : "weren't"} evaluated. Start another backfill over this range to retry ${one ? 'it' : 'them'}.`
 }
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
@@ -494,7 +495,7 @@ export function EvaluationBackfillsTab({
                                             )}
                                             {backfill.rerun_existing
                                                 ? ' in range'
-                                                : " that hadn't been evaluated when it started"}
+                                                : " that hadn't been evaluated when the backfill began"}
                                         </span>
                                     </div>
                                     {lateArrivals > 0 && (

@@ -175,6 +175,21 @@ def increment_backfill_remainder_outcome(outcome: str) -> None:
     counter.add(1)
 
 
+def increment_backfill_child_start_failures(count: int) -> None:
+    """Track backfill units whose evaluation failed to start.
+
+    The walk counts such a unit as neither started nor skipped, so the row cannot tell it from one the
+    live path graded. This counter is the only record of how often it happens.
+    """
+    if count == 0 or (not activity.in_activity() and not workflow.in_workflow()):
+        return
+    counter = get_metric_meter().create_counter(
+        "llma_eval_backfill_child_start_failures",
+        "Backfill units whose evaluation failed to start",
+    )
+    counter.add(count)
+
+
 def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
     """Record queue depth indicator for alerting."""
     meter = get_metric_meter({"activity_type": activity_type})

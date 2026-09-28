@@ -28,7 +28,10 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
-from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
+from posthog.temporal.ai_observability.metrics import (
+    increment_backfill_child_start_failures,
+    increment_backfill_remainder_outcome,
+)
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     INGESTION_LAG_MARGIN_SECONDS,
     RunAggregateEvaluationInputs,
@@ -455,6 +458,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             return_exceptions=True,
         )
         failed = [result for result in results if isinstance(result, BaseException)]
+        increment_backfill_child_start_failures(len(failed))
         for error in failed:
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_start_failed",
