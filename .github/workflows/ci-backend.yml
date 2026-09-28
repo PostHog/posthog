@@ -4212,7 +4212,7 @@ jobs:
             checks: read # the relay reads Depot's gate check run
         # Headroom for downloading every shard's JUnit for the failure rollup, or for
         # waiting out a full Depot run when this job only relays its verdict.
-        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 95 || 8 }}
+        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 100 || 8 }}
         # Intentional !cancelled(): the gate inspects failed dependencies and fails
         # closed on live runs; a superseded run records cancelled, not failure.
         # The deterministic-failure disjuncts cover this workflow cancelling its

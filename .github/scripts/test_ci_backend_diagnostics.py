@@ -393,7 +393,7 @@ def test_receiver_rejects_reports_from_untrusted_workflow_runs(
 
     lines = diagnostics.receive(GitHub("token"), request())
     assert lines == ["Diagnostics unavailable: trusted collector did not return a report before the deadline."]
-    assert now[0] == 150
+    assert now[0] == 300
 
 
 @pytest.mark.parametrize(

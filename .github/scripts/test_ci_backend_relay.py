@@ -463,7 +463,7 @@ def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str)
         clock=clock,
         sleep=clock.sleep,
     )
-    code, lines = relay.relay_gate(result, EVENT, "123")
+    code, lines = relay.relay_gate(result, EVENT)
     assert code == 1
     assert not result.root_failure
     assert not any("a retry will not help" in line for line in lines)

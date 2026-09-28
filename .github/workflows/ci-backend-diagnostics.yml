@@ -21,7 +21,7 @@ jobs:
             github.event.workflow_run.event == 'pull_request' &&
             github.event.workflow_run.head_repository.full_name == github.repository
         runs-on: ubuntu-24.04
-        timeout-minutes: 95
+        timeout-minutes: 110
         steps:
             # workflow_run uses the default branch. Pin the checkout to that workflow's
             # immutable revision, never the triggering head, base, or artifact contents.

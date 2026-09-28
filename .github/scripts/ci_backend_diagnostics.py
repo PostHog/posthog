@@ -362,7 +362,8 @@ def await_request(github: GitHub, trigger: dict[str, Any], destination: Path) ->
     if os.environ.get("HAS_DEPOT_CREDENTIAL") != "true":
         publish(["Diagnostics unavailable: DEPOT_CI_CANCEL_TOKEN is not available to the trusted GitHub collector."])
         return
-    deadline = time.monotonic() + 90 * 60
+    # The relay polls for 90 minutes from its own later start, so the collector waits longer.
+    deadline = time.monotonic() + 105 * 60
     handed_off = False
     while time.monotonic() < deadline:
         run = github.read(f"actions/runs/{run_id}")
@@ -426,7 +427,8 @@ def receive(github: GitHub, request: dict[str, Any]) -> list[str]:
     if not request.get("workflow"):
         return ["Diagnostics unavailable: no selected Depot workflow."]
     name = f"backend-diagnostics-report-{request['github_run']}-{request['github_attempt']}"
-    deadline = time.monotonic() + 150
+    # Covers the collector's 30 s poll, up to 100 s of Depot reads, validation and upload.
+    deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         artifacts = github.read(f"actions/artifacts?name={name}&per_page=100")
         if artifacts["total_count"] > 1:
