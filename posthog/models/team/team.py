@@ -983,9 +983,20 @@ class Team(UUIDTClassicModel):
         old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
         expired_token = self.secret_api_token_backup
-        self.secret_api_token = new_token
-        self.secret_api_token_backup = old_primary_token
-        self.save()
+        # One transaction with the signal receivers: the conversations signing secret must
+        # never diverge from the column, so a failed copy rolls the rotation back whole.
+        try:
+            with transaction.atomic():
+                self.secret_api_token = new_token
+                self.secret_api_token_backup = old_primary_token
+                self.save()
+                secret_api_token_rotated.send(sender=self.__class__, team=self)
+        except Exception:
+            # save() already cached this team (post_save) with the new tokens, which the
+            # rollback discarded. Rewrite that entry from the committed row.
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
+            set_team_in_cache(self.api_token, self)
+            raise
 
         set_team_in_cache(new_token, self)
         # Old token needs to continue to work until it's deleted.
@@ -994,8 +1005,6 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
-
-        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 

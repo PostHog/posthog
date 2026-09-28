@@ -71,6 +71,13 @@ export function buildRecentToolCallsQuery(filters: HogQLFilters): DataTableNode 
     }
 }
 
+export function withSharedFilters(
+    query: DataTableNode,
+    filters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
+): DataTableNode {
+    return query.source.kind === NodeKind.EventsQuery ? { ...query, source: { ...query.source, ...filters } } : query
+}
+
 // Matches both encodings the backend counts as failures (see MCP_ERROR_VALUES in ToolCallFeed).
 const FAILED_CALLS_FILTER: AnyPropertyFilter = {
     key: '$mcp_is_error',

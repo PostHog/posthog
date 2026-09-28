@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
@@ -170,6 +171,9 @@ class PostgresCDCAdapter:
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
         drop_slot_and_publication(conn, slot_name, pub_name)
 
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        return slot_exists(conn, slot_name)
+
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
         return get_slot_lag_bytes(conn, slot_name)
 
@@ -230,9 +234,16 @@ class PostgresCDCAdapter:
         # connection (the slot invalidation that triggered recovery), so a transient drop
         # mid-recreate — the server terminating our backend on a deploy/failover, an idle cull —
         # is likely. drop_slot runs first on every attempt, so retrying is idempotent; absorb the
-        # drop in-process instead of failing the whole recovery. Permanent errors (auth, a missing
-        # customer-owned publication) don't match the predicate and re-raise immediately.
-        consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
+        # drop in-process instead of failing the whole recovery. Widen the predicate to also
+        # retry connect-time timeouts: cdc_pg_connection opens with the same _connect_to_postgres
+        # the main streaming path uses, and classify_postgres_cdc_error now treats an exhausted
+        # ConnectionTimeout as non-retryable on the assumption every reconnect already timed out —
+        # without retrying it here first, a single transient connect timeout would abort recovery
+        # instead of reaching that exhausted state. Permanent errors (auth, a missing
+        # customer-owned publication) don't match either predicate and re-raise immediately.
+        consistent_point = _retry_on_connection_dropped(
+            _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
+        )
 
         # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
         # to the legacy lane: the new slot starts on the buffer, as a new source does.
@@ -376,34 +387,37 @@ class PostgresCDCAdapter:
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication."""
+        """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""
         self._alter_publication_membership(source, schema, table, add=True)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
-        self._alter_publication_membership(source, schema, table, add=False)
+        try:
+            self._alter_publication_membership(source, schema, table, add=False)
+        except Exception:
+            logger.exception(
+                "Failed to remove table %s.%s from CDC publication (best-effort), source_id=%s",
+                schema,
+                table,
+                source.id,
+            )
 
     def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
+        publication_name = self._managed_publication_name(source)
+        if publication_name is None:
+            return
+        with cdc_pg_connection(source) as conn:
+            if add:
+                add_table_to_publication(conn, publication_name, schema, table)
+            else:
+                remove_table_from_publication(conn, publication_name, schema, table)
+
+    def _managed_publication_name(self, source: ExternalDataSource) -> str | None:
         cdc_config = self.parse_cdc_config(source)
         # PostHog only manages the publication in posthog-managed mode.
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
-            return
-        try:
-            with cdc_pg_connection(source) as conn:
-                if add:
-                    add_table_to_publication(conn, cdc_config.publication_name, schema, table)
-                else:
-                    remove_table_from_publication(conn, cdc_config.publication_name, schema, table)
-        except Exception:
-            logger.exception(
-                "Failed to %s table %s.%s %s CDC publication '%s' (best-effort), source_id=%s",
-                "add" if add else "remove",
-                schema,
-                table,
-                "to" if add else "from",
-                cdc_config.publication_name,
-                source.id,
-            )
+            return None
+        return cdc_config.publication_name
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
         raw = (source.job_inputs or {}).get("schema")

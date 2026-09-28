@@ -509,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -523,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -538,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -579,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -3655,6 +3659,7 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
 export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
@@ -3664,6 +3669,7 @@ export const IngestionPipelineEnumApi = {
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
@@ -3716,6 +3722,163 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+}
+
+/**
+ * * `draft` - Draft
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `in_progress` - In Progress
+ * * `queued` - Queued
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type RequestStatusEnumApi = (typeof RequestStatusEnumApi)[keyof typeof RequestStatusEnumApi]
+
+export const RequestStatusEnumApi = {
+    Draft: 'draft',
+    Pending: 'pending',
+    Approved: 'approved',
+    InProgress: 'in_progress',
+    Queued: 'queued',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * Submitted HogQL variable snapshot.
+ */
+export type DataDeletionRequestApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestApi {
+    /** Deletion request identifier. */
+    readonly id: string
+    /** Current deletion workflow status.
+     *
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: RequestStatusEnumApi
+    /** Submitted HogQL query snapshot. */
+    readonly query: string
+    /** Submitted HogQL variable snapshot. */
+    readonly variables: DataDeletionRequestApiVariables
+    /**
+     * Client-generated idempotency identifier.
+     * @nullable
+     */
+    readonly submission_id: string | null
+    /**
+     * Number of selected events, when calculated.
+     * @nullable
+     */
+    readonly count: number | null
+    /**
+     * Identifier of the user who submitted the request.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+    /**
+     * Whether the submitter was a PostHog staff user.
+     * @nullable
+     */
+    readonly created_by_staff: boolean | null
+    /** Time when the request was submitted. */
+    readonly created_at: string
+    /** Time when the request last changed. */
+    readonly updated_at: string
+    /**
+     * Time when the request was approved, if approved.
+     * @nullable
+     */
+    readonly approved_at: string | null
+    /**
+     * Time when selection statistics were calculated, if available.
+     * @nullable
+     */
+    readonly stats_calculated_at: string | null
+}
+
+export interface PaginatedDataDeletionRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataDeletionRequestApi[]
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestCreateApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestCreateApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestCreateApiVariables
+    /** Client-generated identifier that makes request submission idempotent. */
+    submission_id: string
+}
+
+export interface DataDeletionConflictApi {
+    /** Reason the deletion request could not be created in the current state. */
+    readonly detail: string
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestInputApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestInputApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestInputApiVariables
+}
+
+export interface DataDeletionPreviewApi {
+    /** Number of event UUIDs selected when the preview ran. */
+    readonly count: number
+}
+
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
 }
 
 /**
@@ -4206,6 +4369,96 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface SearchIntentRequestApi {
+    /**
+     * What the person typed into the filter picker search box.
+     * @maxLength 200
+     */
+    query: string
+    /**
+     * The picker tab that is open, as a taxonomic group type such as event_properties.
+     * @maxLength 100
+     */
+    active_group_type: string
+    /**
+     * The taxonomic group types the picker shows. The answer is always one of these, or null.
+     * @maxItems 64
+     * @items.maxLength 100
+     */
+    available_group_types: string[]
+    /**
+     * The id of the scene the picker is open in, such as Insight or Replay.
+     * @nullable
+     * @pattern ^[A-Za-z0-9_-]{1,64}$
+     */
+    scene?: string | null
+}
+
+/**
+ * * `rule` - Matched a value pattern
+ * * `model` - Asked the decision model
+ * * `skipped` - Not classified
+ */
+export type SearchIntentSourceEnumApi = (typeof SearchIntentSourceEnumApi)[keyof typeof SearchIntentSourceEnumApi]
+
+export const SearchIntentSourceEnumApi = {
+    Rule: 'rule',
+    Model: 'model',
+    Skipped: 'skipped',
+} as const
+
+export interface SearchIntentResponseApi {
+    /**
+     * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+     * @nullable
+     */
+    group_type: string | null
+    /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+    confidence: number
+    /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+    is_confident: boolean
+    /** Whether the picker should suggest switching from the open tab to group_type. */
+    suggests_switch: boolean
+    /** How the answer was found: a value pattern, the decision model, or not at all.
+     *
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified */
+    method: SearchIntentSourceEnumApi
+    /**
+     * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+     * @nullable
+     */
+    prompt_version: number | null
+    /**
+     * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+     * @nullable
+     */
+    model_query: string | null
+}
+
+export interface EventMatchRequestApi {
+    /**
+     * What the person typed into the events list search box, which matched no event name.
+     * @maxLength 200
+     */
+    query: string
+}
+
+export interface EventMatchApi {
+    /** The event name to select, such as $autocapture. */
+    name: string
+    /** The event's display name, such as Autocapture. */
+    display_name: string
+    /** How likely the search means this event, from 0 to 1. */
+    probability: number
+}
+
+export interface EventMatchResponseApi {
+    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+    matches: EventMatchApi[]
 }
 
 export interface UploadedMediaApi {
@@ -5404,6 +5657,26 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
 }
 
 export type ExportsListParams = {

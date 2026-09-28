@@ -10,6 +10,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
     CachedRetentionQueryResponse,
     CachedTrendsQueryResponse,
+    DataWarehouseSyncWarning,
     HogQueryResponse,
     MarketingAnalyticsItem,
     RetentionResult,
@@ -107,6 +108,29 @@ class TestCalculateForQueryBasedInsight(BaseTest):
         assert insight_result.result[0] is response.results[0]
         assert insight_result.is_cached is True
         assert insight_result.cache_key == "key"
+
+    def test_warehouse_sync_warnings_reach_the_insight_result(self):
+        warning = DataWarehouseSyncWarning(
+            message="Last sync of `costs` (from DoIt) failed.",
+            schema_name="costs",
+            source_id="source-1",
+            source_type="DoIt",
+            status="Failed",
+            table_name="doit_costs",
+        )
+        response = CachedTrendsQueryResponse(
+            results=[],
+            is_cached=True,
+            last_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            next_allowed_client_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            cache_key="key",
+            timezone="UTC",
+            warnings=[warning],
+        )
+
+        insight_result = self._calculate(response)
+
+        assert insight_result.warnings == [warning.model_dump(by_alias=True)]
 
     def test_raw_cached_results_become_fragments(self):
         raw = orjson.dumps([{"data": [1.0], "label": "series"}])

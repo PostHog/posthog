@@ -144,6 +144,9 @@ export function buildGatewayEnv(
     // so it rides the OpenAI record; the Claude path has no tier concept.
     if (serviceTier) {
       openaiCustomHeaders["X-PostHog-Service-Tier"] = serviceTier;
+      if (serviceTier === "flex") {
+        openaiCustomHeaders["X-PostHog-Flex-Fallback"] = "standard";
+      }
     }
     // Codex sends no trace header, so the gateway stamps a fresh id per
     // request and a run's generations each land in a trace of one. Codex-only:

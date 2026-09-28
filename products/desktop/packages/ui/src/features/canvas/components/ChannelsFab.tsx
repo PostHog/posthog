@@ -3,6 +3,7 @@ import {
   FileTextIcon,
   HashIcon,
   PlusIcon,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -19,6 +20,8 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -50,6 +53,8 @@ export function ChannelsFab({
   const inRail = placement === "rail";
   const { iconSize: railIconSize } = useNavRailMetrics();
   const [modalOpen, setModalOpen] = useState(false);
+  const { personalChannel } = useTaskChannels();
+  const createAndOpen = useCreateAndOpenDashboard(channelId);
   const hasDraft = useDraftStore((state) =>
     Object.entries(state.drafts).some(
       ([sessionId, draft]) =>
@@ -79,9 +84,17 @@ export function ChannelsFab({
     </DropdownMenuItem>
   );
 
-  // Inside a space on the layout, the menu held one item, so the button is that
-  // item: a click starts the task instead of asking which kind to start.
-  const newTaskOnly = channelsLayout && !!channelId;
+  const canvasChannelId = channelId ?? personalChannel?.id;
+  const newCanvas = () => {
+    if (!canvasChannelId) return;
+    void createAndOpen({ channelId: canvasChannelId });
+  };
+  const newCanvasItem = (
+    <DropdownMenuItem onClick={newCanvas} disabled={!canvasChannelId}>
+      <SquaresFourIcon size={14} className="text-gray-9" />
+      New canvas
+    </DropdownMenuItem>
+  );
 
   const draftDot = channelsLayout && hasDraft && (
     <span
@@ -90,7 +103,7 @@ export function ChannelsFab({
     />
   );
 
-  const label = newTaskOnly ? "New task" : "Create";
+  const label = "Create";
 
   const trigger = (
     <Button
@@ -102,7 +115,6 @@ export function ChannelsFab({
           ? "shrink-0 rounded-full"
           : "absolute right-3 bottom-3 z-10 rounded-full"
       }
-      onClick={newTaskOnly ? newTask : undefined}
     >
       <PlusIcon size={inRail ? railIconSize : 20} weight="bold" />
       {draftDot}
@@ -124,17 +136,6 @@ export function ChannelsFab({
     </TooltipContent>
   );
 
-  if (newTaskOnly) {
-    return (
-      <div className="flex h-12 w-full items-center justify-center">
-        <Tooltip>
-          <TooltipTrigger render={trigger} />
-          {tooltip}
-        </Tooltip>
-      </div>
-    );
-  }
-
   return (
     <>
       <DropdownMenu>
@@ -154,6 +155,7 @@ export function ChannelsFab({
             <FileTextIcon size={14} className="text-gray-9" />
             New task
           </DropdownMenuItem>
+          {newCanvasItem}
           {/* Inside a space the menu is about filling that space; making
               another one belongs to the list this button also serves. */}
           {channelsLayout && !channelId && (

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useRef } from 'react'
 
-import { IconBolt, IconClock, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
+import { IconBolt, IconClock, IconSearch, IconSparkles, IconWarning } from '@posthog/icons'
 import {
     Button,
     InputGroup,
@@ -26,7 +26,9 @@ import { cn } from 'lib/utils/css-classes'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { McpDateFilter } from '../components/McpDateFilter'
+import { McpSharedFilters } from '../components/McpSharedFilters'
 import type { MCPSessionApi } from '../generated/api.schemas'
+import { parseUrlBoolean } from '../mcpAnalyticsFiltersLogic'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
 import { formatDuration, sessionDurationMs } from './utils'
@@ -36,6 +38,12 @@ const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: 'session_start', label: 'Oldest' },
     { value: '-duration_seconds', label: 'Longest' },
     { value: '-tool_call_count', label: 'Most tool calls' },
+]
+
+const OUTCOME_OPTIONS: { value: 'all' | 'true' | 'false'; label: string }[] = [
+    { value: 'all', label: 'All sessions' },
+    { value: 'true', label: 'With errors' },
+    { value: 'false', label: 'Without errors' },
 ]
 
 function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
@@ -52,17 +60,29 @@ function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
 
 export function MCPSessionsPlaylist(): JSX.Element {
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { dateFilter, sessionsLoading, toolCallsLoading } = useValues(mcpSessionsLogic)
+    const { setDateFilter, refreshSessions } = useActions(mcpSessionsLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const isVerticalLayout = isWindowLessThan('xl')
 
     return (
-        <div
-            className={cn(
-                'w-full h-[calc(100vh-13rem)] min-h-[25rem] flex',
-                isVerticalLayout ? 'flex-col' : 'flex-row gap-2'
-            )}
-        >
-            {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
+        <div className="flex w-full h-[calc(100vh-13rem)] min-h-[25rem] flex-col gap-2">
+            <McpSharedFilters
+                pageKey="mcp-sessions"
+                dataAttrPrefix="mcp-sessions"
+                onRefresh={refreshSessions}
+                refreshing={sessionsLoading || toolCallsLoading}
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-sessions-date-filter"
+                />
+            </McpSharedFilters>
+            <div className={cn('flex min-h-0 flex-1', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
+                {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
+            </div>
         </div>
     )
 }
@@ -134,17 +154,16 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting, selectSession } =
-        useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId } =
+    const { setFilters, loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId, hasActiveFilters } =
         useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <div className="flex items-center gap-2">
-                        <InputGroup className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <InputGroup className="min-w-40 flex-1">
                             <InputGroupAddon align="inline-start">
                                 <InputGroupText>
                                     <IconSearch />
@@ -157,24 +176,23 @@ function SessionsListPanel(): JSX.Element {
                                 value={filters.search}
                             />
                         </InputGroup>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => loadSessions()}
-                            disabled={sessionsLoading}
-                            title="Reload sessions"
+                        <Select
+                            value={String(filters.hasErrors ?? 'all')}
+                            onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
                         >
-                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
-                        </Button>
-                    </div>
-                    <div className="flex items-center justify-between gap-1">
-                        <McpDateFilter
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-sessions-date-filter"
-                        />
+                            <SelectTrigger data-attr="mcp-sessions-outcome">
+                                <SelectValue>
+                                    {(value: string) => OUTCOME_OPTIONS.find((o) => o.value === value)?.label ?? value}
+                                </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                                {OUTCOME_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
@@ -205,7 +223,9 @@ function SessionsListPanel(): JSX.Element {
                         ))}
                     </div>
                 ) : sessions.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-secondary">No MCP sessions yet</div>
+                    <div className="p-4 text-center text-sm text-secondary">
+                        {hasActiveFilters ? 'No sessions match these filters' : 'No MCP sessions yet'}
+                    </div>
                 ) : (
                     <>
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
@@ -283,6 +303,12 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
                         <IconBolt />
                         {session.tool_calls}
                     </span>
+                    {session.error_calls > 0 ? (
+                        <span className="flex items-center gap-1 whitespace-nowrap text-danger">
+                            <IconWarning />
+                            {session.error_calls} {session.error_calls === 1 ? 'error' : 'errors'}
+                        </span>
+                    ) : null}
                     {session.mcp_client_name ? (
                         <span className="flex items-center gap-1 truncate">
                             <IconSparkles className="shrink-0" />
