@@ -352,7 +352,7 @@ Use a full devbox stack when checking account tabs against real product routing 
 5. Restart the backend after syncing flags so local flag evaluation reloads them.
 6. Open `/project/<team_id>/customer_analytics/accounts` and confirm the seeded group appears as an account.
 
-The seed command does not create communication data. For the Email threads tab, capture a message through the Mailgun flow or add an invented local thread linked to one seeded account.
+The seed command also adds billing insights, meetings, an email thread, a Support ticket, and a weekly Slack summary to the first five accounts (`--accounts-with-widget-data`). It fills missing contact fields on those accounts and keeps values you set.
 
 ## Conventions
 

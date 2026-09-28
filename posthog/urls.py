@@ -25,10 +25,7 @@ from posthog.api import (
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
-from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
-from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
-from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
@@ -282,21 +279,6 @@ urlpatterns = [
     path(
         "api/oauth/connected-apps/<uuid:pk>/revoke/",
         ConnectedAppsViewSet.as_view({"post": "revoke"}),
-    ),
-    path(
-        WIZARD_METADATA_PATH,
-        WizardClientMetadataView.as_view(),
-        name="wizard-client-metadata",
-    ),
-    path(
-        RAYCAST_METADATA_PATH,
-        RaycastClientMetadataView.as_view(),
-        name="raycast-client-metadata",
-    ),
-    path(
-        HOGLI_METADATA_PATH,
-        HogliClientMetadataView.as_view(),
-        name="hogli-client-metadata",
     ),
     # The one slot for root routes products declare themselves, after every core api/ route and
     # before the API fallback and the frontend catch-all. See docs/internal/url-routing.md.

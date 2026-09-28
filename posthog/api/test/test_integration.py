@@ -3167,7 +3167,7 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_create_github_integration_with_valid_state_succeeds(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3283,7 +3283,7 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_create_github_integration_state_token_single_use(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3726,7 +3726,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_success_redirects_to_next_with_integration_id(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3794,7 +3794,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_member_can_complete_fresh_team_install(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
@@ -3860,7 +3860,7 @@ class TestGitHubTeamIntegrationComplete:
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
     def test_environment_integrations_flow_uses_team_id_from_authorize_cache(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):

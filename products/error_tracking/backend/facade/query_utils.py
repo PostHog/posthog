@@ -6,6 +6,7 @@ from typing import cast
 from posthog.hogql.escape_sql import escape_hogql_string
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
+MAX_STACK_FRAMES = 50
 # The issue detail tool returns the full description, so list rows keep only a preview.
 MAX_LIST_DESCRIPTION_CHARS = 300
 
@@ -277,8 +278,14 @@ def normalize_stacktrace(
         if isinstance(raw_frames, list)
         else None
     )
+    frames_omitted = 0
+    if frames is not None and len(frames) > MAX_STACK_FRAMES:
+        # Frames run from the outermost call to the frame that raised, so keep the end of the list. A deep
+        # recursion can otherwise return thousands of frames that repeat the same few lines.
+        frames_omitted = len(frames) - MAX_STACK_FRAMES
+        frames = frames[-MAX_STACK_FRAMES:]
     base_stacktrace = strip_non_raw_fields(stacktrace_record)
-    return compact_dict({**base_stacktrace, "frames": frames})
+    return compact_dict({**base_stacktrace, "frames": frames, "frames_omitted": frames_omitted or None})
 
 
 def normalize_exception(
@@ -376,6 +383,35 @@ def map_event_row(
         else:
             event[column] = value
     return event
+
+
+def dedupe_repeated_stacktraces(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Replace a stack trace that the page already returned with a reference to the first copy.
+
+    Events of one issue usually share one stack, so a page of sampled events otherwise repeats the same frames once
+    for each event. The reference names the event and the index of the exception in its `$exception_list`, because
+    one event can hold several exceptions with different stacks, and two of them can share a stack. Stacks that
+    differ in any frame, or in code variables, stay in full.
+    """
+    first_copy_by_stack: dict[str, dict[str, object]] = {}
+    for event in events:
+        event_uuid = event.get("uuid")
+        properties = as_record(event.get("properties"))
+        exceptions = properties.get("$exception_list") if properties else None
+        if not isinstance(exceptions, list):
+            continue
+        for index, exception in enumerate(exceptions):
+            exception_record = as_record(exception)
+            stacktrace = as_record(exception_record.get("stacktrace")) if exception_record else None
+            if exception_record is None or stacktrace is None or not stacktrace.get("frames"):
+                continue
+            key = json.dumps(stacktrace, sort_keys=True, default=str)
+            first_copy = first_copy_by_stack.get(key)
+            if first_copy is not None:
+                exception_record["stacktrace"] = dict(first_copy)
+            elif isinstance(event_uuid, str):
+                first_copy_by_stack[key] = {"same_as_event": event_uuid, "same_as_exception": index}
+    return events
 
 
 def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:
