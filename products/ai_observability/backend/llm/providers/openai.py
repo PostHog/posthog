@@ -4,7 +4,7 @@ import json
 import uuid
 import logging
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 
 from django.conf import settings
 
@@ -108,6 +108,11 @@ class OpenAIAdapter:
     """OpenAI provider implementing the unified Client interface."""
 
     name = "openai"
+
+    # OpenRouter returns 402 when the key can't afford the requested max_tokens (or is out of
+    # credits). Retrying never helps, so these map to the quota path and the workflow marks the
+    # key errored and stops.
+    QUOTA_EXHAUSTED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset({402})
 
     def _create_client(
         self,
@@ -238,11 +243,7 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
-            # OpenRouter returns 402 when the key can't afford the requested
-            # max_tokens (or is out of credits), and Fireworks returns 412 when
-            # the account is suspended for billing. Retrying never helps — mirror
-            # the quota path so the workflow marks the key errored and stops.
-            if getattr(error, "status_code", None) in (402, 412):
+            if getattr(error, "status_code", None) in self.QUOTA_EXHAUSTED_STATUS_CODES:
                 return QuotaExceededError(str(error))
         return None
 
