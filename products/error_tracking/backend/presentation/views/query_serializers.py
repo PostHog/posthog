@@ -174,7 +174,10 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
     issueId = serializers.UUIDField(help_text="Error tracking issue ID.")
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
-        help_text="Date range for issue impact and latest-event metadata. Defaults to the last 7 days.",
+        help_text=(
+            "Date range for issue impact and latest-event metadata. Defaults to the last 7 days. "
+            "A date-only date_to includes that whole day. Dates without an offset use the project timezone."
+        ),
     )
     filterTestAccounts = serializers.BooleanField(
         required=False,
@@ -325,13 +328,24 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingEffectiveDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(help_text="Inclusive start of the range the impact counts use.")
+    date_to = serializers.DateTimeField(help_text="Inclusive end of the range the impact counts use.")
+    timezone = serializers.CharField(help_text="Project timezone used for dates without an offset.")
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
-    impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
+    dateRange = ErrorTrackingEffectiveDateRangeSerializer(
+        required=False, help_text="Resolved date range and timezone that the impact counts use."
+    )
+    impact = ErrorTrackingImpactSerializer(
+        required=False, help_text="Impact counts for dateRange. Counts are 0 when the issue has no events in the range."
+    )
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
     )

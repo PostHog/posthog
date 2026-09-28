@@ -36867,6 +36867,15 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    export interface ErrorTrackingEffectiveDateRange {
+      /** Inclusive start of the range the impact counts use. */
+      date_from: string;
+      /** Inclusive end of the range the impact counts use. */
+      date_to: string;
+      /** Project timezone used for dates without an offset. */
+      timezone: string;
+    }
+
     /**
      * Normalized sampled exception event properties.
      */
@@ -37259,7 +37268,9 @@ export namespace Schemas {
       top_in_app_frame?: ErrorTrackingTopFrame;
       /** Latest release metadata. */
       latest_release?: ErrorTrackingLatestRelease;
-      /** Compact impact counts. */
+      /** Resolved date range and timezone that the impact counts use. */
+      dateRange?: ErrorTrackingEffectiveDateRange;
+      /** Impact counts for dateRange. Counts are 0 when the issue has no events in the range. */
       impact?: ErrorTrackingImpact;
       /** Optional compact occurrence sparkline. */
       sparkline?: number[];
@@ -37489,7 +37500,7 @@ export namespace Schemas {
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
-      /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. */
+      /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. A date-only date_to includes that whole day. Dates without an offset use the project timezone. */
       dateRange?: ErrorTrackingDateRange;
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
