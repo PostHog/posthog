@@ -20,7 +20,7 @@
      FROM
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-               tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(substring(toString(events.properties.`$pathname`), 1, 1), tuple('[', '{')), in(substring(toJSONString(events.properties.`$pathname`), 1, 1), tuple('[', '{'))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
+               tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
         FROM events_json AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -94,7 +94,7 @@
               FROM
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(substring(toString(events.properties.`$pathname`), 1, 1), tuple('[', '{')), in(substring(toJSONString(events.properties.`$pathname`), 1, 1), tuple('[', '{'))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
+                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
                  FROM events_json AS events
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
