@@ -119,8 +119,6 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "Int64",
         "Array(String)",
         "[]",
-        "[",
-        "{",
     }
 )
 

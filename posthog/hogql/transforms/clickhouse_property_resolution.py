@@ -394,12 +394,13 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
 
     # Arrays and maps read as JSON text, like the raw property blob. Their plain text starts with '[' or '{',
     # which a string can too, but a string's JSON form starts with '"'. toJSONString runs only for those rows.
+    # Compared by character code so no brace literal reaches callers that str.format the printed SQL.
     def starts_with_container(expr: ast.Expr) -> ast.Expr:
         return ast.Call(
             name="in",
             args=[
-                ast.Call(name="substring", args=[expr, ast.Constant(value=1), ast.Constant(value=1)]),
-                ast.Tuple(exprs=[_sentinel("["), _sentinel("{")]),
+                ast.Call(name="ascii", args=[expr]),
+                ast.Tuple(exprs=[ast.Constant(value=ord("[")), ast.Constant(value=ord("{"))]),
             ],
             type=ast.BooleanType(nullable=False),
         )

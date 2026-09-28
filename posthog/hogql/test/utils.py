@@ -181,8 +181,7 @@ def json_dynamic_read_sql_from_parts(
         typed = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"
     else:
         is_container = (
-            f"and(in(substring(toString({field()}), 1, 1), tuple('[', '{{')), "
-            f"in(substring(toJSONString({field()}), 1, 1), tuple('[', '{{')))"
+            f"and(in(ascii(toString({field()})), tuple(91, 123)), in(ascii(toJSONString({field()})), tuple(91, 123)))"
         )
         typed = f"if({is_container}, nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}'), toString({field()}))"
     scalar_or_null = f"if({empty_check}, NULL, {typed})"

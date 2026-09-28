@@ -84,7 +84,8 @@ def _json_events_property_expr(property_name: PropertyName, var: str, column_ref
     # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
     # string's JSON form starts with '"' (see the HogQL resolver).
     scalar_json = f"toJSONString({scalar_value})"
-    is_container = f"substring({scalar_string}, 1, 1) IN ('[', '{{') AND substring({scalar_json}, 1, 1) IN ('[', '{{')"
+    # 91 and 123 are '[' and '{'; compared by code so no brace literal reaches callers that str.format the SQL.
+    is_container = f"ascii({scalar_string}) IN (91, 123) AND ascii({scalar_json}) IN (91, 123)"
     raw_value = (
         f"if({object_value} != '{{}}', {object_value}, "
         f"if({is_container}, nullIf(nullIf({scalar_json}, '[]'), '{{}}'), {scalar_string}))"
