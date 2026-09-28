@@ -2,7 +2,6 @@ import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities"
 import {
   type CanvasCommentHighlight,
   type CanvasNavIntent,
-  type CanvasTextSelection,
   type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -13,7 +12,10 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
-import { translateCanvasTextSelection } from "./canvasSelection";
+import {
+  type HostCanvasTextSelection,
+  translateCanvasTextSelection,
+} from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
 const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
@@ -106,7 +108,7 @@ export interface BuiltCanvasProps {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onTextSelection?: (selection: HostCanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   clearTextSelectionKey?: number;

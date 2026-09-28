@@ -1779,7 +1779,7 @@ jobs:
             - name: Install python dependencies for master
               working-directory: upstream-master
               run: |
-                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
