@@ -228,6 +228,30 @@ describe('surveysLogic', () => {
             expect(responseCountRequests[1].searchParams.get('survey_ids')).toEqual('survey-2')
             expect(logic.values.surveysResponsesCount).toEqual({ 'survey-1': 12, 'survey-2': 0 })
         })
+
+        it('leaves the count unknown when the count query fails, and clears that on retry', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/responses_count': () => [503, {}],
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadResponsesCount(['survey-1'])).toFinishAllListeners()
+
+            expect(logic.values.surveysResponsesCount['survey-1']).toBeUndefined()
+            expect(logic.values.responsesCountFailedSurveyIds.has('survey-1')).toBe(true)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/responses_count': () => [200, { 'survey-1': 12 }],
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadResponsesCount(['survey-1'])).toFinishAllListeners()
+
+            expect(logic.values.surveysResponsesCount['survey-1']).toEqual(12)
+            expect(logic.values.responsesCountFailedSurveyIds.has('survey-1')).toBe(false)
+        })
     })
 
     describe('url syncing', () => {

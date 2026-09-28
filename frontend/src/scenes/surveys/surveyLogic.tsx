@@ -634,6 +634,25 @@ export function processOpenEndedResults(
     return result
 }
 
+/**
+ * Questions left without data by a failed results query. A question that has no data while both
+ * queries succeeded simply collected no responses, so it is not reported as a failure.
+ */
+export function getFailedQuestionIds(
+    questions: SurveyQuestion[],
+    responsesByQuestion: ResponsesByQuestion,
+    { aggregateFailed, openEndedFailed }: { aggregateFailed: boolean; openEndedFailed: boolean }
+): string[] {
+    if (!aggregateFailed && !openEndedFailed) {
+        return []
+    }
+
+    return questions
+        .filter((question) => question.type !== SurveyQuestionType.Link)
+        .map((question) => question.id)
+        .filter((questionId): questionId is string => !!questionId && !responsesByQuestion[questionId])
+}
+
 export function mergeResponsesByQuestion(
     aggregate: ResponsesByQuestion,
     openEnded: ResponsesByQuestion
@@ -797,6 +816,21 @@ export interface surveyLogicActions {
         queryDurations: {
             aggregate: number
             openEnded: number
+        }
+        survey: Survey
+        totalDurationMs: number
+    } // eventUsageLogic
+    reportSurveyConsolidatedResultsQueryFailure: (
+        survey: Survey,
+        totalDurationMs: number,
+        failedQueries: {
+            aggregate: boolean
+            openEnded: boolean
+        }
+    ) => {
+        failedQueries: {
+            aggregate: boolean
+            openEnded: boolean
         }
         survey: Survey
         totalDurationMs: number
@@ -1531,6 +1565,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
                 'reportSurveyConsolidatedResultsQuery',
+                'reportSurveyConsolidatedResultsQueryFailure',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -1808,17 +1843,22 @@ export const surveyLogic = kea<surveyLogicType>([
                     UNION ALL
                     ${responseStats}` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
-                    queryParams: {
-                        filters: {
-                            properties: values.propertyFilters,
+                try {
+                    const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
+                        queryParams: {
+                            filters: {
+                                properties: values.propertyFilters,
+                            },
                         },
-                    },
-                })
-                const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
-                actions.setBaseStatsResults(results)
-                actions.loadConsolidatedSurveyResults()
-                return results
+                    })
+                    const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
+                    actions.setBaseStatsResults(results)
+                    return results
+                } finally {
+                    // The per-question results do not depend on these stats, so they load even
+                    // when this query fails. Otherwise every question keeps its loading skeleton.
+                    actions.loadConsolidatedSurveyResults()
+                }
             },
         },
         surveyDismissedAndSentCount: {
@@ -1858,7 +1898,7 @@ export const surveyLogic = kea<surveyLogicType>([
         consolidatedSurveyResults: {
             loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
-                    return { responsesByQuestion: {} }
+                    return { responsesByQuestion: {}, failedQuestionIds: [] }
                 }
 
                 const survey = values.survey as Survey
@@ -1877,7 +1917,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 let aggregateDuration = 0
                 let openEndedDuration = 0
 
-                const [aggregateResponse, openEndedResponse] = await Promise.all([
+                // The two queries settle independently, so a failure in one still renders the
+                // questions the other one answers.
+                const [aggregateOutcome, openEndedOutcome] = await Promise.allSettled([
                     aggregateQuery
                         ? api
                               .queryHogQL(
@@ -1905,18 +1947,44 @@ export const surveyLogic = kea<surveyLogicType>([
                 ])
 
                 const endMs = performance.now()
+                const totalDurationMs = endMs - startMs
+                const aggregateFailed = aggregateOutcome.status === 'rejected'
+                const openEndedFailed = openEndedOutcome.status === 'rejected'
 
-                actions.reportSurveyConsolidatedResultsQuery(survey, endMs - startMs, {
-                    aggregate: aggregateDuration,
-                    openEnded: openEndedDuration,
-                })
+                if (aggregateFailed || openEndedFailed) {
+                    actions.reportSurveyConsolidatedResultsQueryFailure(survey, totalDurationMs, {
+                        aggregate: aggregateFailed,
+                        openEnded: openEndedFailed,
+                    })
+                } else {
+                    actions.reportSurveyConsolidatedResultsQuery(survey, totalDurationMs, {
+                        aggregate: aggregateDuration,
+                        openEnded: openEndedDuration,
+                    })
+                }
 
-                const aggregate = processResultsForSurveyQuestions(survey.questions, aggregateResponse.results)
-                const openEnded = openEndedResult
-                    ? processOpenEndedResults(survey.questions, openEndedResult.columnMap, openEndedResponse.results)
-                    : {}
+                const aggregate =
+                    aggregateOutcome.status === 'fulfilled'
+                        ? processResultsForSurveyQuestions(survey.questions, aggregateOutcome.value.results)
+                        : {}
+                const openEnded =
+                    openEndedResult && openEndedOutcome.status === 'fulfilled'
+                        ? processOpenEndedResults(
+                              survey.questions,
+                              openEndedResult.columnMap,
+                              openEndedOutcome.value.results
+                          )
+                        : {}
 
-                return { responsesByQuestion: mergeResponsesByQuestion(aggregate, openEnded) }
+                const responsesByQuestion = mergeResponsesByQuestion(aggregate, openEnded)
+
+                return {
+                    responsesByQuestion,
+                    failedQuestionIds: getFailedQuestionIds(survey.questions, responsesByQuestion, {
+                        aggregateFailed,
+                        openEndedFailed,
+                    }),
+                }
             },
         },
         archivedResponseUuids: [
@@ -2852,7 +2920,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     } as typeof data
                 }
 
-                return { responsesByQuestion: enriched }
+                return { ...results, responsesByQuestion: enriched }
             },
         ],
         timestampFilter: [

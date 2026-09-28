@@ -3898,6 +3898,8 @@ export interface ConsolidatedSurveyResults {
     responsesByQuestion: {
         [questionId: string]: QuestionProcessedResponses
     }
+    /** Questions whose results query failed, so the UI can offer a retry instead of a skeleton. */
+    failedQuestionIds: string[]
 }
 
 /**

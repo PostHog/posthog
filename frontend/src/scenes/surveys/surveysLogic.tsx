@@ -8,6 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -139,6 +140,7 @@ export interface surveysLogicValues {
     hasNextSearchPage: boolean
     isAppearanceModalOpen: boolean
     preferredEditor: 'full' | 'guided'
+    responsesCountFailedSurveyIds: Set<string>
     searchTerm: string
     searchedSurveys: Survey[]
     showSurveysDisabledBanner: boolean
@@ -282,6 +284,9 @@ export interface surveysLogicActions {
         }
     }
     loadResponsesCount: (surveyIds: string[]) => string[]
+    reportSurveyResponsesCountQueryFailure: (surveyCount: number) => {
+        surveyCount: number
+    } // eventUsageLogic
     loadResponsesCountFailure: (
         error: string,
         errorObject?: any
@@ -356,6 +361,13 @@ export interface surveysLogicActions {
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
+    }
+    setResponsesCountFailed: (
+        surveyIds: string[],
+        failed: boolean
+    ) => {
+        failed: boolean
+        surveyIds: string[]
     }
     setSurveyToDuplicate: (survey: Survey | null) => {
         survey: Survey | null
@@ -458,7 +470,12 @@ export const surveysLogic = kea<surveysLogicType>([
             surveysSdkLogic,
             ['teamSdkVersions'],
         ],
-        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
+        actions: [
+            teamLogic,
+            ['loadCurrentTeam', 'addProductIntent'],
+            eventUsageLogic,
+            ['reportSurveyResponsesCountQueryFailure'],
+        ],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -468,6 +485,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        setResponsesCountFailed: (surveyIds: string[], failed: boolean) => ({ surveyIds, failed }),
         setPreferredEditor: (editor: 'guided' | 'full') => ({ editor }),
         handleMaxSurveyCreated: (
             toolOutput: {
@@ -578,7 +596,17 @@ export const surveysLogic = kea<surveysLogicType>([
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
             loadResponsesCount: async (surveyIds: string[]) => {
-                const responseCounts = await api.surveys.getResponsesCount(surveyIds.join(','))
+                let responseCounts: { [key: string]: number }
+                try {
+                    responseCounts = await api.surveys.getResponsesCount(surveyIds.join(','))
+                } catch {
+                    // Seeding zeros here would read as a survey that collected nothing, so the
+                    // counts stay unknown and the table offers a retry instead.
+                    actions.setResponsesCountFailed(surveyIds, true)
+                    actions.reportSurveyResponsesCountQueryFailure(surveyIds.length)
+                    return values.surveysResponsesCount
+                }
+                actions.setResponsesCountFailed(surveyIds, false)
                 const countsForRequestedSurveys = Object.fromEntries(surveyIds.map((surveyId) => [surveyId, 0]))
 
                 return { ...values.surveysResponsesCount, ...countsForRequestedSurveys, ...responseCounts }
@@ -683,6 +711,22 @@ export const surveysLogic = kea<surveysLogicType>([
             null as Survey | null,
             {
                 setSurveyToDuplicate: (_, { survey }) => survey,
+            },
+        ],
+        responsesCountFailedSurveyIds: [
+            new Set<string>(),
+            {
+                setResponsesCountFailed: (state, { surveyIds, failed }) => {
+                    const next = new Set(state)
+                    for (const surveyId of surveyIds) {
+                        if (failed) {
+                            next.add(surveyId)
+                        } else {
+                            next.delete(surveyId)
+                        }
+                    }
+                    return next
+                },
             },
         ],
         // Remembers which editor (guided wizard vs full editor) the user last

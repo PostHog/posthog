@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -18,6 +18,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { SurveyResponsesCount } from 'scenes/surveys/components/SurveyResponsesCount'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import {
@@ -40,7 +41,6 @@ export function SurveysTable(): JSX.Element {
         searchedSurveys,
         dataLoading,
         surveysResponsesCount,
-        surveysResponsesCountLoading,
         searchTerm,
         filters,
         tab,
@@ -78,15 +78,7 @@ export function SurveysTable(): JSX.Element {
                 title: 'Responses',
                 dataIndex: 'id',
                 render: function RenderResponses(_, survey) {
-                    return (
-                        <>
-                            {surveysResponsesCountLoading ? (
-                                <Spinner />
-                            ) : (
-                                <div>{surveysResponsesCount[survey.id] ?? 0}</div>
-                            )}
-                        </>
-                    )
+                    return <SurveyResponsesCount surveyId={survey.id} />
                 },
                 sorter: (surveyA, surveyB) => {
                     const countA = surveysResponsesCount[surveyA.id] ?? 0
@@ -334,7 +326,6 @@ export function SurveysTable(): JSX.Element {
         ],
         [
             surveysResponsesCount,
-            surveysResponsesCountLoading,
             tab,
             teamSdkVersions,
             hasMultipleProjects,

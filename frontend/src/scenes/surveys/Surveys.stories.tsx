@@ -310,6 +310,13 @@ const MOCK_SURVEY_BASE_STATS = {
     ],
 }
 
+const MOCK_SURVEY_WITH_FAILING_RESULTS: Survey = {
+    ...MOCK_SURVEY_WITH_RESULTS,
+    id: '0187c279-bcae-0000-34f5-4f121921f100',
+    name: 'survey whose results query fails',
+    description: 'survey whose aggregate results query returns a server error',
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Surveys',
@@ -348,6 +355,17 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const body = (await request.json()) as any
+                    if (body?.query?.query?.includes(MOCK_SURVEY_WITH_FAILING_RESULTS.id)) {
+                        switch (body.query.tags?.name) {
+                            case 'survey_results_aggregate':
+                                return [503, { type: 'server_error', detail: 'Service Unavailable' }]
+                            case 'survey_base_stats':
+                                return MOCK_SURVEY_BASE_STATS
+                            case 'survey_dismissed_sent_overlap':
+                                return { results: [[5]] }
+                        }
+                        return { results: [] }
+                    }
                     if (body?.query?.query?.includes(MOCK_SURVEY_WITH_RESULTS.id)) {
                         switch (body.query.tags?.name) {
                             case 'survey_results_aggregate':
@@ -581,6 +599,43 @@ export const SurveyResults: Story = {
             },
         }),
     ],
+}
+
+export const SurveyResultsQueryFailure: Story = {
+    parameters: {
+        pageUrl: urls.survey(MOCK_SURVEY_WITH_FAILING_RESULTS.id),
+        testOptions: {
+            waitForSelector: '[data-attr="survey-question-results-retry"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/surveys/${MOCK_SURVEY_WITH_FAILING_RESULTS.id}/`]:
+                    MOCK_SURVEY_WITH_FAILING_RESULTS,
+                [`/api/projects/:team_id/surveys/${MOCK_SURVEY_WITH_FAILING_RESULTS.id}/archived-response-uuids/`]: [],
+                '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
+            },
+        }),
+    ],
+}
+
+export const SurveysListResponsesCountFailure: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/surveys/responses_count/': () => [
+                    503,
+                    { type: 'server_error', detail: 'Service Unavailable' },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="survey-responses-count-retry"]',
+        },
+    },
 }
 
 export const SurveySummaryExport: Story = {
