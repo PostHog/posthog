@@ -1,6 +1,7 @@
 import re
 import json
 from collections.abc import Callable, Sequence
+from datetime import timedelta
 from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -351,8 +352,21 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     Only responsible for parsing dates, passes through other params.
     """
 
-    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.",
+    )
+    end_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, "
+            "or today if only start_date is provided."
+        ),
+    )
     usage_types = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -436,8 +450,12 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("start_date") and not attrs.get("end_date"):
-            attrs["end_date"] = timezone.now().date().isoformat()
+        today_utc = timezone.now().astimezone(ZoneInfo("UTC")).date()
+        if not attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["start_date"] = (today_utc - timedelta(days=30)).isoformat()
+            attrs["end_date"] = (today_utc - timedelta(days=1)).isoformat()
+        elif attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["end_date"] = today_utc.isoformat()
         return attrs
 
     def validate_usage_types(self, value: Optional[str]) -> Optional[str]:

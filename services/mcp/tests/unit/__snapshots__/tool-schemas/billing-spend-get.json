@@ -37,7 +37,7 @@
                     "type": "null"
                 }
             ],
-            "description": "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+            "description": "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided."
         },
         "interval": {
             "anyOf": [
@@ -72,7 +72,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use \"all\", also pass end_date."
+            "description": "Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago."
         },
         "team_ids": {
             "anyOf": [

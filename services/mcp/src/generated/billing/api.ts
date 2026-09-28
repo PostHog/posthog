@@ -29,7 +29,12 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         .describe(
             'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
         ),
-    end_date: zod.string().nullish(),
+    end_date: zod
+        .string()
+        .nullish()
+        .describe(
+            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
+        ),
     interval: zod.string().nullish(),
     page_size: zod
         .number()
@@ -39,7 +44,10 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         .describe(
             'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
         ),
-    start_date: zod.string().nullish(),
+    start_date: zod
+        .string()
+        .nullish()
+        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
     team_ids: zod
         .string()
         .nullish()
@@ -80,7 +88,12 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
         .describe(
             'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
         ),
-    end_date: zod.string().nullish(),
+    end_date: zod
+        .string()
+        .nullish()
+        .describe(
+            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
+        ),
     interval: zod.string().nullish(),
     page_size: zod
         .number()
@@ -90,7 +103,10 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
         .describe(
             'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
         ),
-    start_date: zod.string().nullish(),
+    start_date: zod
+        .string()
+        .nullish()
+        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
     team_ids: zod
         .string()
         .nullish()
@@ -237,7 +253,12 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
         .max(billingSpendTimeseriesRetrieveQueryCursorMax)
         .nullish()
         .describe("The cursor from a previous page's `next` link. Opaque. Ignored without `limit`."),
-    end_date: zod.string().nullish(),
+    end_date: zod
+        .string()
+        .nullish()
+        .describe(
+            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
+        ),
     interval: zod.string().nullish(),
     limit: zod
         .number()
@@ -247,7 +268,10 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
         .describe(
             'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.'
         ),
-    start_date: zod.string().nullish(),
+    start_date: zod
+        .string()
+        .nullish()
+        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
     team_ids: zod
         .string()
         .nullish()
@@ -336,7 +360,12 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
         .max(billingUsageTimeseriesRetrieveQueryCursorMax)
         .nullish()
         .describe("The cursor from a previous page's `next` link. Opaque. Ignored without `limit`."),
-    end_date: zod.string().nullish(),
+    end_date: zod
+        .string()
+        .nullish()
+        .describe(
+            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
+        ),
     interval: zod.string().nullish(),
     limit: zod
         .number()
@@ -346,7 +375,10 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
         .describe(
             'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once.'
         ),
-    start_date: zod.string().nullish(),
+    start_date: zod
+        .string()
+        .nullish()
+        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
     team_ids: zod
         .string()
         .nullish()
