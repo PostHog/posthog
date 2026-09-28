@@ -489,32 +489,41 @@ def test_reader_keeps_valid_checks_beside_a_malformed_one() -> None:
     assert len(reader.read(relay.GATE_CHECK)) == 1
 
 
-def test_relay_reads_the_mirrored_verdict_while_depots_own_checks_lag() -> None:
+@pytest.mark.parametrize(
+    "depot_gate,expected",
+    [
+        pytest.param([], (relay.Phase.FINISHED, "success"), id="Depot's copies lag"),
+        # Depot delivers attempt 1's failure after the mirror posted attempt 2's success.
+        pytest.param([(9, "failure")], (relay.Phase.FINISHED, "success"), id="a late copy of an older attempt"),
+        pytest.param(None, (relay.Phase.RUNNING, ""), id="Depot's app read fails"),
+    ],
+)
+def test_relay_prefers_the_mirrored_checks(depot_gate: list[tuple[int, str]] | None, expected: tuple[Any, str]) -> None:
+    url = f"https://depot.dev/orgs/{relay.DEPOT_ORG}/workflows/w1?job=j"
+    mirror = {EVENT_WAIT: [(1, "success")], relay.GATE_CHECK: [(2, "failure"), (5, "success")]}
+    depot = {EVENT_WAIT: [(3, "success")], relay.GATE_CHECK: depot_gate}
+
     def opener(request: Any, timeout: int) -> FakeResponse:
         query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
         name, app_id = query["check_name"][0], int(query["app_id"][0])
-        # Depot's app has posted nothing yet; the mirror app posted the wait and the gate.
-        state = {EVENT_WAIT: "success", relay.GATE_CHECK: "failure"}[name] if app_id == relay.MIRROR_APP_ID else None
-        runs = (
-            []
-            if state is None
-            else [
-                {
-                    "id": 7,
-                    "name": name,
-                    "head_sha": EVENT.sha,
-                    "app": {"id": app_id},
-                    "status": "completed",
-                    "conclusion": state,
-                    "details_url": f"https://depot.dev/orgs/{relay.DEPOT_ORG}/workflows/w1?job=j",
-                }
-            ]
-        )
-        return FakeResponse(json.dumps({"check_runs": runs}).encode(), "")
+        runs = (mirror if app_id == relay.MIRROR_APP_ID else depot)[name]
+        if runs is None:
+            raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
+        body = [
+            {
+                "id": i,
+                "name": name,
+                "head_sha": EVENT.sha,
+                "app": {"id": app_id},
+                "status": "completed",
+                "conclusion": c,
+                "details_url": url,
+            }
+            for i, c in runs
+        ]
+        return FakeResponse(json.dumps({"check_runs": body}).encode(), "")
 
     reader = relay.CheckRunReader(EVENT.repo, EVENT.sha, "token", opener=opener)
-    clock = FakeClock()
-    result = relay.poll(
-        reader, EVENT, relay.GATE_CHECK, deadline_minutes=90, absent_minutes=15, clock=clock, sleep=clock.sleep
-    )
-    assert (result.phase, result.state) == (relay.Phase.FINISHED, "failure")
+    wait = relay.newest_live(reader.read(EVENT_WAIT))
+    current = relay.progress(wait, reader.read(relay.GATE_CHECK))
+    assert (current.phase, current.state) == expected

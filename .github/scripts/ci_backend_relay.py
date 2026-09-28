@@ -183,7 +183,7 @@ class CheckRunReader:
         token: str,
         opener: Callable[..., Any] = urllib.request.urlopen,
         pr_number: int | None = None,
-        app_ids: Sequence[int] = (DEPOT_APP_ID, MIRROR_APP_ID),
+        app_ids: Sequence[int] = (MIRROR_APP_ID, DEPOT_APP_ID),
     ) -> None:
         self._repo = repo
         self._sha = sha
@@ -218,10 +218,17 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """Either app's copy can arrive first, and check ids order both apps' checks by creation."""
-        return [run for app_id in self._app_ids for run in self._read_app(name, app_id)]
+        """The first app in `app_ids` that has the check wins.
 
-    def _read_app(self, name: str, app_id: int) -> list[CheckRun]:
+        Depot can deliver its copy of an old attempt after a newer one, so check ids do not order
+        the two apps' copies. A failed read of either app reads as no check, which keeps polling.
+        """
+        copies = [self._read_app(name, app_id) for app_id in self._app_ids]
+        if any(runs is None for runs in copies):
+            return []
+        return next((runs for runs in copies if runs), [])
+
+    def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
         """Read every page, reusing a cached answer only when the API confirms it with 304."""
         etag, cached = self._cache.get((name, app_id), ("", []))
         raw: list[dict[str, Any]] = []
@@ -239,7 +246,7 @@ class CheckRunReader:
                         raise ReadRefusedError(f"Cannot read checks for {self._sha}")
                 if code != 200:
                     sys.stdout.write(f"::warning::check-runs API returned {code}\n")
-                    return []
+                    return None
                 self._refusals = 0
                 if page == 1:
                     new_etag = page_etag
@@ -267,7 +274,7 @@ class CheckRunReader:
             runs = [run for run in runs if run.depot_workflow is not None]
         except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError):
             sys.stdout.write("::warning::check-runs API read failed\n")
-            return []
+            return None
         # One page's ETag cannot validate the other pages of a paginated response.
         self._cache[(name, app_id)] = (new_etag if page == 1 else "", runs)
         return runs
