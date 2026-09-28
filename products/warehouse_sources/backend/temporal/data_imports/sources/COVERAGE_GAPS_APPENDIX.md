@@ -3033,14 +3033,15 @@ Note: Coverage is service configuration objects plus the account/billing family;
 
 ## Featurebase — **thin**
 
-Today (10): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts`, `custom_fields`, `post_statuses`, `post_voters`, `posts`
+Today (14): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts`, `conversation_tags`, `conversations`, `custom_fields`, `post_statuses`, `post_voters`, `posts`, `ticket_statuses`, `tickets`
 
 Diffed against: <https://developers.featurebase.app/llms.txt>
 
-- [ ] `support/conversations (list, search)` — the entire support inbox - conversation volume, first response and resolution analysis (high)
-- [ ] `support/tickets (list)` — ticket workload and lifecycle, the other half of the support product (high)
-- [ ] `support/tickets/statuses` — lookup table resolving the status id on every ticket (high)
-- [ ] `support/conversation_tags (list)` — lookup table for tags applied to conversations - the main support breakdown dimension (high)
+- [x] `support/conversations (list)` — the entire support inbox - conversation volume, first response and resolution analysis (high)
+- [ ] `support/conversations (search)` — a POST query endpoint over the collection `conversations` already syncs, returning a slimmer inbox row; declined as a separate table (high)
+- [x] `support/tickets (list)` — ticket workload and lifecycle, the other half of the support product (high)
+- [x] `support/tickets/statuses` — lookup table resolving the status id on every ticket (high)
+- [x] `support/conversation_tags (list)` — lookup table for tags applied to conversations - the main support breakdown dimension (high)
 - [ ] `surveys and surveys/list_responses` — survey responses are raw analytical rows (NPS/CSAT style) with no equivalent in the synced tables (high)
 - [ ] `support/tickets/categories` — lookup resolving ticket category ids (medium)
 - [ ] `help_center/articles (list)` — article inventory for content and deflection analysis (medium)
