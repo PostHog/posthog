@@ -252,7 +252,7 @@ describe('relatedFeatureFlagsLogic', () => {
     })
 
     describe('load errors', () => {
-        beforeEach(() => {
+        const mountWithEvaluationReasonsStatus = (status: number): void => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks
             useMocks({
                 get: {
@@ -261,8 +261,8 @@ describe('relatedFeatureFlagsLogic', () => {
                         { results: MOCK_FLAGS, count: MOCK_FLAGS.length },
                     ],
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]: [
-                        503,
-                        { error: 'Feature flag evaluation service is temporarily unavailable. Please try again.' },
+                        status,
+                        { detail: 'Request failed.' },
                     ],
                 },
             })
@@ -270,9 +270,21 @@ describe('relatedFeatureFlagsLogic', () => {
             flagsLogic.mount()
             logic = relatedFeatureFlagsLogic({ distinctId: 'test-user' })
             logic.mount()
+        }
+
+        it.each([
+            [503, false],
+            [500, false],
+            [403, true],
+        ])('a %s response sets loadForbidden to %s', async (status, expectedForbidden) => {
+            mountWithEvaluationReasonsStatus(status)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadError).toBe(true)
+            expect(logic.values.loadForbidden).toBe(expectedForbidden)
         })
 
         it('sets loadError on a failed load and clears it once a retry succeeds', async () => {
+            mountWithEvaluationReasonsStatus(503)
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.loadError).toBe(true)
             // No pagination controls next to the error state — the flags list count would

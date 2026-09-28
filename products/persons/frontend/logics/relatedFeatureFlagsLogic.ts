@@ -48,6 +48,7 @@ export interface relatedFeatureFlagsLogicValues {
     filters: Partial<RelatedFlagsFilters>
     isLoading: boolean
     loadError: boolean
+    loadForbidden: boolean
     mappedRelatedFeatureFlags: RelatedFeatureFlag[]
     pagination: PaginationManual | undefined
     relatedFeatureFlags: RelatedFeatureFlagResponse | null
@@ -246,6 +247,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 loadRelatedFeatureFlags: () => false,
                 loadRelatedFeatureFlagsSuccess: () => false,
                 loadRelatedFeatureFlagsFailure: () => true,
+            },
+        ],
+        // A 403 means the viewer has no access to feature flags, so a retry cannot help.
+        loadForbidden: [
+            false,
+            {
+                loadRelatedFeatureFlags: () => false,
+                loadRelatedFeatureFlagsSuccess: () => false,
+                loadRelatedFeatureFlagsFailure: (_, { errorObject }) => errorObject?.status === 403,
             },
         ],
     }),
