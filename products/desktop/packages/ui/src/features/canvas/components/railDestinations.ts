@@ -238,6 +238,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
     placement: "more",
+    shortcut: formatHotkey(SHORTCUTS.COMMAND_CENTER),
   },
   {
     pane: "loops",

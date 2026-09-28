@@ -29,6 +29,7 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToCommandCenter,
   navigateToFolderSettings,
   navigateToInbox,
 } from "@posthog/ui/router/navigationBridge";
@@ -248,6 +249,11 @@ function useGlobalEventHandlers({
     ...GLOBAL_HOTKEY_OPTIONS,
     enabled: inboxAvailable,
   });
+  useHotkeys(
+    SHORTCUTS.COMMAND_CENTER,
+    navigateToCommandCenter,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, GLOBAL_HOTKEY_OPTIONS, [
     handlePrevTask,
   ]);

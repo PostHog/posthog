@@ -73,6 +73,15 @@ import {
   type ReactNode,
   useState,
 } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
+
+// Three modifiers never mean anything to a text field, so these fire from inside
+// one too.
+const RAIL_HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  preventDefault: true,
+} as const;
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
@@ -214,7 +223,7 @@ function MoreNavItem({
         className="w-52 gap-0.5 p-1"
       >
         {destinations.map((destination) => {
-          const { pane, label, Icon, count, countTone } = destination;
+          const { pane, label, Icon, count, countTone, shortcut } = destination;
           const pick = onPick(destination);
           return (
             <Button
@@ -230,11 +239,10 @@ function MoreNavItem({
             >
               <Icon size={16} weight={railPane === pane ? "fill" : "regular"} />
               {label}
-              <CountBadge
-                count={count?.(counts) ?? 0}
-                tone={countTone}
-                className="ml-auto"
-              />
+              <span className="ml-auto flex items-center gap-1">
+                <CountBadge count={count?.(counts) ?? 0} tone={countTone} />
+                {shortcut && <Kbd>{shortcut}</Kbd>}
+              </span>
             </Button>
           );
         })}
@@ -329,6 +337,22 @@ function NavRailImpl() {
   // So the create button files into the space you are in, like the shortcut.
   const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
+  const go = (destination: RailDestination): void => {
+    if (workLayout) {
+      if (destination.pane === "activity") {
+        if (!workActivityOpen) showWorkColumn();
+        toggleWorkActivity();
+        return;
+      }
+      closeWorkActivity();
+      if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+        showWorkColumn();
+        return;
+      }
+    }
+    pickRailDestination(destination, railPane);
+  };
+
   const pick =
     (destination: RailDestination) =>
     (event: MouseEvent<HTMLElement>): void => {
@@ -342,30 +366,48 @@ function NavRailImpl() {
         openBrowserTab(destination.href);
         return;
       }
-      if (workLayout) {
-        if (destination.pane === "activity") {
-          if (!workActivityOpen) showWorkColumn();
-          toggleWorkActivity();
-          return;
-        }
-        closeWorkActivity();
-        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
-          showWorkColumn();
-          return;
-        }
-      }
-      pickRailDestination(destination, railPane);
+      go(destination);
     };
 
-  const renderDestination = (destination: RailDestination): ReactNode => {
-    const { pane, label, Icon, count, countTone } = destination;
-    const isActive = workLayout
+  const isDestinationActive = (pane: NavRailPane): boolean =>
+    workLayout
       ? pane === "activity"
         ? workActivityOpen
         : pane === "spaces"
           ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
           : !workActivityOpen && railPane === pane
       : railPane === pane;
+
+  // Visual order, so the keys walk the rail the way the eye reads it, More
+  // included.
+  const railOrder = [
+    ...topDestinations,
+    ...moreDestinations,
+    ...bottomDestinations,
+  ];
+  const step = (direction: 1 | -1): void => {
+    const current = railOrder.findIndex(({ pane }) =>
+      isDestinationActive(pane),
+    );
+    // Off the rail, down lands on the first destination and up on the last.
+    const from = current === -1 ? (direction === 1 ? -1 : 0) : current;
+    const destination =
+      railOrder[(from + direction + railOrder.length) % railOrder.length];
+    if (!destination) return;
+    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+      item: destination.analyticsId,
+      in_more: destination.placement === "more",
+      layout: "channels",
+      source: "shortcut",
+    });
+    go(destination);
+  };
+  useHotkeys(SHORTCUTS.RAIL_PREV, () => step(-1), RAIL_HOTKEY_OPTIONS, [step]);
+  useHotkeys(SHORTCUTS.RAIL_NEXT, () => step(1), RAIL_HOTKEY_OPTIONS, [step]);
+
+  const renderDestination = (destination: RailDestination): ReactNode => {
+    const { pane, label, Icon, count, countTone } = destination;
+    const isActive = isDestinationActive(pane);
     const destinationCount = count?.(counts) ?? 0;
     const usesNotificationDot = pane === "activity" || pane === "inbox";
     let badge: ReactNode;
