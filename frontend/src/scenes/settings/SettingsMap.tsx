@@ -1222,11 +1222,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-canvas-capture',
                 title: 'Canvas capture',
                 description:
-                    'Capture HTML canvas elements in session recordings. Useful for apps that render charts, games, or other canvas-based content.',
+                    'Capture HTML canvas elements in session recordings. Turn this on for Flutter web apps. Flutter web draws the whole app in one canvas, so without canvas capture the recordings play back as a blank page. Also useful for charts, games, or other canvas-based content.',
                 docsUrl: 'https://posthog.com/docs/session-replay/canvas-recording',
                 platformSupport: FEATURE_SUPPORT.sessionReplayCanvasCapture,
                 component: <CanvasCaptureSettings />,
-                keywords: ['canvas', 'webgl', 'drawing', 'chart'],
+                keywords: ['canvas', 'webgl', 'drawing', 'chart', 'flutter', 'blank', 'white'],
             },
             {
                 id: 'replay-triggers',
