@@ -126,13 +126,13 @@ The caller activity passes `has_business_knowledge=True` when the team's busines
 
 ### Fleet steering
 
-The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering` from the notes the team left the scout fleet. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
+The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering`. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
 
 Why this stage needs it: dismissing, discussing, or rating an inbox report leaves the person's text as a scout note, and until this landed only scheduled scout runs read those. Research is the stage that produces the findings, actionability, priority, and title, so a reviewer's "this is expected, it's the approval flow" shaped the scout and not the judgment it was actually about.
 
-The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only, and it is the one reader of the `pipeline:report-research` audience, merged newest first with the scout and fleet-wide notes under the same cap. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule, says that most notes will not apply to this report and that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
+The research variant pastes only the `pipeline:report-research` audience. For every other note it renders a nudge to search `scout-notes-list` with `text`, once per entity the report names, so the run finds older feedback on similar reports that a newest-first page would drop. Every origin is reachable that way. See the `report_steering` module docstring for the reasoning. The section itself carries the untrusted-input rule, says that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
 
-`signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, `pipeline_notes_attached`, `scratchpad_available`, and `memory_protocol`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
+`signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, `pipeline_notes_attached`, `scratchpad_available`, `memory_protocol`, and `nudge_rendered`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
 
 ### Research memory
 
@@ -147,7 +147,7 @@ What the protocol asks for: entity-keyed judgments (`noise:`, `already_addressed
 What it forbids: writing anything unverified, restating the report, quoting note or signal text, blind-overwriting a key on a shared keyspace, and omitting `expires_at`.
 The report id is interpolated into the section rather than asked for, because the research prompt names one only on a re-research and a first run would otherwise omit or invent it.
 The read pointer normally waits until the team's scratchpad holds an entry; under the write posture it ships anyway, because a writer has to read a key before it overwrites it.
-That is the one place the two stages differ in shape: the implementation protocol carries its own search step and replaces the pointer, so `_compose` takes `keep_pointer` and this stage passes it.
+`load_research_steering` renders the pointer when the memory protocol renders or the scratchpad holds a live entry. The implementation nudge carries its own search step instead.
 
 Per-run counts of entries read and written are not on the steering event: the calls happen inside the sandbox over MCP, so they are only visible to the pipeline as tool-call telemetry, not as a value the activity holds.
 

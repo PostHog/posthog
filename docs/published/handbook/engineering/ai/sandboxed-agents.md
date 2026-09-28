@@ -295,6 +295,8 @@ summary = await session.send_followup(
 await session.end()
 ```
 
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
+
 ### Reference implementation
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
