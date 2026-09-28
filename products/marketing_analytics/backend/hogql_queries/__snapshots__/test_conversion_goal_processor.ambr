@@ -4,8 +4,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -83,9 +83,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -94,8 +93,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -173,9 +172,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -184,8 +182,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -263,9 +261,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -274,8 +271,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -353,9 +350,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -364,8 +360,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -443,9 +439,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -454,8 +449,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -533,9 +528,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -544,8 +538,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -623,9 +617,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -634,8 +627,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_1
   FROM
@@ -713,9 +706,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -724,8 +716,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     coalesce(sum(conversion_value), 0) AS conversion_0
   FROM
@@ -803,9 +795,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -814,8 +805,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     coalesce(sum(conversion_value), 0) AS conversion_0
   FROM
@@ -920,9 +911,8 @@
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)
         ARRAY JOIN arrayEnumerate(attribution_weights) AS tp_idx)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -931,8 +921,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     coalesce(sum(conversion_value), 0) AS conversion_0
   FROM
@@ -1037,9 +1027,8 @@
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)
         ARRAY JOIN arrayEnumerate(attribution_weights) AS tp_idx)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1048,8 +1037,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     coalesce(sum(conversion_value), 0) AS conversion_0
   FROM
@@ -1154,9 +1143,8 @@
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)
         ARRAY JOIN arrayEnumerate(attribution_weights) AS tp_idx)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1165,8 +1153,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     coalesce(sum(conversion_value), 0) AS conversion_0
   FROM
@@ -1271,9 +1259,8 @@
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)
         ARRAY JOIN arrayEnumerate(attribution_weights) AS tp_idx)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1282,8 +1269,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1361,9 +1348,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1372,8 +1358,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1451,9 +1437,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1462,8 +1447,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1541,9 +1526,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1552,8 +1536,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1631,9 +1615,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1642,8 +1625,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1721,9 +1704,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
@@ -1732,8 +1714,8 @@
   
   SELECT
     if(notEmpty(campaign_name), campaign_name, 'organic') AS match_key,
-    if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-    if(notEmpty(campaign_id), campaign_id, '-') AS id,
+    min(if(notEmpty(campaign_name), campaign_name, 'organic')) AS campaign,
+    min(if(notEmpty(campaign_id), campaign_id, '-')) AS id,
     if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))))))) AS source,
     count() AS conversion_0
   FROM
@@ -1811,9 +1793,8 @@
           greater(length(conversion_timestamps), 0))
         ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
   GROUP BY
-    campaign,
-    id,
-    source
+    if(notEmpty(campaign_name), campaign_name, 'organic'),
+    if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['rokt_ads']), 'rokt', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['chatgpt', 'openai_ads']), 'openai', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['apple_search_ads', 'apple_ads', 'asa']), 'apple', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['amazon_ads']), 'amazon', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))))))))))
   LIMIT 100
   '''
 # ---
