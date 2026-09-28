@@ -517,10 +517,6 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
-        "token_cost",
-        "token_cost_incomplete",
-        "compute_cost",
-        "unprocessed_request_ids",
     }
 )
 

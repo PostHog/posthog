@@ -259,7 +259,7 @@ class TestFacadeReadsAndMappers(TestCase):
         return Task.objects.create(**defaults)
 
     @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
-    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
+    def test_run_detail_filters_state_for_human_and_sandbox_readers(self, _name, include_agent_state):
         # The agent reads initial_prompt_override off this payload to build its first
         # message; dropping it strips it silently and the run falls back to
         # task.description. But it embeds the triggering event wholesale (for a Slack
@@ -277,6 +277,10 @@ class TestFacadeReadsAndMappers(TestCase):
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
                 "task_summary": "Private workflow context",
+                "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
+                "compute_cost": 2,
+                "token_cost_incomplete": True,
+                "unprocessed_request_ids": ["request-2"],
             },
         )
 
@@ -292,6 +296,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
+            detail.state
+        )
         assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
 
     def test_get_task_run_maps_all_fields(self):

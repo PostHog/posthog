@@ -206,9 +206,10 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_ordinary_patch_cannot_write_queue_or_cost(self) -> None:
+    def test_ordinary_patch_hides_and_protects_accounting_state(self) -> None:
         run = self._run()
         run.state = {
+            "mode": "background",
             "unprocessed_request_ids": ["existing"],
             "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
             "token_cost_incomplete": True,
@@ -237,9 +238,10 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["state"]["token_cost_incomplete"] is True
+        assert response.json()["state"] == {"mode": "background"}
         run.refresh_from_db()
         assert run.state == {
+            "mode": "background",
             "unprocessed_request_ids": ["existing"],
             "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
             "token_cost_incomplete": True,
@@ -249,7 +251,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     @parameterized.expand([(False, True), (True, True), (False, False)])
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.logic.services.gateway_usage._compute_cost_source", return_value=Decimal("0.12"))
-    def test_terminal_patch_returns_cost_without_blocking_completion(
+    def test_terminal_patch_persists_cost_without_blocking_completion(
         self, refresh_fails: bool, uses_gateway: bool, compute_cost: Mock, signal: Mock
     ) -> None:
         run = self._run()
@@ -268,6 +270,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert response.json()["state"]["compute_cost"] == run.state["compute_cost"] == (7 if refresh_fails else 12)
+        assert response.json()["state"] == {}
+        assert run.state["compute_cost"] == (7 if refresh_fails else 12)
         assert response.json()["updated_at"] == run.updated_at.isoformat().replace("+00:00", "Z")
         signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)
