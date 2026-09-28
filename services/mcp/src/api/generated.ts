@@ -77224,6 +77224,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -77252,6 +77253,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     /**
@@ -77310,7 +77312,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -78694,6 +78697,123 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type SandboxPollStatusEnum = typeof SandboxPollStatusEnum[keyof typeof SandboxPollStatusEnum];
+
+
+    export const SandboxPollStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SandboxSource {
+      /** Source reference the reply relies on. */
+      ref: string;
+      /** Short excerpt that supports the reply. */
+      excerpt: string;
+    }
+
+    /**
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window
+     */
+    export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
+
+
+    export const SandboxToolNameEnum = {
+      BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+      BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    } as const;
+
+    export interface SandboxSearch {
+      /** Business knowledge tool the agent called.
+       *
+       * * `business-knowledge-documents-search` - Search
+       * * `business-knowledge-document-window-retrieve` - Window */
+      tool: SandboxToolNameEnum;
+      /** Tool input the agent sent. */
+      input: string;
+    }
+
+    export interface SandboxRun {
+      /** Sandbox task id. */
+      task_id: string;
+      /** Latest run id for this task. */
+      run_id: string;
+      /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      status: SandboxPollStatusEnum;
+      /**
+         * Answer text when status is completed. Null otherwise.
+         * @nullable
+         */
+      reply: string | null;
+      /** Sources cited in a completed answer. Empty when the run has not completed. */
+      sources: SandboxSource[];
+      /** Business knowledge search and window calls observed in the run log. */
+      searches: SandboxSearch[];
+      /**
+         * Why the run did not produce an answer. Null while running and on a completed answer.
+         * @nullable
+         */
+      error: string | null;
+      /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+      docs_search_called: boolean;
+    }
+
+    export interface PlaygroundTurn {
+      /** Turn id. */
+      id: string;
+      /** Question that started this turn's sandbox run. */
+      question: string;
+      /** Sandbox task id for this turn. */
+      task_id: string;
+      /** Order of this turn in the chat, starting at 0. */
+      position: number;
+      /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+      run: SandboxRun | null;
+      /**
+         * Why this turn could not be loaded. Null when run is present.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PlaygroundChat {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+      turns: PlaygroundTurn[];
+    }
+
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
     }
 
     /**
@@ -87131,6 +87251,21 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
       /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
       task_id?: string;
+    }
+
+    export interface SandboxQuestion {
+      /**
+         * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+         * @maxLength 4000
+         */
+      question: string;
+    }
+
+    export interface SandboxRunStarted {
+      /** Sandbox task id. Poll this id until the run finishes. */
+      task_id: string;
+      /** Run id for this question. */
+      run_id: string;
     }
 
     export interface SaveRequest {
@@ -96166,7 +96301,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -97797,7 +97933,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -114917,6 +115054,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -115061,6 +115199,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
