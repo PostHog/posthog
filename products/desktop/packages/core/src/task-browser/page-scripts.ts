@@ -44,6 +44,7 @@ export function snapshotScript(maxChars: number): string {
     `
 const INTERACTIVE = "a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[role=textbox],[contenteditable=true],[tabindex]:not([tabindex='-1'])";
 const TEXT = "h1,h2,h3,h4,h5,h6,p,li,td,th,label,dt,dd,figcaption,blockquote";
+const TRUNCATED = "… snapshot truncated";
 for (const [ref, weak] of state.byRef) {
   if (!weak.deref()) state.byRef.delete(ref);
 }
@@ -51,7 +52,7 @@ const lines = [];
 let size = 0;
 let truncated = false;
 const push = (line) => {
-  const room = args.maxChars - size;
+  const room = args.maxChars - TRUNCATED.length - 1 - size;
   if (room <= 0) {
     truncated = true;
     return false;
@@ -94,7 +95,7 @@ for (const element of document.querySelectorAll(INTERACTIVE + "," + TEXT)) {
     if (!push(tag + ": " + text)) break;
   }
 }
-if (truncated) lines.push("… snapshot truncated");
+if (truncated) lines.push(TRUNCATED);
 return lines.join("\\n");
 `,
     { maxChars },
@@ -171,7 +172,8 @@ const password = fields.some((field) => field.type === "password");
 const payment = fields.some(isPayment);
 const submits = element.matches("button[type=submit],input[type=submit],button:not([type])") && !!form;
 const filled = fields.some(isFilled);
-const label = clean(element.innerText || element.value || element.getAttribute("aria-label") || "", 80);
+const buttonLike = element instanceof HTMLButtonElement || (element instanceof HTMLInputElement && ["submit", "button", "reset"].includes(element.type));
+const label = clean(element.innerText || (buttonLike ? element.value : "") || element.getAttribute("aria-label") || element.getAttribute("placeholder") || "", 80);
 return {
   typesPassword: element instanceof HTMLInputElement && element.type === "password",
   password,
