@@ -10,6 +10,7 @@ from django.db import OperationalError
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -823,6 +824,138 @@ class TestPollForTurnTimeoutDiagnosis:
 
         assert exc_info.value.stage == "active_at_budget"
         assert exc_info.value.turn_relevant_lines == 3
+
+
+class TestPollForTurnEarlyExit:
+    """A turn whose log has gone quiet must fail at the silence, not at the budget.
+
+    The failure the budget was hiding: the agent produces output, the stream drops, and the loop
+    keeps reading an S3 object it already knows is dead until the whole budget is gone. The caller
+    loses the same run either way, so every extra minute is pure waste — the sandbox lease, the
+    report's slot in the workflow, and the operator's time to the first error.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stalled_turn_fails_long_before_the_budget(self):
+        # Output, then silence, with a tail salvage declines — the timeout must land at the
+        # silence floor, not 570 seconds later.
+        log = "\n".join([_agent_message_line("partial work"), _tool_call_line()])
+        reads = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            reads["n"] += 1
+            return log
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.stage == "stalled_after_output"
+        # Three polls to clear the 15s floor, then the one salvage reread. The whole 600s budget
+        # would have been 60 polls.
+        assert exc_info.value.elapsed == 30
+        assert reads["n"] == 4
+
+    @pytest.mark.asyncio
+    async def test_turn_with_no_output_keeps_polling_while_the_workflow_runs(self):
+        # Before the agent's first line the sandbox is still spawning and cloning, and only
+        # side-channel lines mark that progress. Silence here is not evidence, so the turn must
+        # get its whole budget.
+        handle = MagicMock()
+        handle.signal = AsyncMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.RUNNING))
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_console_line("cloning repo")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 120),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0, workflow_handle=handle)
+
+        assert exc_info.value.stage == "no_turn_output"
+        assert exc_info.value.elapsed == 120
+
+    @parameterized.expand(
+        [
+            ("terminated", WorkflowExecutionStatus.TERMINATED),
+            ("failed", WorkflowExecutionStatus.FAILED),
+            ("timed_out", WorkflowExecutionStatus.TIMED_OUT),
+        ]
+    )
+    async def test_turn_with_no_output_ends_when_the_workflow_has_stopped(self, _name, status):
+        # A workflow that is no longer executing is the definitive answer silence cannot give:
+        # nothing is left to produce the turn's first line.
+        handle = MagicMock()
+        handle.signal = AsyncMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=status))
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_console_line("cloning repo")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0, workflow_handle=handle)
+
+        assert exc_info.value.stage == "no_turn_output"
+        # The liveness check runs once a minute of silence, so the first one ends the turn.
+        assert exc_info.value.elapsed == 60
+
+    @pytest.mark.asyncio
+    async def test_unreadable_workflow_status_does_not_end_the_turn(self):
+        # A Temporal outage must not decide that a working turn is dead.
+        handle = MagicMock()
+        handle.signal = AsyncMock()
+        handle.describe = AsyncMock(side_effect=RuntimeError("temporal unreachable"))
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_console_line("cloning repo")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 120),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0, workflow_handle=handle)
+
+        assert exc_info.value.elapsed == 120
+
+    @pytest.mark.asyncio
+    async def test_early_exit_still_salvages_a_dropped_finalization(self):
+        # Leaving the loop early must take the same deadline path, not skip it: the fingerprint
+        # tail is still a completed turn and must come back as one.
+        log = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            turn = await poll_for_turn(fake, skip_lines=0)
+
+        assert turn.last_message == "close-out summary"
 
 
 class TestPollForTurnTerminalDrain:

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
@@ -190,6 +191,11 @@ class TurnPollTimeout(RuntimeError):
         }
 
 
+# How often the poll loop asks Temporal whether the sandbox workflow is still executing, once the
+# turn log has gone quiet past the salvage floor. A describe() is a network round trip, so it is not
+# worth one per poll; a minute is well inside the minutes the early exit saves.
+WORKFLOW_LIVENESS_CHECK_INTERVAL_SECONDS = 60
+
 # `TurnPollTimeout.stage` values. Low-cardinality on purpose: the numbers ride in the other
 # diagnostic properties, so this stays usable as a breakdown key.
 POLL_TIMEOUT_NO_TURN_OUTPUT = "no_turn_output"
@@ -348,6 +354,27 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
             exc_info=True,
         )
         return await sync_to_async(_read)()
+
+
+async def _sandbox_workflow_is_dead(workflow_handle: WorkflowHandle | None) -> bool:
+    """Whether the workflow driving this turn has stopped executing.
+
+    A workflow that is no longer running is the definitive answer to "is more output coming?",
+    which silence alone never gives. Only a status we actually read counts: no handle, or a
+    describe that fails, leaves the turn to the poll budget rather than ending a turn that may
+    still be working.
+    """
+    if workflow_handle is None:
+        return False
+    try:
+        description = await workflow_handle.describe()
+    except Exception:
+        logger.warning(
+            "custom_prompt - poll_for_turn: could not describe the sandbox workflow, treating it as alive",
+            exc_info=True,
+        )
+        return False
+    return description.status is not None and description.status != WorkflowExecutionStatus.RUNNING
 
 
 @frozen
@@ -519,8 +546,39 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
-    # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
-    # relay-detected crash) — drain it; otherwise try to salvage below.
+        if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+            # Past the salvage floor the stream is provably not live, so the rest of the budget
+            # buys nothing: leave the loop and take the deadline path (salvage, else fail) now.
+            # Waiting it out costs the caller a whole report and the sandbox its remaining lease.
+            if turn_relevant_lines > 0:
+                logger.warning(
+                    "custom_prompt - poll_for_turn: turn silent for %ds past the salvage floor, "
+                    "ending the poll early, run=%s, elapsed=%ds, budget=%ds, total_lines=%d",
+                    stale_seconds,
+                    task_run.id,
+                    elapsed,
+                    poll_budget,
+                    log_state.total_lines,
+                )
+                break
+            # With no turn-relevant output at all the silence is not evidence: the sandbox spawns
+            # and clones the repository before the agent's first line, and only side-channel lines
+            # mark that progress. So a dead workflow is the only thing that ends the turn here.
+            if (
+                stale_seconds % WORKFLOW_LIVENESS_CHECK_INTERVAL_SECONDS < POLL_INTERVAL_SECONDS
+                and await _sandbox_workflow_is_dead(workflow_handle)
+            ):
+                logger.warning(
+                    "custom_prompt - poll_for_turn: sandbox workflow stopped before the turn produced "
+                    "output, ending the poll early, run=%s, elapsed=%ds, budget=%ds",
+                    task_run.id,
+                    elapsed,
+                    poll_budget,
+                )
+                break
+    # Poll budget exhausted, or the loop bailed out of a stream it knows is dead. A run already
+    # terminal here was marked by something else (cancel, relay-detected crash) — drain it;
+    # otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
