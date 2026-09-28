@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -93,6 +94,14 @@ describe('taxonomicEventMatchLogic', () => {
         return { allTabFilterLogic, allTabLogic }
     }
 
+    const holdAnswer = (): (() => void) => {
+        let answer: () => void = () => {}
+        answerGate = new Promise<void>((resolve) => {
+            answer = resolve
+        })
+        return answer
+    }
+
     it.each([
         ['for a person outside the flag', (): typeof logic => (enroll(false), logic)],
         [
@@ -110,6 +119,7 @@ describe('taxonomicEventMatchLogic', () => {
         if (askedLogic === logic) {
             filterLogic.actions.setSearchQuery('browser capture')
         }
+        expect(askedLogic.values.isMatching).toBe(false)
 
         await expectLogic(askedLogic).toFinishAllListeners()
 
@@ -118,13 +128,37 @@ describe('taxonomicEventMatchLogic', () => {
         expect(askedLogic.values.suggestedEvents).toEqual([])
     })
 
+    it.each([
+        ['during the pause', async (): Promise<void> => {}, 0],
+        [
+            'while the model answers',
+            async (): Promise<void> => {
+                await waitFor(() => expect(matchRequests).toHaveLength(1))
+            },
+            1,
+        ],
+    ])('drops the ask when another tab opens %s', async (_, waitBeforeSwitch, expectedRequests) => {
+        enroll(true)
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const answer = holdAnswer()
+        const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
+
+        allTabFilterLogic.actions.setSearchQuery('browser capture')
+        await waitBeforeSwitch()
+        allTabFilterLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+        answer()
+        await expectLogic(allTabLogic).toFinishAllListeners()
+
+        expect(matchRequests).toHaveLength(expectedRequests)
+        expect(allTabLogic.values.isMatching).toBe(false)
+        expect(allTabLogic.values.suggestedEvents).toEqual([])
+        expect(captureSpy).not.toHaveBeenCalledWith('taxonomic filter event match suggested', expect.anything())
+    })
+
     it('shows a loading state from the All tab until the answer arrives, and records the tab', async () => {
         enroll(true)
         const captureSpy = jest.spyOn(posthog, 'capture')
-        let answer: () => void = () => {}
-        answerGate = new Promise<void>((resolve) => {
-            answer = resolve
-        })
+        const answer = holdAnswer()
         const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
         expect(allTabFilterLogic.values.activeTab).toEqual(TaxonomicFilterGroupType.SuggestedFilters)
 
