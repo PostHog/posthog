@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -23,7 +23,11 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.presentation.serializers import DecideRequestSerializer
-from products.ml_inference.backend.presentation.throttles import DecisionBurstThrottle, DecisionSustainedThrottle
+from products.ml_inference.backend.presentation.throttles import (
+    DecisionBurstThrottle,
+    DecisionProjectSustainedThrottle,
+    DecisionSustainedThrottle,
+)
 
 QUESTIONS = {
     "urgent": {"type": "noul", "instructions": "Is this urgent?"},
@@ -104,6 +108,28 @@ class TestDecideEndpoint(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/ml_inference/decisions/decide/"
 
+    @parameterized.expand([(False, "US"), (False, "EU"), (True, None)])
+    def test_requires_current_organization_consent_before_calling_the_model(
+        self, debug: bool, deployment: str | None
+    ) -> None:
+        with (
+            override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=deployment),
+            patch("products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.ml_inference.backend.logic.decisions.decide") as decide,
+        ):
+            decide.return_value = DecisionResult(
+                model="test", answers={"urgent": NoulAnswer(probability=0.9)}, input_tokens=1
+            )
+            for consent in (None, False, True, False):
+                self.organization.is_ai_data_processing_approved = consent
+                self.organization.save(update_fields=["is_ai_data_processing_approved"])
+                decide.reset_mock()
+
+                response = self.client.post(self._url(), {"state": "text", "questions": QUESTIONS}, format="json")
+
+                assert response.status_code == (status.HTTP_200_OK if consent else status.HTTP_404_NOT_FOUND)
+                assert decide.call_count == int(bool(consent))
+
     @patch("products.ml_inference.backend.presentation.views.api.decide")
     def test_returns_typed_answers(self, decide) -> None:
         decide.return_value = DecisionResult(
@@ -172,6 +198,26 @@ class TestDecideEndpoint(APIBaseTest):
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TestDecisionThrottles(SimpleTestCase):
+    def test_project_budget_is_shared_across_members_but_not_projects(self) -> None:
+        cache.clear()
+        request = Request(APIRequestFactory().post("/"))
+        request.user = User(pk=1)
+        other_request = Request(APIRequestFactory().post("/"))
+        other_request.user = User(pk=2)
+        view = Mock(spec=APIView, team_id=1)
+        other_view = Mock(spec=APIView, team_id=2)
+
+        with (
+            patch.object(DecisionProjectSustainedThrottle, "rate", "2/hour"),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+        ):
+            assert DecisionProjectSustainedThrottle().allow_request(request, view)
+            assert DecisionProjectSustainedThrottle().allow_request(other_request, view)
+            assert not DecisionProjectSustainedThrottle().allow_request(request, view)
+            assert not DecisionProjectSustainedThrottle().allow_request(other_request, view)
+            assert DecisionProjectSustainedThrottle().allow_request(other_request, other_view)
+
     @parameterized.expand([(DecisionBurstThrottle,), (DecisionSustainedThrottle,)])
     def test_decisions_have_a_separate_per_user_budget(self, throttle_class: type[UserRateThrottle]) -> None:
         cache.clear()

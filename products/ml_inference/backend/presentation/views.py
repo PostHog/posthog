@@ -22,7 +22,7 @@ from ..facade import api, contracts
 from ..facade.contracts import DecisionGatewayError, DecisionGatewayUnreachableError, DecisionsDisabledError
 from ..facade.enums import DecisionQuestionType
 from .serializers import DecideRequestSerializer, DecideResponseSerializer
-from .throttles import DecisionBurstThrottle, DecisionSustainedThrottle
+from .throttles import DecisionBurstThrottle, DecisionProjectSustainedThrottle, DecisionSustainedThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +42,7 @@ class DecisionGatewayRefused(APIException):
 class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = DecideRequestSerializer
-    throttle_classes = [DecisionBurstThrottle, DecisionSustainedThrottle]
+    throttle_classes = [DecisionBurstThrottle, DecisionSustainedThrottle, DecisionProjectSustainedThrottle]
 
     @validated_request(
         request_serializer=DecideRequestSerializer,

@@ -44,10 +44,16 @@ def decisions_enabled(team_id: int) -> bool:
     """DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where the surface has to be exercisable."""
     if not decisions_available_here():
         return False
-    if settings.DEBUG:
-        return True
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = (
+            Team.objects.select_related("organization")
+            .only("uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
+        if not team.organization.is_ai_data_processing_approved:
+            return False
+        if settings.DEBUG:
+            return True
         return bool(
             posthoganalytics.feature_enabled(
                 DECISIONS_FEATURE_FLAG,

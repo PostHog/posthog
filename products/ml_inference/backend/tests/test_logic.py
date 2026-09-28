@@ -211,7 +211,6 @@ class TestDecisionsEnabled:
     @pytest.mark.parametrize(
         "debug,deployment,expected",
         [
-            (True, "EU", True),
             (False, "unsupported", False),
             (False, None, False),
         ],
@@ -235,7 +234,9 @@ class TestDecisionsEnabled:
                 "products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled", return_value=enabled
             ) as flag,
         ):
-            team_model.objects.only.return_value.get.return_value.uuid = "test-team"
-            team_model.objects.only.return_value.get.return_value.organization_id = "test-organization"
+            team = team_model.objects.select_related.return_value.only.return_value.get.return_value
+            team.uuid = "test-team"
+            team.organization_id = "test-organization"
+            team.organization.is_ai_data_processing_approved = True
             assert decisions.decisions_enabled(team_id=1) is enabled
             flag.assert_called_once()

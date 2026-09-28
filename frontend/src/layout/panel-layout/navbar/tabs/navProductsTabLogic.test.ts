@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -228,6 +229,60 @@ describe('navProductsTabLogic', () => {
         expect(remove).toHaveBeenCalledTimes(2)
     })
 
+    it.each([201, 500])(
+        'isolates queued saves when the project changes during a request returning %s',
+        async (status) => {
+            let release!: () => void
+            const held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            const oldTeamId = teamLogic.values.currentTeamId!
+            const newTeamId = oldTeamId + 1
+            const create = jest.fn(async ({ request }) => {
+                const oldProject = new URL(request.url).pathname.includes(`/projects/${oldTeamId}/`)
+                if (oldProject) {
+                    await held
+                }
+                return [
+                    oldProject ? status : 201,
+                    {
+                        id: oldProject ? 'old-project-star' : 'new-project-star',
+                        path: 'Feature flags',
+                        type: 'feature_flag',
+                        href: '/feature_flags',
+                    },
+                ]
+            })
+            const remove = jest.fn(() => [204])
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('project-change')
+            useMocks({
+                post: { '/api/projects/:team_id/file_system_shortcut/': create },
+                delete: { '/api/projects/:team_id/file_system_shortcut/:id/': remove },
+            })
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+            projectTreeDataLogic.actions.loadShortcutsSuccess([
+                { id: 'old-analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            ])
+            navProductsTabLogic.actions.setProductStarred('Feature flags', true)
+            await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+            navProductsTabLogic.actions.setProductStarred('Product analytics', false)
+            teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: newTeamId })
+            projectTreeDataLogic.actions.loadShortcutsSuccess([])
+            expect(navProductsTabLogic.values.pendingAppStars).toEqual({})
+            await expectLogic(navProductsTabLogic, () =>
+                navProductsTabLogic.actions.setProductStarred('Feature flags', true)
+            ).toDispatchActions(['saveAppStarsSuccess'])
+            release()
+            await expectLogic(navProductsTabLogic).toFinishAllListeners()
+            expect(create).toHaveBeenCalledTimes(2)
+            expect(remove).not.toHaveBeenCalled()
+            expect(projectTreeDataLogic.values.shortcutData.map(({ id }) => id)).toEqual(['new-project-star'])
+            expect(navProductsTabLogic.values.starSaveError).toBeNull()
+            expect(errorToast).toHaveBeenCalledTimes(1)
+            errorToast.mockRestore()
+        }
+    )
+
     it('splits the full ranked catalog at the threshold and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
         const decide = jest.fn(async ({ request }) => {
@@ -289,6 +344,10 @@ describe('navProductsTabLogic', () => {
             (navProductsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
                 (navProductsTabLogic.values.appMatchGroups?.other.length ?? 0)
         ).toBe(allApps.length)
+        navProductsTabLogic.actions.setAppRecommendationQuery('Debug errors')
+        expect(navProductsTabLogic.values.appRankings).toBeNull()
+        expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
+        expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(allApps)
         await expectLogic(navProductsTabLogic, () =>
             navProductsTabLogic.actions.setAppRecommendationQuery('')
         ).toDispatchActions(['rankAppsSuccess'])

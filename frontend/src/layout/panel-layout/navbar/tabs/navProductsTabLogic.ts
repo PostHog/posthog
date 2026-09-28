@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -73,6 +73,13 @@ export interface navProductsTabLogicActions {
         }
         shortcutData: FileSystemEntry[]
     } // projectTreeDataLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType
+        payload?: any
+    } // teamLogic
     finishAppStar: (
         productPath: string,
         starred: boolean
@@ -108,7 +115,10 @@ export interface navProductsTabLogicActions {
             query: string
         }
     }
-    saveAppStars: () => any
+    resetAppConfiguration: () => {
+        value: true
+    }
+    saveAppStars: (_: void) => void
     saveAppStarsFailure: (
         error: string,
         errorObject?: any
@@ -118,10 +128,10 @@ export interface navProductsTabLogicActions {
     }
     saveAppStarsSuccess: (
         starSaveResult: null,
-        payload?: any
+        payload?: void
     ) => {
         starSaveResult: null
-        payload?: any
+        payload?: void
     }
     setAppRankingError: (error: string | null) => {
         error: string | null
@@ -197,10 +207,11 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             projectTreeDataLogic,
             ['groupItems', 'shortcutData', 'shortcutDataLoading'],
         ],
-        actions: [projectTreeDataLogic, ['loadShortcutsSuccess']],
+        actions: [projectTreeDataLogic, ['loadShortcutsSuccess'], teamLogic, ['loadCurrentTeamSuccess']],
         logic: [projectTreeLogic({ key: PRODUCTS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'products' })],
     })),
     actions({
+        resetAppConfiguration: true,
         setSearch: (search: string) => ({ search }),
         setAppRecommendationQuery: (query: string) => ({ query }),
         queueAppStar: (productPath: string, starred: boolean) => ({ productPath, starred }),
@@ -214,20 +225,26 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         starSaveResult: [
             null as null,
             {
-                saveAppStars: async () => {
+                saveAppStars: async (_: void, breakpoint) => {
+                    const teamId = values.currentTeamId
                     while (Object.keys(values.pendingAppStars).length > 0) {
                         const [productPath, starred] = Object.entries(values.pendingAppStars)[0]
                         const item = values.configurableProducts.find((app) => app.path === productPath)
                         const shortcutId = values.starredProductIds[productPath]
                         try {
-                            if (item && values.currentTeamId !== null) {
+                            if (!item || teamId === null) {
+                                actions.setStarSaveError(
+                                    'Some changes could not be saved. Toggle those apps again to retry.'
+                                )
+                            } else {
                                 const shortcutPath = joinPath(splitPath(item.path).slice(-1))
                                 if (starred && !shortcutId) {
-                                    const entry = await coreApi.fileSystemShortcutCreate(String(values.currentTeamId), {
+                                    const entry = await coreApi.fileSystemShortcutCreate(String(teamId), {
                                         path: shortcutPath,
                                         type: item.iconType || item.type,
                                         href: item.href,
                                     })
+                                    breakpoint()
                                     actions.loadShortcutsSuccess([
                                         ...values.shortcutData,
                                         {
@@ -242,7 +259,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                                         shortcutPath
                                     )
                                 } else if (!starred && shortcutId) {
-                                    await coreApi.fileSystemShortcutDestroy(String(values.currentTeamId), shortcutId)
+                                    await coreApi.fileSystemShortcutDestroy(String(teamId), shortcutId)
+                                    breakpoint()
                                     actions.loadShortcutsSuccess(
                                         values.shortcutData.filter((entry) => entry.id !== shortcutId)
                                     )
@@ -253,6 +271,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                                 }
                             }
                         } catch {
+                            breakpoint()
                             actions.setStarSaveError(
                                 'Some changes could not be saved. Toggle those apps again to retry.'
                             )
@@ -332,6 +351,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         ],
     })),
     reducers({
+        appRankings: [null as Record<string, number> | null, { setAppRecommendationQuery: () => null }],
         appRecommendationQuery: ['', { setAppRecommendationQuery: (_, { query }) => query }],
         appRankingError: [null as string | null, { setAppRankingError: (_, { error }) => error }],
         starSaveError: [
@@ -339,11 +359,13 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             {
                 setStarSaveError: (_, { error }) => error,
                 queueAppStar: () => null,
+                resetAppConfiguration: () => null,
             },
         ],
         pendingAppStars: [
             {} as Record<string, boolean>,
             {
+                resetAppConfiguration: () => ({}),
                 queueAppStar: (state, { productPath, starred }) => ({ ...state, [productPath]: starred }),
                 finishAppStar: (state, { productPath, starred }) => {
                     if (state[productPath] !== starred) {
@@ -356,7 +378,10 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             },
         ],
         search: ['', { setSearch: (_, { search }) => search }],
-        configureStarredOpen: [false, { setConfigureStarredOpen: (_, { open }) => open }],
+        configureStarredOpen: [
+            false,
+            { setConfigureStarredOpen: (_, { open }) => open, resetAppConfiguration: () => false },
+        ],
     }),
     selectors({
         appRecommendationsEnabled: [
@@ -468,7 +493,24 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadCurrentTeamSuccess: () => {
+            if (cache.appConfigurationTeamId !== values.currentTeamId) {
+                cache.appConfigurationTeamId = values.currentTeamId
+                const hadPendingChanges = Object.keys(values.pendingAppStars).length > 0
+                actions.resetAppConfiguration()
+                if (hadPendingChanges) {
+                    lemonToast.error(
+                        'Your project changed before all starred apps were saved. Return to the previous project to review your starred apps.',
+                        { toastId: 'configure-starred-project-changed', autoClose: false }
+                    )
+                }
+            }
+        },
+        resetAppConfiguration: () => {
+            actions.setAppRecommendationQuery('')
+            actions.saveAppStars()
+        },
         setStarSaveError: ({ error }) => {
             if (error && !values.configureStarredOpen) {
                 lemonToast.error(error, {
@@ -504,4 +546,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             }).actions.setSearchTerm(search)
         },
     })),
+    afterMount(({ cache, values }) => {
+        cache.appConfigurationTeamId = values.currentTeamId
+    }),
 ])

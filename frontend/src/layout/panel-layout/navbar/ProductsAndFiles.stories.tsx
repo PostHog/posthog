@@ -234,7 +234,7 @@ export const ConfigureStarredSaveFailure: Story = {
             </>
         ),
         mswDecorator({
-            post: { '/api/environments/:team_id/file_system_shortcut/': [500, { detail: 'Unavailable' }] },
+            post: { '/api/projects/:team_id/file_system_shortcut/': [500, { detail: 'Unavailable' }] },
         }),
     ],
     play: async (context) => {
@@ -251,9 +251,10 @@ export const ConfigureStarredRanked: Story = {
         await ConfigureStarred.play!(context)
         const body = within(context.canvasElement.ownerDocument.body)
         await userEvent.click(body.getByText('Track website visitors', { exact: true }))
+        const matches = within(await body.findByRole('region', { name: 'Matching apps' }))
         await waitFor(() => {
-            if (navProductsTabLogic.values.rankedConfigurableApps[0]?.path !== 'Web analytics') {
-                throw new Error('Waiting for app rankings')
+            if (matches.getAllByRole('switch')[0] !== matches.getByRole('switch', { name: 'Web analytics' })) {
+                throw new Error('Waiting for Web analytics to be the first rendered match')
             }
         })
     },
