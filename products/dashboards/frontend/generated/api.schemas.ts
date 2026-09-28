@@ -7,105 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DashboardSavedViewFiltersApi {
-    /** @maxLength 200 */
-    search?: string
-    createdBy?: number[] | 'All users'
-    pinned?: boolean
-    shared?: boolean
-    /**
-     * @maxItems 50
-     * @items.maxLength 100
-     */
-    tags?: string[]
-    /**
-     * @maxLength 4000
-     * @nullable
-     */
-    folder?: string | null
-}
-
-/**
- * * `private` - Private
- * * `team` - Team
- */
-export type DashboardSavedViewScopeEnumApi =
-    (typeof DashboardSavedViewScopeEnumApi)[keyof typeof DashboardSavedViewScopeEnumApi]
-
-export const DashboardSavedViewScopeEnumApi = {
-    Private: 'private',
-    Team: 'team',
-} as const
-
-export interface DashboardSavedViewApi {
-    readonly id: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    readonly created_by: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope: boolean
-}
-
-export interface PaginatedDashboardSavedViewListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardSavedViewApi[]
-}
-
-export interface DashboardSavedViewWriteApi {
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-}
-
-export interface PatchedDashboardSavedViewApi {
-    readonly id?: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name?: string
-    /** Dashboard list filters stored by this view. */
-    filters?: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    readonly created_by?: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope?: boolean
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -9331,6 +9232,11 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+/**
+ * Warnings attached to the query response that produced an insight's results.
+ */
+export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[]
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     date_from?: string | null
@@ -9529,6 +9435,8 @@ export interface InsightApi {
     readonly resolved_date_range: InsightApiResolvedDateRange
     /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
     readonly query_scan: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -9688,7 +9596,7 @@ export interface ReorderTilesRequestApi {
 }
 
 /**
- * InsightSerializer restricted to identifiers + result only.
+ * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
  */
 export interface InsightResultApi {
     readonly id: number
@@ -9698,6 +9606,8 @@ export interface InsightResultApi {
     /** @nullable */
     readonly derived_name: string | null
     readonly result: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
 }
 
 /**
@@ -10635,33 +10545,6 @@ export type ConversationsRecentTicketsWidgetTypeEnumApi =
 
 export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
-} as const
-
-export type DashboardSavedViewsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Return saved views with this visibility scope.
-     *
-     * * `private` - Private
-     * * `team` - Team
-     * @minLength 1
-     */
-    scope?: DashboardSavedViewsListScope
-}
-
-export type DashboardSavedViewsListScope =
-    (typeof DashboardSavedViewsListScope)[keyof typeof DashboardSavedViewsListScope]
-
-export const DashboardSavedViewsListScope = {
-    Private: 'private',
-    Team: 'team',
 } as const
 
 export type DashboardTemplatesListParams = {

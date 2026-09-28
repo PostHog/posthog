@@ -63,8 +63,16 @@ pub async fn open_table_multipart(
     multipart: MultipartConfig,
 ) -> Result<DeltaTable> {
     let table = open_table(uri, storage_options).await?;
+    Ok(wrap_multipart(table, multipart))
+}
+
+/// Re-home an already-loaded table onto the multipart-aware store wrapper, without I/O.
+/// The loaded snapshot moves across as-is: the wrapper changes how large data-file
+/// `put`s are performed, never what the log contains, so replaying the log under the
+/// wrapped store would rebuild an identical snapshot at a full log-replay's cost.
+pub fn wrap_multipart(table: DeltaTable, multipart: MultipartConfig) -> DeltaTable {
     if multipart.threshold == 0 {
-        return Ok(table);
+        return table;
     }
     let wrapped = Arc::new(MultipartLogStore::new(
         table.log_store(),
@@ -72,6 +80,6 @@ pub async fn open_table_multipart(
         multipart.part_size,
     ));
     let mut wrapped_table = DeltaTable::new(wrapped, Default::default());
-    wrapped_table.load().await.map_err(Error::from)?;
-    Ok(wrapped_table)
+    wrapped_table.state = table.state;
+    wrapped_table
 }

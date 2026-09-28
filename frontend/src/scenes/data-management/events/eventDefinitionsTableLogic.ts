@@ -1,13 +1,13 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
@@ -413,6 +413,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
 
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -550,6 +551,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
                     )
                     cache.propertiesStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -560,6 +562,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
                             exampleEventProperties = cache.apiCache[exampleUrl]
                         } else {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
                             cache.apiCache = {
                                 ...cache.apiCache,
@@ -679,44 +682,36 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
-                        performance.now() - cache.eventsStartTime,
-                        values.eventDefinitions.results.length
-                    )
+                posthog.capture('event definitions page load succeeded', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    num_results: values.eventDefinitions.results.length,
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadEventDefinitionsFailure: ({ error }) => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
-                        performance.now() - cache.eventsStartTime,
-                        error ?? 'There was an unknown error fetching event definitions.'
-                    )
+                posthog.capture('event definitions page load failed', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    error: error ?? 'There was an unknown error fetching event definitions.',
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadPropertiesForEventSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
-                        performance.now() - cache.propertiesStartTime
-                    )
+                posthog.capture('event definitions page event nested properties load succeeded', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                })
                 cache.propertiesStartTime = undefined
             }
         },
         loadPropertiesForEventFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
-                        performance.now() - cache.propertiesStartTime,
-                        error ?? 'There was an unknown error fetching nested property definitions.'
-                    )
+                posthog.capture('event definitions page event nested properties load failed', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                    error: error ?? 'There was an unknown error fetching nested property definitions.',
+                })
                 cache.propertiesStartTime = undefined
             }
         },

@@ -16,12 +16,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import {
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
-} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
+import { VALID_SELF_MANAGED_MARKETING_SOURCES } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { ProductIntentContext, ProductKey, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -54,6 +51,7 @@ import {
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
+import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
 import { shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -311,17 +309,12 @@ export function resolveConnectErrorMessage(e: any): string {
         return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
     }
     if (e?.status >= 500) {
-        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+        // Every source reaches this branch, including ones with no database behind them, so the
+        // message can't name a cause only some of them have.
+        return "PostHog couldn't set up your source. Check that the details you entered are correct and that the source is reachable, then try again."
     }
     // A 4xx without a message body would otherwise toast "undefined".
     return e?.message ?? 'Something went wrong setting up your source. Please try again.'
-}
-
-const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
-    aws: 'S3',
-    'google-cloud': 'Google Cloud Storage',
-    'cloudflare-r2': 'Cloudflare R2',
-    azure: 'Azure',
 }
 
 const isTimestampType = (field: IncrementalField): boolean => {
@@ -1726,7 +1719,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             () => [],
             (): { name: string; type: ManualLinkSourceType }[] =>
                 manualLinkSources.map((source) => ({
-                    name: manualLinkSourceMap[source],
+                    name: MANUAL_LINK_SOURCE_LABELS[source],
                     type: source,
                 })),
         ],
@@ -2513,18 +2506,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
 
             // Track interest for marketing ad sources and marketing analytics
-            const isNativeMarketingSource =
-                connector?.name &&
-                VALID_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
-                )
-            const isExternalMarketingSource =
-                connector?.name &&
-                VALID_NON_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
-                )
-
-            if (isNativeMarketingSource || isExternalMarketingSource) {
+            if (connector?.category === 'Advertising') {
                 actions.addProductIntent({
                     product_type: ProductKey.MARKETING_ANALYTICS,
                     intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,

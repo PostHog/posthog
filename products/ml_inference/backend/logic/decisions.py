@@ -90,7 +90,15 @@ def decide(
     if not carries_credentials_safely(config.url):
         raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
     headers = {"Authorization": f"Bearer {config.api_key}"}
-    headers.update(ai_gateway_headers(ai_product="ml_inference", distinct_id=team_distinct_id(request.team_id)) or {})
+    headers.update(
+        ai_gateway_headers(
+            ai_product=request.ai_product,
+            trace_id=request.trace_id,
+            properties=request.properties,
+            distinct_id=team_distinct_id(request.team_id),
+        )
+        or {}
+    )
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)

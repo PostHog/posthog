@@ -31,6 +31,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
+    cdc_extraction_schedule_exists,
     cdc_extraction_schedule_has_running_action,
     cdc_min_interval,
     get_discover_schemas_schedule,
@@ -38,6 +39,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     is_cdc_extraction_schedule_paused,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
+    trigger_cdc_extraction_schedule,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -577,3 +579,40 @@ def test_a_unpause_reraises_other_rpc_errors():
         pytest.raises(RPCError),
     ):
         async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")
+
+
+@pytest.mark.parametrize(
+    "trigger_error, started",
+    [(None, True), (_not_found(), False)],
+)
+def test_triggering_capture_reports_a_schedule_that_is_gone(trigger_error: RPCError | None, started: bool) -> None:
+    # The caller recreates the schedule, because building one reads the source row.
+    source_id = str(uuid.uuid4())
+
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=trigger_error) as trigger,
+    ):
+        assert trigger_cdc_extraction_schedule(source_id) is started
+
+    assert trigger.call_args.kwargs["schedule_id"] == _get_cdc_extraction_schedule_id(source_id)
+
+
+def test_triggering_capture_raises_any_other_temporal_error() -> None:
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        pytest.raises(RPCError),
+    ):
+        trigger_cdc_extraction_schedule(str(uuid.uuid4()))
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_reporting_whether_a_source_still_has_its_capture_schedule(exists: bool) -> None:
+    # The caller recreates a missing one, so it needs to know without starting a run.
+    source_id = str(uuid.uuid4())
+
+    with patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists) as workflow_exists:
+        assert cdc_extraction_schedule_exists(source_id) is exists
+
+    workflow_exists.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))

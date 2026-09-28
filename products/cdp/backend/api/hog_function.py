@@ -200,18 +200,20 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+    return {
+        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
+    }
 
 
 def comparable_content(content: dict) -> dict:
     """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, transpiled JS, input ordering.
+    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
 
     A background re-save can change those on its own without the config changing at all — most often
     `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
     comparing them would version a plain rename.
     """
-    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
     mappings = content.get("mappings")
     return {
         **content,

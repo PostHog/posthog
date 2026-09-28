@@ -13,8 +13,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
-from django.db.models import Count, F, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Q, Sum
 
 import requests
 import structlog
@@ -50,13 +49,13 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.billing import exclude_non_billable_runs
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
@@ -219,6 +218,7 @@ class UsageReportCounters:
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
+    local_evaluation_not_modified_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
 
     # Queries
@@ -1392,7 +1392,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
@@ -1433,7 +1433,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     sdk_breakdown_expr, _ = get_property_string_expr(
@@ -2130,16 +2130,10 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
-    completed_runs = BatchExportRun.objects.filter(
-        finished_at__gte=begin,
-        finished_at__lte=end,
-        status=BatchExportRun.Status.COMPLETED,
-    )
-    return list(
-        exclude_non_billable_runs(completed_runs)
-        .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
-        .annotate(total=Sum("records_completed"))
-    )
+    return [
+        {"team_id": row.team_id, "total": row.total}
+        for row in batch_exports_api.get_teams_with_billable_rows_exported(begin, end)
+    ]
 
 
 @timed_log()
@@ -2161,8 +2155,9 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_batch_exports_in_period() -> list:
-    # get all batch exports that are active or completed at run time
-    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+    return [
+        {"team_id": row.team_id, "total": row.total} for row in batch_exports_api.get_teams_with_active_batch_exports()
+    ]
 
 
 @timed_log()
@@ -2867,6 +2862,11 @@ def capture_report(
             capture_exception(err, {"distinct_id": distinct_id, "organization_id": organization_id})
 
 
+def billable_feature_flag_requests(decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
+    """A full local evaluation response costs ten decide requests; a 304 costs one."""
+    return decide + local_evaluation * 10 + local_evaluation_not_modified
+
+
 # extend this with future usage based products
 def has_non_zero_usage(report: UsageReportCounters) -> bool:
     return (
@@ -2876,6 +2876,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.local_evaluation_not_modified_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
         or report.free_historical_rows_synced_in_period > 0
@@ -3015,6 +3016,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+        ),
+        "teams_with_local_evaluation_not_modified_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
+            period_start, period_end, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
         "teams_with_dashboard_count": list(
@@ -3253,6 +3257,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
+    local_evaluation_not_modified_requests_count_in_period = all_data[
+        "teams_with_local_evaluation_not_modified_requests_count_in_period"
+    ].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3291,8 +3298,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
-        + (local_evaluation_requests_count_in_period * 10),
+        local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
+        billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
+            decide_requests_count_in_period,
+            local_evaluation_requests_count_in_period,
+            local_evaluation_not_modified_requests_count_in_period,
+        ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

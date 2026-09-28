@@ -374,6 +374,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "full_refresh_interval_days": "full refresh interval (days)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
@@ -588,7 +589,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
-    # The generic pointer mirrors whichever per-model foreign key is set, so it is never a user edit.
+    # The pointer names the tagged object, which a row never changes, and content_type and team
+    # are model objects the diff cannot serialize.
     "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
@@ -943,6 +945,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # second change on the entry that turns syncing on or off, which makes the schema
         # activity feed read "updated schema" in place of "enabled schema".
         "auto_disabled_at",
+        # Derived from full_refresh_interval_days and moved by every full resync, so it is not user intent.
+        "next_full_refresh_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.

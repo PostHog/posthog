@@ -27,6 +27,11 @@ The reader caches session dimensions, then joins them to current pageview identi
 
 Materialized CTEs share the pageview identity scan between reach and credit, and share the conversion aggregation with the timestamp bounds. Event scans remain necessary for identity and conversions; cached dimensions avoid merging entry properties and classifying channels for ordinary sessions. A narrow timestamp scan and selective dimension lookup handle exceptional sessions. This uses the existing `web_sessions_dimensional_preaggregated` schema and does not require a migration.
 
+The shared sessions CTE selects one dimension row per session, then joins it to unique session/person pairs from current pageviews.
+Reach and credit use these resolved rows directly, without grouping by session again.
+Exclusions and conversion bounds apply after dimension resolution, so superseded cached rows cannot survive a filter or add a touchpoint.
+This reader optimization does not change writer hashes or require rebuilding existing jobs.
+
 Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules can use cached dimensions when they match the writer's project rules, including rules that depend on the full entry URL. The writer classifies the channel before storing it and includes the rules in the job hash, so rule changes require fresh jobs. Queries with different rules, or disabled project-timezone conversion, use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
 
 The shared job hash excludes `cookielessTrafficIsRegular` because the writer does not classify traffic types.

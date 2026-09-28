@@ -48,6 +48,8 @@ export interface TaskRunStateFrame {
     status?: string
     stage?: string | null
     output?: unknown
+    task_summary?: string | null
+    task_tags?: string[]
     branch?: string | null
     error_message?: string | null
     updated_at?: string | null

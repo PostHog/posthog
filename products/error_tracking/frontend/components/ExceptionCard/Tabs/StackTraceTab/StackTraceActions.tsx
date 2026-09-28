@@ -6,11 +6,11 @@ import { IconCode, IconInfo, IconWrench } from '@posthog/icons'
 import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
+import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
-import { GitMetadataParser } from '../../../ReleasesPreview/gitMetadataParser'
 import { buildExplainPrompt, buildFixPrompt } from '../../aiPrompts'
 
 export interface StackTraceActionsProps {
