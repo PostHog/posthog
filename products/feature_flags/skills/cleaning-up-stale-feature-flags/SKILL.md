@@ -266,6 +266,8 @@ Removing a check leaves other code unused. Two kinds of code become unused, and 
 - **Code that exists only because this flag existed.** The key string and its constant, its entry in a flag registry,
   a wrapper or hook named after this flag, the branch body you removed, and any import now pointing at something you deleted.
   Remove it. The flag check leaves it dead, so it is part of this cleanup.
+  Check each symbol for other uses first. A payload read that this step leaves in place can still use the key string, its constant, or its registry entry.
+  Keep any symbol that such a read or another live use still needs, and name it in the report.
 - **Code that works for any flag and only lost its last caller.** A `useFlag(key)` hook, an `isEnabled(key)` helper,
   the registry object itself once this flag's entry is gone. Keep it, even when nothing calls it now.
   Deleting it rewrites the repository's flag abstraction, which is a larger change than this cleanup and a different review.
