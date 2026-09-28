@@ -139,6 +139,9 @@ export interface navProductsTabLogicActions {
     setAppRecommendationQuery: (query: string) => {
         query: string
     }
+    setConfigureStarredOpen: (open: boolean) => {
+        open: boolean
+    }
     setProductStarred: (
         productPath: string,
         starred: boolean

@@ -171,7 +171,9 @@ describe('navProductsTabLogic', () => {
             )
             errorToast.mock.calls[0][1]?.button?.action()
             expect(navProductsTabLogic.values.configureStarredOpen).toBe(true)
-            await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.setProductStarred('Feature flags', false))
+            await expectLogic(navProductsTabLogic, () =>
+                navProductsTabLogic.actions.setProductStarred('Feature flags', false)
+            )
                 .toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
                 .toMatchValues({ starredProductIds: {}, starSaveResultLoading: false, starSaveError: null })
             errorToast.mockRestore()
@@ -394,7 +396,9 @@ describe('navProductsTabLogic', () => {
             expect(decide).not.toHaveBeenCalled()
             expect(navProductsTabLogic.values.appRecommendationsEnabled).toBe(false)
             expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
-            expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(navProductsTabLogic.values.configurableProducts)
+            expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(
+                navProductsTabLogic.values.configurableProducts
+            )
         }
     )
 
@@ -412,7 +416,9 @@ describe('navProductsTabLogic', () => {
         ).toDispatchActions(['rankAppsSuccess'])
         expect(decide).toHaveBeenCalled()
         expect(navProductsTabLogic.values.appRankingError).toEqual(expect.any(String))
-        expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(navProductsTabLogic.values.configurableProducts)
+        expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(
+            navProductsTabLogic.values.configurableProducts
+        )
         expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
     })
 
