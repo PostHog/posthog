@@ -140,6 +140,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
+from products.workflows.backend.api.workflow_classifications import WorkflowClassificationRequestSerializer
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -644,6 +645,10 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # build panel only hides the node, and the catalog still advertises it to a child-environment
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
+# The "Classify with Jev" step. The classification endpoint refuses categories outside its limits with a
+# 400, which fails the step on every run, so a strict save applies the same limits.
+_JEV_CLASSIFY_TEMPLATE_ID = "template-posthog-jev-classify"
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1500,6 +1505,13 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _validate_jev_classify_action(self, inputs: dict) -> None:
+        categories = (inputs.get("categories") or {}).get("value")
+        # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
+        serializer = WorkflowClassificationRequestSerializer(data={"categories": categories}, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError({"inputs": {"categories": serializer.errors["categories"]}})
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1765,6 +1777,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if strict and template_id == _JEV_CLASSIFY_TEMPLATE_ID:
+                    self._validate_jev_classify_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only

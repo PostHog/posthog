@@ -6354,3 +6354,54 @@ class TestRunScoutActionValidation(APIBaseTest):
         response = self._post_flow(self.team)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestJevClassifyActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-jev-classify"
+        template["name"] = "Classify with Jev"
+        template["inputs_schema"] = [
+            {"key": "question", "type": "string", "label": "Question", "secret": False, "required": True},
+            {"key": "categories", "type": "dictionary", "label": "Categories", "secret": False, "required": True},
+        ]
+        sync_template_to_db(template)
+
+    def _post_flow(self, categories: dict):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-jev-classify",
+                "inputs": {"question": {"value": "Which team?"}, "categories": {"value": categories}},
+            },
+        }
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+    @parameterized.expand(
+        [
+            ("sixteen_categories", {f"c{i}": "x" for i in range(16)}, status.HTTP_201_CREATED),
+            ("seventeen_categories", {f"c{i}": "x" for i in range(17)}, status.HTTP_400_BAD_REQUEST),
+            ("long_description", {"spam": "x" * 501, "support": "help"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_applies_the_classification_endpoint_category_limits_at_save(self, _name, categories, expected):
+        response = self._post_flow(categories)
+
+        assert response.status_code == expected, response.json()
