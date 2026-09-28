@@ -38,7 +38,7 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
 })
 
 /**
- * Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time.
+ * Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time, up to 3 open answers per person.
  * @summary Ask a question in a playground chat
  */
 export const businessKnowledgePlaygroundChatsAskCreateBodyQuestionMax = 4000
