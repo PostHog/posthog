@@ -150,7 +150,9 @@ class TestExternalAccountAPI(APIBaseTest):
             ("patch_write_scope", "_patch", ["account:write"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
         ]
     )
-    def test_writes_reject_project_secret_api_key(self, _name, request_method, scopes, payload):
+    def test_writes_reject_project_secret_api_key(
+        self, _name: str, request_method: str, scopes: list[str], payload: dict[str, str]
+    ) -> None:
         token = self._create_psak_token(scopes=scopes)
         response = getattr(self, request_method)(payload, token=token)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -158,7 +160,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
 
-    def test_post_accepts_project_secret_api_key_with_account_write_scope(self):
+    def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
         token = self._create_psak_token(scopes=["account:write"])
 
         created = self._post({"external_id": "acme-2", "name": "Acme Two"}, token=token)
@@ -550,7 +552,9 @@ class TestExternalAccountAPI(APIBaseTest):
             ("null_name", {"name": None}, "New Corp"),
         ]
     )
-    def test_post_supplied_name_overrides_group_name(self, _name, extra_payload, expected_name):
+    def test_post_supplied_name_overrides_group_name(
+        self, _name: str, extra_payload: dict[str, str | None], expected_name: str
+    ) -> None:
         self.team.customer_analytics_config.account_group_type_index = 0
         self.team.customer_analytics_config.save()
         create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"name": "New Corp"})
@@ -589,7 +593,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(self.account.name, "Acme Corp")
         self.assertIsNone(self.account.properties.stripe_customer_id)
 
-    def test_post_stores_supplied_properties(self):
+    def test_post_stores_supplied_properties(self) -> None:
         response = self._post(
             {
                 "external_id": "new-1",
@@ -616,7 +620,7 @@ class TestExternalAccountAPI(APIBaseTest):
             ("not_an_object", ["cus_123"]),
         ]
     )
-    def test_post_rejects_invalid_properties(self, _name, properties):
+    def test_post_rejects_invalid_properties(self, _name: str, properties: object) -> None:
         response = self._post({"external_id": "new-1", "properties": properties})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
