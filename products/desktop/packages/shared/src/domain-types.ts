@@ -1020,6 +1020,35 @@ export interface NoteContent {
   author?: string | null;
 }
 
+/**
+ * Artefact with `type: "autostart_skip"` — automatic implementation was held back by
+ * a typed link to another report.
+ */
+export interface AutostartSkipArtefact extends SignalReportArtefactBase {
+  type: "autostart_skip";
+  content: AutostartSkipContent;
+}
+
+export type AutostartSkipReason =
+  | "duplicate_of"
+  | "blocked_by_dependency"
+  | "plan_parent";
+
+export interface AutostartSkipContent {
+  skip_reason: AutostartSkipReason;
+  /** The report that held this one back, when one report decided it. */
+  linked_report_id: string | null;
+  /** One line that names what has to happen before work starts. */
+  detail: string;
+}
+
+export const AUTOSTART_SKIP_REASON_LABELS: Record<AutostartSkipReason, string> =
+  {
+    duplicate_of: "Duplicate",
+    blocked_by_dependency: "Waiting on a dependency",
+    plan_parent: "Tracked by other reports",
+  };
+
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1152,8 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | AutostartSkipArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];

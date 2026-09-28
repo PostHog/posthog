@@ -1,29 +1,33 @@
 import {
+  ArrowRightIcon,
   ArrowSquareOutIcon,
   CaretDownIcon,
   CaretRightIcon,
 } from "@phosphor-icons/react";
 import { attributionLabel } from "@posthog/core/inbox/activityLog";
-import type {
-  ActionabilityJudgmentContent,
-  AnySignalReportArtefact,
-  CodeReferenceContent,
-  CommitContent,
-  DismissalContent,
-  LineReferenceContent,
-  NoteContent,
-  PriorityJudgmentContent,
-  SafetyJudgmentContent,
-  SignalFindingContent,
-  SignalReportArtefactContent,
-  SuggestedReviewer,
-  TaskRunArtefactContent,
+import {
+  type ActionabilityJudgmentContent,
+  type AnySignalReportArtefact,
+  AUTOSTART_SKIP_REASON_LABELS,
+  type AutostartSkipContent,
+  type CodeReferenceContent,
+  type CommitContent,
+  type DismissalContent,
+  type LineReferenceContent,
+  type NoteContent,
+  type PriorityJudgmentContent,
+  type SafetyJudgmentContent,
+  type SignalFindingContent,
+  type SignalReportArtefactContent,
+  type SuggestedReviewer,
+  type TaskRunArtefactContent,
 } from "@posthog/shared/types";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { ArtefactCommit } from "@posthog/ui/features/inbox/components/detail/ArtefactCommit";
 import { ArtefactTaskRun } from "@posthog/ui/features/inbox/components/detail/ArtefactTaskRun";
 import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -51,6 +55,7 @@ const TYPE_LABELS: Record<string, string> = {
   suggested_reviewers: "Reviewers suggested",
   repo_selection: "Repo selected",
   dismissal: "Report dismissed",
+  autostart_skip: "Work not started",
   video_segment: "Video segment",
 };
 
@@ -236,6 +241,31 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   );
 }
 
+function AutostartSkipBody({ content }: { content: AutostartSkipContent }) {
+  const openReport = useOpenInboxReport();
+  const linkedReportId = content.linked_report_id;
+  return (
+    <Flex direction="column" gap="1">
+      <Flex align="center" gap="2" wrap="wrap">
+        <Badge color="gray" variant="soft">
+          {AUTOSTART_SKIP_REASON_LABELS[content.skip_reason]}
+        </Badge>
+        {linkedReportId ? (
+          <button
+            type="button"
+            onClick={() => void openReport(linkedReportId)}
+            className="inline-flex items-center gap-0.5 text-[12px] text-gray-9 hover:text-gray-11"
+          >
+            Open related report
+            <ArrowRightIcon size={10} />
+          </button>
+        ) : null}
+      </Flex>
+      <RelevanceNote note={content.detail} />
+    </Flex>
+  );
+}
+
 function ArtefactBody({
   reportId,
   artefact,
@@ -378,6 +408,10 @@ function ArtefactBody({
         </Flex>
       );
     }
+    case "autostart_skip":
+      return (
+        <AutostartSkipBody content={artefact.content as AutostartSkipContent} />
+      );
     default: {
       const c = artefact.content as SignalReportArtefactContent | null;
       const text = typeof c?.content === "string" ? c.content : "";

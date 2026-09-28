@@ -2669,6 +2669,16 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "autostart_skip",
+        content: {
+          skip_reason: "blocked_by_dependency",
+          linked_report_id: "8f7c9d2e-1b3a-4c5d-9e6f-0a1b2c3d4e5f",
+          detail: "Work starts when the dependency report closes.",
+        },
+        created_at: "2026-06-01T00:00:14Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {

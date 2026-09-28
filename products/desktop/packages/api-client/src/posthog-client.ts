@@ -28,6 +28,8 @@ import {
 } from "@posthog/shared";
 import type {
   ActionabilityJudgmentArtefact,
+  AutostartSkipArtefact,
+  AutostartSkipReason,
   AvailableSuggestedReviewer,
   AvailableSuggestedReviewersResponse,
   ChannelFeedMessage,
@@ -78,6 +80,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { AUTOSTART_SKIP_REASON_LABELS } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   spaceSetupInputSchema,
@@ -1359,7 +1362,8 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | AutostartSkipArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1701,6 +1705,32 @@ function normalizeNoteArtefact(
   };
 }
 
+const AUTOSTART_SKIP_REASONS = new Set<string>(
+  Object.keys(AUTOSTART_SKIP_REASON_LABELS),
+);
+
+function normalizeAutostartSkipArtefact(
+  value: Record<string, unknown>,
+): AutostartSkipArtefact | null {
+  const id = optionalString(value.id);
+  if (!id) return null;
+  const c = isObjectRecord(value.content) ? value.content : null;
+  if (!c) return null;
+  const skipReason = optionalString(c.skip_reason);
+  if (!skipReason || !AUTOSTART_SKIP_REASONS.has(skipReason)) return null;
+
+  return {
+    id,
+    type: "autostart_skip",
+    ...artefactBase(value),
+    content: {
+      skip_reason: skipReason as AutostartSkipReason,
+      linked_report_id: optionalString(c.linked_report_id),
+      detail: optionalString(c.detail) ?? "",
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1800,6 +1830,11 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "autostart_skip") {
+    return (
+      normalizeAutostartSkipArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
