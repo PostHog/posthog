@@ -103,7 +103,15 @@ Two further counters exist only under the `warehouse_pg_consumer_*` prefix, incr
 The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
 Its depth companion `warehouse_pg_queue_claimable_batches` says how much work sits behind that head; a stall and a burst look identical on age alone.
-Every pod reports the same queue-wide values on the reconcile cadence; aggregate both gauges with `max()`.
+Four concentration gauges ride the same depth probe and say where that depth sits.
+The loader drains each `(team_id, schema_id)` group one batch at a time by design.
+A deep queue held by a few groups is therefore serial by construction, while a deep queue spread over idle groups is a capacity problem; depth alone reads the same either way.
+`warehouse_pg_queue_claimable_groups` counts the distinct groups with claimable work.
+`warehouse_pg_queue_top_groups_claimable_share` is the 0..1 share of claimable batches held by the five deepest groups.
+`warehouse_pg_queue_slot_waiting_batches` counts claimable batches whose group has nothing executing; they start as soon as a slot frees.
+`warehouse_pg_queue_serialized_batches` counts claimable batches waiting behind an executing batch of their own group.
+All four exclude batches whose run already holds a failed batch, the population `warehouse_pg_queue_blocked_batches` reports and the age gauge excludes, so `slot_waiting + serialized` is the depth minus the blocked batches.
+Every pod reports the same queue-wide values on the reconcile cadence; aggregate all of these gauges with `max()`.
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 

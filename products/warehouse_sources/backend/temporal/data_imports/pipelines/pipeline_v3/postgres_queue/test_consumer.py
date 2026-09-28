@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     FailedRunRef,
     OrphanedRunRef,
     PendingBatch,
+    QueueDepth,
     QueueFreshness,
     StrandedRunRef,
 )
@@ -54,9 +55,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
+    SERIALIZED_BATCHES,
+    SLOT_WAITING_BATCHES,
+    TOP_GROUPS_CLAIMABLE_SHARE,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -68,6 +73,23 @@ def _freshness(
         oldest_age_seconds=oldest_age_seconds,
         blocked_batches=blocked_batches,
         backlogged_groups=backlogged_groups,
+    )
+
+
+def _depth(
+    claimable_batches: int,
+    *,
+    claimable_groups: int = 0,
+    top_groups_claimable_share: float = 0.0,
+    slot_waiting_batches: int = 0,
+    serialized_batches: int = 0,
+) -> QueueDepth:
+    return QueueDepth(
+        claimable_batches=claimable_batches,
+        claimable_groups=claimable_groups,
+        top_groups_claimable_share=top_groups_claimable_share,
+        slot_waiting_batches=slot_waiting_batches,
+        serialized_batches=serialized_batches,
     )
 
 
@@ -2009,9 +2031,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(42.0),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=7,
+                return_value=_depth(7),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
@@ -2041,9 +2063,15 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(1234.5, blocked_batches=7, backlogged_groups=3),
             ) as mock_probe,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=321,
+                return_value=_depth(
+                    321,
+                    claimable_groups=12,
+                    top_groups_claimable_share=0.75,
+                    slot_waiting_batches=20,
+                    serialized_batches=300,
+                ),
             ) as mock_depth,
         ):
             await consumer._reconcile_failed_runs()
@@ -2051,8 +2079,13 @@ class TestReconcileFailedRuns:
         assert CLAIMABLE_BATCHES._value.get() == 321
         assert BLOCKED_BATCHES._value.get() == 7
         assert BACKLOGGED_GROUPS._value.get() == 3
+        assert CLAIMABLE_GROUPS._value.get() == 12
+        assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.75
+        assert SLOT_WAITING_BATCHES._value.get() == 20
+        assert SERIALIZED_BATCHES._value.get() == 300
 
         mock_probe.return_value = _freshness(None)  # empty queue -> gauge resets to 0
+        mock_depth.return_value = _depth(0)
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
             new_callable=AsyncMock,
@@ -2064,12 +2097,17 @@ class TestReconcileFailedRuns:
                     mock_probe,
                 ),
                 patch(
-                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
                     mock_depth,
                 ),
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
+        assert CLAIMABLE_BATCHES._value.get() == 0
+        assert CLAIMABLE_GROUPS._value.get() == 0
+        assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.0
+        assert SLOT_WAITING_BATCHES._value.get() == 0
+        assert SERIALIZED_BATCHES._value.get() == 0
 
     @pytest.mark.asyncio
     async def test_orphan_drain_retires_leftovers_the_newest_first_pass_never_reached(self):
@@ -2090,9 +2128,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
@@ -2162,9 +2200,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
@@ -2383,9 +2421,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
@@ -2446,9 +2484,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
@@ -2525,9 +2563,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
@@ -2590,9 +2628,9 @@ class TestReconcileFailedRuns:
                 return_value=_freshness(0.0),
             ),
             patch(
-                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                f"{consumer_module.__name__}.BatchQueue.get_queue_depth",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_depth(0),
             ),
             patch(
                 f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
