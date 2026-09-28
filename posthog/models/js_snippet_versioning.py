@@ -11,9 +11,7 @@ from typing import Any, NotRequired, Optional, TypedDict
 from django.conf import settings
 from django.core.cache import cache
 
-import boto3
 import structlog
-from botocore.exceptions import ClientError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.object_storage import ObjectStorageError
@@ -29,12 +27,16 @@ _s3_client: Any = None
 def _get_s3_client():
     global _s3_client
     if _s3_client is None:
+        import boto3  # noqa: PLC0415
+
         _s3_client = boto3.client("s3")
     return _s3_client
 
 
 def s3_read(key: str, *, missing_ok: bool = False) -> Optional[str]:
     """Read a UTF-8 object from the JS S3 bucket."""
+    from botocore.exceptions import ClientError  # noqa: PLC0415
+
     try:
         response = _get_s3_client().get_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)
         return response["Body"].read().decode("utf-8")
@@ -59,6 +61,8 @@ def s3_write(key: str, content: str) -> None:
 
 def s3_head(key: str) -> bool:
     """Check whether an object exists in the JS S3 bucket."""
+    from botocore.exceptions import ClientError  # noqa: PLC0415
+
     try:
         _get_s3_client().head_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)
         return True
