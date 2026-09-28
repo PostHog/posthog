@@ -6,9 +6,12 @@ import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../ge
 import { wizardRunIsActive } from '../wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
-// Keep runs from before this rollout available on the Wizard page without resurfacing them in the FAB.
-const RUN_VISIBLE_AFTER = '2026-09-28T14:20:13Z'
-// ponytail: show five active and five recent runs; the Wizard page lists the rest.
+
+// Cutoff for wizard runs to be shown in the FAB.
+// This prevents users who already ran the wizard to get a FAB
+// for older runs.
+const RUN_VISIBLE_AFTER = '2026-09-28T00:00:00Z'
+
 const RUN_LIST_LIMIT = 5
 
 type RunStreamState = Pick<
