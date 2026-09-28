@@ -186,23 +186,41 @@ describe('featureFlagRulesV2EditorLogic', () => {
         })
 
         it.each([
-            { edit: 'a rule move', asks: true, apply: () => logic.actions.moveRule(1, 0) },
-            { edit: 'a name change', asks: false, apply: () => logic.actions.setDraft({ name: 'Renamed' }) },
-        ])('with project confirmation on, $edit asks first: $asks', async ({ asks, apply }) => {
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, feature_flag_confirmation_enabled: true })
+            {
+                edit: 'a rule move',
+                confirmation: true,
+                dialog: 'Confirm changes to feature flag "new-checkout"?',
+                apply: () => logic.actions.moveRule(1, 0),
+            },
+            {
+                edit: 'a name change',
+                confirmation: true,
+                dialog: null,
+                apply: () => logic.actions.setDraft({ name: 'Renamed' }),
+            },
+            {
+                edit: 'a key change',
+                confirmation: false,
+                dialog: 'Change flag key?',
+                apply: () => logic.actions.setDraft({ key: 'checkout-v2' }),
+            },
+        ])('with project confirmation $confirmation, $edit asks $dialog', async ({ confirmation, dialog, apply }) => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                feature_flag_confirmation_enabled: confirmation,
+            })
             const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, version: 4 })
 
             apply()
-            await expectLogic(logic, () => logic.actions.saveRulesV2Flag()).toFinishAllListeners()
-            expect(openDialog).toHaveBeenCalledTimes(asks ? 1 : 0)
-            expect(update).toHaveBeenCalledTimes(asks ? 0 : 1)
-
-            if (asks) {
+            logic.actions.saveRulesV2Flag()
+            expect(openDialog.mock.calls.map(([props]) => props.title)).toEqual(dialog ? [dialog] : [])
+            if (dialog) {
+                expect(update).not.toHaveBeenCalled()
                 openDialog.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
-                await expectLogic(logic).toDispatchActions(['saveRulesV2FlagSuccess']).toFinishAllListeners()
-                expect(update).toHaveBeenCalledTimes(1)
             }
+            await expectLogic(logic).toDispatchActions(['saveRulesV2FlagSuccess']).toFinishAllListeners()
+            expect(update).toHaveBeenCalledTimes(1)
         })
 
         it('saves with the version its draft was loaded from, even after the page refreshed underneath', async () => {

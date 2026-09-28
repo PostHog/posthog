@@ -40,7 +40,7 @@ import type {
 
 import { isRulesV2FeatureFlagConfig } from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, confirmFeatureFlagKeyChange, featureFlagLogic } from './featureFlagLogic'
 
 export interface FeatureFlagRulesV2Draft {
     key: string
@@ -383,10 +383,17 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        // The server does not enforce the project's confirmation setting, so this check is the only gate.
-        // Both sides are compared without seeds, because the draft never holds one and a stored seed would count as a change.
-        saveRulesV2Flag: () => {
+        saveRulesV2Flag: async () => {
             const storedFlag = values.featureFlag
+            if (
+                storedFlag.id &&
+                storedFlag.key !== values.draft.key &&
+                !(await confirmFeatureFlagKeyChange(storedFlag.key))
+            ) {
+                return
+            }
+            // The server does not enforce the project's confirmation setting, so this check is the only gate.
+            // Both sides are compared without seeds, because the draft never holds one and a stored seed would count as a change.
             const confirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             const confirmationShown = checkFeatureFlagConfirmation(
                 { ...storedFlag, filters: rulesV2DraftFromFlag(storedFlag).config as FeatureFlagConfig },

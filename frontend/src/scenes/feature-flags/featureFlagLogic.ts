@@ -466,6 +466,35 @@ export function validateFeatureFlagKey(key: string): string | undefined {
             : undefined
 }
 
+/** Resolves true when the user confirms a key rename, which breaks SDK calls that still use the old key. */
+export function confirmFeatureFlagKeyChange(oldKey: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+        LemonDialog.open({
+            title: 'Change flag key?',
+            description: createElement(
+                'span',
+                null,
+                'Renaming this key will break any existing code that references it (e.g. ',
+                createElement(
+                    'code',
+                    { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
+                    `getFeatureFlag('${oldKey}')`
+                ),
+                '). Make sure to update all SDK calls and integrations.'
+            ),
+            primaryButton: {
+                children: 'Change key',
+                status: 'danger',
+                onClick: () => resolve(true),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            onAfterClose: () => resolve(false),
+        })
+    })
+}
+
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
  * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
  * directly (e.g. model IDs like "provider/model-1.2"), and the API has always accepted them. */
@@ -4534,31 +4563,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 
             if (keyChanged) {
-                const confirmed = await new Promise<boolean>((resolve) => {
-                    LemonDialog.open({
-                        title: 'Change flag key?',
-                        description: createElement(
-                            'span',
-                            null,
-                            'Renaming this key will break any existing code that references it (e.g. ',
-                            createElement(
-                                'code',
-                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
-                                `getFeatureFlag('${originalFlag.key}')`
-                            ),
-                            '). Make sure to update all SDK calls and integrations.'
-                        ),
-                        primaryButton: {
-                            children: 'Change key',
-                            status: 'danger',
-                            onClick: () => resolve(true),
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                        },
-                        onAfterClose: () => resolve(false),
-                    })
-                })
+                const confirmed = await confirmFeatureFlagKeyChange(originalFlag.key)
                 if (!confirmed) {
                     return
                 }
