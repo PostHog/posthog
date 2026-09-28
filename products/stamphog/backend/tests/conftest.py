@@ -134,6 +134,8 @@ def _inline_check_out(inp: StamphogReviewInput) -> ReviewSandboxInput | None:
         checkout_review_sandbox,
         ReviewSandboxInput(review_run_id=inp.review_run_id, team_id=inp.team_id, sandbox_id=sandbox_id),
     )
+    if checkout.get("skipped"):
+        return None
     return ReviewSandboxInput(
         review_run_id=inp.review_run_id,
         team_id=inp.team_id,

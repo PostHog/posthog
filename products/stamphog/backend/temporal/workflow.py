@@ -202,7 +202,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
     async def _check_out_sandbox(
         self, input: StamphogReviewInput, sandbox_start: asyncio.Future[dict]
     ) -> ReviewSandboxInput | None:
-        """Check out the PR in the started sandbox. None when the start skipped a superseded run."""
+        """Check out the PR in the started sandbox. None when a superseded run skipped the start or the checkout."""
         started = await sandbox_start
         sandbox_id = started.get("sandbox_id")
         if not sandbox_id:
@@ -214,6 +214,8 @@ class StamphogReviewWorkflow(PostHogWorkflow):
             start_to_close_timeout=SANDBOX_CHECKOUT_TIMEOUT,
             retry_policy=SANDBOX_RETRY_POLICY,
         )
+        if checkout.get("skipped"):
+            return None
         return ReviewSandboxInput(
             review_run_id=input.review_run_id,
             team_id=input.team_id,

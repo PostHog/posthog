@@ -167,6 +167,17 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+def _output_merge(updates: dict[str, Any]) -> Func:
+    """Postgres ``output || updates``: a top-level key merge that the database performs."""
+    return Func(
+        Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
+        Cast(Value(json.dumps(updates, cls=DjangoJSONEncoder)), output_field=JSONField()),
+        template="%(expressions)s",
+        arg_joiner=" || ",
+        output_field=JSONField(),
+    )
+
+
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     """Merge ``updates`` into the stored ``run.output`` in one statement, and into ``run.output``.
 
@@ -175,15 +186,8 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     would drop the keys another activity wrote in between, such as the sandbox claim. The JSONB ``||``
     merge keeps every key it does not name.
     """
-    merged = Func(
-        Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(updates, cls=DjangoJSONEncoder)), output_field=JSONField()),
-        template="%(expressions)s",
-        arg_joiner=" || ",
-        output_field=JSONField(),
-    )
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
-        output=merged, updated_at=timezone.now()
+        output=_output_merge(updates), updated_at=timezone.now()
     )
     run.output = {**(run.output or {}), **updates}
 
@@ -958,20 +962,20 @@ def _claim_once(run: ReviewRun, claim: str) -> None:
 
     Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
     type this code can mark, so the claim is what stops a second sandbox or a second paid review.
-    Read it from the writer, because a stalled attempt holds a copy from before its replacement
-    wrote. Read and then write is not atomic: two attempts in the same instant both pass. A column
-    and a conditional update would close that.
+    One conditional update writes the claim only where it is absent, so two attempts in the same
+    instant cannot both pass.
     """
-    latest_output = (
+    stamp = timezone.now().isoformat()
+    claimed = (
         ReviewRun.objects.for_team(run.team_id)
         .using(router.db_for_write(ReviewRun))
         .filter(id=run.id)
-        .values_list("output", flat=True)
-        .first()
-    ) or {}
-    if latest_output.get(claim):
+        .exclude(output__has_key=claim)
+        .update(output=_output_merge({claim: stamp}), updated_at=timezone.now())
+    )
+    if not claimed:
         raise SandboxPhaseError(f"an earlier attempt already recorded {claim} for this run")
-    _merge_run_output(run, {claim: timezone.now().isoformat()})
+    run.output = {**(run.output or {}), claim: stamp}
 
 
 def _create_review_sandbox(
@@ -1004,9 +1008,9 @@ def _create_review_sandbox(
         # Our own infrastructure fails here, so the type is enough: the provider message can
         # carry the environment it was given.
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
-    # The later activities reconnect by this id, and the workflow's teardown reads it.
-    _merge_run_output(run, {"sandbox_id": sandbox.id})
     try:
+        # The later activities reconnect by this id, and the workflow's teardown reads it.
+        _merge_run_output(run, {"sandbox_id": sandbox.id})
         with timer.step("fetch_head"):
             _clone_pr(
                 sandbox,
@@ -1147,6 +1151,10 @@ def start_review_sandbox(input: StamphogReviewInput) -> dict:
 def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
     deadline = _sandbox_deadline(SANDBOX_CHECKOUT_TIMEOUT)
     run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        activity.logger.info(f"Skipping the checkout for superseded run {run.id}")
+        _destroy_sandbox_in_background(_reconnect_review_sandbox(input.sandbox_id), str(run.id))
+        return {"skipped": "superseded"}
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     token = client._get_installation_token()
     merge_base_sha = _review_merge_base(run, client)
