@@ -121,6 +121,7 @@ depends_on = [
     "products.marketing_analytics",
     "products.messaging",
     "products.metrics",
+    "products.ml_inference",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
