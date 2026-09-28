@@ -300,10 +300,12 @@ class TestCanvasCloudBuilder(SimpleTestCase):
     def test_runtime_flushes_data_requests_queued_before_the_port_connects(self) -> None:
         # The host delivers the MessagePort only after the artifact iframe's
         # load event, so a ph.query issued while the app mounts runs before the
-        # port exists. Dropping it leaves the request to die on its 30s timeout.
+        # port exists. Dropping it leaves the request to die on its timeout.
         # A request whose timeout already rejected must not be delivered on
         # connect — the caller has given up, so executing it anyway would fire
-        # late host side effects.
+        # late host side effects. The runtime timer is only a backstop: it must
+        # outlast the host's 90s guard, which gives a cold query time to compute,
+        # and must not run while the host waits on a viewer's connector consent.
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
@@ -311,6 +313,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             [
                 "const listeners = {};",
                 "const timers = new Map();",
+                "const delays = new Map();",
                 "let timerId = 0;",
                 "globalThis.window = globalThis;",
                 "globalThis.parent = {};",
@@ -318,7 +321,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'globalThis.location = { hash: "" };',
                 "globalThis.MutationObserver = class { observe() {} };",
                 "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
-                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.setTimeout = (fn, ms) => { timers.set(++timerId, fn); delays.set(timerId, ms); return timerId; };",
                 "globalThis.clearTimeout = (id) => { timers.delete(id); };",
                 runtime,
                 "const received = [];",
@@ -331,6 +334,11 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                'window.ph.query("SELECT cold");',
+                'if (!(delays.get(timerId) > 90000)) { console.error("query times out before the host guard: " + delays.get(timerId)); process.exit(1); }',
+                "const timersBeforeConnector = timerId;",
+                'window.ph.connectors.call("github", "list_pull_requests");',
+                'if (timerId !== timersBeforeConnector) { console.error("connector call can time out while consent is pending"); process.exit(1); }',
                 'Object.defineProperty(globalThis, "navigator", { value: { userActivation: { isActive: false } }, configurable: true });',
                 'try { window.ph.connectors.connect("github"); throw new Error("connector navigation did not require activation"); } catch (error) { if (!error.message.includes("user action")) throw error; }',
                 'if (received.some((message) => message.type === "navigate")) throw new Error("connector navigation escaped without activation");',
@@ -350,7 +358,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         # connects, so each violation shares the 256-slot pre-connect queue with
         # data requests. A canvas that misses one origin can render many blocked
         # resources; without a bound the burst fills the queue and a later
-        # ph.query is dropped and dies on its 30s timeout. Reporting each
+        # ph.query is dropped and dies on its timeout. Reporting each
         # directive once keeps the queue open for the request.
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 

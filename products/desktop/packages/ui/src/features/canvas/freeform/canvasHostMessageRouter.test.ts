@@ -199,10 +199,10 @@ describe("createCanvasHostMessageRouter", () => {
                 : { provider: "mcp:calendar.example.com", tool: "list_events" },
         });
 
-        // Elapse well past the 30s generic data-request timeout: an approval
+        // Elapse well past the 90s generic data-request timeout: an approval
         // dialog can sit open this long, and the canvas must not be told it
         // failed while a later approval could still start the run.
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(180_000);
         expect(post).not.toHaveBeenCalled();
 
         // The viewer's approval is the only response the canvas receives.
@@ -221,6 +221,54 @@ describe("createCanvasHostMessageRouter", () => {
       }
     },
   );
+
+  it("gives a cold query time to compute before it times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      const finishes: Array<(value: unknown) => void> = [];
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({
+          onDataRequest: () =>
+            new Promise<unknown>((resolve) => {
+              finishes.push(resolve);
+            }),
+        }),
+        hasUserActivation: () => false,
+        openExternal: vi.fn(),
+      });
+      const request = (id: string) =>
+        route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id,
+          method: "query",
+          payload: { hogql: "SELECT 1" },
+        });
+
+      const cold = request("cold");
+      const stuck = request("stuck");
+      await vi.advanceTimersByTimeAsync(45_000);
+      finishes[0]({ columns: [], results: [] });
+      await cold;
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "cold", ok: true }),
+      );
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await stuck;
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "stuck",
+          ok: false,
+          error: "Canvas data request timed out",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("bounds pending connectors separately from ordinary requests", async () => {
     const post = vi.fn();
