@@ -75,6 +75,22 @@ async function runPending(
     }
 }
 
+/** A confirm button handler that ignores clicks while its request runs, before the dialog re-renders as loading. */
+function confirmHandler(callbacks: ManageBroadcastCallbacks, request: () => Promise<boolean>): () => Promise<void> {
+    let inFlight = false
+    return async () => {
+        if (inFlight) {
+            return
+        }
+        inFlight = true
+        try {
+            await runPending(callbacks, request)
+        } finally {
+            inFlight = false
+        }
+    }
+}
+
 export function confirmArchiveBroadcast(
     projectId: string,
     broadcast: ManagedBroadcast,
@@ -90,24 +106,23 @@ export function confirmArchiveBroadcast(
             type: 'primary',
             status: 'danger',
             'data-attr': 'broadcast-archive-confirm',
-            onClick: () =>
-                runPending(callbacks, async () => {
-                    try {
-                        // A send can start between opening the menu and confirming, so the runs are checked again here.
-                        const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
-                        const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
-                        if (runningReason) {
-                            lemonToast.error(runningReason)
-                            return false
-                        }
-                        await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
-                        lemonToast.success(`Archived "${label(broadcast)}"`)
-                        return true
-                    } catch (error: any) {
-                        lemonToast.error(`Couldn't archive the broadcast: ${errorDetail(error)}`)
+            onClick: confirmHandler(callbacks, async () => {
+                try {
+                    // A send can start between opening the menu and confirming, so the runs are checked again here.
+                    const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
+                    const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
+                    if (runningReason) {
+                        lemonToast.error(runningReason)
                         return false
                     }
-                }),
+                    await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
+                    lemonToast.success(`Archived "${label(broadcast)}"`)
+                    return true
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't archive the broadcast: ${errorDetail(error)}`)
+                    return false
+                }
+            }),
         },
         secondaryButton: { children: 'Cancel' },
     })
@@ -145,17 +160,16 @@ export function confirmDeleteBroadcast(
             type: 'primary',
             status: 'danger',
             'data-attr': 'broadcast-delete-confirm',
-            onClick: () =>
-                runPending(callbacks, async () => {
-                    try {
-                        await hogFlowsDestroy(projectId, broadcast.id)
-                        lemonToast.success(`Deleted "${label(broadcast)}"`)
-                        return true
-                    } catch (error: any) {
-                        lemonToast.error(`Couldn't delete the broadcast: ${errorDetail(error)}`)
-                        return false
-                    }
-                }),
+            onClick: confirmHandler(callbacks, async () => {
+                try {
+                    await hogFlowsDestroy(projectId, broadcast.id)
+                    lemonToast.success(`Deleted "${label(broadcast)}"`)
+                    return true
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't delete the broadcast: ${errorDetail(error)}`)
+                    return false
+                }
+            }),
         },
         secondaryButton: { children: 'Cancel' },
     })
