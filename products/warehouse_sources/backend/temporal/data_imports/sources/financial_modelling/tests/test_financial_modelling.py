@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     _build_url,
     _extract_rows,
     _fetch_page,
+    _FiscalQuarter,
     _recent_quarters,
     _to_date,
     _window_params,
@@ -148,24 +150,28 @@ class TestWindowParams:
         assert params["from"] == "2022-06-16"
 
 
+def _quarters(*pairs: tuple[int, int]) -> list[_FiscalQuarter]:
+    return [_FiscalQuarter(year=year, quarter=quarter) for year, quarter in pairs]
+
+
 class TestRecentQuarters:
     @parameterized.expand(
         [
             # The quarter `today` falls in is still open, so the walk starts at the one before it.
-            ("mid_q2", date(2024, 5, 20), [(2024, 1), (2023, 4), (2023, 3)]),
-            ("first_day_of_q1_rolls_back_a_year", date(2024, 1, 1), [(2023, 4), (2023, 3), (2023, 2)]),
-            ("last_day_of_q4", date(2024, 12, 31), [(2024, 3), (2024, 2), (2024, 1)]),
+            ("mid_q2", date(2024, 5, 20), ((2024, 1), (2023, 4), (2023, 3))),
+            ("first_day_of_q1_rolls_back_a_year", date(2024, 1, 1), ((2023, 4), (2023, 3), (2023, 2))),
+            ("last_day_of_q4", date(2024, 12, 31), ((2024, 3), (2024, 2), (2024, 1))),
         ]
     )
     def test_walks_back_from_the_last_completed_quarter(
-        self, _name: str, today: date, expected: list[tuple[int, int]]
+        self, _name: str, today: date, expected: tuple[tuple[int, int], ...]
     ) -> None:
-        assert _recent_quarters(3, today) == expected
+        assert _recent_quarters(3, today) == _quarters(*expected)
 
     def test_spans_multiple_year_boundaries(self) -> None:
         quarters = _recent_quarters(8, date(2024, 5, 20))
-        assert quarters[0] == (2024, 1)
-        assert quarters[-1] == (2022, 2)
+        assert quarters[0] == _FiscalQuarter(year=2024, quarter=1)
+        assert quarters[-1] == _FiscalQuarter(year=2022, quarter=2)
         assert len(set(quarters)) == 8
 
 
@@ -330,13 +336,29 @@ class TestGetRowsRequestParams:
         assert "quarter" not in params
 
 
+class TestWindowFitsInsideTheLimit:
+    @parameterized.expand(
+        [
+            (name,)
+            for name, config in FINANCIAL_MODELLING_ENDPOINTS.items()
+            if config.default_lookback_days is not None and "limit" in config.extra_params
+        ]
+    )
+    def test_first_window_cannot_outgrow_the_page(self, endpoint: str) -> None:
+        # These endpoints do not paginate, so a lookback wider than `limit` rows silently drops the
+        # oldest days and the watermark then skips past them for good.
+        config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
+        assert config.default_lookback_days is not None
+        assert config.default_lookback_days <= int(config.extra_params["limit"])
+
+
 class TestGetRowsQuarterFanOut:
     @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
+    def _frozen_clock(self) -> Iterator[None]:
         with time_machine.travel("2024-06-15", tick=False):
             yield
 
-    def _requests_for(self, endpoint: str, symbols: list[str], manager: Any) -> list[dict[str, Any]]:
+    def _requests_for(self, endpoint: str, symbols: list[str], manager: _FakeResumableManager) -> list[dict[str, Any]]:
         captured: list[dict[str, Any]] = []
 
         def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
@@ -350,7 +372,7 @@ class TestGetRowsQuarterFanOut:
                     endpoint=endpoint,
                     symbols=symbols,
                     logger=MagicMock(),
-                    resumable_source_manager=manager,
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
                 )
             )
         return captured
@@ -384,7 +406,7 @@ class TestGetRowsMarketWide:
             ("available_industries", "available-industries", {"industry": "Steel"}),
         ]
     )
-    def test_single_request_no_symbol(self, endpoint: str, path: str, row: dict) -> None:
+    def test_single_request_no_symbol(self, endpoint: str, path: str, row: dict[str, Any]) -> None:
         # These endpoints take no symbol, so the row must not gain one and no bookmark is saved.
         manager = _FakeResumableManager()
         rows = _collect(endpoint, [], manager, {path: [row]})

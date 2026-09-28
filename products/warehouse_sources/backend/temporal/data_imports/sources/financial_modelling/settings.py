@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -18,7 +20,7 @@ FINANCIAL_MODELLING_MAX_LIMIT = "1000"
 FINANCIAL_MODELLING_QUARTERS_LOOKBACK = 8
 
 
-@dataclass
+@frozen
 class FinancialModellingEndpointConfig:
     name: str
     # Path under FINANCIAL_MODELLING_BASE_URL (no leading slash).
@@ -228,7 +230,9 @@ FINANCIAL_MODELLING_ENDPOINTS: dict[str, FinancialModellingEndpointConfig] = {
     ),
     # Daily market capitalization history per symbol. Honors `from`/`to`, so this syncs incrementally
     # on the observation `date`. `limit` still has to be sent: it defaults to 100 and would otherwise
-    # truncate the window.
+    # truncate the window. The endpoint has no page cursor, so the first window must stay inside
+    # `limit` rows — a wider one silently drops its oldest days, and the watermark then skips past
+    # them forever.
     "historical_market_capitalization": FinancialModellingEndpointConfig(
         name="historical_market_capitalization",
         path="historical-market-capitalization",
@@ -238,7 +242,7 @@ FINANCIAL_MODELLING_ENDPOINTS: dict[str, FinancialModellingEndpointConfig] = {
         incremental_fields=_date_incremental_fields(),
         supports_date_window=True,
         extra_params={"limit": FINANCIAL_MODELLING_MAX_LIMIT},
-        default_lookback_days=365 * 5,
+        default_lookback_days=365 * 2,
     ),
     # 13F institutional holdings summarized per symbol and quarter: how many institutions hold the
     # symbol, the share and value changes, and the ownership percentage. Off by default because it

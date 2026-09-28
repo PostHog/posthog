@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -168,15 +170,21 @@ def _window_params(
     return {"from": from_date.isoformat(), "to": today.isoformat()}
 
 
-def _recent_quarters(count: int, today: date) -> list[tuple[int, int]]:
+@frozen
+class _FiscalQuarter:
+    year: int
+    quarter: int
+
+
+def _recent_quarters(count: int, today: date) -> list[_FiscalQuarter]:
     """The `count` most recently completed calendar quarters, newest first."""
     year, quarter = today.year, (today.month - 1) // 3 + 1
-    quarters: list[tuple[int, int]] = []
+    quarters: list[_FiscalQuarter] = []
     for _ in range(count):
         quarter -= 1
         if quarter == 0:
             year, quarter = year - 1, 4
-        quarters.append((year, quarter))
+        quarters.append(_FiscalQuarter(year=year, quarter=quarter))
     return quarters
 
 
@@ -186,8 +194,8 @@ def _period_params(config: FinancialModellingEndpointConfig) -> list[dict[str, s
     if not config.quarters_lookback:
         return [{}]
     return [
-        {"year": str(year), "quarter": str(quarter)}
-        for year, quarter in _recent_quarters(config.quarters_lookback, datetime.now(UTC).date())
+        {"year": str(period.year), "quarter": str(period.quarter)}
+        for period in _recent_quarters(config.quarters_lookback, datetime.now(UTC).date())
     ]
 
 
