@@ -78,7 +78,6 @@ describe('aiChartRecommendationLogic', () => {
             query: visualizationProps.query.source,
             autoLoad: false,
             doNotLoad: true,
-            cachedResults: null,
         }).mount()
         logic = aiChartRecommendationLogic({ visualizationProps, tabId: 'jev-test' })
         logic.mount()
