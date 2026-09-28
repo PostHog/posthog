@@ -1656,18 +1656,19 @@ class _EmptyArrowClient:
 
 class TestHogqlTableModifiers:
     @pytest.mark.parametrize(
-        "query,team_modifiers,expected_sql",
+        "query,team_modifiers,expected_sql,expected_json_sql",
         [
-            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123", "123"),
             (
                 "SELECT properties.plan FROM events LIMIT 1",
                 {"propertyGroupsMode": "optimized"},
                 "properties_group_custom",
+                "events.properties.plan",
             ),
         ],
     )
     async def test_compiles_the_view_with_the_team_default_modifiers(
-        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str, expected_json_sql: str
     ) -> None:
         ateam.modifiers = team_modifiers
         await database_sync_to_async(ateam.save)()
@@ -1690,7 +1691,8 @@ class TestHogqlTableModifiers:
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert captured_sql is not None and expected_sql in captured_sql
+        expected = expected_json_sql if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_sql
+        assert captured_sql is not None and expected in captured_sql
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [
