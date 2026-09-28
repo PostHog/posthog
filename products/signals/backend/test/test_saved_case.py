@@ -550,7 +550,7 @@ class TestSavedCaseEventRestore(ClickhouseTestMixin, BaseTest):
     def test_repeated_restore_isolates_events_and_preserves_ingestion_time(self) -> None:
         self.organization.name = "Eval (saved-event-test)"
         self.organization.save(update_fields=["name"])
-        other_project = create_empty_team(NullDbBlocker(), label="second-trial")
+        other_project = create_empty_team(NullDbBlocker(), label="second-trial-" + "x" * 60)
         target = datetime.now(UTC).replace(microsecond=0)
         event_time = (SOURCE - timedelta(minutes=1)).replace(microsecond=123456)
         created_at = (SOURCE - timedelta(seconds=30)).replace(microsecond=654321)

@@ -38,6 +38,9 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 
 MASTER_ORG_NAME = "Hedgebox Master Seed"
 MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
+# Organization.name holds 64 characters, and the "Hedgebox (...-<suffix>)" wrapper uses 20 of them.
+# The random suffix keeps an org name unique after the label is shortened.
+ORG_NAME_LABEL_MAX_LENGTH = 40
 
 
 def _build_hedgebox_matrix() -> HedgeboxMatrix:
@@ -189,7 +192,7 @@ def create_empty_team(
     is_demo: bool = False,
 ) -> EvalProject:
     suffix = uuid.uuid4().hex[:8]
-    org_name = f"{'Hedgebox' if is_demo else 'Eval'} ({label}-{suffix})"
+    org_name = f"{'Hedgebox' if is_demo else 'Eval'} ({label[:ORG_NAME_LABEL_MAX_LENGTH]}-{suffix})"
     email = f"eval-{label}-{suffix}@posthog.test"
 
     with django_db_blocker.unblock(), transaction.atomic():
