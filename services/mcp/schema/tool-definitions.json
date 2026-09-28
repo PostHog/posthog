@@ -734,7 +734,7 @@
         "feature": "data_schema",
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
-        "required_scopes": ["event_definition:read", "property_definition:read"],
+        "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

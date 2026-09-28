@@ -682,6 +682,7 @@ SPACE_SETUP_SCOPES = (
     "group:read",
     "integration:read",
     "query:read",
+    "action:read",
     "data_catalog:read",
     "insight:read",
     "dashboard:read",
