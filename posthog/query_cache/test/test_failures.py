@@ -68,37 +68,50 @@ class TestQueryFailureCache(SimpleTestCase):
         )
         assert QueryFailureCache("cache_key_future").get_open() is None
 
-    def test_load_dependent_breaker_opens_after_threshold_and_backs_off_exponentially(self):
-        failure_cache = QueryFailureCache("cache_key_1")
+    @parameterized.expand(
+        [
+            (f"{name}_{kind}", cache_class, kind, threshold, backoffs)
+            for name, cache_class, backoffs in [
+                ("foreground", QueryFailureCache, (2, 4, 8)),
+                ("warming", WarmingQueryFailureCache, (120, 240, 240)),
+            ]
+            for kind, threshold in [
+                ("timeout", 3),
+                ("too_slow", 3),
+                ("memory_limit", 1),
+                ("query_size", 1),
+                ("too_many_bytes", 1),
+            ]
+        ]
+    )
+    def test_breaker_threshold_backoff_and_expiry(
+        self,
+        _name: str,
+        cache_class: type[QueryFailureCache],
+        kind: FailureKind,
+        threshold: int,
+        backoffs: tuple[int, ...],
+    ) -> None:
+        failure_cache = cache_class("cache_key_backoff")
+        foreground_cache = QueryFailureCache("cache_key_backoff")
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-            for _ in range(KIND_POLICIES["timeout"].open_threshold - 1):
-                failure_cache.record_failure("timeout", "failed")
+            for _ in range(threshold - 1):
+                failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
                 assert failure_cache.get_open() is None
 
-            record = failure_cache.record_failure("timeout", "failed")
-            assert record is not None
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF
-            assert failure_cache.get_open() is not None
-
-            frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
-            assert failure_cache.get_open() is None
-            record = failure_cache.record_failure("timeout", "failed")
-            assert record is not None
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
-
-    @parameterized.expand([("memory_limit",), ("query_size",), ("too_many_bytes",)])
-    def test_deterministic_kinds_open_on_first_failure(self, kind):
-        failure_cache = QueryFailureCache(f"cache_key_instant_{kind}")
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
-            record = failure_cache.record_failure(kind, "failed")
-            assert record is not None
-            assert record.consecutive_failures == 1
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF
-            assert failure_cache.get_open() is not None
-
-            record = failure_cache.record_failure(kind, "failed")
-            assert record is not None
-            assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
+            for attempt, minutes in enumerate(backoffs):
+                record = failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
+                assert record is not None
+                assert record.consecutive_failures == threshold + attempt
+                assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2**attempt
+                opened = failure_cache.get_open()
+                assert opened is not None
+                assert opened.open_until == datetime.now(UTC) + timedelta(minutes=minutes)
+                frozen.shift(timedelta(minutes=minutes) - timedelta(microseconds=1))
+                assert failure_cache.get_open() is not None
+                frozen.shift(timedelta(microseconds=1))
+                assert failure_cache.get_open() is None
+                assert foreground_cache.get_open() is None
 
     def test_backoff_is_capped_and_survives_high_failure_counts(self) -> None:
         # 50 failures is past the point where uncapped backoff math overflows timedelta.
@@ -133,41 +146,10 @@ class TestQueryFailureCache(SimpleTestCase):
 
             failure_cache.clear()
             assert failure_cache.get_open() is None
+            assert WarmingQueryFailureCache("cache_key_3").get_open() is None
             record = failure_cache.record_failure("memory_limit", "failed")
             assert record is not None
             assert record.consecutive_failures == 1
-
-    @parameterized.expand(
-        [("timeout", 3), ("too_slow", 3), ("memory_limit", 1), ("query_size", 1), ("too_many_bytes", 1)]
-    )
-    def test_warming_backoff_skips_hourly_retries_without_extending_foreground_backoff(
-        self, kind: FailureKind, threshold: int
-    ) -> None:
-        failure_cache = QueryFailureCache("warming_backoff")
-        warming_cache = WarmingQueryFailureCache("warming_backoff")
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-            for _ in range(threshold - 1):
-                failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
-                assert warming_cache.get_open() is None
-            failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
-            frozen.shift(timedelta(hours=1))
-            assert failure_cache.get_open() is None
-            warming_failure = warming_cache.get_open()
-            assert warming_failure is not None
-            assert warming_failure.open_until == datetime.now(UTC) + timedelta(hours=1)
-            frozen.shift(timedelta(hours=1) - timedelta(microseconds=1))
-            assert warming_cache.get_open() is not None
-            frozen.shift(timedelta(microseconds=1))
-            assert warming_cache.get_open() is None
-            for _ in range(3):
-                failure_cache.record_failure(kind, "failed", budget=BUDGET_EXTENDED)
-                frozen.shift(timedelta(hours=3))
-                assert failure_cache.get_open() is None
-                assert warming_cache.get_open() is not None
-                frozen.shift(timedelta(hours=1))
-                assert warming_cache.get_open() is None
-            failure_cache.clear()
-            assert warming_cache.get_open() is None
 
     def test_warming_lookups_do_not_renew_or_mutate_failure_history(self) -> None:
         failure_cache = QueryFailureCache("warming_read_only")
