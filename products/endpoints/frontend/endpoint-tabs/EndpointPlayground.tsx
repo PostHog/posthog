@@ -58,7 +58,9 @@ function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
+export const PROJECT_SECRET_API_KEY_SETTINGS_SECTION = 'environment-secret-api-keys'
+
+export function generateTerminalExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -83,7 +85,7 @@ ${dataContent}
   }'`
 }
 
-function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
+export function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -128,7 +130,7 @@ response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
+export function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
     const payload = generateEndpointPayload(endpoint)
     const hasPayload = Object.keys(payload).length > 0
     const versionParam =
@@ -387,7 +389,7 @@ export function EndpointPlayground(): JSX.Element {
                         value={activeCodeExampleTab}
                     />
                     <LemonButton
-                        to={urls.settings('environment-secret-api-keys')}
+                        to={urls.settings(PROJECT_SECRET_API_KEY_SETTINGS_SECTION)}
                         type="secondary"
                         size="small"
                         icon={<IconExternal />}
