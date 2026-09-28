@@ -1,8 +1,8 @@
 """A plan closes when its steps do.
 
 A `part_of` link says "this report is a step in that plan". The steps carry the work and each one
-closes on its own pull request; the plan carries nothing, so without this module it stays in the
-inbox forever after the last step merges.
+closes on its own pull request; the plan usually carries nothing of its own, so without this module
+it stays in the inbox forever after the last step merges.
 
 The roll-up runs from the report's status change rather than from the pull request webhook, so
 every way a step can close reaches it: a merged pull request, a manual resolve in the inbox, a
@@ -16,7 +16,12 @@ import structlog
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    InvalidStatusTransition,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+)
 from products.signals.backend.report_links import incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +38,29 @@ def _pending_replacement(team_id: int, report_id: str) -> bool:
     from products.signals.backend.supersession import pending_replacement
 
     return pending_replacement(team_id, report_id) is not None
+
+
+# A pull request in any of these states is still going somewhere. A merged or closed one
+# already moved the report through `_apply_pr_report_state`, so it decides nothing here, and
+# `unknown` counts as live for the same reason the link gates count it as work: it is the column
+# default and the state an attach keeps when the GitHub lookup fails.
+_LIVE_PR_STATES = (
+    SignalReportPullRequest.State.OPEN,
+    SignalReportPullRequest.State.DRAFT,
+    SignalReportPullRequest.State.UNKNOWN,
+)
+
+
+def _own_work_in_flight(team_id: int, report_id: str) -> bool:
+    """A plan someone pressed Implement on carries its own pull request, so its steps do not decide it.
+
+    Closing it on the steps' verdict would hide a plan whose own work is still open, and an archiving
+    roll-up would go further: the dismissal receiver closes the live pull request behind it.
+    """
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+    prs = fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
+    return any(pr.state in _LIVE_PR_STATES for pr in prs)
 
 
 def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Status | None:
@@ -128,6 +156,8 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
                 if parent is None or parent.status == SignalReport.Status.DELETED:
                     continue
                 if _pending_replacement(team_id, parent_id):
+                    continue
+                if _own_work_in_flight(team_id, parent_id):
                     continue
                 target = _rolled_up_status(team_id=team_id, parent=parent)
                 if target is None:

@@ -45,6 +45,24 @@ class TestPlanRollup(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             report.save(update_fields=report.transition_to(SignalReport.Status(status)))
 
+    def _attach_pull_request(self, report: SignalReport, number: int, state: str) -> SignalReportPullRequest:
+        pr = SignalReportPullRequest.objects.create(
+            team_id=self.team.id,
+            repository="owner/repo",
+            number=number,
+            url=f"https://github.com/owner/repo/pull/{number}",
+            state=state,
+        )
+        link = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PullRequestLink(url=pr.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        link.pull_request = pr
+        link.save(update_fields=["pull_request"])
+        return pr
+
     @parameterized.expand(
         [
             ("both_resolved", ["resolved", "resolved"], SignalReport.Status.RESOLVED),
@@ -79,21 +97,7 @@ class TestPlanRollup(BaseTest):
         parent = self._report("plan")
         child = self._report("step")
         self._part_of(child, parent)
-        pr = SignalReportPullRequest.objects.create(
-            team_id=self.team.id,
-            repository="owner/repo",
-            number=11,
-            url="https://github.com/owner/repo/pull/11",
-            state="open",
-        )
-        link = SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(child.id),
-            content=PullRequestLink(url=pr.url),
-            attribution=ArtefactAttribution.system(),
-        )
-        link.pull_request = pr
-        link.save(update_fields=["pull_request"])
+        self._attach_pull_request(child, 11, "open")
 
         with self.captureOnCommitCallbacks(execute=True):
             update_pull_request_state(team_id=self.team.id, repository="owner/repo", number=11, state="merged")
@@ -189,6 +193,37 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
+
+    @parameterized.expand(
+        [
+            ("open", "open", SignalReport.Status.READY),
+            ("draft", "draft", SignalReport.Status.READY),
+            ("unknown", "unknown", SignalReport.Status.READY),
+            ("closed", "closed", SignalReport.Status.RESOLVED),
+            ("merged", "merged", SignalReport.Status.RESOLVED),
+        ]
+    )
+    def test_a_plan_waits_for_its_own_pull_request(self, _name: str, pr_state: str, expected: str):
+        parent = self._report("plan")
+        child = self._report("step")
+        self._part_of(child, parent)
+        self._attach_pull_request(parent, 21, pr_state)
+
+        self._close(child, SignalReport.Status.RESOLVED)
+
+        parent.refresh_from_db()
+        assert parent.status == expected
+
+    def test_archived_steps_leave_a_plan_that_still_has_its_own_pull_request(self):
+        parent = self._report("plan")
+        child = self._report("step")
+        self._part_of(child, parent)
+        self._attach_pull_request(parent, 22, "open")
+
+        self._close(child, SignalReport.Status.SUPPRESSED)
+
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.READY
 
     def test_a_report_with_no_plan_rolls_up_nothing(self):
         report = self._report("standalone")
