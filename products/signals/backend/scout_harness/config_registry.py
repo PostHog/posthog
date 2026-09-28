@@ -469,6 +469,22 @@ def canonical_operational_skill_names(team_id: int) -> set[str]:
     )
 
 
+def harness_seeded_operational_lanes(team_ids: set[int]) -> set[tuple[int, str]]:
+    """`(team_id, skill_name)` of each live, harness-seeded operational skill on these teams."""
+    operational = canonical_operational_scout_names()
+    if not team_ids or not operational:
+        return set()
+    return set(
+        LLMSkill.objects.filter(
+            team_id__in=team_ids,
+            name__in=operational,
+            is_latest=True,
+            deleted=False,
+            metadata__seeded_by=HARNESS_SEEDED_BY,
+        ).values_list("team_id", "name")
+    )
+
+
 @transaction.atomic
 def reconcile_operational_configs(
     team_id: int,

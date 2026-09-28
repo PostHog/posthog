@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
+from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
@@ -25,6 +26,7 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import (
     canonical_operational_skill_names,
+    harness_seeded_operational_lanes,
     live_scout_skill_names,
     operational_configs_needing_reconcile,
     reconcile_operational_configs,
@@ -51,6 +53,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_enrollment,
     _read_flag_payload,
     _resolve_dispatch_smear_seconds,
+    _resolve_global_max_operational_runs_per_tick,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
@@ -75,6 +78,13 @@ logger = structlog.get_logger(__name__)
 # Set generously for now while scouts roll out to more teams — the per-team tick cap and
 # round-robin allocation do the day-to-day fairness work; this is the global ceiling.
 MAX_RUNS_PER_TICK = 1000
+
+# Separate per-tick ceiling for operational scouts (`scout-role: operational`). They run on every
+# enrolled team, so one fleet-wide change to their posture can make thousands of them due in the
+# same tick. A never-run lane is maximally overdue, so in a shared budget they would take the
+# slots of the product scouts. Their own budget keeps `MAX_RUNS_PER_TICK` for product scouts and
+# bounds what a wave of operational runs costs.
+MAX_OPERATIONAL_RUNS_PER_TICK = 200
 
 # The tick grid itself (`COORDINATOR_INTERVAL_MINUTES`, `DUE_GRACE_SECONDS`,
 # `dispatch_ticks_per_interval`) lives in `scout_harness/limits.py` so the failure breaker can
@@ -174,7 +184,8 @@ async def fetch_enabled_signals_scout_runs_activity(
 
     Scans dogfood teams (gated by the `signals-scout` flag), auto-registers a config row
     for any `signals-scout-*` skill missing one, and dispatches each enabled scout whose
-    schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
+    schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK (MAX_OPERATIONAL_RUNS_PER_TICK
+    for operational scouts).
     """
     async with Heartbeater():
         # Read the flag payload once, off the DB thread pool — the SDK call can block on a cold
@@ -189,9 +200,16 @@ async def fetch_enabled_signals_scout_runs_activity(
         # snapshot, falling back to the code constant. `MAX_RUNS_PER_TICK` is read at call time so
         # tests patching the module global still take effect.
         global_max_runs_per_tick = _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK)
+        global_max_operational_runs_per_tick = _resolve_global_max_operational_runs_per_tick(
+            payload, MAX_OPERATIONAL_RUNS_PER_TICK
+        )
         smear_seconds = _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
-            enrollment, team_configs, default_team_config, global_max_runs_per_tick
+            enrollment,
+            team_configs,
+            default_team_config,
+            global_max_runs_per_tick,
+            global_max_operational_runs_per_tick,
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     increment_coordinator_tick(len(planned))
@@ -323,12 +341,13 @@ def _stamp_dispatched_runs(
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class _DueRun:
     overdue_s: float
     config_pk: str
     team_id: int
     skill_name: str
+    operational: bool = False
 
 
 def _collect_planned_runs(
@@ -336,12 +355,13 @@ def _collect_planned_runs(
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
+    max_operational_runs_per_tick: int | None = None,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
     Takes the parsed enrollment (explicit allowlist + the `"*"` wildcard), the optional per-team
-    config overrides, the fleet-wide default config, and the resolved global per-tick ceiling — so
-    the flag reads all stay off this DB pool.
+    config overrides, the fleet-wide default config, and the resolved global per-tick ceilings for
+    product and operational scouts — so the flag reads all stay off this DB pool.
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
@@ -418,7 +438,14 @@ def _collect_planned_runs(
         d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
     }
     runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
-    selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    # Only the harness-seeded canonical scout takes the operational budget. A team's own scout
+    # that shares the name is a product scout.
+    operational_lanes = harness_seeded_operational_lanes({d.team_id for d in due})
+    for d in due:
+        d.operational = (d.team_id, d.skill_name) in operational_lanes
+    selected = _allocate_tick_budget(
+        due, team_configs, default_team_config, runs_today, max_runs_per_tick, max_operational_runs_per_tick
+    )
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
@@ -431,16 +458,20 @@ def _allocate_tick_budget(
     default_team_config: dict | None = None,
     runs_today: dict[int, int] | None = None,
     max_runs_per_tick: int | None = None,
+    max_operational_runs_per_tick: int | None = None,
 ) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to its effective per-team
-    cap, then the global budget is filled round-robin across teams (one run per team per round) so
+    Each team's due runs are ordered most-overdue-first, then the global budgets are filled
+    round-robin across teams (one run per team per round, up to its effective per-team cap) so
     a single team with many due scouts can't monopolize the tick. Deferred runs stay unstamped, so
     they're the most overdue next tick — a poor-man's queue, same catch-up semantics as before.
 
     The global budget is `max_runs_per_tick` (the flag-resolved ceiling the activity passes in),
     falling back to the `MAX_RUNS_PER_TICK` code constant for direct callers that don't supply one.
+    Operational runs fill a separate global budget, `max_operational_runs_per_tick` (falling back
+    to `MAX_OPERATIONAL_RUNS_PER_TICK`), so they never defer a product scout. The per-team caps
+    count both kinds together, so a team's per-tick and daily bounds hold across both budgets.
 
     The effective per-team cap is the tighter of two bounds: the per-tick cap
     (`_resolve_max_runs_per_tick`) and the day's remaining headroom under the per-team daily
@@ -452,6 +483,9 @@ def _allocate_tick_budget(
     default_team_config = default_team_config or {}
     runs_today = runs_today or {}
     global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
+    operational_cap = (
+        max_operational_runs_per_tick if max_operational_runs_per_tick is not None else MAX_OPERATIONAL_RUNS_PER_TICK
+    )
 
     def _team_cap(team_id: int) -> int:
         per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
@@ -467,9 +501,10 @@ def _allocate_tick_budget(
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
         by_team.setdefault(d.team_id, []).append(d)
+    team_caps: dict[int, int] = {}
     for team_id, runs in by_team.items():
         runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
-        cap = _team_cap(team_id)
+        cap = team_caps[team_id] = _team_cap(team_id)
         if len(runs) > cap:
             if cap == 0:
                 # The expected steady state once a team has spent its daily budget — info, not a
@@ -487,38 +522,50 @@ def _allocate_tick_budget(
                     due=len(runs),
                     cap=cap,
                 )
-            del runs[cap:]
 
-    # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
-    # sort never indexes into an empty list.
-    by_team = {team_id: runs for team_id, runs in by_team.items() if runs}
+    # Keyed on `_DueRun.operational`: False is the product budget, True the operational one.
+    pool_caps = {False: global_cap, True: operational_cap}
+    queues = {
+        team_id: {pool: deque(d for d in runs if d.operational is pool) for pool in pool_caps}
+        for team_id, runs in by_team.items()
+    }
 
-    # Count after per-team trimming — that's the real candidate pool the global cap defers
+    # Count after the per-team caps — that's the real candidate pool the global cap defers
     # against, so the warning doesn't fire on runs already dropped by the per-team caps.
-    total_after_team_caps = sum(len(runs) for runs in by_team.values())
-    if total_after_team_caps > global_cap:
-        logger.warning(
-            "signals_scout coordinator: more due than cap, deferring overflow",
-            due=total_after_team_caps,
-            cap=global_cap,
-        )
+    for pool, pool_cap in pool_caps.items():
+        candidates = sum(min(len(queues[team_id][pool]), team_caps[team_id]) for team_id in by_team)
+        if candidates > pool_cap:
+            logger.warning(
+                "signals_scout coordinator: more due than cap, deferring overflow",
+                due=candidates,
+                cap=pool_cap,
+                operational=pool,
+            )
 
-    # Most-overdue team first, team id as the deterministic tiebreak.
-    team_order = sorted(by_team, key=lambda t: (-by_team[t][0].overdue_s, t))
+    # Round-robin, one run per team per round, most-overdue team first with team id as the
+    # deterministic tiebreak. Each pick is the team's most overdue run in a budget that still has
+    # room, so a full budget hands the team's per-team slot to its next run in the other one.
+    active = sorted(
+        (team_id for team_id, runs in by_team.items() if runs and team_caps[team_id] > 0),
+        key=lambda t: (-by_team[t][0].overdue_s, t),
+    )
     selected: list[_DueRun] = []
-    # Lists are already trimmed to each team's cap, so the longest list is exactly the number
-    # of rounds needed — this naturally covers a team with a raised override too.
-    max_rounds = max((len(runs) for runs in by_team.values()), default=0)
-    for round_idx in range(max_rounds):
-        if len(selected) >= global_cap:
-            break
-        for team_id in team_order:
-            runs = by_team[team_id]
-            if round_idx >= len(runs):
+    taken: Counter[int] = Counter()
+    pool_used: Counter[bool] = Counter()
+    while active:
+        still_active: list[int] = []
+        for team_id in active:
+            heads = [q[0] for pool, q in queues[team_id].items() if q and pool_used[pool] < pool_caps[pool]]
+            if not heads:
                 continue
-            selected.append(runs[round_idx])
-            if len(selected) >= global_cap:
-                break
+            pick = min(heads, key=lambda d: (-d.overdue_s, d.skill_name))
+            queues[team_id][pick.operational].popleft()
+            selected.append(pick)
+            taken[team_id] += 1
+            pool_used[pick.operational] += 1
+            if taken[team_id] < team_caps[team_id]:
+                still_active.append(team_id)
+        active = still_active
     return selected
 
 
