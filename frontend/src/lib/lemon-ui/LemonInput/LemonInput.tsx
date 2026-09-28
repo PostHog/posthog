@@ -32,6 +32,7 @@ interface LemonInputPropsBase extends Pick<
     | 'spellCheck'
     | 'inputMode'
     | 'pattern'
+    | 'readOnly'
 > {
     inputRef?: React.Ref<HTMLInputElement>
     inputComponent?: React.JSXElementConstructor<
