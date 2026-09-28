@@ -33,10 +33,12 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -3711,6 +3713,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert metadata_line is not None, f"Could not find metadata in SSE response. Content: {repr(sse_content)}"
         streamed_tiles = json.loads(metadata_line)["dashboard"]["tiles"]
         assert [a["id"] for a in streamed_tiles[0]["insight"]["alerts"]] == [str(alert.id)]
+
+    @parameterized.expand(
+        [
+            ("dashboard_read", ["dashboard:read"], status.HTTP_200_OK),
+            ("unrelated_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_stream_tiles_with_scoped_personal_api_key(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_dashboard_refresh_serializes_broken_query_tile_in_place(self, mock_calculate: MagicMock) -> None:

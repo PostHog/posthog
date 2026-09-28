@@ -2804,7 +2804,7 @@ class DashboardsViewSet(
             ),
         ],
     )
-    @action(methods=["GET"], detail=True, url_path="stream_tiles")
+    @action(methods=["GET"], detail=True, url_path="stream_tiles", required_scopes=["dashboard:read"])
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
