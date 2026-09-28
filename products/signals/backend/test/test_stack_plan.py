@@ -193,6 +193,16 @@ class TestStackPlan(BaseTest):
 
         autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[1])
 
+    def test_an_archived_layer_does_not_start_when_its_dependency_opens_a_pull_request(self):
+        child_ids = self._create_layers()
+        self._attach_pull_request(child_ids[0], 1, SignalReportPullRequest.State.OPEN)
+        SignalReport.objects.filter(id=child_ids[1]).update(status=SignalReport.Status.SUPPRESSED)
+
+        with patch(AUTOSTART, new_callable=AsyncMock) as autostart:
+            assert start_dependent_layers(team_id=self.team.id, report_id=child_ids[0]) == []
+
+        autostart.assert_not_awaited()
+
     def test_a_layer_that_already_started_is_not_started_again(self):
         child_ids = self._create_layers()
         self._attach_pull_request(child_ids[0], 1, SignalReportPullRequest.State.OPEN)
@@ -223,6 +233,12 @@ class TestStackPlan(BaseTest):
                 SignalReportPullRequest.State.OPEN,
                 "other/repo",
                 None,
+            ),
+            (
+                "unknown_dependency_is_the_base",
+                SignalReportPullRequest.State.UNKNOWN,
+                "example/repo",
+                "posthog-self-driving/schema-abc123",
             ),
         ]
     )

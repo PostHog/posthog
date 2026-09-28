@@ -50,9 +50,12 @@ _INHERITED_STATUS_TYPES = (
 
 # A dependency whose pull request is in one of these states still has its head branch on GitHub. A
 # merged dependency is already on the default branch, so its layer bases there instead.
+# `unknown` counts too, like in the link gates: an attach keeps it when the GitHub lookup fails, and
+# the gate already lets the layer start on it, so leaving it out would start the layer off the stack.
 _STACKABLE_PR_STATES = (
     SignalReportPullRequest.State.OPEN,
     SignalReportPullRequest.State.DRAFT,
+    SignalReportPullRequest.State.UNKNOWN,
 )
 
 
@@ -66,13 +69,18 @@ def _inherited_judgments(parent: SignalReport) -> list[StatusArtefactContent]:
         latest = (
             SignalReportArtefact.objects.filter(team_id=parent.team_id, report_id=parent.id, type=artefact_type)
             .order_by("-created_at", "-id")
-            .values_list("content", flat=True)
+            .values_list("content", "created_by_id")
             .first()
         )
         if latest is None:
             continue
+        content, editor_user_id = latest
+        # Auto-start runs a user-edited reviewer list as the editing user. A copy written under the
+        # plan's attribution would read as pipeline-chosen and could run as a named colleague.
+        if artefact_type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and editor_user_id is not None:
+            continue
         judgments.append(
-            cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(latest))
+            cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(content))
         )
     return judgments
 
@@ -200,8 +208,17 @@ def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
     """
     from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts  # noqa: PLC0415
 
+    # Only a layer still in the inbox can start. A person who archived or resolved it decided.
+    ready_ids = {
+        str(pk)
+        for pk in SignalReport.objects.using("default")
+        .filter(team_id=team_id, id__in=report_ids, status=SignalReport.Status.READY)
+        .values_list("id", flat=True)
+    }
     evaluated: list[str] = []
     for report_id in report_ids:
+        if report_id not in ready_ids:
+            continue
         if SignalReport.associated_task_runs(
             report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         ):

@@ -8673,6 +8673,11 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+        # The launch protects the stacked base only while the run is still on that exact branch, so
+        # carrying the marker is safe once the run moved to its own head branch.
+        prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
+        if prev_stack_base_branch:
+            extra_state["stack_base_branch"] = prev_stack_base_branch
         if pipeline_rerun and task.internal and is_implementation:
             extra_state["ai_stage"] = "implementation"
 
