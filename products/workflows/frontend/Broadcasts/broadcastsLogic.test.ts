@@ -64,9 +64,10 @@ describe('broadcastsLogic', () => {
 
         const confirm = dialog?.primaryButton?.onClick as unknown as () => Promise<void>
         const first = confirm()
-        void confirm()
+        const repeat = confirm()
+        expect(repeat).toBe(first)
         releasePatch()
-        await first
+        await repeat
         expect(patchedStatuses).toEqual(['archived'])
     })
 })

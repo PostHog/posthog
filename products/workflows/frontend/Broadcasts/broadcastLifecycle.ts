@@ -75,19 +75,19 @@ async function runPending(
     }
 }
 
-/** A confirm button handler that ignores clicks while its request runs, before the dialog re-renders as loading. */
+/**
+ * A confirm button handler that sends no second request while the first runs, before the dialog re-renders as loading.
+ * A repeat click waits on the first request, so the dialog stays open until that request finishes.
+ */
 function confirmHandler(callbacks: ManageBroadcastCallbacks, request: () => Promise<boolean>): () => Promise<void> {
-    let inFlight = false
-    return async () => {
-        if (inFlight) {
-            return
+    let inFlight: Promise<void> | undefined
+    return () => {
+        if (!inFlight) {
+            inFlight = runPending(callbacks, request).finally(() => {
+                inFlight = undefined
+            })
         }
-        inFlight = true
-        try {
-            await runPending(callbacks, request)
-        } finally {
-            inFlight = false
-        }
+        return inFlight
     }
 }
 
