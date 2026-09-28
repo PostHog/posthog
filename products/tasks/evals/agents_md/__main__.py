@@ -178,7 +178,8 @@ def report(results: list[dict]) -> str:
         header = (
             "| Claim | Section | With rule | Without rule | Rule effect | Repeats won |\n|---|---|---|---|---|---|\n"
         )
-        sections.append(f"### {agent}\n\n{header}{'\\n'.join(rows)}\n")
+        table = "\n".join(rows)
+        sections.append(f"### {agent}\n\n{header}{table}\n")
     return (
         "\n".join(sections) + "\nViolations are the detector's count per run, averaged over repeats. "
         "Rule effect is without minus with: positive means the rule reduced violations. "

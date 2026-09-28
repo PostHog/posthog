@@ -353,7 +353,9 @@ def test_report_shows_the_difference_the_rule_makes():
         ]
     )
     assert "### claude m" in rendered
-    assert "| rule | Comments | 0.50 (n=2) | 2.00 (n=1) | +1.50 | 1 of 1 |" in rendered
-    assert "| quiet | Comments | 0.00 (n=1) | 0.00 (n=1) | no evidence | 0 of 1 |" in rendered
+    assert (
+        "| rule | Comments | 0.50 (n=2) | 2.00 (n=1) | +1.50 | 1 of 1 |\n"
+        "| quiet | Comments | 0.00 (n=1) | 0.00 (n=1) | no evidence | 0 of 1 |\n"
+    ) in rendered
     assert "No model broke these rules without them, so the trap did not tempt: quiet" in rendered
     assert report([]) == "No results found.\n"
