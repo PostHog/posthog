@@ -1072,6 +1072,21 @@ class TestModalSandboxAgentServer:
         assert _is_preflight_command(commands[0])
         assert commands[1].startswith("bash /tmp/posthog-launch-preparation-")
 
+    def test_preflight_failure_message_carries_exit_code_stderr_and_last_stdout(self, mock_sandbox: Any):
+        stdout = f"{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}pi_runtime\n{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}auto_publish"
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=stdout, stderr="bash: line 3: Killed", exit_code=137, error=None)
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+
+        with pytest.raises(SandboxExecutionError) as error:
+            mock_sandbox.start_agent_server(repository="posthog/posthog", task_id="task-123", run_id="run-456")
+
+        message = str(error.value)
+        assert "exit code 137" in message
+        assert "stderr=bash: line 3: Killed" in message
+        assert f"last stdout={AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}auto_publish" in message
+
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
         exec_process = MagicMock()
