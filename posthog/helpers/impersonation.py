@@ -8,8 +8,6 @@ from django.http import HttpRequest
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 
-from posthog.auth import OAuthAccessTokenAuthentication
-
 
 def is_impersonated(request: Optional[HttpRequest]) -> bool:
     """Whether the current action is being performed under staff impersonation.
@@ -28,6 +26,10 @@ def is_impersonated(request: Optional[HttpRequest]) -> bool:
         return False
     if is_impersonated_session(request):
         return True
+
+    # Call-time import: this helper is wired at django.setup() via the activity-log signal
+    # handlers, and posthog.auth pulls zxcvbn/webauthn, which no background process needs.
+    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, OAuthAccessTokenAuthentication):

@@ -50,7 +50,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'exportDataset', // Dataset scenes render their own retry state
     'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
-    'loadToolDataEvents',
+    'loadProductDataEvents',
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state

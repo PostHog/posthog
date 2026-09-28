@@ -1,18 +1,28 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import FIREHYDRANT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
+    FIREHYDRANT_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 # FireHydrant accounts are region-pinned: US accounts live on api.firehydrant.io, EU accounts on the
 # data-residency host. The stored API key only authenticates against its own region's host.
@@ -21,16 +31,16 @@ BASE_URLS: dict[str, str] = {
     "eu": "https://api.eu.firehydrant.io",
 }
 DEFAULT_REGION = "us"
-# FireHydrant caps per_page at 200. 100 keeps each response comfortably small while halving the
-# request count versus the default page size.
-PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@frozen
 class FireHydrantResumeConfig:
-    # The next 1-indexed page to fetch. FireHydrant paginates with `page` / `per_page` query params and
-    # returns a `pagination.next` page number (or null) in each response body.
-    next_page: int
+    # Opaque framework checkpoint: `{"cursor": <next page>}` for a top-level endpoint (FireHydrant
+    # paginates with `page` / `per_page` and returns `pagination.next`, or null on the last page), or
+    # the fan-out manager's `{"completed": [...], "current": ..., "child_state": {...}}` for an
+    # endpoint walked per parent — round-tripped into `initial_paginator_state` on resume.
+    # Defaulted so state written in an older shape resumes from the start instead of failing.
+    paginator_state: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -71,6 +81,21 @@ def validate_credentials(api_key: str, region: str | None = None) -> tuple[bool,
     return False, f"FireHydrant API returned an unexpected status: {status}"
 
 
+def _client_config(api_key: str, region: str | None) -> ClientConfig:
+    return {
+        "base_url": base_url_for_region(region),
+        # Auth (Bearer) is supplied via the framework auth config so the token is redacted from
+        # logs; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        # FireHydrant returns the next page number in `pagination.next` (null on the last page);
+        # inject it as the `page` query param. Termination is `pagination.next` being falsy —
+        # endpoints returning a single unpaginated response carry no `pagination`, so they stop
+        # after one page.
+        "paginator": JSONResponseCursorPaginator(cursor_path="pagination.next", cursor_param="page"),
+    }
+
+
 def firehydrant_source(
     api_key: str,
     endpoint: str,
@@ -81,54 +106,75 @@ def firehydrant_source(
 ) -> SourceResponse:
     config = FIREHYDRANT_ENDPOINTS[endpoint]
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url_for_region(region),
-            # Auth (Bearer) is supplied via the framework auth config so the token is redacted from
-            # logs; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-            # FireHydrant returns the next page number in `pagination.next` (null on the last page);
-            # inject it as the `page` query param. Termination is `pagination.next` being falsy —
-            # endpoints returning a single unpaginated response carry no `pagination`, so they stop
-            # after one page.
-            "paginator": JSONResponseCursorPaginator(cursor_path="pagination.next", cursor_param="page"),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"per_page": PAGE_SIZE},
-                    # Paginated endpoints wrap rows in a top-level `data` array. A missing/empty `data`
-                    # key degrades to zero rows (not required) so an endpoint with nothing to return
-                    # ends cleanly rather than raising.
-                    "data_selector": "data",
-                },
-            }
-        ],
-    }
-
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"cursor": resume.next_page}
+        if resume is not None and resume.paginator_state:
+            initial_paginator_state = resume.paginator_state
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
-        # last page (merge dedupes on the primary key) rather than skipping it.
-        if state and state.get("cursor") is not None:
-            resumable_source_manager.save_state(FireHydrantResumeConfig(next_page=int(state["cursor"])))
+        # Persist only when there is somewhere left to resume to; save AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        if state:
+            resumable_source_manager.save_state(FireHydrantResumeConfig(paginator_state=dict(state)))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    resource: Resource
+    if config.fanout is not None:
+        # Neither parent nor child offers a server-side time filter, so every sync walks the parent
+        # list and re-fetches the child per parent; that is inherent to the API.
+        resource = cast(
+            Resource,
+            build_dependent_resource(
+                endpoint_configs=cast(Any, FIREHYDRANT_ENDPOINTS),
+                child_endpoint=endpoint,
+                fanout=config.fanout,
+                client_config=_client_config(api_key, region),
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                page_size_param="per_page",
+                # A response that drops the `data` envelope is a shape change, not an empty page:
+                # tolerating it would silently replace the whole table with no rows.
+                parent_endpoint_extra={
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "data_selector_empty_ok": True,
+                },
+                child_endpoint_extra={
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "data_selector_empty_ok": True,
+                },
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_paginator_state,
+            ),
+        )
+    else:
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(api_key, region),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {"per_page": PAGE_SIZE},
+                        # Paginated endpoints wrap rows in a top-level `data` array. A missing/empty
+                        # `data` key degrades to zero rows (not required) so an endpoint with nothing
+                        # to return ends cleanly rather than raising.
+                        "data_selector": "data",
+                    },
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,

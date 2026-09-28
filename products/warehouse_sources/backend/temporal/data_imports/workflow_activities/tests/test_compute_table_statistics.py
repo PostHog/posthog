@@ -327,6 +327,17 @@ class TestComputeTableStatisticsSync:
             == 7
         )
 
+    def test_skipped_when_team_deleted(self) -> None:
+        # The gate that decides whether to start this child workflow runs in an earlier activity;
+        # the team can be deleted in the gap before this one runs. That must skip like the other
+        # not-found cases here, not raise Team.DoesNotExist into the activity's error-tracking path.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        deleted_team_id = team.id
+        team.delete()
+        result = compute_table_statistics_sync(deleted_team_id, schema.id)
+        assert result == {"status": "skipped", "reason": "team_deleted"}
+
     def test_skipped_when_no_table(self) -> None:
         team = self._team()
         source = ExternalDataSource.objects.create(
