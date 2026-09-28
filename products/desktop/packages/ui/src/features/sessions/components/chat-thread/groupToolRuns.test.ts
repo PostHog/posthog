@@ -276,8 +276,6 @@ describe("groupToolRuns", () => {
   });
 
   it("keeps every chart grouped while an implicit turn is still growing", () => {
-    // An implicit (promptless) turn is marked turnComplete the instant it opens, so it
-    // must not be trusted as a "done" signal on its own while nothing has superseded it.
     const turnContext = {
       toolCalls: new Map(),
       childItems: new Map(),
@@ -305,6 +303,44 @@ describe("groupToolRuns", () => {
     expect(out.map((row) => row.type)).toEqual(["tool_group"]);
   });
 
+  it("doesn't treat a turnless item after the chart as supersession", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+    const shellExecuteItem: ConversationItem = {
+      type: "user_shell_execute",
+      id: "shell",
+      command: "ls",
+      cwd: "/repo",
+    };
+
+    const out = groupToolRuns([
+      chart("chart-1"),
+      chart("chart-2"),
+      shellExecuteItem,
+    ]);
+
+    expect(out.filter((row) => row.type === "tool_group")).toHaveLength(1);
+  });
+
   it("stands the last chart alone once the session goes idle, even with nothing to supersede the implicit turn", () => {
     const turnContext = {
       toolCalls: new Map(),
@@ -328,9 +364,10 @@ describe("groupToolRuns", () => {
       return item;
     };
 
+    const isPromptPending = false;
     const out = groupToolRuns(
       [chart("chart-1"), chart("chart-2")],
-      /* isPromptPending */ false,
+      isPromptPending,
     );
 
     expect(out.map((row) => row.type)).toEqual([

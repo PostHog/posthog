@@ -43,9 +43,7 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
-  /** True for a turn with no user prompt behind it (e.g. background setup activity). Such a
-   *  turn is marked `turnComplete` the instant it opens, so that flag alone doesn't mean it has
-   *  stopped growing. */
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
   isImplicit?: boolean;
 }
 

@@ -216,13 +216,11 @@ function isTurnDecided(
   supersededTurns: Set<TurnContext>,
   isSessionIdle: boolean,
 ): boolean {
-  // A cloud turn that errors out never gets a `turn_completed` event, so `turnComplete`
-  // alone would leave a finished chart stuck collapsed forever.
+  // A cloud turn that errors out never gets a `turn_completed` event.
   if (erroredTurns.has(turnContext)) return true;
   if (!turnContext.turnComplete) return false;
-  // An implicit turn is marked `turnComplete` the moment it opens, so trust that only once
-  // a later turn has taken its place, or nothing is generating anymore — otherwise a
-  // trailing implicit turn that never gets superseded would stay collapsed forever.
+  // `turnComplete` flips true the instant an implicit turn opens, so trust it only once
+  // superseded or the session goes idle.
   return turnContext.isImplicit
     ? supersededTurns.has(turnContext) || isSessionIdle
     : true;
@@ -234,16 +232,18 @@ function lastRenderableIdsByTurn(
 ): Map<TurnContext, string> {
   const erroredTurns = new Set<TurnContext>();
   const lastIndexByTurn = new Map<TurnContext, number>();
+  let lastSessionUpdateIndex = -1;
   items.forEach((item, index) => {
     if (!isSessionUpdateItem(item)) return;
     lastIndexByTurn.set(item.turnContext, index);
+    lastSessionUpdateIndex = index;
     if (item.update.sessionUpdate === "error") {
       erroredTurns.add(item.turnContext);
     }
   });
   const supersededTurns = new Set(
     [...lastIndexByTurn]
-      .filter(([, lastIndex]) => lastIndex < items.length - 1)
+      .filter(([, lastIndex]) => lastIndex < lastSessionUpdateIndex)
       .map(([turnContext]) => turnContext),
   );
 
@@ -329,8 +329,7 @@ export function groupToolRuns(
   items: ConversationItem[],
   isPromptPending: boolean | null = true,
 ): ThreadItem[] {
-  // Mirrors the same `=== false` check `incrementalConversationItems` uses to decide the
-  // conversation isn't actively streaming — `null` means "unknown yet" for a cloud session.
+  // `=== false` matches `incrementalConversationItems`'s own idle check.
   const lastRenderableIds = lastRenderableIdsByTurn(
     items,
     isPromptPending === false,
