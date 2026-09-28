@@ -1,8 +1,8 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
@@ -12,12 +12,15 @@ import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaM
 import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
+import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType } from '~/types'
 
-import { annotationModalLogic, annotationScopeToName } from '../logics/annotationModalLogic'
+import { annotationModalHostLogic } from '../logics/annotationModalHostLogic'
+import { annotationModalLogic } from '../logics/annotationModalLogic'
+import { annotationScopeToName } from '../logics/annotationScopes'
 
 export function NewAnnotationButton(): JSX.Element {
-    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    const { openModalToCreateAnnotation } = useActions(annotationModalHostLogic)
     return (
         <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
             New annotation
@@ -25,12 +28,8 @@ export function NewAnnotationButton(): JSX.Element {
     )
 }
 
-export function AnnotationModal({
-    overlayRef,
-    contentRef,
-}: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
+export function AnnotationModal(): JSX.Element {
     const {
-        isModalOpen,
         existingModalAnnotation,
         annotationModal,
         annotationModalChanged,
@@ -38,16 +37,20 @@ export function AnnotationModal({
         onSavedInsight,
         timezone,
     } = useValues(annotationModalLogic)
-    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
+    const { deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
+    const { isModalOpen } = useValues(annotationModalHostLogic)
+    const { closeModal } = useActions(annotationModalHostLogic)
 
     const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
         {
             value: AnnotationScope.Insight,
             label: annotationScopeToName[AnnotationScope.Insight],
             tooltip: existingModalAnnotation?.insight_name ? (
-                existingModalAnnotation.insight_name
+                <>Insight: {existingModalAnnotation.insight_name}</>
             ) : existingModalAnnotation?.insight_derived_name ? (
-                <i>{existingModalAnnotation.insight_derived_name}</i>
+                <>
+                    Insight: <i>{existingModalAnnotation.insight_derived_name}</i>
+                </>
             ) : undefined,
             disabledReason:
                 (!onSavedInsight && 'You need to save the insight first.') ||
@@ -68,7 +71,9 @@ export function AnnotationModal({
         {
             value: AnnotationScope.Dashboard,
             label: annotationScopeToName[AnnotationScope.Dashboard],
-            tooltip: existingModalAnnotation?.dashboard_name,
+            tooltip: existingModalAnnotation?.dashboard_name ? (
+                <>Dashboard: {existingModalAnnotation.dashboard_name}</>
+            ) : undefined,
             disabledReason:
                 (!annotationModal.dashboardId &&
                     'To select this scope, open this annotation on the target dashboard') ||
@@ -95,122 +100,132 @@ export function AnnotationModal({
     ]
 
     return (
-        <LemonModal
-            overlayRef={overlayRef}
-            contentRef={contentRef}
-            isOpen={isModalOpen}
-            onClose={closeModal}
-            hasUnsavedInput={annotationModalChanged}
-            title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to comment on insights, dashboards"
-            footer={
-                <div className="flex-1 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        {existingModalAnnotation && (
-                            <LemonButton
-                                form="annotation-modal-form"
-                                type="secondary"
-                                status="danger"
-                                onClick={() => {
-                                    deleteAnnotation(existingModalAnnotation)
-                                    closeModal()
-                                }}
-                                data-attr="delete-annotation"
-                            >
-                                Delete annotation
-                            </LemonButton>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LemonButton form="annotation-modal-form" type="secondary" onClick={closeModal}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            form="annotation-modal-form"
-                            htmlType="submit"
-                            type="primary"
-                            loading={isAnnotationModalSubmitting}
-                            data-attr="create-annotation-submit"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                </div>
-            }
-            width={512}
-        >
-            <Form
-                logic={annotationModalLogic}
-                formKey="annotationModal"
-                id="annotation-modal-form"
-                enableFormOnSubmit
-                className="deprecated-space-y-4"
-            >
-                <div className="flex gap-2">
-                    <LemonField
-                        name="dateMarker"
-                        label={
-                            <span>
-                                Date and time (
-                                <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
-                                    {shortTimeZone(timezone)}
-                                </Link>
-                                )
-                            </span>
-                        }
-                        className="flex-1"
-                    >
-                        {({ value, onChange }) => (
-                            <DatePicker
-                                value={value}
-                                onChange={onChange}
-                                granularity="minute"
-                                maxDate={dayjs().add(1, 'year')}
-                            />
-                        )}
-                    </LemonField>
-                    <LemonField name="scope" label="Scope" className="flex-1">
-                        <LemonSelect options={scopeOptions} fullWidth />
-                    </LemonField>
-                </div>
-                <LemonField name="content" label="Content">
-                    <LemonTextAreaMarkdown
-                        placeholder="What's this annotation about?"
-                        onPressCmdEnter={submitAnnotationModal}
-                        data-attr="create-annotation-input"
-                        maxLength={400}
-                    />
-                </LemonField>
-                <LemonField
-                    name="emoji"
-                    label="Emoji"
-                    showOptional
-                    info="Shown in place of the default badge when this annotation appears on a chart."
-                >
-                    {({ value, onChange }) => (
+        <BindLogic logic={annotationsModel}>
+            <LemonModal
+                isOpen={isModalOpen}
+                onClose={closeModal}
+                hasUnsavedInput={annotationModalChanged}
+                title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
+                description={
+                    <p>
+                        Annotations are dated notes that explain changes in your metrics, such as a release or campaign.{' '}
+                        <Link to="https://posthog.com/docs/data/annotations" target="_blank" targetBlankIcon>
+                            Learn more about annotations
+                        </Link>
+                    </p>
+                }
+                footer={
+                    <div className="flex-1 flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <EmojiPickerPopover
-                                onSelect={(emoji) => onChange(emoji)}
-                                data-attr="annotation-emoji-picker"
-                            />
-                            {value ? (
-                                <div className="flex items-center gap-1">
-                                    <span className="text-2xl leading-none">{value}</span>
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconX />}
-                                        tooltip="Remove emoji"
-                                        onClick={() => onChange(null)}
-                                        data-attr="annotation-emoji-clear"
-                                    />
-                                </div>
-                            ) : (
-                                <span className="text-secondary text-sm">No emoji selected</span>
+                            {existingModalAnnotation && (
+                                <LemonButton
+                                    form="annotation-modal-form"
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() => {
+                                        deleteAnnotation(existingModalAnnotation)
+                                        closeModal()
+                                    }}
+                                    data-attr="delete-annotation"
+                                >
+                                    Delete annotation
+                                </LemonButton>
                             )}
                         </div>
-                    )}
-                </LemonField>
-            </Form>
-        </LemonModal>
+                        <div className="flex items-center gap-2">
+                            <LemonButton form="annotation-modal-form" type="secondary" onClick={closeModal}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                form="annotation-modal-form"
+                                htmlType="submit"
+                                type="primary"
+                                loading={isAnnotationModalSubmitting}
+                                data-attr="create-annotation-submit"
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                }
+                width={512}
+            >
+                <Form
+                    logic={annotationModalLogic}
+                    formKey="annotationModal"
+                    id="annotation-modal-form"
+                    enableFormOnSubmit
+                    className="deprecated-space-y-4"
+                >
+                    <div className="flex gap-2">
+                        <LemonField
+                            name="dateMarker"
+                            label={
+                                <span>
+                                    Date and time (
+                                    <Link
+                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                        target="_blank"
+                                    >
+                                        {shortTimeZone(timezone)}
+                                    </Link>
+                                    )
+                                </span>
+                            }
+                            className="flex-1"
+                        >
+                            {({ value, onChange }) => (
+                                <DatePicker
+                                    value={value}
+                                    onChange={onChange}
+                                    granularity="minute"
+                                    maxDate={dayjs().add(1, 'year')}
+                                />
+                            )}
+                        </LemonField>
+                        <LemonField name="scope" label="Scope" className="flex-1">
+                            <LemonSelect options={scopeOptions} fullWidth />
+                        </LemonField>
+                    </div>
+                    <LemonField name="content" label="Content">
+                        <LemonTextAreaMarkdown
+                            placeholder="What's this annotation about?"
+                            onPressCmdEnter={submitAnnotationModal}
+                            data-attr="create-annotation-input"
+                            maxLength={400}
+                        />
+                    </LemonField>
+                    <LemonField
+                        name="emoji"
+                        label="Emoji"
+                        showOptional
+                        info="Shown in place of the default badge when this annotation appears on a chart."
+                    >
+                        {({ value, onChange }) => (
+                            <div className="flex items-center gap-2">
+                                <EmojiPickerPopover
+                                    onSelect={(emoji) => onChange(emoji)}
+                                    data-attr="annotation-emoji-picker"
+                                />
+                                {value ? (
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-2xl leading-none">{value}</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconX />}
+                                            tooltip="Remove emoji"
+                                            onClick={() => onChange(null)}
+                                            data-attr="annotation-emoji-clear"
+                                        />
+                                    </div>
+                                ) : (
+                                    <span className="text-secondary text-sm">No emoji selected</span>
+                                )}
+                            </div>
+                        )}
+                    </LemonField>
+                </Form>
+            </LemonModal>
+        </BindLogic>
     )
 }

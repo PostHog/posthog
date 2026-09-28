@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { AnnotationScope } from '~/types'
 
-import { annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
+import { annotationScopeToName } from 'products/annotations/frontend/logics/annotationScopes'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 

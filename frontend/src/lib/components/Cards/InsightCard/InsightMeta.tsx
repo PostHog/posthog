@@ -84,6 +84,7 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { annotationModalHostLogic } from 'products/annotations/frontend/logics/annotationModalHostLogic'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -210,6 +211,7 @@ export function InsightMeta({
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
+    const { openModalToCreateAnnotation } = useActions(annotationModalHostLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
@@ -565,6 +567,15 @@ export function InsightMeta({
                         >
                             Duplicate
                         </LemonButton>
+                        {placement === DashboardPlacement.Dashboard && canViewInsight && insight.id && dashboardId ? (
+                            <LemonButton
+                                onClick={() => openModalToCreateAnnotation(undefined, insight.id, dashboardId)}
+                                fullWidth
+                                data-attr="dashboard-insight-add-annotation"
+                            >
+                                Add annotation
+                            </LemonButton>
+                        ) : null}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
                                 onClick={() => {

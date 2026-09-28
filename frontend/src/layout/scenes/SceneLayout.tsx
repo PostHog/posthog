@@ -1,7 +1,7 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect } from 'react'
+import React, { PropsWithChildren, Suspense, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -9,9 +9,18 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { ShortcutMenu } from 'lib/components/Shortcuts/ShortcutMenu'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { annotationModalHostLogic } from 'products/annotations/frontend/logics/annotationModalHostLogic'
+
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+
+const LazyAnnotationModal = lazyWithRetry(() =>
+    import('products/annotations/frontend/components/AnnotationModal').then((module) => ({
+        default: module.AnnotationModal,
+    }))
+)
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -69,6 +78,7 @@ export function ScenePanelLabel({
 
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { setSceneLayoutConfig } = useActions(sceneLayoutLogic)
+    const { isModalOpen } = useValues(annotationModalHostLogic)
 
     // Set layout config
     useEffect(() => {
@@ -82,6 +92,11 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
             {children}
 
             <ShortcutMenu />
+            {isModalOpen && (
+                <Suspense fallback={null}>
+                    <LazyAnnotationModal />
+                </Suspense>
+            )}
         </>
     )
 }

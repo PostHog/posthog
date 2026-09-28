@@ -27,8 +27,8 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 
-import { AnnotationModal } from '../components/AnnotationModal'
-import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
+import { annotationModalHostLogic } from '../logics/annotationModalHostLogic'
+import { annotationScopeToLevel, annotationScopeToName } from '../logics/annotationScopes'
 import { annotationScopesMenuOptions, annotationsLogic } from '../logics/annotationsLogic'
 
 export const scene: SceneExport = {
@@ -43,7 +43,7 @@ export function Annotations(): JSX.Element {
 
     const { currentOrganization } = useValues(organizationLogic)
 
-    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    const { openModalToCreateAnnotation } = useActions(annotationModalHostLogic)
 
     const { filteredAnnotations, annotationsLoading, scope } = useValues(annotationsLogic)
     const { setScope } = useActions(annotationsLogic)
@@ -213,7 +213,6 @@ export function Annotations(): JSX.Element {
                     </div>
                 )}
             </div>
-            <AnnotationModal />
         </SceneContent>
     )
 }
