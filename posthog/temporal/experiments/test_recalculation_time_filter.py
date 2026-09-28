@@ -45,6 +45,7 @@ class TestRecalculationTimeFilter:
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         config.experiment_recalculation_time = time(5, 0, 0)
+        config.experiment_recalculation_times = ["05:00:00"]
         config.save()
 
         _create_running_experiment(team, user, "custom-hour")
@@ -57,6 +58,24 @@ class TestRecalculationTimeFilter:
 
         assert team.experiment_set.first().id in experiment_ids_hour_5
         assert team.experiment_set.first().id not in experiment_ids_hour_2
+
+    def test_team_with_two_recalculation_times_matched_at_both_hours(self):
+        org = Organization.objects.create(name="Test Org Two Times")
+        team = Team.objects.create(organization=org, name="Team Two Times")
+        user = User.objects.create(email="twotimes@test.com")
+
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        config.experiment_recalculation_time = time(8, 0, 0)
+        config.experiment_recalculation_times = ["08:00:00", "20:00:00"]
+        config.save()
+
+        _create_running_experiment(team, user, "two-times")
+
+        experiment_id = team.experiment_set.first().id
+        assert experiment_id in {r.experiment_id for r in _get_metrics_sync(hour=8)}
+        assert experiment_id in {r.experiment_id for r in _get_metrics_sync(hour=20)}
+        assert experiment_id not in {r.experiment_id for r in _get_metrics_sync(hour=2)}
+        assert experiment_id not in {r.experiment_id for r in _get_metrics_sync(hour=14)}
 
     def test_team_with_no_config_row_defaults_to_hour_2(self):
         org = Organization.objects.create(name="Test Org 2")
