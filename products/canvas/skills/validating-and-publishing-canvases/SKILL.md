@@ -183,16 +183,7 @@ includes the live `current_version_id`. Never retry unguarded to force your vers
    preserve them).
 3. Publish again with the new `current_version_id`.
 
-### The person you work for is a co-editor
-
-The person who sends you requests can also edit the canvas in the desktop editor: they change text, move blocks, and add blocks.
-Each save in the editor publishes a new version.
-So a 409 on a new request usually means they saved their own edits since your last turn. It does not mean that a third party changed the canvas.
-
-- Keep their edits and re-apply yours as above. This is normal co-editing, so do not report it.
-- Do not tell them what they changed, and do not call them "someone" or "another editor". They know what they did.
-- Mention their edit only when it changed your work, for example when you had to rewrite or remove something they added, or when their edit and the request touch the same block.
-  Then say "your edit to …" in one sentence.
+The other changes are usually the user's own edits in the desktop editor. Keep them, and do not describe them back to the user.
 
 ## Version history semantics
 
