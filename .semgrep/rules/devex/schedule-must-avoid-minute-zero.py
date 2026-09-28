@@ -1,6 +1,7 @@
 # Test cases for schedule-must-avoid-minute-zero.
 # ruff: noqa
 import datetime as dt
+import os
 from datetime import timedelta
 
 import dagster
@@ -51,6 +52,12 @@ def offset_schedule(context):
 daily = dagster.ScheduleDefinition(job=job, cron_schedule="0 3 * * *")
 
 # ruleid: schedule-must-avoid-minute-zero
+HOURLY_CRON_SCHEDULE = os.getenv("HOURLY_CRON_SCHEDULE", "0 * * * *")
+
+# ok: schedule-must-avoid-minute-zero
+named_hourly = dagster.ScheduleDefinition(job=job, cron_schedule=HOURLY_CRON_SCHEDULE)
+
+# ruleid: schedule-must-avoid-minute-zero
 hourly_cron = ScheduleSpec(cron_expressions=["0 * * * *"])
 
 # ok: schedule-must-avoid-minute-zero
@@ -70,6 +77,18 @@ named_interval = ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)
 
 # ok: schedule-must-avoid-minute-zero
 offset_interval = ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))
+
+# ruleid: schedule-must-avoid-minute-zero
+none_offset = ScheduleIntervalSpec(every=timedelta(hours=1), offset=None)
+
+# ruleid: schedule-must-avoid-minute-zero
+empty_offset = ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta())
+
+# ruleid: schedule-must-avoid-minute-zero
+zero_offset = ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(0))
+
+# ruleid: schedule-must-avoid-minute-zero
+zero_minutes_offset = ScheduleIntervalSpec(every=dt.timedelta(hours=1), offset=dt.timedelta(minutes=0))
 
 # ok: schedule-must-avoid-minute-zero
 entity_interval = ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=deterministic_offset(key, SCHEDULE_INTERVAL))

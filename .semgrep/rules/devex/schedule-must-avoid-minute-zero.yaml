@@ -35,19 +35,26 @@ rules:
                             - metavariable-regex:
                                   metavariable: $HOUR
                                   regex: ^\*(/\d+)?$
-          # Dagster and Temporal cron strings with minute 0 and an hour field of "*" or "*/N".
+          # A five-field cron string with minute 0 and an hour field of "*" or "*/N". The rule matches the
+          # literal wherever it is written, because a Dagster or Temporal schedule often reads it from a
+          # constant or an environment default in another module, which semgrep cannot follow.
           - patterns:
-                - pattern-either:
-                      - pattern: $SCHEDULE(..., cron_schedule="$CRON", ...)
-                      - pattern: ScheduleSpec(..., cron_expressions=[..., "$CRON", ...], ...)
+                - pattern: '"$CRON"'
                 - metavariable-regex:
                       metavariable: $CRON
-                      regex: ^\s*0+\s+\*(/\d+)?\s
-          # A Temporal interval with no offset starts on the epoch grid, so a sub-daily interval that
-          # fits evenly into the day fires at minute zero. An interval the rule cannot read counts as short.
+                      regex: ^\s*0+\s+\*(/\d+)?(\s+\S+){3}\s*$
+          # A Temporal interval with no offset, or a zero offset, starts on the epoch grid, so a sub-daily
+          # interval that fits evenly into the day fires at minute zero. An interval the rule cannot read
+          # counts as short.
           - patterns:
-                - pattern: ScheduleIntervalSpec(...)
-                - pattern-not: ScheduleIntervalSpec(..., offset=$OFFSET, ...)
+                - pattern-either:
+                      - patterns:
+                            - pattern: ScheduleIntervalSpec(...)
+                            - pattern-not: ScheduleIntervalSpec(..., offset=$OFFSET, ...)
+                      - pattern: ScheduleIntervalSpec(..., offset=None, ...)
+                      - pattern: ScheduleIntervalSpec(..., offset=datetime.timedelta(), ...)
+                      - pattern: ScheduleIntervalSpec(..., offset=datetime.timedelta(0), ...)
+                      - pattern: ScheduleIntervalSpec(..., offset=datetime.timedelta($UNIT=0), ...)
                 - pattern-either:
                       - patterns:
                             - pattern: ScheduleIntervalSpec(..., every=$INTERVAL, ...)
@@ -69,6 +76,10 @@ rules:
                             - metavariable-regex:
                                   metavariable: $SECONDS
                                   regex: ^([1-9]\d{0,3}|[1-7]\d{4}|8[0-5]\d{3}|86[0-3]\d\d|[A-Za-z_][\w.]*)$
+      # Constant propagation also matches each use of a cron constant, so one schedule would need a
+      # nosemgrep comment at the definition and at every use. Without it, the rule reports the definition only.
+      options:
+          constant_propagation: false
       paths:
           include:
               - dags/**/*.py
