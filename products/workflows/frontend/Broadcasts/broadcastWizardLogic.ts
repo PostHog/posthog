@@ -1220,6 +1220,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
                     actions.launchBroadcastFinished()
                     actions.setStep('recipients')
+                    actions.showSavedDraftUrl()
                     lemonToast.error(
                         `This audience is above the project's batch limit of ${humanFriendlyNumber(
                             blastRadius.limit
@@ -1304,6 +1305,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
                 actions.launchBroadcastFinished()
                 lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
+                actions.showSavedDraftUrl()
             }
         },
         moveToDraft: async () => {

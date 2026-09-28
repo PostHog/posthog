@@ -217,6 +217,38 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
+    it('moves to the draft URL when a launch from /broadcasts/new stops at the audience limit', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified: true } }],
+                    count: 1,
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                    200,
+                    { affected: 60000, total: 60000, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                ],
+            },
+        })
+        router.actions.push('/broadcasts/new')
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Launch over the limit',
+            html: '<p>Hi</p>',
+        })
+        releaseCreate()
+
+        await expectLogic(logic, () => {
+            logic.actions.launchBroadcast()
+        }).toDispatchActions(['saveBroadcastFinished', 'launchBroadcastFinished', 'showSavedDraftUrl'])
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'recipients' })
+    })
+
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })
