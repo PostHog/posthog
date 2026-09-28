@@ -3065,17 +3065,17 @@ Note: Very small API. The full published reference is 8 endpoints: get forms, ge
 
 ## Finage — **thin**
 
-Today (3): `aggregates`, `last_quote`, `last_trade`
+Today (9): `aggregates`, `balance_sheet_statements`, `cash_flow_statement`, `dividend_calendar`, `historical_dividends`, `historical_stock_splits`, `last_quote`, `last_trade`, `stock_split_calendar`
 
 Diffed against: <https://finage.co.uk/docs/api>
 
 - [ ] `/symbol-list/{market} (Full Symbol List API)` — lookup table of tradeable symbols per market - resolves the symbol keys every other table is built on (high)
 - [ ] `/fnd/detail/stock/{symbol} (Stock Market Details)` — company profile: name, exchange, sector, industry - the dimension table for all price data (high)
 - [ ] `/fnd/income-statement/{symbol}` — core fundamentals; currently no financial statement data is exposed at all (high)
-- [ ] `/fnd/balance-sheet-statements/{symbol}` — core fundamentals alongside income statements (high)
-- [ ] `/fnd/cash-flow-statement/{symbol}` — completes the three-statement set (high)
-- [ ] `/fnd/historical-dividends/{symbol} and /fnd/dividend-calendar` — dividend events needed for total-return calculations on the aggregates already synced (high)
-- [ ] `/fnd/historical-stock-splits/{symbol} and /fnd/stock-split-calendar` — split events are required to make historical aggregates comparable across time (high)
+- [x] `/fnd/balance-sheet-statements/{symbol}` — core fundamentals alongside income statements (high)
+- [x] `/fnd/cash-flow-statement/{symbol}` — completes the three-statement set (high)
+- [x] `/fnd/historical-dividends/{symbol} and /fnd/dividend-calendar` — dividend events needed for total-return calculations on the aggregates already synced (high)
+- [x] `/fnd/historical-stock-splits/{symbol} and /fnd/stock-split-calendar` — split events are required to make historical aggregates comparable across time (high)
 - [ ] `/fnd/financial-ratios/{symbol}` — precomputed valuation and profitability ratios (medium)
 - [ ] `/agg/stock/prev-close/{symbol}` — previous close reference price for daily change calculations (medium)
 - [ ] `/snapshot/stock (also /snapshot/forex, /snapshot/crypto)` — whole-market snapshot in one call rather than per-symbol quote fetches (medium)
@@ -3132,12 +3132,12 @@ Today (11): `balance_sheets`, `bond_yields`, `cash_flows`, `company_information`
 
 Diffed against: <https://finnworlds.com/documentation/>
 
-- [ ] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high)
-- [ ] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high)
-- [ ] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high)
+- [x] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high) — added as `company_identifiers` (`/identifiers`)
+- [x] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high) — already synced: `stock_prices` calls `/historicalcandlestick`. The uncovered endpoint is the real-time quote one (`/stockprice`), not this one.
+- [x] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high) — added as `insider_transactions`, one row per Form 4 transaction line
 - [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium)
 - [ ] `Stock Market Index` — index level series needed to benchmark the synced company data (medium)
-- [ ] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium)
+- [x] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium) — added as `macroeconomic_indicators` (`/macroindicator`), fanned out over a new countries field
 - [ ] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium)
 - [ ] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium)
 - [ ] `ETF Holdings` — fund-to-holding breakdown rows linking funds to already-synced companies (medium)
@@ -3180,16 +3180,16 @@ Note: The repo already carries products/warehouse_sources/backend/temporal/data_
 
 ## FireworksAI — gaps
 
-Today (10): `batch_inference_jobs`, `datasets`, `deployed_models`, `deployments`, `evaluation_jobs`, `evaluators`, `models`, `reinforcement_fine_tuning_jobs`, `supervised_fine_tuning_jobs`, `users`
+Today (14): `account_usage`, `batch_inference_jobs`, `datasets`, `deployed_models`, `deployments`, `dpo_jobs`, `evaluation_jobs`, `evaluators`, `models`, `reinforcement_fine_tuning_jobs`, `reinforcement_fine_tuning_steps`, `routers`, `supervised_fine_tuning_jobs`, `users`
 
 Diffed against: <https://docs.fireworks.ai/llms.txt>
 
-- [ ] `GET /v1/accounts/{account_id}/usage (Get Account Usage)` — per-model token and spend usage, the headline analytical metric for an inference platform (high)
-- [ ] `GET /v1/accounts/{account_id}/dpoJobs (List dpo jobs)` — a whole fine-tuning job type missing alongside the already-synced supervised and reinforcement jobs (high)
-- [ ] `List Reinforcement Fine-tuning Steps` — per-step training progression under each RFT job, the state history behind job outcomes (high)
+- [x] `GET /v1/accounts/{account_id}/usage (Get Account Usage)` — per-model token and spend usage, the headline analytical metric for an inference platform (high)
+- [x] `GET /v1/accounts/{account_id}/dpoJobs (List dpo jobs)` — a whole fine-tuning job type missing alongside the already-synced supervised and reinforcement jobs (high)
+- [x] `List Reinforcement Fine-tuning Steps` — per-step training progression under each RFT job, the state history behind job outcomes (high)
 - [ ] `List Responses` — stored inference response records - the closest thing to an event table this API offers (medium)
 - [ ] `Get billing summary` — account-level cost roll-up complementing raw usage (medium)
-- [ ] `List Routers` — router definitions that requests are attributed to; needed to interpret usage by route (medium)
+- [x] `List Routers` — router definitions that requests are attributed to; needed to interpret usage by route (medium)
 - [ ] `List Deployment Shapes Versions` — lookup resolving the hardware shape referenced by every synced deployment row (medium)
 - [ ] `List Accounts` — lookup resolving the account each synced resource is namespaced under, for multi-account orgs (low)
 - [ ] `List Quotas` — quota limits to compare against observed usage (low)
