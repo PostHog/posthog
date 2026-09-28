@@ -84,9 +84,14 @@
     }
 
     // Table styling - minimal approach
-    table {
+    // A <table> ignores `overflow`, so a wide table scrolls in its own wrapper instead of squeezing its columns.
+    .LemonMarkdown__table-wrapper {
+        max-width: 100%;
         margin: 1em 0;
-        overflow: auto;
+        overflow-x: auto;
+    }
+
+    table {
         border-spacing: 0;
         border-collapse: separate;
         border: 1px solid var(--border);
@@ -96,6 +101,8 @@
     th,
     td {
         padding: 0.375rem 0.75rem;
+        // `anywhere` lets a column shrink to one character. `break-word` keeps whole words as the minimum width.
+        overflow-wrap: break-word;
         color: var(--default);
         text-align: left;
         vertical-align: top;
