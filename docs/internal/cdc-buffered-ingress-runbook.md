@@ -376,8 +376,11 @@ over the limit, the slot sweeper (`cleanup_orphan_slots_activity`) marks the sou
 paused, on the same terms as the critical-lag safety net. If that drop is refused — an active slot,
 a missing grant — the source is left running and the next sweep retries it, because pausing capture
 behind a live slot is what makes WAL grow. Any other slot is left to its owner and capture keeps
-advancing it, so the customer's WAL does not grow. Once the team is back under the limit, Repair CDC
-recreates the slot and re-snapshots every table.
+advancing it, so the customer's WAL does not grow. Once the team is back under the limit, a dropped
+slot needs Repair CDC, which recreates it and re-snapshots every table. A kept slot needs nothing: the
+sweeper lifts its marker, and each table's next sync finds its buffer expired and re-snapshots on its
+own. Only a table's own sync runs count toward the 14 days. Capture records a Failed job on every table
+when it fails, and those rows do not restart the count.
 
 ## Retried capture attempts
 

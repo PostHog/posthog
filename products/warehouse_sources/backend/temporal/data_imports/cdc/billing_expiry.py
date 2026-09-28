@@ -19,8 +19,9 @@ from posthog.models.team.team import Team
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import clear_broken_markers, mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import BUFFER_FILE_RETENTION
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -38,7 +39,7 @@ _SLOT_DROPPED_MESSAGE = (
 _SLOT_KEPT_MESSAGE = (
     "Change data capture stopped loading because this team has been over its data warehouse billing "
     "limit for 14 days, and PostHog keeps captured changes for 14 days. The replication slot was not "
-    "dropped. Once you're back under the limit, use Repair CDC to re-sync your tables."
+    "dropped. Once you're back under the limit, your tables re-sync on their own."
 )
 
 
@@ -73,6 +74,10 @@ def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) 
     candidates = [schema for schema in blocked if (schema.last_synced_at or schema.created_at) < cutoff]
     if not any(_blocked_past(source, schema.id, cutoff) for schema in candidates):
         return False
+    return _team_over_limit(source)
+
+
+def _team_over_limit(source: ExternalDataSource) -> bool:
     team = Team.objects.only("api_token").get(id=source.team_id)
     return is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
@@ -90,8 +95,13 @@ def _billing_blocked_since(source: ExternalDataSource, schema_id: uuid.UUID) -> 
     this table's own jobs count — a sibling table can fail, and a non-billable run skips the billing
     check and completes, while this table stays blocked. A table can also go longer without a load for
     other reasons, which is why this is not the time since its last load.
+
+    Capture's rows are left out too. Capture has no billing check, and a failed capture run records a
+    Failed job on every CDC table, so a source whose capture fails now and then would never be stopped.
     """
-    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id=schema_id)
+    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id=schema_id).exclude(
+        workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX
+    )
     # One ordered lookup per status, because the (team, pipeline, status, created_at) index serves an
     # equality on status and not an exclusion.
     latest_by_outcome = [
@@ -126,5 +136,24 @@ def stop_cdc_past_billing_retention(
                 raise RuntimeError(f"Replication slot {cdc_config.slot_name} still exists after the drop")
         mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_DROPPED_MESSAGE)
         return True
-    mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_KEPT_MESSAGE, pause=False)
+    mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_KEPT_MESSAGE, pause=False, slot_kept=True)
     return False
+
+
+def clear_kept_slot_billing_expiry(source: ExternalDataSource) -> int:
+    """Lift a kept slot's ``billing_limit_expired`` marker once the team is back under the limit.
+
+    Nothing was dropped or paused, so each table's next sync finds its buffer expired and re-snapshots
+    on its own. Left in place, the marker keeps every table showing Failed while it loads, and points
+    the user at a Repair CDC that would re-snapshot every table a second time. Returns how many schemas
+    were cleared.
+    """
+    marked = ExternalDataSchema.objects.filter(
+        team_id=source.team_id,
+        source=source,
+        sync_type_config__cdc_broken__reason=BILLING_LIMIT_EXPIRED_REASON,
+        sync_type_config__cdc_broken__slot_kept=True,
+    )
+    if not marked.exists() or _team_over_limit(source):
+        return 0
+    return clear_broken_markers(source, reason=BILLING_LIMIT_EXPIRED_REASON, slot_kept=True)

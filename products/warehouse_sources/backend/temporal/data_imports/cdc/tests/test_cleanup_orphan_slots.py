@@ -227,8 +227,10 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
     assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"
 
 
-def _job(team, source, schema, status, age):
-    job = ExternalDataJob.objects.create(team_id=team.pk, pipeline=source, schema=schema, status=status, rows_synced=0)
+def _job(team, source, schema, status, age, workflow_id=None):
+    job = ExternalDataJob.objects.create(
+        team_id=team.pk, pipeline=source, schema=schema, status=status, rows_synced=0, workflow_id=workflow_id
+    )
     ExternalDataJob.objects.filter(id=job.id).update(created_at=dt.datetime.now(tz=dt.UTC) - age)
 
 
@@ -316,14 +318,22 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
     assert "cdc_broken" not in schema.sync_type_config
 
 
-def test_a_job_from_another_table_does_not_defer_the_billing_stop(team):
-    # Each table's blocked run is measured from its own jobs: a sibling that fails, or a non-billable
-    # run that skips the billing check and completes, would otherwise reset the clock on every tick and
-    # defer the stop indefinitely.
+@pytest.mark.parametrize("other_job", ["sibling_table_completed", "capture_failed"])
+def test_a_job_that_is_not_the_tables_own_sync_does_not_defer_the_billing_stop(team, other_job):
     source = _create_source(team, job_inputs=_cdc_job_inputs())
     schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
-    sibling = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(hours=1), name="events")
-    _job(team, source, sibling, ExternalDataJob.Status.COMPLETED, dt.timedelta(hours=1))
+    if other_job == "sibling_table_completed":
+        sibling = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(hours=1), name="events")
+        _job(team, source, sibling, ExternalDataJob.Status.COMPLETED, dt.timedelta(hours=1))
+    else:
+        _job(
+            team,
+            source,
+            schema,
+            ExternalDataJob.Status.FAILED,
+            dt.timedelta(days=1),
+            workflow_id=f"cdc-extraction-{source.id}",
+        )
     adapter = _mock_adapter()
 
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
@@ -332,6 +342,30 @@ def test_a_job_from_another_table_does_not_defer_the_billing_stop(team):
     adapter.drop_resources.assert_called_once()
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
+
+
+@pytest.mark.parametrize(
+    "job_inputs, limited_after, cleared",
+    [
+        (_cdc_job_inputs(auto_drop_slot=False), False, True),
+        (_cdc_job_inputs(management="self_managed"), False, True),
+        (_cdc_job_inputs(auto_drop_slot=False), True, False),
+        (_cdc_job_inputs(), False, False),
+    ],
+)
+def test_a_kept_slot_is_no_longer_broken_once_the_team_is_under_the_limit(team, job_inputs, limited_after, cleared):
+    source = _create_source(team, job_inputs=job_inputs)
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _run(_mock_adapter())
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=limited_after):
+        _run(_mock_adapter())
+
+    schema.refresh_from_db()
+    source.refresh_from_db()
+    assert ("cdc_broken" not in schema.sync_type_config) is cleared
+    assert (source.status == ExternalDataSource.Status.RUNNING) is cleared
 
 
 def test_a_failed_billing_check_still_checks_the_slots_lag(team):

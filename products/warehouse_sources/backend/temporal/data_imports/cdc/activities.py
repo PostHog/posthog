@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
     blocked_past_buffer_retention,
+    clear_kept_slot_billing_expiry,
     stop_cdc_past_billing_retention,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
@@ -2304,6 +2305,9 @@ def cleanup_orphan_slots_activity() -> None:
 
             # 2. Active sources over the billing limit for longer than the buffer keeps changes
             try:
+                cleared = clear_kept_slot_billing_expiry(source)
+                if cleared:
+                    source_log.info("cdc_billing_expiry_cleared_under_limit", schemas=cleared)
                 past_billing_retention = blocked_past_buffer_retention(source, sweep_started)
             except Exception:
                 # The lag check below still runs for this source, and the next sweep retries this one.
