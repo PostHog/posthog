@@ -462,6 +462,40 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                     self.assertNotIn("SELECT DISTINCT", sql, sql)
                     self.assertTrue(observation.id.hex in sql or sql.endswith("LIMIT 1"), sql)
 
+    @staticmethod
+    def _observation_reads(queries: CaptureQueriesContext) -> list[str]:
+        return [q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]]
+
+    def test_observation_list_skips_the_snapshot_gate_when_nothing_is_restricted(self) -> None:
+        # The snapshot experiment path has no index, so filtering on it detoasts the snapshot of every
+        # candidate row. A caller who can view every experiment on the team has nothing to gate, so the
+        # predicate must stay out of the query. It has to come back as soon as one experiment is denied.
+        experiment = create_experiment(self.team, "open-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        scanner = self._create_scanner(name="listed")
+        ReplayObservation.objects.create(scanner=scanner, session_id="sess-1", scanner_snapshot=snapshot_for(scanner))
+        url = self.observations_url(str(scanner.id))
+
+        self.client.force_login(self.other_user)
+        self.client.get(url)  # warm request-scoped caches so the capture is the read itself.
+        with CaptureQueriesContext(connection) as unrestricted:
+            resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([o["session_id"] for o in resp.json()["results"]], ["sess-1"])
+        for sql in self._observation_reads(unrestricted):
+            self.assertNotIn("experiment_targeting", sql, sql)
+
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as restricted:
+            self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertTrue(
+            any("experiment_targeting" in sql for sql in self._observation_reads(restricted)),
+            "a denied experiment must still gate the rows by their snapshot",
+        )
+
 
 class TestObservationThumbnailAccessControl(_AccessControlTestCase):
     """The frame is recording content, so denying the recording has to hide it."""
