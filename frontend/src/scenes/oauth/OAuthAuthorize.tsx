@@ -25,7 +25,7 @@ import { AvailableFeature } from '~/types'
 import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
-import { OAuthScopeGroup } from './OAuthScopeGroup'
+import { OAuthScopeGroupControl } from './OAuthScopeGroupControl'
 import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
@@ -466,7 +466,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 {scopeRowsGrouped ? (
                                     <div className="flex flex-col">
                                         {scopeGroups.map((group) => (
-                                            <OAuthScopeGroup
+                                            <OAuthScopeGroupControl
                                                 key={group.label}
                                                 label={group.label}
                                                 rows={group.rows}

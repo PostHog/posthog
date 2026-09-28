@@ -12,7 +12,7 @@ import {
 } from './oauthAuthorizeLogic'
 import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
-interface OAuthScopeGroupProps {
+interface OAuthScopeGroupControlProps {
     label: string
     rows: OAuthScopeRow[]
     appName: string
@@ -28,13 +28,13 @@ const countByLevel = (rows: OAuthScopeRow[]): Record<ScopeAccessLevel, number> =
     return counts
 }
 
-export function OAuthScopeGroup({
+export function OAuthScopeGroupControl({
     label,
     rows,
     appName,
     onChangeRow,
     onChangeGroup,
-}: OAuthScopeGroupProps): JSX.Element {
+}: OAuthScopeGroupControlProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const panelId = useId()
     const counts = countByLevel(rows)
