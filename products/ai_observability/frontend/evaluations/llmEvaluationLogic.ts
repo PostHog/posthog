@@ -169,6 +169,10 @@ function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation 
     }
 }
 
+function defaultCategoricalHogSource(config: EvaluationOutputConfig): string {
+    return `return ['${config.options?.[0]?.key ?? 'resolved'}'];`
+}
+
 function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
@@ -178,7 +182,7 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
                 evaluation.output_type === 'numeric'
                     ? 'return 0;'
                     : evaluation.output_type === 'categorical'
-                      ? `return ['${evaluation.output_config.options?.[0]?.key ?? 'resolved'}'];`
+                      ? defaultCategoricalHogSource(evaluation.output_config)
                       : DEFAULT_HOG_SOURCE,
         },
         output_type: evaluation.output_type === 'sentiment' ? 'boolean' : evaluation.output_type,
@@ -846,7 +850,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                     (source === 'return 0;' ||
                                         source === DEFAULT_HOG_SOURCE ||
                                         LEGACY_HOG_DEFAULT_SOURCES.includes(source))
-                                        ? `return ['${output_config.options?.[0]?.key ?? 'resolved'}'];`
+                                        ? defaultCategoricalHogSource(output_config)
                                         : outputType === 'numeric' &&
                                             (source === DEFAULT_HOG_SOURCE ||
                                                 LEGACY_HOG_DEFAULT_SOURCES.includes(source))
@@ -859,10 +863,29 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                     return { ...state, output_type: outputType, output_config }
                 },
-                patchOutputConfig: (state, { patch }) =>
-                    state?.output_type === 'numeric' || state?.output_type === 'categorical'
-                        ? { ...state, output_config: { ...state.output_config, ...patch } }
-                        : state,
+                patchOutputConfig: (state, { patch }) => {
+                    if (state?.output_type !== 'numeric' && state?.output_type !== 'categorical') {
+                        return state
+                    }
+                    const output_config = { ...state.output_config, ...patch }
+                    // boffin: Only the untouched example follows category edits; custom code belongs to the user.
+                    if (
+                        state.output_type === 'categorical' &&
+                        state.evaluation_type === 'hog' &&
+                        patch.options &&
+                        state.evaluation_config.source === defaultCategoricalHogSource(state.output_config)
+                    ) {
+                        return {
+                            ...state,
+                            output_config,
+                            evaluation_config: {
+                                ...state.evaluation_config,
+                                source: defaultCategoricalHogSource(output_config),
+                            },
+                        }
+                    }
+                    return { ...state, output_config }
+                },
                 setAllowsNA: (state, { allowsNA }) =>
                     state && state.output_type !== 'sentiment'
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }

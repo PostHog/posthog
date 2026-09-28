@@ -1682,6 +1682,7 @@ class TestHogqlTableModifiers:
             yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
         with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
             unittest.mock.patch(
                 "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
                 fake_astream_query_as_arrow,

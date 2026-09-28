@@ -306,6 +306,40 @@ describe('llmEvaluationLogic', () => {
             expect(logic.values.evaluation?.output_config.max).toBe(20)
         })
 
+        it.each([
+            ['hog', null],
+            ['llm_judge', null],
+            ['hog', 'return [input.category];'],
+            ['llm_judge', 'return [input.category];'],
+        ] as const)(
+            'keeps category edits in sync with generated Hog code from %s (custom: %s)',
+            (runtime, customSource) => {
+                logic.actions.setEvaluationType(runtime)
+                logic.actions.setOutputType('categorical')
+                if (runtime === 'llm_judge') {
+                    logic.actions.setEvaluationType('hog')
+                }
+                if (customSource) {
+                    logic.actions.setHogSource(customSource)
+                }
+
+                logic.actions.patchOutputConfig({
+                    options: [
+                        { key: 'helpful', label: 'Helpful' },
+                        { key: 'unresolved', label: 'Unresolved' },
+                    ],
+                })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['helpful'];",
+                })
+
+                logic.actions.patchOutputConfig({ options: [{ key: 'unresolved', label: 'Unresolved' }] })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['unresolved'];",
+                })
+            }
+        )
+
         it('preserves numeric output while switching runtimes and locks saved output types', async () => {
             const numeric = {
                 ...mockEvaluation,
