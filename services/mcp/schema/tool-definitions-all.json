@@ -7250,6 +7250,81 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
+    "llma-evaluation-backfill-cancel": {
+        "description": "Stop a running backfill of an evaluation. Evaluations the backfill already started still finish, and their results are kept. A cancelled backfill cannot be resumed; start a new one over the remaining range instead.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Cancel evaluation backfill",
+        "title": "Cancel evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-eval-backfills"
+    },
+    "llma-evaluation-backfill-create": {
+        "description": "Run an evaluation over past data: every generation, trace, or session in a time window that matches its conditions. Every unit evaluated is one evaluation run and counts as an AI observability event, plus a model call for an llm_judge, so never call this first. Call llma-evaluation-backfill-estimate with the same window_start, window_end, conditions, and rerun_existing, show the user the unit count and the clamped window, and start only after they confirm. Use the same inputs so the run matches what they approved. One backfill runs per evaluation at a time. The evaluation must be enabled. Returns the backfill; track it with llma-evaluation-backfill-get. Results are '$ai_evaluation' events.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Start evaluation backfill",
+        "title": "Start evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-eval-backfills"
+    },
+    "llma-evaluation-backfill-estimate": {
+        "description": "Count how many units a backfill of an evaluation would evaluate over a time window, without starting anything. Always call this before llma-evaluation-backfill-create and confirm the count with the user. total_units is what the backfill would evaluate. already_evaluated_units already have a result and are left out unless rerun_existing is true. The window is clamped to the last 30 days and held back by the evaluation's settle time, so report the returned window_start and window_end, not the requested ones. Conditions default to the evaluation's own.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Estimate evaluation backfill",
+        "title": "Estimate evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-eval-backfills"
+    },
+    "llma-evaluation-backfill-get": {
+        "description": "Get one backfill of an evaluation with its status and progress. While status is running, dispatched_count plus skipped_count is how many units it has handled. Skipped units were already being evaluated by the evaluation itself, so they are covered, not missed. Once completed, remaining_count is how many units in the window still have no result; null means it was not measured. total_count is the count taken at the start.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation backfill",
+        "title": "Get evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-eval-backfills"
+    },
+    "llma-evaluation-backfill-list": {
+        "description": "List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running at a time. See llma-evaluation-backfill-get for what each count means.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List evaluation backfills",
+        "title": "List evaluation backfills",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-eval-backfills"
+    },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
         "category": "AI observability",

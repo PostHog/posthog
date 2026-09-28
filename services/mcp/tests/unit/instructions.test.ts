@@ -122,6 +122,7 @@ describe('buildToolDomainsBlock', () => {
         const trailingActions = [
             'archive',
             'calculate',
+            'cancel',
             'claim',
             'complete',
             'copy',
@@ -132,6 +133,7 @@ describe('buildToolDomainsBlock', () => {
             'emit',
             'enable',
             'end',
+            'estimate',
             'freeze',
             'launch',
             'migrate',

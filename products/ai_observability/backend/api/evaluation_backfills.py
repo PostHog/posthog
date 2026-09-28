@@ -237,7 +237,9 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
-            "total_count": {"help_text": "Units matched at creation; the ceiling on dispatched_count."},
+            "total_count": {
+                "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
+            },
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
             "remaining_count": {

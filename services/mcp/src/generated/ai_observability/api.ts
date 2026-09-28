@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 76 enabled ops
+ * PostHog API - MCP 81 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -785,6 +785,165 @@ export const EvaluationsCreateBody = () => zod
         deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsListParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationsBackfillsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Create a backfill: freeze the conditions, count the units, start the walk.
+ */
+export const EvaluationsBackfillsCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsRetrieveParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Stop a running backfill. Evaluations already dispatched still finish.
+ */
+export const EvaluationsBackfillsCancelCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Count what a backfill over the given window would evaluate, without creating one.
+ */
+export const EvaluationsBackfillsEstimateCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsEstimateCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsEstimateCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
 
 export const EvaluationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
