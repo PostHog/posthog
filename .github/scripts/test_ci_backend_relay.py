@@ -310,8 +310,9 @@ def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
     _, lines = relay.relay_gate(
         relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT, "123"
     )
-    assert "  depot ci retry <run ID> --org o1 --workflow w1 --failed" in lines
-    assert "  gh run rerun 123 --repo PostHog/posthog --failed   # relays the new Depot result" in lines
+    assert any("push a new commit" in line for line in lines)
+    assert any("routing rules choose the engine" in line for line in lines)
+    assert not any("ci-backend-github" in line for line in lines)
 
 
 def api_check() -> dict[str, Any]:

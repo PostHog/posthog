@@ -228,6 +228,20 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
+        {
+            name: 'failed Depot relay stays failed after explanatory diagnostics',
+            steps: {
+                changes: { route: { outputs: { engine: 'depot' } } },
+                django_tests: { 'depot-relay': { outcome: 'failure' } },
+            },
+        },
+        {
+            runs: ['hand-off-to-depot', 'django_tests'],
+            results: { django_tests: 'failure' },
+            skipped: ['django', 'turbo-tests', 'check-migrations', 'handle-snapshots', 'backend-coverage-report'],
+        }
+    ),
+    backend(
         { name: 'routing record unreadable', steps: { changes: { route: { outcome: 'failure' } } } },
         {
             runs: ['django_tests'],

@@ -4227,13 +4227,16 @@ jobs:
               if: needs.changes.outputs.engine == 'depot'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/scripts/ci_backend_relay.py
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_diagnostics.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
             # The script finds this event's Depot run by the event in its wait job's check
             # name, then waits for that run's gate. Its docstring explains why check times
             # and pull request lists cannot identify the run.
             - name: Relay the Depot verdict
+              id: depot-relay
               if: needs.changes.outputs.engine == 'depot'
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -4241,7 +4244,31 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-              run: python3 .github/scripts/ci_backend_relay.py gate
+                  DEPOT_DIAGNOSTICS_REQUEST: ${{ runner.temp }}/backend-diagnostics/diagnostics.json
+              run: |
+                  mkdir -p "$RUNNER_TEMP/backend-diagnostics"
+                  python3 .github/scripts/ci_backend_relay.py gate
+            - name: Request trusted Depot diagnostics
+              if: failure() && steps.depot-relay.outcome == 'failure'
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: backend-diagnostics-request-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/backend-diagnostics/diagnostics.json
+                  if-no-files-found: ignore
+                  retention-days: 3
+            - name: Explain the Depot failure
+              if: failure() && steps.depot-relay.outcome == 'failure'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  DIAGNOSTICS_FILE: ${{ runner.temp }}/backend-diagnostics/diagnostics.json
+              run: |
+                  if [ -f .github/scripts/ci_backend_diagnostics.py ]; then
+                      python3 .github/scripts/ci_backend_diagnostics.py receive
+                  else
+                      echo 'Diagnostics unavailable: rebase to include the diagnostic reader.' | tee -a "$GITHUB_STEP_SUMMARY"
+                  fi
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |

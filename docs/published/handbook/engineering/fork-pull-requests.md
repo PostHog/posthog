@@ -19,3 +19,31 @@ What a fork contributor sees:
 Never push a fork's head to a branch inside this repository to get it a Depot run.
 An in-repo branch is trusted: every secret-gated step runs, with the fork's code in control of the job.
 Review the fork PR as it is, and let the merge queue test it on its own branch.
+
+## Backend failures on Depot
+
+The GitHub `Django Tests Pass` relay follows the selected Depot workflow, including its latest attempts.
+A failed Repo checks or OpenAPI prerequisite explains a cancelled gate immediately. A job failure alone
+does not establish determinism: the diagnostic collector checks the prerequisite's explicit classifier
+step. OpenAPI also needs explicit generated-file drift evidence because its check step includes
+network operations. Confirmed deterministic failures need a fix; downstream cancellations are expected. Other
+failures remain of unknown retryability without retry or flakiness evidence. A fresh commit is the
+retry path that requires no Depot account, and always goes through GitHub's router. Re-running the
+GitHub relay alone does not retry Depot. Do not use the engine override label as routine recovery.
+
+Detailed diagnostics use request/report artifacts between the relay and `Backend Depot diagnostics`.
+That `workflow_run` collector executes an immutable default-branch revision, with no PR checkout,
+PR dependencies, or suggested diagnosis commands. It validates the GitHub handoff, repository, PR
+head, Depot merge SHA, organization, workflow and latest attempt before publishing bounded, redacted
+excerpts. AI diagnosis prose does not establish failure or flakiness. Missing or malformed diagnostics
+leave the original verdict unchanged and are reported as unavailable. Neither diagnostics nor a
+timeout can start tests on the other engine. Rollback keeps `CI_BACKEND_DEPOT_PERCENT` set to `0`;
+never delete the variable.
+
+Activation requires the collector on the default branch and an approved `DEPOT_CI_CANCEL_TOKEN`
+available in its isolated GitHub job. A Depot secret's repository selector does not establish the
+token's own API permissions or make it available to GitHub. There is no fallback to `DEPOT_TOKEN`.
+An organization-wide token retains organization-wide access even in this isolated job; verify its
+scope before activation. Without the credential, detailed diagnostics are unavailable. Unrebased
+PRs without the diagnostic reader retain their original verdict and receive an explicit availability
+message.

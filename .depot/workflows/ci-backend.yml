@@ -12,8 +12,10 @@
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
 #   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
-#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
-#   that sends the PR back to GitHub Actions.
+#   so recovery without Depot access requires a new commit through GitHub's router.
+#   The GitHub relay reads failed prerequisites before waiting for a cancelled run's
+#   replacement. Its diagnostic request/report artifacts are GitHub-only: an isolated
+#   default-branch workflow_run collector reads Depot evidence without executing PR code.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
 #   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.

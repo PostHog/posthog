@@ -1,0 +1,64 @@
+name: Backend Depot diagnostics
+
+on:
+    workflow_run:
+        workflows: ['Backend CI']
+        types: [in_progress]
+
+permissions:
+    contents: read
+    actions: read
+    checks: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+    cancel-in-progress: false
+
+jobs:
+    collect:
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.head_repository.full_name == github.repository
+        runs-on: ubuntu-24.04
+        timeout-minutes: 95
+        steps:
+            # workflow_run uses the default branch. Pin the checkout to that workflow's
+            # immutable revision, never the triggering head, base, or artifact contents.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.workflow_sha }}
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_diagnostics.py
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+            - name: Wait for an authorized diagnostic request
+              id: request
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  HAS_DEPOT_CREDENTIAL: ${{ secrets.DEPOT_CI_CANCEL_TOKEN != '' }}
+                  REQUEST_FILE: ${{ runner.temp }}/backend-diagnostics-request.json
+              run: python3 -I -c 'import runpy, sys; sys.path.insert(0, ".github/scripts"); sys.argv = ["ci_backend_diagnostics.py", "await-request"]; runpy.run_module("ci_backend_diagnostics", run_name="__main__")'
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              if: steps.request.outputs.ready == 'true'
+              with:
+                  version: 2.102.7
+            - name: Collect bounded failure evidence
+              if: steps.request.outputs.ready == 'true'
+              timeout-minutes: 4
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  # Requires separately approved GitHub availability; no broader-token fallback.
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  DIAGNOSTICS_FILE: ${{ runner.temp }}/diagnostics.json
+                  REQUEST_FILE: ${{ runner.temp }}/backend-diagnostics-request.json
+              run: python3 -I -c 'import runpy, sys; sys.path.insert(0, ".github/scripts"); sys.argv = ["ci_backend_diagnostics.py", "collect"]; runpy.run_module("ci_backend_diagnostics", run_name="__main__")'
+            - name: Upload sanitized diagnostics
+              if: steps.request.outputs.ready == 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: backend-diagnostics-report-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+                  path: ${{ runner.temp }}/diagnostics.json
+                  if-no-files-found: ignore
+                  retention-days: 3
