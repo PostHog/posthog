@@ -291,7 +291,10 @@ def _parse_retry_after(value: str | None) -> float | None:
         return None
     value = value.strip()
     try:
-        return max(0.0, float(value))
+        delay = float(value)
+        # A negative delta is a malformed header, not "no wait" — falling through to exponential
+        # backoff avoids instant retries burning the attempt budget while still rate limited.
+        return delay if delay >= 0 else None
     except ValueError:
         pass
     try:

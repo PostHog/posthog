@@ -334,7 +334,16 @@ class TestFetchPageRetries:
 
         assert session.get.call_count == 5
 
-    def test_429_retry_after_header_propagates_to_the_exception(self) -> None:
+    @parameterized.expand(
+        [
+            ("get", None),
+            # The values/series reports paginate with POST, the path the original error came from.
+            ("post", {"data": {"type": "flow-values-report"}}),
+        ]
+    )
+    def test_429_retry_after_header_propagates_to_the_exception(
+        self, _name: str, json_body: dict[str, Any] | None
+    ) -> None:
         # `_wait_klaviyo` only sees Klaviyo's Retry-After instruction via this attribute; if
         # `_fetch_page` stops attaching it, retries silently fall back to blind exponential backoff.
         rate_limited = MagicMock()
@@ -344,10 +353,11 @@ class TestFetchPageRetries:
 
         session = MagicMock()
         session.get.return_value = rate_limited
+        session.post.return_value = rate_limited
 
         with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
             with pytest.raises(KlaviyoRetryableError) as exc_info:
-                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock(), json_body=json_body)
 
         assert exc_info.value.retry_after == 42.0
 
@@ -378,6 +388,9 @@ class TestRetryAfter:
             (None, None),
             ("", None),
             ("soon", None),
+            # A negative delta is a malformed header, not "no wait" — treat it as absent so the
+            # caller falls back to exponential backoff instead of retrying instantly.
+            ("-5", None),
             # An HTTP-date already in the past clamps to no wait.
             ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),
         ]
