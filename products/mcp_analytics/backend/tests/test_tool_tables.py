@@ -149,6 +149,8 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         error_type: str | None = None,
         error_status: str | None = None,
         exec_tool: str | None = None,
+        exec_verb: str | None = None,
+        exec_target: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
         properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
@@ -162,6 +164,10 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             properties["$mcp_error_status"] = error_status
         if exec_tool is not None:
             properties["$mcp_exec_tool_call_name"] = exec_tool
+        if exec_verb is not None:
+            properties["$mcp_exec_verb"] = exec_verb
+        if exec_target is not None:
+            properties["$mcp_exec_target_tool"] = exec_target
         _create_event(
             team=self.team,
             event="$mcp_tool_call",
@@ -232,9 +238,15 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         self._emit(tool_name="other_tool", error_type="internal", client_name="claude-ai")
         # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name, not $mcp_tool_name.
         self._emit(tool_name="exec", exec_tool="query_run", error_type="validation", client_name="cursor-vscode")
+        self._emit(tool_name="exec", exec_verb="call", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="exec", exec_verb="info", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="exec", exec_verb="schema", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="other_tool", exec_verb="call", exec_target="query_run", error_type="validation")
         flush_persons_and_events()
 
-        assert [r.message for r in self._run(tool_name="query_run")] == ["validation"]
+        rows = self._run(tool_name="query_run")
+        assert [row.message for row in rows] == ["validation"]
+        assert rows[0].occurrences == 2
 
     def test_excludes_events_without_new_sdk_source(self) -> None:
         self._emit(source=None, error_type="internal", client_name="claude-ai")
@@ -597,6 +609,25 @@ class TestMCPToolDescriptionsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         rows = self._run()
 
         assert [r.description for r in rows] == ["real"]
+
+    def test_rejected_exec_call_does_not_attribute_wrapper_description_to_target(self) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="rejected-call",
+            timestamp=datetime.now(tz=UTC),
+            properties={
+                "$mcp_source": NEW_SDK_SOURCE,
+                "$mcp_tool_name": "exec",
+                "$mcp_tool_description": "Run an MCP command",
+                "$mcp_exec_verb": "call",
+                "$mcp_exec_target_tool": "query_run",
+                "$mcp_is_error": True,
+            },
+        )
+        flush_persons_and_events()
+
+        assert self._run() == []
 
 
 class TestMCPToolSampleIntentsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
