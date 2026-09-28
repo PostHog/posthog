@@ -4735,6 +4735,11 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_reviewer_history": [
+                    artefact
+                    for artefact in real_artefacts
+                    if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+                ],
             },
         )
         if page is not None:
