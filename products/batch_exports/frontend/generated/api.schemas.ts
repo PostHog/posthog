@@ -29,7 +29,6 @@ export const BlankEnumApi = {
 } as const
 
 /**
- * * `S3` - S3
  * * `AwsS3` - Aws S3
  * * `S3Compatible` - S3 Compatible
  * * `Snowflake` - Snowflake
@@ -47,7 +46,6 @@ export type BatchExportDestinationDestinationEnumApi =
     (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
 
 export const BatchExportDestinationDestinationEnumApi = {
-    S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
@@ -461,7 +459,6 @@ export type BatchExportDestinationConfigApi =
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
      *
-     * * `S3` - S3
      * * `AwsS3` - Aws S3
      * * `S3Compatible` - S3 Compatible
      * * `Snowflake` - Snowflake
@@ -1670,6 +1667,11 @@ export interface PatchedBatchExportRequestApi {
     offset_hour?: number | null
 }
 
+export interface BatchExportUnpauseRequestApi {
+    /** Whether to backfill the runs that the batch export missed while it was paused. */
+    backfill?: boolean
+}
+
 /**
  * Typed output for view set `list`.
  */
@@ -1871,38 +1873,6 @@ export type RetrieveFileDownloadResponseApi =
     | RetrieveBasicOutputApi
     | RetrieveCompletedOutputApi
     | RetrieveFailedOutputApi
-
-/**
- * * `events` - events
- * * `persons` - persons
- * * `sessions` - sessions
- * * `hogql` - hogql
- */
-export type FileDownloadBatchExportOnDemandModelEnumApi =
-    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
-
-export const FileDownloadBatchExportOnDemandModelEnumApi = {
-    Events: 'events',
-    Persons: 'persons',
-    Sessions: 'sessions',
-    Hogql: 'hogql',
-} as const
-
-/**
- * Request shape for a FileDownload batch export on demand.
- */
-export interface FileDownloadBatchExportOnDemandApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadBatchExportOnDemandModelEnumApi
-    include?: string[]
-    exclude?: string[]
-    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
-    hogql_query?: string
-    /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
-    data_interval_start?: string
-    /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
-    data_interval_end?: string
-}
 
 /**
  * * `hogql` - hogql
