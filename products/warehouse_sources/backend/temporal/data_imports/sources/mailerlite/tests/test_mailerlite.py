@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
+    INVALID_KEY_ERROR,
     MAILERLITE_BASE_URL,
+    MISSING_PERMISSION_ERROR,
+    UNVERIFIED_KEY_ERROR,
     MailerLiteResumeConfig,
     _webhook_table_transformer,
     create_webhook,
@@ -255,18 +258,25 @@ class TestApiVersionHeader:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
+        ("status_code", "expected_ok", "expected_error"),
+        [
+            (200, True, None),
+            (401, False, INVALID_KEY_ERROR),
+            (400, False, INVALID_KEY_ERROR),
+            (403, False, MISSING_PERMISSION_ERROR),
+            (429, False, UNVERIFIED_KEY_ERROR),
+            (500, False, UNVERIFIED_KEY_ERROR),
+        ],
     )
-    def test_status_maps_to_bool(self, status_code: int, expected: bool) -> None:
+    def test_status_maps_to_message(self, status_code: int, expected_ok: bool, expected_error: str | None) -> None:
         with patch(MAILERLITE_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.return_value = _make_response({}, status_code=status_code)
-            assert validate_credentials("key") is expected
+            assert validate_credentials("key") == (expected_ok, expected_error)
 
-    def test_exception_returns_false(self) -> None:
+    def test_exception_does_not_blame_the_key(self) -> None:
         with patch(MAILERLITE_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("key") is False
+            assert validate_credentials("key") == (False, UNVERIFIED_KEY_ERROR)
 
 
 class TestMailerLiteSourceResponse:

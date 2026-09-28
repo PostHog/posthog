@@ -8,6 +8,7 @@ import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    Pool,
     ProxyAgent,
     RequestInfo,
     RequestInit,
@@ -358,6 +359,10 @@ function makeSecureDispatcher({
             proxyTunnel: true,
             allowH2,
             requestTls: { allowH2 },
+            connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            // undici ignores the abort signal of a request until the request has a connection. So the proxy client needs its own limit on the wait for a CONNECT answer. This limit is the connect timeout of the direct route.
+            clientFactory: (origin, options) =>
+                new Pool(origin, { ...options, headersTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS }),
         })
     }
     return new Agent({

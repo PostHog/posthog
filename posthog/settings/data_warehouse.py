@@ -145,8 +145,13 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_SHEETS
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
 GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI")
 
+# Only a local setup has a Redis on localhost. In a deployed environment nothing listens there,
+# so an environment that sets neither of these turned every warehouse Redis call into a connection
+# error. Leave the host unset instead, which lets the callers fall back to the shared REDIS_URL or
+# say that the feature is not configured.
+_DEFAULT_DATA_WAREHOUSE_REDIS_HOST = "localhost" if DEBUG or TEST else None
 DATA_WAREHOUSE_REDIS_HOST: str | None = os.getenv(
-    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", "localhost")
+    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", _DEFAULT_DATA_WAREHOUSE_REDIS_HOST)
 )
 DATA_WAREHOUSE_REDIS_PORT: str | None = os.getenv("DATA_WAREHOUSE_REDIS_PORT", os.getenv("POSTHOG_REDIS_PORT", "6379"))
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool, formatInputValidationError, rewrapFlattenedArguments } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -147,7 +147,7 @@ async function runDryCall(args: string[]): Promise<void> {
 
     // The same rewrap the MCP paths apply, so a dry run reports what a real call would do.
     const firstPass = tool.schema.safeParse(parsed, { reportInput: true })
-    const rewrapped = firstPass.success ? undefined : rewrapFlattenedArguments(firstPass.error, parsed, tool.schema)
+    const rewrapped = firstPass.success ? undefined : repairArgumentNesting(firstPass.error, parsed, tool.schema)
     const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
     printResult({
         dryRun: true,

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import cast
 
 from django.db import IntegrityError
@@ -6,7 +7,8 @@ from django.utils import timezone
 
 import posthoganalytics
 from rest_framework import response, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -16,16 +18,35 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
-from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
+from posthog.permissions import (
+    TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
+    get_authenticator_scopes,
+)
 from posthog.scopes import (
     API_SCOPE_ACTIONS,
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    scopes_not_covered,
 )
 from posthog.tasks.email import send_project_secret_api_key_exposed
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+
+
+def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
+    """A project secret API key outlives the credential that issued it, so a scoped caller must not
+    issue one with scopes it lacks. Session auth and `*` keys carry the user's full authority."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return
+    missing = sorted(scopes_not_covered(caller_scopes, scopes))
+    if missing:
+        raise PermissionDenied(
+            "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
+            f"Use a key or token that has these scopes: {', '.join(missing)}."
+        )
 
 
 class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
@@ -96,6 +117,10 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
                 )
+
+        # An update may keep or remove a scope the caller lacks, because only an added scope widens the key.
+        existing = set(self.instance.scopes or []) if self.instance is not None else set()
+        _enforce_caller_holds_scopes(self.context["request"], [scope for scope in scopes if scope not in existing])
         return scopes
 
     def _llm_gateway_grantable(self) -> bool:
@@ -199,6 +224,7 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
+        _enforce_caller_holds_scopes(request, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
