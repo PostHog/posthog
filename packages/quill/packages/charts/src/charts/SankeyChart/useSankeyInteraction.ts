@@ -161,10 +161,10 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             const current = layoutRef.current
-            let hit = hoverIndexToHit(current, hoverIndexRef.current)
+            const rect = e.currentTarget.getBoundingClientRect()
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            let hit = sankeyHitAt(current, cursor) ?? hoverIndexToHit(current, hoverIndexRef.current)
             if (lastPointerTypeRef.current === 'touch') {
-                const rect = e.currentTarget.getBoundingClientRect()
-                const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
                 hit = sankeyHitAt(current, cursor)
                 if (!hit) {
                     clearTooltip()

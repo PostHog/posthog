@@ -26,8 +26,9 @@ export interface SankeyNodeLabelsProps {
  *  inside the plot. Labels truncate to the free space before the next column. */
 export function SankeyNodeLabels({ color, showValues, valueFormatter }: SankeyNodeLabelsProps): React.ReactElement {
     const { layout } = useSankeyLayout()
-    const gap = layout.columnCount > 1 ? layout.columnX[1] - layout.columnX[0] - layout.nodeWidth : Infinity
-    const maxWidth = gap - LABEL_GAP * 2
+    const occupiedColumns = layout.columnX.filter((x): x is number => Number.isFinite(x))
+    const gap = occupiedColumns.length > 1 ? occupiedColumns[1] - occupiedColumns[0] - layout.nodeWidth : Infinity
+    const maxWidth = Math.max(0, gap - LABEL_GAP * 2)
 
     return (
         <>
