@@ -43,8 +43,8 @@ const CONFIG = {
 // We shell out to its dependency-light JSON entrypoint: pipe the changed
 // filenames in, get back `{path: {owners, status, slack, source}}`. The workflow
 // provides python3 + pyyaml and checks out master, so the resolver reads the same
-// owners.yaml tree CI enforces. `flags` go to the resolver as command arguments.
-function resolveOwners(filenames, flags = []) {
+// owners.yaml tree CI enforces.
+function resolveOwners(filenames) {
     if (filenames.length === 0) {
         return {}
     }
@@ -61,7 +61,7 @@ function resolveOwners(filenames, flags = []) {
     // importable.
     const launcher =
         "import sys, runpy; sys.path.insert(0, 'packages/owners-yaml'); runpy.run_module('owners_yaml', run_name='__main__')"
-    const result = spawnSync(python, ['-I', '-c', launcher, ...flags], {
+    const result = spawnSync(python, ['-I', '-c', launcher], {
         input: filenames.join('\n'),
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
@@ -143,7 +143,6 @@ async function getChangedFiles() {
                 // Binary files and pure renames report null counts; treat as 0.
                 additions: file.additions || 0,
                 deletions: file.deletions || 0,
-                status: file.status,
             })
         }
 
@@ -255,26 +254,22 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
     }))
 }
 
-// GitHub reports a moved file as `renamed`, and a move into a new directory adds
-// that directory as much as a new file does.
-const ADDED_FILE_STATUSES = new Set(['added', 'renamed', 'copied'])
-
-function addedFilenames(changedFiles, resolutionByPath, config = CONFIG) {
-    return changedFiles
-        .filter((file) => ADDED_FILE_STATUSES.has(file.status))
-        .filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
-        .filter((file) => !isGeneratedOrVendored(file.filename, resolutionByPath[file.filename]))
-        .map((file) => file.filename)
-}
-
-// The resolver's `--additions` mode keys its answer by addition: a new directory,
-// or a new file in an existing directory. `additions` on each key names the owners
-// of additions that owners.yaml declares for it. Returns one entry per owner with
-// the additions that pulled it in.
-function computeAdditionOwners(additionByPath) {
+// The resolver reads the master checkout, which does not hold the files a PR
+// adds. For such a file it reports `added`: the new directory above it (or the
+// file itself in an existing directory) and the owners of additions there.
+// Returns one entry per owner with the new paths that pulled it in.
+function computeAdditionOwners(resolutionByPath, changedFiles, config = CONFIG) {
     const owners = new Map()
-    for (const [path, resolution] of Object.entries(additionByPath)) {
-        for (const rawOwner of (resolution && resolution.additions) || []) {
+    for (const file of changedFiles) {
+        const resolution = resolutionByPath[file.filename]
+        const added = resolution && resolution.added
+        if (!added || isExcludedFile(file.filename, config.excludedPatterns)) {
+            continue
+        }
+        if (isGeneratedOrVendored(file.filename, resolution)) {
+            continue
+        }
+        for (const rawOwner of added.additions || []) {
             const resolved = mapResolvedOwner(rawOwner)
             if (!resolved) {
                 continue
@@ -284,7 +279,9 @@ function computeAdditionOwners(additionByPath) {
                 entry = { ...resolved, additionPaths: [] }
                 owners.set(resolved.owner, entry)
             }
-            entry.additionPaths.push(path)
+            if (!entry.additionPaths.includes(added.path)) {
+                entry.additionPaths.push(added.path)
+            }
         }
     }
     return Array.from(owners.values())
@@ -399,8 +396,8 @@ function buildReviewerComment(requested, demoted, additionOwners = [], config = 
 
     if (additionOwners.length > 0) {
         lines.push(
-            'These owners were requested because this PR adds a new path where `owners.yaml` names owners of additions. ' +
-                'The path after each owner is the addition:',
+            'These owners were selected because this PR adds a new path where `owners.yaml` names owners of additions. ' +
+                'The path after each owner is the new path:',
             '',
             ...additionOwners.map(formatAdditionOwner),
             ''
@@ -422,7 +419,7 @@ function buildReviewerComment(requested, demoted, additionOwners = [], config = 
 
     lines.push(
         "Soft owners come from each directory's `owners.yaml` and each product's `product.yaml` " +
-            '(resolved nearest-file-wins). The locator after each owner is the file that decided it. ' +
+            '(resolved nearest-file-wins). For a skipped owner, the locator is the file that decided it. ' +
             'Generated files and lockfiles are ignored when deciding ownership.'
     )
     return lines.join('\n')
@@ -646,9 +643,7 @@ async function main() {
         const resolutionByPath = resolveOwners(relevantFilenames)
 
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
-        const additionOwners = computeAdditionOwners(
-            resolveOwners(addedFilenames(changedFiles, resolutionByPath), ['--additions'])
-        )
+        const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const { requested, demoted } = requestAdditionOwners(classifyOwners(footprints), additionOwners)
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
@@ -693,7 +688,6 @@ module.exports = {
     teamSlugToLabel,
     partitionExternalTeams,
     computeOwnerFootprints,
-    addedFilenames,
     computeAdditionOwners,
     isSubstantive,
     classifyOwners,

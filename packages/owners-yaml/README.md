@@ -112,7 +112,7 @@ rules:
 Resolve the new directory itself, not a file inside it: `owners resolve --json products/new-thing` returns `"additions": ["team-architecture"]`, and a deeper path does not.
 The owners of additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
 The format only names these owners. A review bot or CI check decides from the change set what counts as an addition and what to do with the list.
-`--additions` does the first half for a change set: pass the files the change adds, with the tree before the change as the repo root, and each key of the response is one addition. That is the new directory above the files, or a new file whose directory already exists. `addition_paths` does the same in Python for a tree that is not on disk.
+Point the resolver at the tree before the change, and it names the new part for you: a path the tree does not hold carries `added`, for example `"added": {"path": "products/new-thing", "additions": ["team-architecture"]}` for `products/new-thing/app.py`. That also covers a new file in an existing directory, and a file that a change replaces with a directory.
 
 The root file can also hold repository settings:
 

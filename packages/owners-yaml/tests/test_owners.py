@@ -9,7 +9,6 @@ import pytest
 
 from click.testing import CliRunner
 from owners_yaml import (
-    addition_paths,
     census,
     cli as cli_module,
     first_team_owner,
@@ -22,7 +21,7 @@ from owners_yaml import (
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
-from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.resolver import OwnersResolver, PathKind, first_new_path, team_channel
 from owners_yaml.schema import (
     _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
@@ -850,6 +849,7 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "slack": "#registry-chan",
             "source": "reg/owners.yaml",
             "additions": [],
+            "added": {"path": "reg/x.py", "additions": []},
         }
     }
     jsonschema = pytest.importorskip("jsonschema")
@@ -911,25 +911,29 @@ def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
 
 
 @pytest.mark.parametrize(
-    "added,expected",
+    "path,expected",
     [
-        (["products/new/a.py", "products/new/sub/b.py"], ["products/new"]),
-        (["tools/new/deep/x.py"], ["tools/new"]),
-        (["products/old/c.py", "./products/old/c.py"], ["products/old/c.py"]),
-        (["products/old/existing.py"], []),
+        ("products/new/sub/a.py", "products/new"),
+        ("products/old/c.py", "products/old/c.py"),
+        ("products/old/existing.py", None),
+        ("products/old", None),
+        ("products/was-a-file/a.py", "products/was-a-file"),
     ],
-    ids=["new-directory", "new-nested-directory", "new-file-in-existing-directory", "existing-file"],
+    ids=["new-directory", "new-file-in-existing-directory", "existing-file", "existing-directory", "file-to-directory"],
 )
-def test_addition_paths_names_the_path_nearest_the_root_that_the_tree_lacks(
-    added: list[str], expected: list[str]
-) -> None:
-    tree = {"products", "products/old", "products/old/existing.py", "tools"}
+def test_first_new_path_names_the_part_nearest_the_root_that_the_tree_lacks(path: str, expected: str | None) -> None:
+    tree: dict[str, PathKind] = {
+        "products": "dir",
+        "products/old": "dir",
+        "products/old/existing.py": "file",
+        "products/was-a-file": "file",
+    }
 
-    assert addition_paths(added, tree.__contains__) == expected
+    assert first_new_path(path, tree.get) == expected
 
 
 @pytest.mark.parametrize("front_door", ["cli", "module"])
-def test_both_front_doors_resolve_the_additions_of_a_change(tmp_path: Path, front_door: str) -> None:
+def test_both_front_doors_report_the_new_part_of_a_path_the_tree_lacks(tmp_path: Path, front_door: str) -> None:
     _write(
         tmp_path,
         "owners.yaml",
@@ -937,15 +941,17 @@ def test_both_front_doors_resolve_the_additions_of_a_change(tmp_path: Path, fron
     )
     _write(tmp_path, "products/old/owners.yaml", "version: 1\nowners: team-old\n")
     _write(tmp_path, "products/old/x.py", "")
-    args = ["--additions", "products/new/a.py", "products/new/b.py", "products/old/x.py", "products/old/y.py"]
 
-    exit_code, output = _resolve_json(front_door, tmp_path, args)
+    exit_code, output = _resolve_json(
+        front_door, tmp_path, ["products/new/a.py", "products/old/x.py", "products/old/y.py"]
+    )
 
     assert exit_code == 0, output
     wire = json.loads(output)
-    assert set(wire) == {"products/new", "products/old/y.py"}
-    assert wire["products/new"]["additions"] == ["team-arch"]
-    assert wire["products/old/y.py"]["additions"] == []
+    assert wire["products/new/a.py"]["added"] == {"path": "products/new", "additions": ["team-arch"]}
+    assert wire["products/new/a.py"]["additions"] == []
+    assert wire["products/old/x.py"]["added"] is None
+    assert wire["products/old/y.py"]["added"] == {"path": "products/old/y.py", "additions": []}
 
 
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])

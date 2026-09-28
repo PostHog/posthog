@@ -15,10 +15,6 @@ CODEOWNERS projection of every tracked test file's ownership to FILE (``-`` for 
 consumer that reads CODEOWNERS and cannot read ``owners.yaml``. The GitHub organization comes from
 ``--org``, else from ``github_org`` in the root ``owners.yaml``.
 
-``--additions`` reads the paths as the files a change adds. The response then holds one key per
-addition instead: the new directory above a file, or the file itself when its directory exists
-(``addition_paths``). The repo root must hold the tree before the change.
-
 ``--repo-root`` names the directory holding the ownership files. Without it the
 resolver locates the repo with ``git rev-parse``, which needs a real worktree; a
 consumer that fetched only the ownership files into a scratch directory passes
@@ -38,7 +34,6 @@ import argparse
 from pathlib import Path
 from typing import cast
 
-from .additions import addition_paths_on_disk
 from .codeowners import project_repo
 from .matcher import normalize_path
 from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
@@ -67,11 +62,6 @@ def main() -> None:
         "--org",
         default=None,
         help="GitHub organization for --codeowners; default: github_org in the root owners.yaml",
-    )
-    parser.add_argument(
-        "--additions",
-        action="store_true",
-        help="Read the paths as files a change adds, and resolve each new directory or file they add",
     )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
@@ -103,8 +93,6 @@ def main() -> None:
         return
 
     paths = ns.paths or read_stdin_paths()
-    if ns.additions:
-        paths = addition_paths_on_disk(paths, resolver.repo_root)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in paths}
     json.dump(result, sys.stdout)
 

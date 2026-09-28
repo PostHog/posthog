@@ -15,7 +15,6 @@ from typing import cast
 
 import click
 
-from .additions import addition_paths_on_disk
 from .census import census
 from .codeowners import project_repo
 from .github import GitHubLookupError, GitHubOrg
@@ -80,25 +79,13 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
     default=None,
     help="The automation asking, for a team that maps `notifications` per producer",
 )
-@click.option(
-    "--additions",
-    is_flag=True,
-    help="Read the paths as files a change adds, and resolve each new directory or file they add",
-)
 @repo_root_option
 @click.argument("paths", nargs=-1)
 def cmd_resolve(
-    as_json: bool,
-    purpose: str,
-    producer: str | None,
-    additions: bool,
-    repo_root: Path | None,
-    paths: tuple[str, ...],
+    as_json: bool, purpose: str, producer: str | None, repo_root: Path | None, paths: tuple[str, ...]
 ) -> None:
     resolver = _resolver(repo_root, cast(Purpose, purpose), producer)
     targets = _read_paths(paths)
-    if additions:
-        targets = addition_paths_on_disk(targets, resolver.repo_root)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:
         click.echo(json.dumps(result, indent=2, sort_keys=True))

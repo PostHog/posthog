@@ -11,7 +11,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 ### Added
 
-- `--additions` on `owners resolve` and on `python -m owners_yaml` reads the paths as the files a change adds and resolves each addition instead: the new directory above the files, or a new file whose directory exists. SPEC section 3.6 asks a consumer to resolve the directory itself, because a path below it walks through the new directory's own ownership file. `addition_paths` and `addition_paths_on_disk` do the same in Python.
+- The resolution of a path that the resolver's tree does not hold carries `added`: the part of the path nearest the root that the tree lacks, and the owners of additions there. Resolved against the tree before a change, this names the new directory for every file a change adds, so a consumer can use `additions` without its own tree walk. `null` when the tree holds the path, or when the resolver reads only ownership files. SPEC sections 4 and 7.2 define it.
 
 ## 0.3.0
 

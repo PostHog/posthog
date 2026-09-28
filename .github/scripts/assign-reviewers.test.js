@@ -10,7 +10,6 @@ const {
     teamSlugToLabel,
     partitionExternalTeams,
     computeOwnerFootprints,
-    addedFilenames,
     computeAdditionOwners,
     isSubstantive,
     classifyOwners,
@@ -294,28 +293,42 @@ test('classifyOwners: never caps explicit users even when teams overflow the cap
     )
 })
 
-test('addedFilenames: counts new, moved and copied files, not edits, deletions, or generated or vendored files', () => {
-    const files = [
-        { ...file('products/new/a.py'), status: 'added' },
-        { ...file('products/new/b.py'), status: 'renamed' },
-        { ...file('tools/copy.py'), status: 'copied' },
-        { ...file('posthog/api/survey.py'), status: 'modified' },
-        { ...file('posthog/api/old.py'), status: 'removed' },
-        { ...file('products/new/frontend/generated/api.ts'), status: 'added' },
-        { ...file('vendor/new/lib.js'), status: 'added' },
-    ]
-    const resolution = { 'vendor/new/lib.js': { ...resolved([], 'vendor/owners.yaml'), status: 'vendored' } }
+test('computeAdditionOwners: collects owners of additions per new path, skipping excluded, generated and vendored files', () => {
+    const added = (path, additions) => ({ ...resolved([], null), added: { path, additions } })
+    const resolution = {
+        'products/new/a.py': added('products/new', ['team-devex']),
+        'products/new/b.py': added('products/new', ['team-devex']),
+        'tools/new.py': added('tools/new.py', ['team-devex', '@someone']),
+        'posthog/api/survey.py': resolved(['team-surveys'], 'posthog/owners.yaml'),
+        'products/new/frontend/generated/api.ts': added('products/new', ['team-generated']),
+        'vendor/new/lib.js': { ...added('vendor/new', ['team-vendored']), status: 'vendored' },
+    }
+    const files = Object.keys(resolution).map((filename) => file(filename))
 
-    assert.deepEqual(addedFilenames(files, resolution), ['products/new/a.py', 'products/new/b.py', 'tools/copy.py'])
+    const owners = computeAdditionOwners(resolution, files)
+
+    assert.equal(owners.length, 2)
+    assertMatchObject(owners[0], {
+        owner: '@PostHog/team-devex',
+        type: 'team',
+        additionPaths: ['products/new', 'tools/new.py'],
+    })
+    assertMatchObject(owners[1], { owner: '@someone', type: 'user', additionPaths: ['tools/new.py'] })
 })
 
 test('requestAdditionOwners: requests owners of additions past the team cap and takes them off the demoted list', () => {
     const teams = Array.from({ length: CONFIG.maxTeamsRequested }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const classified = classifyOwners([...teams, fp('@PostHog/team-devex', 1)])
-    const additionOwners = computeAdditionOwners({
-        'products/new': { ...resolved([], null), additions: ['team-devex', 'team-0'] },
-        'tools/new': { ...resolved([], null), additions: ['team-devex'] },
-    })
+    const additionOwners = computeAdditionOwners(
+        {
+            'products/new/a.py': {
+                ...resolved([], null),
+                added: { path: 'products/new', additions: ['team-devex', 'team-0'] },
+            },
+            'tools/new/b.py': { ...resolved([], null), added: { path: 'tools/new', additions: ['team-devex'] } },
+        },
+        [file('products/new/a.py'), file('tools/new/b.py')]
+    )
 
     const { requested, demoted } = requestAdditionOwners(classified, additionOwners)
 
