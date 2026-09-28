@@ -1868,11 +1868,22 @@ class TestShouldProcessBatch:
         assert result is True
         mock_queue_fail.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "server login has been failing, cached error: the database system is in recovery mode (server_login_retry)",
+            # The app DB's own host briefly stopping resolving (infra moving under a
+            # long-lived worker) — not a customer source, so this must not be treated
+            # like a permanently misconfigured host.
+            "[Errno -2] Name or service not known",
+        ],
+        ids=["pooler_login_retry_cooldown", "app_db_host_dns_blip"],
+    )
     @pytest.mark.asyncio
-    async def test_status_check_does_not_report_app_db_not_ready_error(self):
-        # Same fail-open behavior as above, but for the self-healing app-DB refusal this
-        # was reported against: it must still fail open without paging error tracking,
-        # since the app DB accepts connections again within seconds.
+    async def test_status_check_does_not_report_app_db_not_ready_error(self, error_message):
+        # Same fail-open behavior as above, but for self-healing app-DB refusals: these
+        # must still fail open without paging error tracking, since the app DB accepts
+        # connections again within seconds.
         consumer = _make_consumer()
         conn = consumer._poll_conn
         assert conn is not None
@@ -1881,10 +1892,7 @@ class TestShouldProcessBatch:
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
-                side_effect=DjangoOperationalError(
-                    "server login has been failing, cached error: the database system is in "
-                    "recovery mode (server_login_retry)"
-                ),
+                side_effect=DjangoOperationalError(error_message),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
