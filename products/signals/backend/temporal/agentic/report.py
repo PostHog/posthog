@@ -107,6 +107,9 @@ class RunAgenticReportOutput:
     # writes the metrics they reference — a check naming a metric the report never got is dropped
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
+    # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
+    # one into a child report. `None` predates the field and creates none.
+    layers: list[dict[str, Any]] | None = None
     # The research sandbox task the check rows are attributed to, so the report's log names what
     # decided the fix was worth re-measuring. `None` for saved fixtures and pre-existing outputs.
     research_task_id: str | None = None
@@ -836,9 +839,11 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
     the team's steering is readable against the share that carried none, and against how those
     reports were judged afterwards (join `signal_report_completed` on `report_id`).
 
-    `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
-    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
-    whether anyone addresses notes to this stage at all.
+    Only the notes addressed to this stage are pasted in, so `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all, and `dismissal_notes_attached` stays near 0.
+    `nudge_rendered` says whether the run was told to search the notes by entity, which is how a
+    reviewer's "stop flagging this" reaches the stage that decides whether to flag it again. Count
+    the run's `scout-notes-list` calls to see whether it followed the nudge.
 
     Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
     report state as the latest event per `report_id` rather than by counting raw events.
@@ -857,6 +862,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
                 "pipeline_notes_attached": steering.pipeline_notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
                 "memory_protocol": steering.memory_protocol,
+                "nudge_rendered": steering.nudge_rendered,
             },
             groups=groups(team.organization, team),
         )
@@ -982,6 +988,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             charts=charts_payload,
             metrics=metrics_payload,
             checks=[check.model_dump(mode="json") for check in result.checks],
+            layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )
