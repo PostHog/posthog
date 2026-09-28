@@ -10,6 +10,14 @@
         background-color: var(--color-bg-surface-primary);
     }
 
+    // iPhone WebKit has no Fullscreen API for non-video elements, so pin the player to the viewport instead
+    &--fullscreen:not(:fullscreen) {
+        position: fixed;
+        inset: 0;
+        z-index: var(--z-modal);
+        background-color: var(--color-bg-surface-primary);
+    }
+
     .SessionRecordingPlayer__sidebar {
         position: relative;
         display: flex;

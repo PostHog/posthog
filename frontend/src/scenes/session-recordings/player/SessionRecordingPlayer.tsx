@@ -97,13 +97,14 @@ function SessionRecordingPlayerInternal({
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div
             ref={playerRef}
             className={clsx('SessionRecordingPlayerWrapper', {
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
+                'SessionRecordingPlayerWrapper--fullscreen': isFullScreen,
             })}
         >
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
