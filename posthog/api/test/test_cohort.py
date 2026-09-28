@@ -200,6 +200,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 # is computed for it.
                 "cohort_type": None,
                 "condition_type": None,
+                "realtime_enabled": False,
             },
             team=ANY,
             request=ANY,
@@ -246,6 +247,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "is_static": False,
                 "cohort_type": None,
                 "condition_type": None,
+                "realtime_enabled": False,
                 "updated_by_creator": True,
             },
             team=ANY,
@@ -258,8 +260,6 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     def test_cohort_created_reports_realtime_classification(
         self, patch_calculate_cohort, patch_capture, patch_on_commit
     ):
-        """ "cohort created" carries the realtime classification: it is the only way to tell
-        realtime adoption apart from any other cohort in analytics."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -297,6 +297,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             reported["condition_type"],
             {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
         )
+        # Realtime-eligible filters on a team the realtime pipeline does not cover.
+        self.assertFalse(reported["realtime_enabled"])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
