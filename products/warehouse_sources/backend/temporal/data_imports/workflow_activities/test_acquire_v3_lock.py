@@ -6,6 +6,7 @@ import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     RunActivitySummary,
@@ -307,6 +308,66 @@ class TestTakeOverStaleLock:
             mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), holder_token)
         else:
             mock_release.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "rpc_status, job_status, expected_takeover, expected_stale_check, expected_capture",
+        [
+            (RPCStatusCode.NOT_FOUND, None, True, False, False),
+            (RPCStatusCode.NOT_FOUND, "Completed", True, False, False),
+            (RPCStatusCode.NOT_FOUND, "Running", False, True, False),
+            (RPCStatusCode.UNAVAILABLE, None, False, False, True),
+        ],
+        ids=[
+            "not_found_no_job_row_takes_over",
+            "not_found_job_terminal_takes_over",
+            "not_found_job_running_consults_queue_db",
+            "other_rpc_error_fails_closed",
+        ],
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}._take_over_stale_running_job", return_value=False)
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.release_v3_pipeline_lock")
+    @patch(f"{MODULE}.sync_connect")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    def test_holder_workflow_describe_rpc_error(
+        self,
+        mock_holder: MagicMock,
+        _close: MagicMock,
+        mock_meta: MagicMock,
+        mock_job_model: MagicMock,
+        mock_sync_connect: MagicMock,
+        mock_release: MagicMock,
+        _acquire: MagicMock,
+        mock_stale: MagicMock,
+        mock_capture: MagicMock,
+        rpc_status: RPCStatusCode,
+        job_status: str | None,
+        expected_takeover: bool,
+        expected_stale_check: bool,
+        expected_capture: bool,
+    ) -> None:
+        # A young token proves NOT_FOUND alone decides, not the no-job-row age grace.
+        holder_token = _uuid7_token(age_seconds=2)
+        mock_holder.return_value = holder_token
+        mock_meta.return_value = {"run_id": holder_token, "workflow_id": "wf-holder-1"}
+        holder_job = None
+        if job_status is not None:
+            holder_job = MagicMock(status=job_status, workflow_id="wf-holder-1")
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
+            holder_job
+        )
+        handle = MagicMock()
+        handle.describe = AsyncMock(side_effect=RPCError("describe failed", rpc_status, b""))
+        mock_sync_connect.return_value.get_workflow_handle.return_value = handle
+
+        assert self._run() is expected_takeover
+        assert mock_release.called is expected_takeover
+        assert mock_stale.called is expected_stale_check
+        assert mock_capture.called is expected_capture
 
     @pytest.mark.parametrize(
         "holder_age_seconds, meta, expected_takeover",

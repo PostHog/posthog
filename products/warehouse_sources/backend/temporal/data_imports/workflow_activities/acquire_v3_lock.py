@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
@@ -159,7 +160,7 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
          exceeded the max hold -> fail its leftover batches, mark job FAILED,
          take over.
        - non-terminal batches with recent loader progress -> fail closed.
-    5. Describe error / queue DB error -> fail closed.
+    5. Describe error (other than NOT_FOUND) / queue DB error -> fail closed.
     """
     holder = get_v3_pipeline_lock_holder(inputs.team_id, str(inputs.schema_id))
     if holder is None:
@@ -281,7 +282,8 @@ def _describe_holder_workflow(
     logger: Any,
 ) -> HolderWorkflowDescription:
     """status_is_assumed=True when no workflow_id exists anywhere so TERMINATED is
-    a guess; status=None on describe error."""
+    a guess; a run Temporal reports as NOT_FOUND counts as TERMINATED; status=None
+    on any other describe error."""
     try:
         holder_job = (
             ExternalDataJob.objects.filter(
@@ -301,7 +303,20 @@ def _describe_holder_workflow(
 
         temporal: Client = sync_connect()
         handle = temporal.get_workflow_handle(workflow_id, run_id=holder_run_id)
-        desc = async_to_sync(handle.describe)()
+        try:
+            desc = async_to_sync(handle.describe)()
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                raise
+            # Temporal has no record of the run (e.g. past retention), so it cannot still write.
+            logger.info(
+                "v3_pipeline_lock_holder_workflow_not_found",
+                schema_id=str(inputs.schema_id),
+                holder_run_id=holder_run_id,
+            )
+            return HolderWorkflowDescription(
+                status=WorkflowExecutionStatus.TERMINATED, job=holder_job, status_is_assumed=False
+            )
         return HolderWorkflowDescription(status=desc.status, job=holder_job, status_is_assumed=False)
     except Exception as e:
         logger.warning(
