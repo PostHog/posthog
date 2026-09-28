@@ -47,10 +47,14 @@ SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 
 
-def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID = "usage-report-local-evaluation-not-modified-query-2026-09"
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = "teams_with_local_evaluation_not_modified_requests_count_in_period"
+
+
+def _queries_for_patch(queries: list[QuerySpec], query_name: str, patch_applied: bool) -> list[QuerySpec]:
     if patch_applied:
-        return QUERIES
-    return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+        return queries
+    return [spec for spec in queries if spec.name != query_name]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -98,7 +102,14 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
-            queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_patch(
+                QUERIES, SANDBOX_COMPUTE_QUERY_NAME, workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_patch(
+                queries,
+                LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
+                workflow.patched(LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID),
+            )
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={

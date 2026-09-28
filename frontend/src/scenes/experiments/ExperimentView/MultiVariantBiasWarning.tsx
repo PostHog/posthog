@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -18,15 +19,14 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
     const { experiment, exposures, exposureCriteria } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openDistributionModal } = useActions(modalsLogic)
-    const { reportExperimentBiasWarningShown } = useActions(eventUsageLogic)
 
     const risk = exposures?.bias_risk
 
     useEffect(() => {
         if (risk) {
-            reportExperimentBiasWarningShown(experiment)
+            posthog.capture('experiment bias warning shown', { ...getEventPropertiesForExperiment(experiment) })
         }
-    }, [reportExperimentBiasWarningShown, risk, experiment])
+    }, [risk, experiment])
 
     if (!risk) {
         return null
