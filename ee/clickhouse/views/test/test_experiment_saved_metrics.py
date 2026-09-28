@@ -1,5 +1,8 @@
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -1042,6 +1045,24 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         body = response.json()
         self.assertEqual(body["count"], 1)
         self.assertEqual(len(body["results"]), 1)
+
+    def test_list_query_count_does_not_grow_with_tagged_metrics(self) -> None:
+        url = f"/api/projects/{self.team.id}/experiment_saved_metrics/"
+        self._create_saved_metric("Metric 0", tags=["growth"])
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as one_metric:
+            self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
+
+        self._create_saved_metric("Metric 1", tags=["growth", "retention"])
+        self._create_saved_metric("Metric 2", tags=["activation"])
+        with CaptureQueriesContext(connection) as three_metrics:
+            response = self.client.get(url)
+
+        self.assertEqual(
+            {row["name"]: sorted(row["tags"]) for row in response.json()["results"]},
+            {"Metric 0": ["growth"], "Metric 1": ["growth", "retention"], "Metric 2": ["activation"]},
+        )
+        self.assertEqual(len(three_metrics), len(one_metric))
 
     def test_list_paginates_with_limit_and_offset(self) -> None:
         for i in range(5):
