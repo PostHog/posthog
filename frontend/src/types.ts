@@ -5966,6 +5966,7 @@ export const API_SCOPE_OBJECTS = [
     'stamphog',
     'streamlit_app',
     'subscription',
+    'support_ticket',
     'survey',
     'tagger',
     'ticket',
