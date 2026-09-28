@@ -578,7 +578,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _can_bypass_visibility(request, self.team_id)
+        bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -1295,7 +1295,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Run task",
-        description="Create a new task run and kick off the workflow.",
+        description=(
+            "Create a new task run and kick off the workflow. **Responds with the task, not the "
+            "run**: the new run is nested under `latest_run`, and the top-level `id` is still the "
+            "task's. Read `latest_run.id` for anything run-scoped, such as the run's stream and "
+            "command endpoints."
+        ),
         include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
@@ -3101,7 +3106,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Invalid command or no active sandbox",
+                description=(
+                    "Invalid command, or no active sandbox. Code `sandbox_not_ready` is transient "
+                    "rather than a refusal — the run exists but its agent server is still starting, "
+                    "which is the usual answer to a command sent as soon as the run asks for one. "
+                    "Retry it until the request you are answering expires. Every other 400 is fatal."
+                ),
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
