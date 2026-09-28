@@ -165,6 +165,10 @@ impl SourcePair {
     /// hashes would make the server keep the first map and resolve later frames to the wrong
     /// source positions.
     ///
+    /// The map's `file` field is left out too. It names the chunk's output file, and a
+    /// content-hashed filename moves whenever a dependency changes, so hashing it re-uploads a
+    /// map whose symbolication payload is identical.
+    ///
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
@@ -187,6 +191,7 @@ impl SourcePair {
                     b"chunk-id-only"
                 };
                 self.remove_chunk_id(chunk_id.clone())?;
+                self.sourcemap.inner.content.fields.remove("file");
                 let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
                 // JSON serialization never contains a raw NUL, so it unambiguously separates
                 // the parts (same framing as `stable_chunk_id`).
