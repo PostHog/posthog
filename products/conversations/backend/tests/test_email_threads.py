@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -26,6 +27,7 @@ from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     ParsedEmail,
     _upsert_participants,
+    ingest_customer_email,
 )
 from products.conversations.backend.services.email_threads import delete_email_thread
 
@@ -151,6 +153,54 @@ class TestEmailThreadPersistence(BaseTest):
                 message_id=duplicate_message_id,
                 sent_at=sent_at,
             )
+
+    def test_ingestion_retry_prefers_source_id_when_rfc_id_changes(self) -> None:
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="source-retry-token",
+            from_email="support@example.com",
+            domain="example.com",
+        )
+        email = ParsedEmail(
+            message_id="<first@example.com>",
+            in_reply_to=None,
+            references=(),
+            sent_at=timezone.now(),
+            sender=EmailAddress(name="Support", email="support@example.com"),
+            to_recipients=(EmailAddress(name="Customer", email="customer@example.com"),),
+            cc_recipients=(),
+            subject="Hello",
+            body_plain="Hello",
+            stripped_text="Hello",
+            sender_authenticated=True,
+            dkim_passed=True,
+            dkim_signing_domains=("example.com",),
+            capture_address="inbox@example.com",
+            attachments=(),
+        )
+        first = ingest_customer_email(
+            team_id=self.team.id,
+            channel=channel,
+            email=email,
+            direction=EmailThreadMessageDirection.OUTBOUND,
+            source_type="workflow",
+            source_id="invocation-1",
+        )
+        retry = ingest_customer_email(
+            team_id=self.team.id,
+            channel=channel,
+            email=replace(email, message_id="<changed@example.com>"),
+            direction=EmailThreadMessageDirection.OUTBOUND,
+            source_type="workflow",
+            source_id="invocation-1",
+        )
+
+        assert first.created is True
+        assert retry.created is False
+        assert retry.message_id == first.message_id
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(source_type="workflow").count() == 1
 
     def test_messages_without_rfc_ids_do_not_collide(self) -> None:
         thread = self._create_thread()

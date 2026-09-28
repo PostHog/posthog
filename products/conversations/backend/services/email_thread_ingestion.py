@@ -91,13 +91,15 @@ def _mailgun_source_id(message_id: str) -> str:
     return f"sha256:{sha256(message_id.encode()).hexdigest()}"
 
 
-def _find_existing_message(*, team_id: int, email: ParsedEmail) -> EmailThreadMessage | None:
-    return (
-        EmailThreadMessage.objects.for_team(team_id)
-        .select_related("thread")
-        .filter(message_id=email.message_id)
-        .first()
-    )
+def _find_existing_message(
+    *, team_id: int, email: ParsedEmail, source_type: str, source_id: str | None
+) -> EmailThreadMessage | None:
+    messages = EmailThreadMessage.objects.for_team(team_id).select_related("thread")
+    if source_id:
+        existing = messages.filter(source_type=source_type, source_id=source_id).first()
+        if existing is not None:
+            return existing
+    return messages.filter(message_id=email.message_id).first() if email.message_id else None
 
 
 def _find_thread(*, team_id: int, email: ParsedEmail) -> EmailThread | None:
@@ -241,7 +243,9 @@ def _ingest_customer_email_once(
     source_type: str,
     source_id: str | None,
 ) -> EmailThreadIngestionResult:
-    existing_message = _find_existing_message(team_id=team_id, email=email)
+    existing_message = _find_existing_message(
+        team_id=team_id, email=email, source_type=source_type, source_id=source_id
+    )
     if existing_message is not None:
         return EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
@@ -252,7 +256,9 @@ def _ingest_customer_email_once(
     thread = _get_or_create_thread(team_id=team_id, email=email)
     thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread.id)
 
-    existing_message = _find_existing_message(team_id=team_id, email=email)
+    existing_message = _find_existing_message(
+        team_id=team_id, email=email, source_type=source_type, source_id=source_id
+    )
     if existing_message is not None:
         return EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
@@ -309,7 +315,9 @@ def ingest_customer_email(
                 source_id=source_id,
             )
     except IntegrityError:
-        existing_message = _find_existing_message(team_id=team_id, email=email)
+        existing_message = _find_existing_message(
+            team_id=team_id, email=email, source_type=source_type, source_id=source_id
+        )
         if existing_message is None:
             raise
         result = EmailThreadIngestionResult(
