@@ -2007,7 +2007,7 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         SignalScoutNote.objects.create(team=self.team, content="the /checkout spike is expected")
         SignalScoutNote.objects.create(team=self.team, content="watch the EU signup funnel")
         SignalScoutNote.objects.create(team=self.team, content="billing reports go to the billing folks")
-        response = self.client.get(self._list_url(), data={"text": "CHECKOUT", "limit": 1})
+        response = self.client.get(self._list_url(), data={"text": "CHECKOUT", "limit": "1"})
         assert response.status_code == status.HTTP_200_OK
         assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
 

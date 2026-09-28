@@ -147,7 +147,7 @@ What the protocol asks for: entity-keyed judgments (`noise:`, `already_addressed
 What it forbids: writing anything unverified, restating the report, quoting note or signal text, blind-overwriting a key on a shared keyspace, and omitting `expires_at`.
 The report id is interpolated into the section rather than asked for, because the research prompt names one only on a re-research and a first run would otherwise omit or invent it.
 The read pointer normally waits until the team's scratchpad holds an entry; under the write posture it ships anyway, because a writer has to read a key before it overwrites it.
-That is the one place the two stages differ in shape: the implementation protocol carries its own search step and replaces the pointer, so `_compose` takes `keep_pointer` and this stage passes it.
+`load_research_steering` renders the pointer when the memory protocol renders or the scratchpad holds a live entry. The implementation nudge carries its own search step instead.
 
 Per-run counts of entries read and written are not on the steering event: the calls happen inside the sandbox over MCP, so they are only visible to the pipeline as tool-call telemetry, not as a value the activity holds.
 
