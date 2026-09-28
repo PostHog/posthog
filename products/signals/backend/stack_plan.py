@@ -29,6 +29,7 @@ from products.signals.backend.artefact_schemas import (
     StatusArtefactContent,
     TaskRunArtefact,
 )
+from products.signals.backend.billing import system_billing_exempt_reason
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
@@ -100,6 +101,9 @@ def create_layer_reports(
     if incoming_links(team_id=team_id, report_id=parent.id, kinds=(ReportLinkKind.PART_OF,)):
         return []
     judgments = _inherited_judgments(parent)
+    # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
+    # the report the scout emitted, and a layer's id is never in that list.
+    billing_exempt_reason = parent.billing_exempt_reason or system_billing_exempt_reason(team_id, parent.id)
     now = timezone.now()
     child_ids: list[str] = []
     for index, layer in enumerate(layers):
@@ -112,6 +116,7 @@ def create_layer_reports(
             # Born directly in a visible status without `transition_to`, which stamps this for
             # pipeline reports, so the daily report limit counts the layer from creation.
             first_visible_at=now,
+            billing_exempt_reason=billing_exempt_reason,
         )
         child_id = str(child.id)
         for judgment in judgments:

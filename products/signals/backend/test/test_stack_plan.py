@@ -14,7 +14,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest, SignalScoutRun
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -31,8 +31,9 @@ from products.signals.backend.stack_plan import (
     start_unblocked_layers_of_plan,
 )
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.signals.backend.typed_report_links import outgoing_links
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 AUTOSTART = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 
@@ -193,6 +194,40 @@ class TestStackPlan(BaseTest):
         )
         assert inherited.count() == expected
         assert not inherited.filter(created_by__isnull=False).exists()
+
+    @parameterized.expand(
+        [
+            ("billable_plan", None, False, None),
+            (
+                "stored_exemption",
+                SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
+                False,
+                SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
+            ),
+            ("exempt_scout_origin", None, True, SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK),
+        ]
+    )
+    def test_layers_keep_the_plan_billing_exemption(
+        self, _name: str, stored_reason: str | None, emitted_by_exempt_scout: bool, expected: str | None
+    ):
+        self.parent.billing_exempt_reason = stored_reason
+        self.parent.save(update_fields=["billing_exempt_reason"])
+        if emitted_by_exempt_scout:
+            _seed_canonical_scout_skill(self.team, "signals-scout-health-checks")
+            task = Task.objects.create(team=self.team, title="scout", description="d")
+            SignalScoutRun.objects.create(
+                team=self.team,
+                task_run=TaskRun.objects.create(team=self.team, task=task),
+                skill_name="signals-scout-health-checks",
+                skill_version=1,
+                emitted_report_ids=[str(self.parent.id)],
+            )
+
+        child_ids = self._create_layers()
+
+        assert set(SignalReport.objects.filter(id__in=child_ids).values_list("billing_exempt_reason", flat=True)) == {
+            expected
+        }
 
     def test_a_plan_that_already_has_layers_keeps_them(self):
         first = self._create_layers()
