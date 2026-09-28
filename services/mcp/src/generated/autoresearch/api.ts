@@ -698,15 +698,46 @@ export const AutoresearchTrainCreateBody = () => zod.object({
 })
 
 /**
- * Return all built-in autoresearch prediction templates. Each entry describes what the template predicts, its default horizon and prediction mode, and whether it requires you to supply a target_event. After choosing a template, call autoresearch-resolve-template-create to get a fully resolved pipeline config ready to pass to autoresearch-create.
- * @summary List available templates
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
  */
-export const AutoresearchTemplatesListParams = () => zod.object({
+export const AutoresearchResolveTemplateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const autoresearchResolveTemplateCreateBodyHorizonDaysMax = 365
+
+export const AutoresearchResolveTemplateCreateBody = () => zod.object({
+    template_key: zod
+        .enum([
+            'likely_active_soon',
+            'at_risk_of_inactivity',
+            'return_after_first_use',
+            'feature_adoption',
+            'repeat_key_behavior',
+        ])
+        .describe(
+            '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+        )
+        .describe(
+            'Template to resolve. The templates endpoint lists each one with its description. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+        ),
+    target_event: zod
+        .string()
+        .optional()
+        .describe(
+            "Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving."
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchResolveTemplateCreateBodyHorizonDaysMax)
+        .optional()
+        .describe("Override the template's default prediction horizon in days."),
 })
 
 /**

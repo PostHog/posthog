@@ -7,7 +7,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
 ## What lives here
 
 - `tools.yaml`
-  The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `resolve-template-create`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed.
+  The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
   Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`, plus every extra scope the endpoint's `required_scopes` names, such as `query:read`: MCP hides a tool whose scopes the key lacks), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
 Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
@@ -16,9 +16,9 @@ Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/
 
 **Agent-facing** — the training loop's own control surface, backed by `AutoresearchTrainingRunViewSet`:
 
-`autoresearch-training-runs-create` (bring-your-own agents only; a sandbox request is refused), `-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-artifacts-delete-create`, `-complete-create`, `-history`.
+`autoresearch-training-runs-create` (bring-your-own agents only; a sandbox request is refused), `-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-complete-create`, `-history`.
 
-**User-facing** — managing pipelines: `autoresearch-create`, `-list`, `-retrieve`, `-archive-create`, `-pause-create`, `-resume-create`, `-score-create`, `-train-create`, `-models-list`, `-models-retrieve`, `-runs-list`, `-suggestions-*`, `-templates-list`, `-resolve-template-create`, `-validate-*`.
+**User-facing** — managing pipelines: `autoresearch-create`, `-list`, `-retrieve`, `-archive-create`, `-pause-create`, `-resume-create`, `-score-create`, `-train-create`, `-models-list`, `-models-retrieve`, `-runs-list`, `-suggestions-*`, `-resolve-template-create`, `-validate-create`.
 
 The split matters when you change a description. An agent-facing description is a **contract**: `autoresearch-training-runs-iterations-create` has to tell the agent what a valid `feature_sql` looks like, because the server will reject anything that is not a read-only `SELECT` keyed on `person_id` and the agent has no other way to learn that.
 

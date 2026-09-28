@@ -1120,7 +1120,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional and used only as a display label). Provide exactly one. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted, and must be unique among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -1209,6 +1209,21 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-resolve-template-create": {
+        "description": "Start here to create a pipeline from a template. Resolve a template key and optional overrides into a ready-to-use pipeline config. An unknown key returns 400. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, training_population, and inference_population to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with the resolved fields as-is.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Resolve a template",
+        "title": "Resolve a template",
+        "required_scopes": ["autoresearch:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-resume-create": {
         "description": "Resume a paused pipeline. Returns 400 if the pipeline is not currently paused.",
         "category": "Autoresearch",
@@ -1255,14 +1270,14 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-score-create": {
-        "description": "Score the inference population using the champion model and emit 'autoresearch_prediction' events for each user. Returns the inference run object with rows_scored and status. Requires a champion model and a pipeline that is not paused — run autoresearch-train-create first if the pipeline has no champion. Each scored user gets a '$autoresearch_p_y' property on their prediction event and a person property update. After scoring, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
+        "description": "Score the inference population using the champion model and emit 'autoresearch_prediction' events for each user. Returns the inference run object with rows_scored and status. Requires a champion model and a pipeline that is not paused — run autoresearch-train-create first if the pipeline has no champion. A pipeline with an action target also needs the action:read scope. Each scored user gets a '$autoresearch_p_y' property on their prediction event and a person property update. After scoring, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Run inference (score users)",
         "title": "Run inference (score users)",
         "required_scopes": ["autoresearch:write", "query:read", "person:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -1314,23 +1329,8 @@
         },
         "feature_flag": "autoresearch"
     },
-    "autoresearch-templates-list": {
-        "description": "List all built-in autoresearch prediction templates. Each entry includes the template key, display name, description, default horizon, prediction mode, and whether you need to supply a target_event. Templates: 'likely_active_soon' (best universal starter — predicts next-7d activity), 'at_risk_of_inactivity' (predicts 14d inactivity risk), 'return_after_first_use' (predicts new-user return within 7d), 'feature_adoption' (predicts first use of your chosen event within 14d — requires target_event), 'repeat_key_behavior' (predicts repeat use of your chosen event within 7d — requires target_event). After picking a template, call autoresearch-resolve-template-create to get a resolved pipeline config.",
-        "category": "Autoresearch",
-        "feature": "autoresearch",
-        "summary": "List available templates",
-        "title": "List available templates",
-        "required_scopes": ["autoresearch:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "autoresearch"
-    },
     "autoresearch-train-create": {
-        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress or the pipeline is paused. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run completes and promotes a champion, call autoresearch-score-create to run inference and emit prediction events. You can optionally override the iteration_budget for this run.",
+        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress or the pipeline is paused. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run completes and promotes a champion, call autoresearch-score-create to run inference and emit prediction events. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Start training",
@@ -1375,7 +1375,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-artifacts-upload-create": {
-        "description": "Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days} contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference runs in a sandbox. Only allowed while the run is still running; the bundle is frozen once the run completes or fails.",
+        "description": "Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/ notebook). Re-uploading the same path overwrites it. Keep each file under about 700 KB: the base64 body must fit the MCP server's 1 MiB request limit. A bundle holds at most 32 files. This is how you author the model — author train.py and predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days} contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference runs in a sandbox. Only allowed while the run is still running; the bundle is frozen once the run completes or fails.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Upload an artifact bundle file",
@@ -1390,7 +1390,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-complete-create": {
-        "description": "Finalize a training run. The backend selects the best iteration (highest holdout_score, or the best_iteration_id you name), decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.",
+        "description": "Finalize a training run. The backend selects the kept iteration with the highest holdout_score. best_iteration_id only breaks a tie at that top score and never overrides the ranking, so upload the bundle of the highest-scoring iteration. The backend then decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Complete a training run",
@@ -1405,7 +1405,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-create": {
-        "description": "Open a new training run for a pipeline and return its id, for a bring-your-own agent that trains outside PostHog. The agent then records iterations against this run with autoresearch-training-runs-iterations-create and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally override the iteration_budget for this run. Refused from inside a sandbox: the in-house training agent works in the run that autoresearch-train-create opened for it.",
+        "description": "Open a new training run for a pipeline and return its id, for a bring-your-own agent that trains outside PostHog. The agent then records iterations against this run with autoresearch-training-runs-iterations-create and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally override the iteration_budget for this run. Refused from inside a sandbox: the in-house training agent works in the run that autoresearch-train-create opened for it. A pipeline with an action target also needs the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Open a training run",
@@ -1435,7 +1435,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-iterations-create": {
-        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: model_class in model_spec must be in the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
+        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be a read-only SELECT keyed on person_id. model_class in model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Record a training iteration",
@@ -1465,7 +1465,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-validate-create": {
-        "description": "Validate a proposed autoresearch pipeline before creating it. The target is either an event (pass target_event) or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N}); base-rate and volume estimates are computed against whichever you provide. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Always validate before creating.",
+        "description": "Validate a proposed autoresearch pipeline before creating it. The target is either an event (pass target_event) or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N}); base-rate and volume estimates are computed against whichever you provide. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Errors (can_proceed is false): low_volume (fewer than 100 users), low_positives or low_negatives (fewer than 20 examples). Non-blocking warnings include extreme_imbalance (base rate below 1%) and near_universal (above 95%). An action target needs the action:read scope. Always validate before creating.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Validate a pipeline definition",

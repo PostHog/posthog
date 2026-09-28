@@ -247,6 +247,38 @@ const autoresearchPauseCreate = (): ToolBase<
     },
 })
 
+const AutoresearchResolveTemplateCreateSchema = () => {
+    const AutoresearchResolveTemplateCreateBody = orvalSchemas.AutoresearchResolveTemplateCreateBody()
+    return AutoresearchResolveTemplateCreateBody
+}
+
+const autoresearchResolveTemplateCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchResolveTemplateCreateSchema>,
+    Schemas.ResolvedTemplate
+> => ({
+    name: 'autoresearch-resolve-template-create',
+    schema: AutoresearchResolveTemplateCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchResolveTemplateCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.horizon_days !== undefined) {
+            body['horizon_days'] = params.horizon_days
+        }
+        const result = await context.api.request<Schemas.ResolvedTemplate>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/resolve-template/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutoresearchResumeCreateSchema = () => {
     const AutoresearchResumeCreateParams = orvalSchemas.AutoresearchResumeCreateParams()
     return AutoresearchResumeCreateParams.omit({ project_id: true })
@@ -456,24 +488,6 @@ const autoresearchSuggestionsRespond = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/suggestions/${encodeURIComponent(String(params.id))}/respond/`,
             body,
-        })
-        return result
-    },
-})
-
-const AutoresearchTemplatesListSchema = () => z.object({})
-
-const autoresearchTemplatesList = (): ToolBase<
-    ReturnType<typeof AutoresearchTemplatesListSchema>,
-    Schemas.TemplateInfo[]
-> => ({
-    name: 'autoresearch-templates-list',
-    schema: AutoresearchTemplatesListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof AutoresearchTemplatesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TemplateInfo[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/templates/`,
         })
         return result
     },
@@ -849,6 +863,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-list': autoresearchModelsList,
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-pause-create': autoresearchPauseCreate,
+    'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-resume-create': autoresearchResumeCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
     'autoresearch-runs-list': autoresearchRunsList,
@@ -856,7 +871,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,
-    'autoresearch-templates-list': autoresearchTemplatesList,
     'autoresearch-train-create': autoresearchTrainCreate,
     'autoresearch-training-runs-artifacts-get-create': autoresearchTrainingRunsArtifactsGetCreate,
     'autoresearch-training-runs-artifacts-retrieve': autoresearchTrainingRunsArtifactsRetrieve,
