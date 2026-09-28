@@ -2317,6 +2317,23 @@ describe('dashboardLogic', () => {
             }).toNotHaveDispatchedActions(['retryDashboardLoad'])
         })
 
+        it('retries once when the connection comes back during a load that then fails', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                apiStatusLogic.actions.setInternetConnectionIssue(false)
+            })
+                .toDispatchActions([
+                    'loadDashboardFailure',
+                    'retryDashboardLoad',
+                    'loadDashboard',
+                    'loadDashboardFailure',
+                ])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['retryDashboardLoad'])
+        })
+
         it.each([
             { id: 14, accessDenied: false },
             { id: 15, accessDenied: true },
