@@ -393,8 +393,9 @@ def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
         rerun_existing=False,
     )
     in_flight = row.dispatched_count + row.skipped_count
-    # A unit that failed to start has no evaluation on the way, so the discount cannot absorb it.
-    floor = 0 if row.rerun_existing else row.failed_count
+    # A unit that failed to start has no evaluation on the way, so the discount cannot absorb it,
+    # unless something else graded it meanwhile and it left the ungraded count.
+    floor = 0 if row.rerun_existing else min(row.failed_count, scope.to_evaluate)
     remaining = max(floor, scope.to_evaluate - in_flight)
     EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(remaining_count=remaining)
     logger.info(

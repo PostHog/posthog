@@ -473,6 +473,7 @@ class TestEvaluationBackfillActivities:
             (3000, 0, 0, False, 3000, 0),
             (1, 0, 0, False, 5, 4),
             (0, 3, 1, False, 1, 1),
+            (0, 3, 1, False, 0, 0),
             (0, 3, 1, True, 1, 0),
         ],
     )
