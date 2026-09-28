@@ -363,9 +363,7 @@ function Expansion({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         {productOff && product ? (
                             <div className="flex items-center gap-2">
-                                <span className="text-xs text-warning">
-                                    {productOffReason(product)}
-                                </span>
+                                <span className="text-xs text-warning">{productOffReason(product)}</span>
                                 {product.enablement && (
                                     <LemonButton
                                         type="secondary"

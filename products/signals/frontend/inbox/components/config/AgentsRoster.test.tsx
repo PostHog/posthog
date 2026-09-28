@@ -58,14 +58,8 @@ describe('AgentsRoster', () => {
                     200,
                     { count: SCANNERS.length, next: null, previous: null, results: SCANNERS },
                 ],
-                '/api/projects/:team_id/event_definitions/': () => [
-                    200,
-                    { count: 0, next: null, previous: null, results: [] },
-                ],
-                '/api/environments/:team_id/external_data_sources/': () => [
-                    200,
-                    { count: 0, next: null, previous: null, results: [] },
-                ],
+                '/api/projects/:team_id/event_definitions/': () => [200, EMPTY_LIST],
+                '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
             },
             post: {
                 '/api/projects/:team_id/product_enablement/': async ({ request }) => {
@@ -85,8 +79,7 @@ describe('AgentsRoster', () => {
     it('enables the backing setting from the collapsed row', async () => {
         await mountRoster(true)
 
-        // Queried by accessible name: LemonButton copies a string tooltip into aria-label.
-        await userEvent.click(within(supportRow()).getByRole('button', { name: 'Turn on Support' }))
+        await userEvent.click(within(supportRow()).getByLabelText('Turn on Support'))
 
         await waitFor(() => expect(enablementCalls).toEqual([{ products: ['conversations'] }]))
     })
@@ -95,10 +88,7 @@ describe('AgentsRoster', () => {
         await mountRoster(false)
 
         expect(screen.getByText('Admin needed')).toBeInTheDocument()
-        expect(within(supportRow()).getByRole('button', { name: 'Turn on Support' })).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
+        expect(within(supportRow()).getByLabelText('Turn on Support')).toHaveAttribute('aria-disabled', 'true')
         await userEvent.click(screen.getByLabelText('Expand Support'))
         expect(screen.getByText(SUPPORT_ROW_OFF)).toHaveTextContent('Only project admins can turn it on.')
     })
