@@ -311,7 +311,7 @@ export function resolveConnectErrorMessage(e: any): string {
     if (e?.status >= 500) {
         // Every source reaches this branch, including ones with no database behind them, so the
         // message can't name a cause only some of them have.
-        return "PostHog couldn't finish checking your credentials. Check that the details you entered are correct and that the source is reachable, then try again."
+        return "PostHog couldn't set up your source. Check that the details you entered are correct and that the source is reachable, then try again."
     }
     // A 4xx without a message body would otherwise toast "undefined".
     return e?.message ?? 'Something went wrong setting up your source. Please try again.'
