@@ -2654,6 +2654,58 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('saving an experiment flag', () => {
+        const EDITED_GROUPS = [{ properties: [], rollout_percentage: 100, variant: null }]
+
+        async function loadExperimentFlag(): Promise<void> {
+            logic.actions.loadFeatureFlagSuccess({ ...MOCK_FEATURE_FLAG, experiment_set: [MOCK_EXPERIMENT.id] })
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it.each([
+            ['cancels', false, 0],
+            ['confirms', true, 1],
+        ])(
+            'asks before saving changed release conditions and saves only when the user confirms (%s)',
+            async (_name, confirmed, saveCount) => {
+                const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
+                    if (confirmed) {
+                        props.primaryButton?.onClick?.(undefined as any)
+                    }
+                    props.onAfterClose?.()
+                })
+                const saveSpy = jest.spyOn(logic.actions, 'saveFeatureFlag').mockImplementation(() => ({}) as any)
+                await loadExperimentFlag()
+                logic.actions.setFeatureFlagFilters(
+                    { ...logic.values.featureFlag.filters, groups: EDITED_GROUPS },
+                    null
+                )
+
+                await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation({})).toFinishAllListeners()
+
+                expect(dialogOpenSpy.mock.calls[0][0].title).toBe('Change release conditions of an experiment flag?')
+                expect(saveSpy).toHaveBeenCalledTimes(saveCount)
+                expect(capturesOf('experiment flag release conditions edit confirmation')).toEqual([
+                    ['experiment flag release conditions edit confirmation', { confirmed, linked_experiment_count: 1 }],
+                ])
+                dialogOpenSpy.mockRestore()
+            }
+        )
+
+        it('saves without the experiment warning when release conditions do not change', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const saveSpy = jest.spyOn(logic.actions, 'saveFeatureFlag').mockImplementation(() => ({}) as any)
+            await loadExperimentFlag()
+            logic.actions.setFeatureFlagValue('name', 'Edited name')
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation({})).toFinishAllListeners()
+
+            expect(dialogOpenSpy).not.toHaveBeenCalled()
+            expect(saveSpy).toHaveBeenCalledTimes(1)
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
     describe('toggleFeatureFlagActive', () => {
         it('opens one confirmation with matching disable copy', async () => {
             const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})

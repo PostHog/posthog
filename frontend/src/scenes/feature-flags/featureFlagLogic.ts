@@ -4505,6 +4505,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             }
 
+            const linkedExperimentCount = originalFlag?.experiment_set?.length ?? 0
+            const releaseConditionsChanged =
+                linkedExperimentCount > 0 &&
+                !objectsEqual(originalFlag?.filters?.groups ?? [], cleanFilterGroups(featureFlag.filters?.groups) ?? [])
+
+            if (releaseConditionsChanged) {
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    LemonDialog.open({
+                        title: 'Change release conditions of an experiment flag?',
+                        description:
+                            'Release conditions are managed by the linked experiment. If you change them here, the experiment targets different users and its results can become invalid.',
+                        primaryButton: {
+                            children: 'Save anyway',
+                            status: 'danger',
+                            onClick: () => resolve(true),
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                        onAfterClose: () => resolve(false),
+                    })
+                })
+                posthog.capture('experiment flag release conditions edit confirmation', {
+                    confirmed,
+                    linked_experiment_count: linkedExperimentCount,
+                })
+                if (!confirmed) {
+                    return
+                }
+            }
+
             await sharedListeners.checkDependentFlagsAndConfirm(
                 {
                     originalFlag,
