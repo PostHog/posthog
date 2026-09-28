@@ -145,6 +145,13 @@ LONG_PROSE = "This sentence goes on for a while so that it is long enough to loo
             diff_for("services/llm-gateway/a.py", ["x"]),
             1,
         ),
+        (
+            "several changed files under prefix is one breach",
+            "changed_files_under",
+            {"prefix": "services/llm-gateway/"},
+            diff_for("services/llm-gateway/a.py", ["x"]) + diff_for("services/llm-gateway/b.py", ["y"]),
+            1,
+        ),
         ("indented import", "indented_imports", {}, diff_for("a.py", ["def f():", "    import json", "import os"]), 1),
         (
             "comment lines skip pragmas",
@@ -159,6 +166,17 @@ LONG_PROSE = "This sentence goes on for a while so that it is long enough to loo
             {},
             diff_for("a.py", ["# kept"], ["# kept", "# lost"]),
             1,
+        ),
+        (
+            "edited comment is kept",
+            "removed_comment_lines",
+            {},
+            diff_for(
+                "a.py",
+                ["# Map the unit onto the token that posthog.helpers.relative_dates.parse understands."],
+                ["# Map the unit onto the token that posthog.utils.parse understands."],
+            ),
+            0,
         ),
         (
             "stdlib dataclass",
@@ -187,6 +205,13 @@ LONG_PROSE = "This sentence goes on for a while so that it is long enough to loo
             "hard_wrapped_markdown",
             {},
             diff_for("a.md", [LONG_PROSE, f"- {LONG_PROSE}", "short and"]),
+            1,
+        ),
+        (
+            "command lines in a code fence are not prose",
+            "hard_wrapped_markdown",
+            {},
+            diff_for("a.md", ["```bash", LONG_PROSE, "```", LONG_PROSE]),
             1,
         ),
         (

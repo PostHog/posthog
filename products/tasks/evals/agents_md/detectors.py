@@ -2,6 +2,7 @@ import re
 import ast
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -138,8 +139,10 @@ def files_added_outside(candidate: Candidate, claim: Claim, *, prefix: str) -> O
 
 
 def changed_files_under(candidate: Candidate, claim: Claim, *, prefix: str) -> Observation:
+    """One breach however many files, so a diff that also touches a README does not score worse."""
     hits = sorted(path for path in candidate.added if path.startswith(prefix))
-    return _count(hits, f"changed files under {prefix}")
+    counted = _count(hits, f"changed files under {prefix}")
+    return Observation(violations=min(1.0, counted.violations or 0.0), detail=counted.detail)
 
 
 def indented_imports(candidate: Candidate, claim: Claim) -> Observation:
@@ -156,13 +159,21 @@ def comment_lines(candidate: Candidate, claim: Claim) -> Observation:
     return _count(hits, "added comment lines")
 
 
+EDITED_COMMENT_SIMILARITY = 0.75
+
+
+def _is_edit_of(line: str, kept: set[str]) -> bool:
+    return any(SequenceMatcher(None, line, other).ratio() >= EDITED_COMMENT_SIMILARITY for other in kept)
+
+
 def removed_comment_lines(candidate: Candidate, claim: Claim) -> Observation:
+    """A comment that comes back with a small edit, such as a renamed module path, stays kept."""
     kept = {line.strip() for _, line in candidate.added_in(*CODE_FILES) if COMMENT_LINE.match(line)}
     removed = [
         line.strip()
         for lines in candidate.removed.values()
         for line in lines
-        if COMMENT_LINE.match(line) and line.strip() not in kept
+        if COMMENT_LINE.match(line) and not _is_edit_of(line.strip(), kept)
     ]
     return _count(removed, "comment lines removed and not added back")
 
@@ -203,10 +214,23 @@ def extra_top_level_describes(candidate: Candidate, claim: Claim) -> Observation
     return Observation(violations=float(sum(max(count, 0) for count in extra.values())), detail="; ".join(hits))
 
 
+def _prose_outside_fences(lines: list[str]) -> list[str]:
+    prose: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence:
+            prose.append(line)
+    return prose
+
+
 def hard_wrapped_markdown(candidate: Candidate, claim: Claim) -> Observation:
     hits = [
         line.strip()
-        for _, line in candidate.added_in("*.md")
+        for path, lines in candidate.added.items()
+        if _matches(path, ("*.md",))
+        for line in _prose_outside_fences(lines)
         if len(line) > 60 and not MARKDOWN_STRUCTURE.match(line) and re.search(r"[a-z,]$", line.rstrip())
     ]
     return _count(hits, "prose lines that break mid-sentence")
