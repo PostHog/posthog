@@ -192,6 +192,22 @@ describe('logsSceneLogic', () => {
             expect(logic.values.filters.filterGroup).toEqual(filterGroup)
         })
 
+        // A link can carry a group with the filters at the top level, e.g. a metric rule deep link
+        // built from a stored group. The scene used to cast the first entry to a group and crash.
+        it('repairs a one-level filterGroup in the URL', async () => {
+            const filter = { key: 'service_name', value: ['api'], operator: 'exact', type: 'log' }
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    filterGroup: JSON.stringify({ type: 'AND', values: [filter] }),
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual({
+                type: 'AND',
+                values: [{ type: 'AND', values: [filter] }],
+            })
+        })
+
         it('ignores a malformed filterGroup in the URL', async () => {
             const before = logic.values.filters.filterGroup
             await expectLogic(logic, () => {

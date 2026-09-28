@@ -37,7 +37,10 @@ import {
     logsSelection,
     mergeFilterIntoValues,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import {
+    innerFilterGroup,
+    logsViewerFiltersLogic,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
 
@@ -94,7 +97,7 @@ export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JS
     return (
         <UniversalFilters
             rootKey={`${taxonomicFilterLogicKey}-${id}`}
-            group={filterGroup.values[0] as UniversalFiltersGroup}
+            group={innerFilterGroup(filterGroup)}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
@@ -234,19 +237,21 @@ const FilterGroupValues = ({
     const { focusedFilter } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
 
-    if (filterGroup.values.length === 0) {
+    const values = filterGroup.values ?? []
+
+    if (values.length === 0) {
         return null
     }
 
     // One chip at a time: an attribute can hold a chip per polarity (`= api` beside `≠ worker`), and
     // matching every chip on the target would open both popovers over each other.
     const focusedIndex = focusable
-        ? filterGroup.values.findIndex((entry) => isSameFilterTarget(filterTarget(entry), focusedFilter))
+        ? values.findIndex((entry) => isSameFilterTarget(filterTarget(entry), focusedFilter))
         : -1
 
     return (
         <>
-            {filterGroup.values.map((filterOrGroup, index) => {
+            {values.map((filterOrGroup, index) => {
                 const isFocused = focusedIndex >= 0 && index === focusedIndex
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
@@ -298,7 +303,7 @@ export const LogsAppliedFilters = (): JSX.Element | null => {
 
     useOnMountEffect(() => setAllowInitiallyOpen(true))
 
-    if (filterGroup.values.length === 0) {
+    if ((filterGroup.values ?? []).length === 0) {
         return null
     }
 

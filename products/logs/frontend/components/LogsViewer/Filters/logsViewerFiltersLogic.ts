@@ -16,6 +16,7 @@ import posthog from 'posthog-js'
 
 import { zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
@@ -66,6 +67,57 @@ export interface LogsViewerFiltersLogicProps {
     // session-id log attributes plus the built-in conventions, in both the attribute and
     // resource-attribute maps. A filter group can't express that OR (see buildLogsSessionScope).
     sessionId?: string
+}
+
+// An entry that is not an object survives the group check and then crashes the chip renderer, which
+// reads `.type` off it and tests `'key' in` it — the same crash the shape repair exists to prevent.
+// The original array comes back when every entry is usable, so a group that needs no repair keeps
+// its identity and the components do not re-render for it.
+function withoutInvalidEntries(values: UniversalFiltersGroupValue[]): UniversalFiltersGroupValue[] {
+    const isUsable = (value: UniversalFiltersGroupValue): boolean => typeof value === 'object' && value !== null
+    return values.every(isUsable) ? values : values.filter(isUsable)
+}
+
+// The viewer works in a two-level group: an outer group whose first entry is the inner group that
+// holds the chips. A filterGroup reaches the viewer from a URL param, a saved view, an alert rule or
+// a metric deep link, so a wrong shape is untrusted input rather than a bug — repair it here, before
+// any component casts the first entry to a group.
+export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGroup {
+    const group = filterGroup as UniversalFiltersGroup | undefined
+    if (!isUniversalGroupFilterLike(group) || !Array.isArray(group.values)) {
+        return DEFAULT_UNIVERSAL_GROUP_FILTER
+    }
+    const values = withoutInvalidEntries(group.values)
+    const inner = values[0]
+    if (inner !== undefined && isUniversalGroupFilterLike(inner)) {
+        // A group whose own values are not an array reaches the nested logic, which spreads them.
+        if (!Array.isArray(inner.values)) {
+            return DEFAULT_UNIVERSAL_GROUP_FILTER
+        }
+        const innerValues = withoutInvalidEntries(inner.values)
+        const trailing = withoutInvalidEntries(values.slice(1))
+        if (trailing.length === 0) {
+            if (values === group.values && innerValues === inner.values) {
+                return group
+            }
+            return { ...group, values: [{ ...inner, values: innerValues }] }
+        }
+        // A group beside trailing filters. The two UIs render only the inner group, so a trailing
+        // filter would scope the query with no chip to see or remove it. Flatten it into the inner
+        // group when the operators agree — `(a AND b) AND c` is `a AND b AND c` — and otherwise reject
+        // the shape rather than keep a filter the user cannot reach.
+        if (group.type === inner.type && trailing.every((entry) => !isUniversalGroupFilterLike(entry))) {
+            return { ...group, values: [{ ...inner, values: [...innerValues, ...trailing] }] }
+        }
+        return DEFAULT_UNIVERSAL_GROUP_FILTER
+    }
+    // A one-level group: every entry is a filter, so move them all into the inner group. The inner
+    // group takes the outer operator, so a group of `a OR b` does not come back matching `a AND b`.
+    return { ...group, values: [{ type: group.type, values }] }
+}
+
+export function innerFilterGroup(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {
+    return normalizeFilterGroup(filterGroup).values[0] as UniversalFiltersGroup
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -315,11 +367,10 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
-                setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                setFilterGroup: (_, { filterGroup }) => normalizeFilterGroup(filterGroup),
                 setFilters: (state, { filters }) =>
                     foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
+                        filters.filterGroup ? normalizeFilterGroup(filters.filterGroup) : state,
                         filters
                     ),
             },
@@ -411,7 +462,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             actions.setDateRange(newDateRange)
         },
         addFilter: ({ key, value, operator, propertyType }) => {
-            const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
+            const currentGroup = innerFilterGroup(values.filters.filterGroup)
 
             // Reconciled rather than appended, so clicking the same attribute row twice does not
             // stack a duplicate chip, and including a value cancels a standing exclusion of it.

@@ -13,15 +13,12 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import {
+    innerFilterGroup,
+    logsViewerFiltersLogic,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 export const taxonomicFilterLogicKey = 'logs'
 export const taxonomicGroupTypes = [
@@ -44,7 +41,7 @@ export const LogsFilterGroup = (): JSX.Element => {
     return (
         <UniversalFilters
             rootKey={`${taxonomicFilterLogicKey}-${id}`}
-            group={filterGroup.values[0] as UniversalFiltersGroup}
+            group={innerFilterGroup(filterGroup)}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
@@ -85,7 +82,7 @@ const UniversalSearch = (): JSX.Element => {
                 return
             }
 
-            const newValues = [...filterGroup.values]
+            const newValues = [...(filterGroup.values ?? [])]
             const newPropertyFilter = {
                 key: item.key,
                 value: item.value,
@@ -139,7 +136,7 @@ const UniversalFilterGroup = (): JSX.Element => {
 
     return (
         <>
-            {filterGroup.values.map((filterOrGroup, index) => {
+            {(filterGroup.values ?? []).map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <UniversalSearch />
