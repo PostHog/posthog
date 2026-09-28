@@ -3827,3 +3827,53 @@ class TestProcessGroupCoalescing:
         await self._run_group(consumer, _run_batches(3))
 
         assert process_batch.await_count == 3
+
+
+class TestBatchPhaseTracking:
+    def test_phase_gauges_follow_the_batch_bound_to_the_processing_context(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+            BATCH_PHASE_AGE_SECONDS_MAX,
+            BATCHES_IN_PHASE,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+
+        consumer = _make_consumer()
+        consumer._health_reporter = lambda: None
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1):
+            report_phase("read")
+            consumer._report_health()
+            assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 1
+            assert BATCHES_IN_PHASE.labels(phase="claimed")._value.get() == 0
+            assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() >= 0
+
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="read")._value.get() == 0
+        assert BATCH_PHASE_AGE_SECONDS_MAX.labels(phase="read")._value.get() == 0
+
+        report_phase("write")
+        consumer._report_health()
+        assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
+
+    def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+            batch_consumer as batch_consumer_module,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        calls: list[int] = []
+        consumer._health_reporter = lambda: calls.append(1)
+        batch = _make_batch()
+
+        with consumer._batch_log_context(batch, attempt=1), patch.object(batch_consumer_module, "logger") as logger:
+            report_phase("write")
+            consumer._report_health()
+
+        assert calls == []  # tripped: liveness withheld
+        logger.error.assert_called_once()
+        kwargs = logger.error.call_args.kwargs
+        assert kwargs.get("batch_id") == batch.id
+        assert kwargs.get("phase") == "write"
+        assert kwargs.get("phase_seconds") is not None
