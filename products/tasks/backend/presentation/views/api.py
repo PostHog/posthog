@@ -578,7 +578,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _can_bypass_visibility(request, self.team_id)
+        bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -2000,6 +2000,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             validated_data=dict(request.validated_data),
             only_if_non_terminal=True,
             caller_is_agent=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
@@ -2031,7 +2032,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data)
+        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data, user_id=self._user_id())
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
@@ -2043,7 +2044,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Set task run summary",
-        description="Replace the running summary for a task run.",
+        description="Replace the running summary for a task run, and optionally its slug tags.",
         strict_request_validation=True,
     )
     @action(
@@ -2059,6 +2060,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
+            tags=request.validated_data.get("tags"),
             include_agent_state=self._is_sandbox_agent_request(task_id),
             user_id=self._user_id(),
         )

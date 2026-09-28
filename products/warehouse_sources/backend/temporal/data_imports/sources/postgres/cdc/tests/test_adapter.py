@@ -380,6 +380,20 @@ class TestAlterPublicationMembership:
         PostgresCDCAdapter().add_table(source, "public", "orders")
         mock_add.assert_not_called()
 
+    @patch(f"{_ADAPTER}.add_table_to_publication", side_effect=psycopg.errors.InsufficientPrivilege("must be owner"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_add_table_raises_when_the_publication_rejects_the_table(self, _conn, _mock_add) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            PostgresCDCAdapter().add_table(source, "public", "orders")
+
+    @patch(f"{_ADAPTER}.remove_table_from_publication", side_effect=psycopg.OperationalError("connection refused"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_remove_table_stays_best_effort(self, _conn, mock_remove) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        PostgresCDCAdapter().remove_table(source, "public", "orders")
+        mock_remove.assert_called_once()
+
 
 class TestGetStatus:
     @patch(f"{_ADAPTER}.get_publication_tables", return_value=["public.orders", "public.users"])

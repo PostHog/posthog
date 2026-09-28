@@ -26,6 +26,65 @@ def table_ref():
     return DeltaTableRef(resource_name="test_resource", job=MagicMock(), logger=make_logger())
 
 
+def _openable_table_ref(delta_uri: str) -> DeltaTableRef:
+    ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+    patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)).start()
+    patch.object(ref, "_get_credentials", MagicMock(return_value={})).start()
+    return ref
+
+
+class TestGetDeltaTableCache:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @pytest.mark.asyncio
+    async def test_one_ref_cannot_evict_another_refs_handle(self):
+        # A loader process has several tables in flight. When they shared one cache slot, every
+        # interleaved call re-opened its table (a full Delta-log replay against object storage).
+        first = _openable_table_ref("s3://bucket/team/job/first")
+        second = _openable_table_ref("s3://bucket/team/job/second")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(uri=table_uri)
+
+            first_handle = await first.get_delta_table()
+            await second.get_delta_table()
+            assert await first.get_delta_table() is first_handle
+            assert await second.get_delta_table() is not first_handle
+
+        assert mock_delta_table.call_count == 2
+
+    @parameterized.expand([("invalidate", "invalidate_cached_table"), ("pop", "pop_cached_table")])
+    @pytest.mark.asyncio
+    async def test_dropping_the_handle_forces_a_fresh_open(self, _name: str, method: str):
+        # Reset and repartition rewrite the files under the table, so a caller that drops the handle
+        # must get the live log on its next read rather than the pre-swap snapshot.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock()
+
+            stale = await ref.get_delta_table()
+            getattr(ref, method)()
+            fresh = await ref.get_delta_table()
+
+        assert fresh is not stale
+        assert mock_delta_table.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_pop_never_opens_the_table(self):
+        # End-of-run cleanup pops the handle. If the table was never fetched, a pop that opened it
+        # would make an object-storage call whose failure could mask the import error being handled.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            assert ref.pop_cached_table() is None
+
+        mock_delta_table.is_deltatable.assert_not_called()
+        mock_delta_table.assert_not_called()
+
+
 class TestStorageOptionsCommitSafety:
     # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
     # the legacy rename backend, which has no commit-conflict detection.
