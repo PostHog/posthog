@@ -44,7 +44,7 @@ const EXPORT_PENDING_MESSAGE = 'Preparing export…'
 const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
 // A synchronous export can hold its request open for up to 35 minutes. After this delay the spinner
 // hands off to the exports panel, where the row already exists while it renders.
-export const EXPORT_HANDOFF_DELAY_MS = 60000
+const EXPORT_HANDOFF_DELAY_MS = 60000
 const EXPORT_HANDOFF_MESSAGE = 'This export is taking a while. It will appear in your exports when it is ready.'
 const EXPORT_ALREADY_RUNNING_MESSAGE = 'This export is still being prepared.'
 
@@ -482,17 +482,16 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: ({ exportData }) => {
+                    const openExportsButton: ToastButton = {
+                        label: 'View exports',
+                        action: () => actions.openSidePanel(SidePanelTab.Exports),
+                    }
                     const requestKey = exportRequestKey(exportData)
                     cache.exportRequestToastIds ??= new Map<string, string>()
                     const runningToastId: string | undefined = cache.exportRequestToastIds.get(requestKey)
                     if (runningToastId) {
                         if (!lemonToast.isActive(runningToastId)) {
-                            lemonToast.info(EXPORT_ALREADY_RUNNING_MESSAGE, {
-                                button: {
-                                    label: 'View exports',
-                                    action: () => actions.openSidePanel(SidePanelTab.Exports),
-                                },
-                            })
+                            lemonToast.info(EXPORT_ALREADY_RUNNING_MESSAGE, { button: openExportsButton })
                         }
                         return values.pollingExports
                     }
@@ -504,7 +503,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     const viewExportsButton: ToastButton | undefined = isLongRunningExportFormat(
                         exportData.export_format
                     )
-                        ? { label: 'View exports', action: () => actions.openSidePanel(SidePanelTab.Exports) }
+                        ? openExportsButton
                         : undefined
                     const nudge: ExportNudge = startExportNudge(exportData)
                     const kickoffFrame = nudgeToastOptions(
@@ -586,12 +585,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         // A dismissed spinner ignores its late result. The paths below already raise
                         // a fresh toast for a finished file.
                         lemonToast.dismiss(exportToastId)
-                        lemonToast.info(EXPORT_HANDOFF_MESSAGE, {
-                            button: {
-                                label: 'View exports',
-                                action: () => actions.openSidePanel(SidePanelTab.Exports),
-                            },
-                        })
+                        lemonToast.info(EXPORT_HANDOFF_MESSAGE, { button: openExportsButton })
                     }, EXPORT_HANDOFF_DELAY_MS)
 
                     void (async () => {
