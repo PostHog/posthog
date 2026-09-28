@@ -287,14 +287,14 @@ tools:
                 - updated_at
     inbox-reports-merge:
         operation: signals_reports_merge_create
-        enabled: false
+        enabled: true
         scopes:
             - task:write
         annotations:
             readOnly: false
             destructive: true
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Merge duplicate reports into one
         description: >
             Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than

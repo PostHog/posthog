@@ -6381,6 +6381,20 @@
             "readOnlyHint": true
         }
     },
+    "inbox-reports-merge": {
+        "description": "Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than one report. The URL names the survivor and `source_report_ids` (1–10) names the duplicates. Pick the survivor deliberately: prefer the older report, and prefer the one holding an open implementation PR or an active claim. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the survivor, the survivor's signal counters take theirs on, and each source is archived with a 'duplicate of' link back. A source's open pull request stays open, because the survivor holds it after the move; any active claim on a source is released first, so re-claim the survivor if you were working on one. Titles and summaries are NOT combined, so follow with `inbox-reports-update` if the survivor needs a rewrite. Both ends must be a live report, and the whole call applies or none of it does: 409 and no writes when the survivor is resolved, or when a source is the survivor itself, is resolved or archived, is still being researched (`in_progress`), or carries more signals than one merge can move. A merged report keeps its URL but can never be restored, so merge only reports you are confident are the same issue, and use an `inbox-report-artefacts-create` `related_to` link when they are merely related.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Merge duplicate reports into one",
+        "title": "Merge duplicate reports into one",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-retrieve": {
         "description": "Get a single signal report by ID. Returns the full report, including work_state, current assignee, and the attached pull request and its latest known state, plus typed impact metrics. Every metric includes a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and may include an optional cached snapshot fallback. This call returns that stored content without executing the query. Consumers derive a BoldNumber whole-window headline and an ActionsBar longitudinal response, capped at 1,000 estimated points, through the normal analytics query path and cache. Queryless legacy or malformed metrics are always redacted. The report's full work log is readable via inbox-report-artefacts-list; read it before acting. The raw underlying signals require a HogQL query (see the 'signals' skill). Claim the report before doing work. A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed state.",
         "category": "Signals",

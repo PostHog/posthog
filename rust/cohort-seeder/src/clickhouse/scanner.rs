@@ -17,6 +17,7 @@ use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
@@ -36,7 +37,7 @@ use crate::observability::metrics::{
 
 #[derive(Clone)]
 pub struct ChunkScanner {
-    client: clickhouse::Client,
+    client: ClickHouseClient,
     /// Only what bounds the `team_id` label on the projection metrics. The scanner makes no
     /// admission decision from it — discovery already did, and re-deciding here would give one
     /// chunk a second, quieter place to be dropped.
@@ -51,7 +52,7 @@ pub struct ChunkScanner {
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
+    pub fn new(client: ClickHouseClient, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
         Self {
             client,
             allowlist,
@@ -794,7 +795,7 @@ mod tests {
     #[test]
     fn the_projection_metrics_report_each_blob_by_its_own_rule() {
         let scanner = ChunkScanner::new(
-            clickhouse::Client::default(),
+            ClickHouseClient::new(clickhouse::Client::default(), Default::default()),
             TeamAllowlist::Only(std::collections::HashSet::from([2])),
             false,
         );

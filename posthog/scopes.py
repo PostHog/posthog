@@ -137,6 +137,7 @@ APIScopeObject = Literal[
     "web_analytics",
     "webhook",
     "wizard_session",
+    "wizard_run",
 ]
 
 
@@ -211,6 +212,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
+        "wizard_run",
         "query_performance",
         # Staff-only managed-migrations (batch import) support diagnostics, also gated by
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is

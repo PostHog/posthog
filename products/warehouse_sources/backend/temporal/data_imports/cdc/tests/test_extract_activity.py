@@ -35,7 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     ChangeEventBatcher,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    cancel_running_sync,
+    stage_handed_over_reset,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
@@ -1972,14 +1975,17 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", "users-snapshot", True),
-            ("sync_stopped", None, False),
+            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, True),
+            ("sync_stopped", None, {"clear_deferred_runs": False}, False),
+            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False),
         ]
     )
-    def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(self, _name, stopping_workflow_id, waits):
+    def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
+        self, _name, stopping_workflow_id, pending, waits
+    ):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        schema.sync_type_config["cdc_reset_pending"] = pending
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -1989,15 +1995,88 @@ class TestBufferedIngressCapture:
                 return_value=stopping_workflow_id,
             ),
             patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow") as trigger,
         ):
             capture.extract()
 
         assert capture.purge.called is not waits
         assert unpause.called is not waits
+        assert trigger.called is (not waits and bool(pending.get("trigger")))
         assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
         assert capture.buffer.write_batch.called is not waits
         capture.reader.confirm_position.assert_called_once_with("0/100")
+
+    @parameterized.expand(
+        [
+            ("schedule_recreated", None, False),
+            ("recovery_failed", RuntimeError("temporal down"), True),
+        ]
+    )
+    def test_a_handed_over_reset_recreates_a_schedule_that_is_gone(self, _name, create_error, stays_pending):
+        # Unpausing a schedule that is gone succeeds silently, so the trigger is the first call to
+        # see it missing. Left there, the table would carry a reset with nothing to run it, while
+        # the request that handed the reset over would have recreated the schedule itself.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.trigger_external_data_workflow",
+                side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b""),
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.sync_external_data_job_workflow",
+                side_effect=create_error,
+            ) as create_schedule,
+        ):
+            capture.extract()
+
+        create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+        # A snapshot that never started keeps the key, so a later run repeats the reset and its start.
+        assert ("cdc_reset_pending" in schema.sync_type_config) is stays_pending
+
+    @parameterized.expand(
+        [
+            ("a_different_reset", {"clear_deferred_runs": False}),
+            ("the_same_reset_again", {"clear_deferred_runs": True, "trigger": True}),
+        ]
+    )
+    def test_a_reset_staged_while_the_snapshot_was_starting_is_left_pending(self, _name, pending):
+        # The unpause lets a sync start, so a request can hand its own reset over before this run
+        # has dropped the key. Dropping it wholesale would lose that reset with nothing to redo it.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = pending
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        staged: dict = {}
+
+        def hand_another_reset_over(_schedule_id):
+            stage_handed_over_reset(schema.sync_type_config)
+            staged.update(schema.sync_type_config["cdc_reset_pending"])
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.unpause_external_data_schedule",
+                side_effect=hand_another_reset_over,
+            ),
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow"),
+        ):
+            capture.extract()
+
+        assert schema.sync_type_config["cdc_reset_pending"] == staged
 
     def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here

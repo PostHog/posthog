@@ -1256,6 +1256,9 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.RANKING_SCORE,
         }
     )
+    # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
+    # no activity a user can see, so the artefact count and the artefact log leave them out.
+    SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1359,12 +1362,16 @@ class SignalReportArtefact(UUIDModel):
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
-        reports get counted to render 25. Reports with no artefacts are omitted.
+        reports get counted to render 25. Reports with no artefacts are omitted, and so are
+        `SYSTEM_SCORING_ARTEFACT_TYPES` rows.
         """
         if not report_ids:
             return {}
         rows = (
-            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+            cls.objects.filter(report_id__in=report_ids)
+            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .values("report_id")
+            .annotate(artefact_count=models.Count("*"))
         )
         return {str(row["report_id"]): row["artefact_count"] for row in rows}
 

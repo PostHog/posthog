@@ -22,6 +22,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
+import { WizardRunSyncFab } from 'products/wizard/frontend/runs/WizardRunSyncFab'
+
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
@@ -38,6 +40,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
 
     return (
         <>
@@ -54,7 +57,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <Command />
                 <ImpersonationNotice />
-                <WizardSyncFab />
+                {runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
                     but the doc dialog must be able to open from any surface. */}
                 <WizardHandoffDialog />

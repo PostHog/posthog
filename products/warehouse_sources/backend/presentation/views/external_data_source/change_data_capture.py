@@ -13,7 +13,12 @@ from rest_framework.response import Response
 
 from posthog.api.utils import action
 
-from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
+from products.data_warehouse.backend.facade.api import (
+    delete_cdc_extraction_schedule,
+    is_external_data_schedule_paused,
+    pause_external_data_schedule,
+    unpause_external_data_schedule,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -462,6 +467,34 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # every CDC schema — editor on the source isn't enough when a table is locked below it.
         self._assert_can_write_schemas(cdc_schemas)
         cdc_schema_ids = [schema.id for schema in cdc_schemas]
+        # The bulk update below bypasses update_should_sync, which is what pauses a table's schedule, so
+        # without this every former CDC table keeps syncing, and billing, on its old schedule. It runs
+        # first: a failed pause then fails the request while CDC still reads as enabled, so a retry
+        # repeats the whole disable instead of returning already_disabled.
+        paused_by_this_request: list[str] = []
+        try:
+            for schema_id in cdc_schema_ids:
+                # A schedule that was already paused (sync off, or a broken source) has to stay
+                # paused if this request rolls back, so only track the ones we pause ourselves.
+                already_paused = is_external_data_schedule_paused(str(schema_id))
+                pause_external_data_schedule(str(schema_id))
+                if not already_paused:
+                    paused_by_this_request.append(str(schema_id))
+        except Exception as e:
+            # Nothing else has changed yet, so undo our pauses: leaving them would stop the syncs
+            # of tables that still read as CDC-enabled, and no retry resumes them.
+            for schedule_id in paused_by_this_request:
+                try:
+                    unpause_external_data_schedule(schedule_id)
+                except Exception as resume_error:
+                    base.capture_exception(resume_error, {"source_id": str(instance.id)})
+            base.capture_exception(e, {"source_id": str(instance.id)})
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "message": "Couldn't pause the table syncs, so CDC is still on. Try disabling it again in a minute."
+                },
+            )
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk,
             team_id=instance.team_id,

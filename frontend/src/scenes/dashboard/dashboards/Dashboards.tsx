@@ -27,7 +27,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
-import { DashboardSavedViews } from 'products/dashboards/frontend/saved-views/DashboardSavedViews'
 
 import { DashboardsTableContainer } from './DashboardsTable'
 
@@ -123,8 +122,6 @@ export function Dashboards(): JSX.Element {
                 activeKey={currentTab}
                 tabs={enabledTabs}
                 sceneInset
-                rightSlot={<DashboardSavedViews />}
-                rightSlotClassName="!static !justify-start !bg-transparent"
             />
 
             <div>{dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}</div>

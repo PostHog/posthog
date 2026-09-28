@@ -47,6 +47,8 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     PriorityAssessment,
     PullRequestLink,
+    RankingModelResult,
+    RankingScore,
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind, ReportPriority
@@ -711,6 +713,26 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._priority_artefact(report, priority="P1")
         self._actionability_artefact(report, actionability="immediately_actionable")
+        served = RankingModelResult(
+            model_name="report_embeddings",
+            model_version="2026-09-01",
+            model_kind="xgboost",
+            roles=["served"],
+            feature_schema_version=1,
+            status="scored",
+            scores={"open": 0.5},
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+            content=RankingScore(
+                scored_at=timezone.now(),
+                manifest_version="manifest",
+                served_key=served.key,
+                results={served.key: served},
+            ).model_dump_json(),
+        )
 
         list_response = self.client.get(self._list_url())
         assert list_response.status_code == status.HTTP_200_OK
