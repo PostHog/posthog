@@ -70,7 +70,7 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
-from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
+from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
 from .report_metric_refresh import MAX_REPORT_METRIC_REFRESH_REPORTS
 from .report_metrics import (
@@ -2034,6 +2034,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 login_to_user=reviewer_login_map,
                 uuid_to_user=reviewer_uuid_map,
                 scout_display_names=scout_display_names,
+                manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
