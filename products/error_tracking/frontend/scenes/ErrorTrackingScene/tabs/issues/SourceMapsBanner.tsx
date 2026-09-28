@@ -65,7 +65,7 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
                                 Let the wizard set up automatic uploads in your project.
                             </div>
                         </div>
-                        <div className="flex items-center gap-4 ml-auto shrink-0">
+                        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-4 ml-auto">
                             <LemonButton type="tertiary" size="small" to={SOURCE_MAPS_DOCS_URL} targetBlank>
                                 Read docs
                             </LemonButton>
