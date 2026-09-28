@@ -1742,6 +1742,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             )
                         }
                         cache.dashboardChangesPersisted = true
+                        if (scope === 'layout') {
+                            posthog.capture('dashboard layout saved', {
+                                layout_compaction:
+                                    latestDashboard.customization?.layout_compaction ??
+                                    DashboardGridCompaction.Vertical,
+                            })
+                        }
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -4055,6 +4062,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
+                posthog.capture('dashboard tile movement configured', { layout_compaction: layoutCompaction })
             } catch (error) {
                 posthog.captureException(error)
                 if (!cache.pendingDashboardGridCompaction) {

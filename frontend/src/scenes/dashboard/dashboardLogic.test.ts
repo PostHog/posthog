@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -444,6 +445,7 @@ describe('dashboardLogic', () => {
 
         it('previews layout compaction immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
+            const capture = jest.spyOn(posthog, 'capture')
             ;(api.update as jest.Mock).mockClear()
             jest.useFakeTimers()
 
@@ -466,7 +468,11 @@ describe('dashboardLogic', () => {
                     layout_compaction: DashboardGridCompaction.Horizontal,
                     grid_spacing: 'standard',
                 })
+                expect(capture).toHaveBeenCalledWith('dashboard tile movement configured', {
+                    layout_compaction: DashboardGridCompaction.Horizontal,
+                })
             } finally {
+                capture.mockRestore()
                 jest.useRealTimers()
             }
         })
@@ -518,6 +524,7 @@ describe('dashboardLogic', () => {
 
         it('saving after layout change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
+            const capture = jest.spyOn(posthog, 'capture')
 
             const initialDashboard = logic.values.dashboard
             expect(initialDashboard).not.toBeNull()
@@ -554,8 +561,17 @@ describe('dashboardLogic', () => {
                 })
             )
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            for (const savedTile of payload.tiles) {
+                expect(savedTile.layouts).toEqual({
+                    sm: modifiedLayouts.sm.find((item: { i: string }) => item.i === String(savedTile.id)),
+                })
+            }
             expect(payload).not.toHaveProperty('breakdown_colors')
             expect(payload).not.toHaveProperty('data_color_theme_id')
+            expect(capture).toHaveBeenCalledWith('dashboard layout saved', {
+                layout_compaction: DashboardGridCompaction.Vertical,
+            })
+            capture.mockRestore()
             expect(logic.values.hasUnsavedColorChanges).toBe(true)
         })
 

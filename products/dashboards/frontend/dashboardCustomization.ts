@@ -83,6 +83,29 @@ export function resolveFreePlacementCollisions(layout: Layout, cols: number, act
         h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
     }))
     const activeTile = activeTileId ? items.find((item) => item.i === activeTileId) : undefined
+    if (activeTile && !activeTile.static && !items.some((item) => item.static)) {
+        const overlappingItems = items.filter(
+            (item) =>
+                item.i !== activeTileId &&
+                item.x < activeTile.x + activeTile.w &&
+                item.x + item.w > activeTile.x &&
+                item.y < activeTile.y + activeTile.h &&
+                item.y + item.h > activeTile.y
+        )
+
+        if (overlappingItems.length > 0) {
+            const firstCollisionRow = Math.min(...overlappingItems.map((item) => item.y))
+            const firstAffectedRow = Math.min(activeTile.y, firstCollisionRow)
+            const shift = activeTile.y + activeTile.h - firstCollisionRow
+            for (const item of items) {
+                if (item.i !== activeTileId && item.y >= firstAffectedRow) {
+                    item.y += shift
+                }
+            }
+            return items
+        }
+    }
+
     const occupancy: GridOccupancy = new Map()
     for (const item of items) {
         if (item.static) {
