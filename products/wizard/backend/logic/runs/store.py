@@ -181,6 +181,8 @@ def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
     runs = WizardRun.objects.for_team(params.team_id).select_related("created_by").order_by("-created_at")
     if params.statuses:
         runs = runs.filter(status__in=params.statuses)
+    if params.created_after:
+        runs = runs.filter(created_at__gte=params.created_after)
     page = runs[params.offset : params.offset + params.limit]
     results: list[WizardRunDTO] = []
     for run in page:

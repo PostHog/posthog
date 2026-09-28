@@ -8,7 +8,8 @@ import { wizardRunIsActive } from '../wizardRunDisplay'
 const RUN_POLL_MS = 30_000
 // ponytail: show five active and five completed runs; the Wizard page lists the rest.
 const RUN_LIST_LIMIT = 5
-const WIZARD_RUN_SYNC_FAB_FIRST_RUN_AT = Date.parse('2026-09-28T12:41:55Z')
+// The FAB must not reopen for runs started before its rollout. Use a round cutoff after the first release.
+const WIZARD_RUN_SYNC_FAB_RELEASED_AFTER = '2026-09-28T13:00:00Z'
 
 type RunStreamState = Pick<
     WizardRunApi,
@@ -134,20 +135,21 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
                     wizardRunsList(logicProps.projectId, {
                         status: ['created', 'running'],
                         limit: RUN_LIST_LIMIT,
+                        created_after: WIZARD_RUN_SYNC_FAB_RELEASED_AFTER,
                     }),
-                    wizardRunsList(logicProps.projectId, { status: ['completed'], limit: RUN_LIST_LIMIT }),
+                    wizardRunsList(logicProps.projectId, {
+                        status: ['completed'],
+                        limit: RUN_LIST_LIMIT,
+                        created_after: WIZARD_RUN_SYNC_FAB_RELEASED_AFTER,
+                    }),
                 ])
                 const activeRuns = activePage.results.filter(
-                    (run) =>
-                        Date.parse(run.created_at) >= WIZARD_RUN_SYNC_FAB_FIRST_RUN_AT &&
-                        !completedPage.results.some((completedRun) => completedRun.id === run.id)
+                    (run) => !completedPage.results.some((completedRun) => completedRun.id === run.id)
                 )
-                const completedRuns = completedPage.results.filter(
-                    (run) => Date.parse(run.created_at) >= WIZARD_RUN_SYNC_FAB_FIRST_RUN_AT
-                )
-                const activeCount =
-                    activeRuns.length === activePage.results.length ? activePage.count : activeRuns.length
-                actions.runsLoaded(activeCount, [...activeRuns, ...completedRuns])
+                actions.runsLoaded(activePage.count - (activePage.results.length - activeRuns.length), [
+                    ...activeRuns,
+                    ...completedPage.results,
+                ])
             } catch {
                 return
             } finally {

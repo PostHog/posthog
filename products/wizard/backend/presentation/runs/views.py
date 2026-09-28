@@ -5,6 +5,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -78,7 +79,12 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 style="form",
                 explode=False,
                 description="Filter by one or more comma-separated run statuses.",
-            )
+            ),
+            OpenApiParameter(
+                name="created_after",
+                type=OpenApiTypes.DATETIME,
+                description="Filter to runs created at or after this ISO 8601 timestamp.",
+            ),
         ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )

@@ -63,12 +63,13 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
-The app-wide sync widget polls this summary and also fetches the five most recently created completed runs with `?status=completed&limit=5`.
+The optional `created_after` filter accepts an ISO 8601 timestamp with a timezone. It applies before pagination, so `count` includes only runs created at or after that timestamp.
+The app-wide sync widget uses this filter to exclude runs started before its rollout. It polls the active summary and also fetches the five most recently created completed runs with the same cutoff.
 It opens one event stream for the displayed active run. Completed runs do not open a stream.
 It shows the newest active run by default, or the newest completed run when none are active.
 The selector lists up to five active and five completed runs by workspace and status, with the selected run marked and the total active count shown separately.
 The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
-Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent completed runs remain available after reloading unless dismissed.
+Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads. "Don't show this run again" hides that run in this browser, while "Dismiss all runs" hides every listed run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent completed runs remain available after reloading unless dismissed.
 The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.

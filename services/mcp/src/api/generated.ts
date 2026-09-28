@@ -118701,6 +118701,10 @@ export namespace Schemas {
 
     export type WizardRunsListParams = {
     /**
+     * Filter to runs created at or after this ISO 8601 timestamp.
+     */
+    created_after?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;

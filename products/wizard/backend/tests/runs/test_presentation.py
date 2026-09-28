@@ -1,3 +1,4 @@
+from datetime import timedelta
 from hashlib import sha256
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -165,6 +167,48 @@ class TestWizardRunViewSet(APIBaseTest):
         self.assertEqual([run["id"] for run in completed_response.json()["results"]], [run_ids[1]])
 
         invalid_response = self.client.get(f"{self._url()}?status=unknown")
+        self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_runs_filters_by_creation_time(self) -> None:
+        old_run = self.client.post(
+            self._url(),
+            {
+                "program_id": "posthog-integration",
+                "environment": "local",
+                "workspace": {"type": "local_folder", "project_name": "old-project"},
+            },
+            format="json",
+        ).json()
+        self.client.post(
+            self._url(),
+            {
+                "program_id": "posthog-integration",
+                "environment": "local",
+                "workspace": {"type": "local_folder", "project_name": "recent-project"},
+            },
+            format="json",
+        ).json()
+        newest_run = self.client.post(
+            self._url(),
+            {
+                "program_id": "posthog-integration",
+                "environment": "local",
+                "workspace": {"type": "local_folder", "project_name": "newest-project"},
+            },
+            format="json",
+        ).json()
+        cutoff = timezone.now() - timedelta(days=1)
+        WizardRun.objects.for_team(self.team.id).filter(id=old_run["id"]).update(
+            created_at=cutoff - timedelta(seconds=1)
+        )
+
+        response = self.client.get(f"{self._url()}?created_after={cutoff.isoformat().replace('+00:00', 'Z')}&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual([run["id"] for run in response.json()["results"]], [newest_run["id"]])
+
+        invalid_response = self.client.get(f"{self._url()}?created_after=not-a-date")
         self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_requires_program_id(self) -> None:
