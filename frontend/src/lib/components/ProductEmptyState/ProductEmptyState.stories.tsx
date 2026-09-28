@@ -353,13 +353,10 @@ export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
     },
 }
 
-const errorTrackingWaitingForDataNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'waiting-for-data', {
-    mocks: errorTrackingMocks,
-})
 export const ErrorTrackingWaitingForDataNewWizard: ProductEmptyStateStory = {
-    ...errorTrackingWaitingForDataNewWizard,
+    ...ErrorTrackingWaitingForData,
     parameters: {
-        ...errorTrackingWaitingForDataNewWizard.parameters,
+        ...ErrorTrackingWaitingForData.parameters,
         featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
     },
 }
