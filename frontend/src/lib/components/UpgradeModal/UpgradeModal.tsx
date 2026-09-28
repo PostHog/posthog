@@ -6,6 +6,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
+import { AvailableFeature } from '~/types'
+
+import { ResourceAccessControlHint } from './ResourceAccessControlHint'
 import { upgradeModalLogic } from './upgradeModalLogic'
 
 const HedgehogRemoteWork = pngHoggie(remoteWork)
@@ -67,6 +70,9 @@ export function UpgradeModal(): JSX.Element {
                         us know 🙂
                     </div>
                 </PayGateMini>
+                {upgradeModalFeatureKey === AvailableFeature.ROLE_BASED_ACCESS && (
+                    <ResourceAccessControlHint onNavigate={hideUpgradeModal} />
+                )}
             </div>
         </LemonModal>
     )
