@@ -191,8 +191,8 @@ function computeLinkBreadths<N extends SankeyExtraProperties, L extends SankeyEx
 // ---- Main sankey factory ----
 
 export function sankeyLayout<
-    N extends SankeyExtraProperties = SankeyExtraProperties,
-    L extends SankeyExtraProperties = SankeyExtraProperties,
+    N extends SankeyExtraProperties = { id: string },
+    L extends SankeyExtraProperties = { source: string; target: string; value: number },
 >(): SankeyLayout<N, L> {
     let x0 = 0,
         y0 = 0,

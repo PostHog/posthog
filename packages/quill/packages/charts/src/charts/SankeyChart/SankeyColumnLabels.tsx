@@ -26,9 +26,10 @@ export function SankeyColumnLabels({ labels, color }: SankeyColumnLabelsProps): 
     const lastColumn = layout.columnCount - 1
     return (
         <>
-            {layout.columnX.map((x, column) => {
+            {Array.from({ length: layout.columnCount }, (_, column) => {
+                const x = layout.columnX[column]
                 const label = labels[column]
-                if (!label) {
+                if (!label || x === undefined) {
                     return null
                 }
                 let placement: React.CSSProperties

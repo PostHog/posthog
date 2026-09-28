@@ -150,6 +150,21 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
     }
 
+    const nodeIds = new Set<string>()
+    for (const node of nodes) {
+        if (nodeIds.has(node.id)) throw new Error(`duplicate Sankey node id: ${node.id}`)
+        nodeIds.add(node.id)
+    }
+    for (const link of links) {
+        if (!Number.isFinite(link.value) || link.value < 0) {
+            throw new Error(`Sankey link value must be a finite non-negative number: ${link.value}`)
+        }
+        if (!nodeIds.has(link.source) || !nodeIds.has(link.target)) {
+            throw new Error(`Sankey link refers to a missing node: ${link.source} -> ${link.target}`)
+        }
+    }
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, nodes.length - 1))
+
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
         const label = node.label ?? node.id
@@ -167,7 +182,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         .nodeId((node) => node.id)
         .nodeAlign(ALIGNMENTS[nodeAlign])
         .nodeSort(preserveNodeOrder ? null : undefined)
-        .nodeWidth(nodeWidth)
+        .nodeWidth(effectiveNodeWidth)
         .nodePadding(nodePadding)
         .extent([
             [plot.plotLeft, plot.plotTop],
@@ -210,7 +225,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const columnCount = Math.max(0, ...graph.nodes.map((node) => node.layer + 1))
     const columnX: number[] = []
     for (const node of graph.nodes) {
-        columnX[node.layer] = node.x0
+        columnX[node.layer] = Math.min(columnX[node.layer] ?? Infinity, node.x0)
     }
 
     const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
@@ -220,7 +235,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
     }
 
-    return { nodes: outNodes, links: outLinks, columnCount, columnX, total, nodeWidth }
+    return { nodes: outNodes, links: outLinks, columnCount, columnX, total, nodeWidth: effectiveNodeWidth }
 }
 
 export type SankeyHit = { kind: 'node'; index: number } | { kind: 'link'; index: number }

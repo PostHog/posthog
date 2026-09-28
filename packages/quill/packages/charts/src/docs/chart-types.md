@@ -79,7 +79,7 @@ A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex,
 Flow between stages: `nodes: { id, label?, color?, meta? }[]` and `links: { source, target, value, color?, meta? }[]`, where `source` and `target` are node ids.
 There is no `series` or `labels`.
 
-- The graph must be acyclic and every link must name existing nodes; the layout throws otherwise, and the chart's error boundary reports it through `onError`.
+- Node ids must be unique. The graph must be acyclic, every link must name existing nodes, and link values must be finite and non-negative; the layout throws otherwise, and the chart's error boundary reports it through `onError`.
   A node that recurs at several stages (the same tool called twice) needs one id per stage, so prefix ids with the stage.
 - Nodes that share a `label` share a palette color, so a repeated tool keeps one hue across columns.
   A link without `color` takes its source node's color.
