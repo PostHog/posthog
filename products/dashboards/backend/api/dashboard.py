@@ -1050,7 +1050,7 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
 
 
 class InsightResultSerializer(InsightSerializer):
-    """InsightSerializer restricted to identifiers + result only."""
+    """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
     class Meta:
         model = Insight
@@ -1060,6 +1060,7 @@ class InsightResultSerializer(InsightSerializer):
             "name",
             "derived_name",
             "result",
+            "warnings",
         ]
         read_only_fields = fields
 
