@@ -891,6 +891,7 @@ def wait_for_health_check(
 
 
 HEALTH_CURL_MAX_TIME_SECONDS = 2
+SETUP_HOOKS_BUDGET_SECONDS = 630
 
 
 def build_health_check_command(
@@ -904,8 +905,10 @@ def build_health_check_command(
     # The attempt count assumes an instant poll. A poll that waits on curl or python startup
     # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
     budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
+    hooks_budget_seconds = max(budget_seconds, SETUP_HOOKS_BUDGET_SECONDS)
+    hooks_max_attempts = max(max_attempts, int(hooks_budget_seconds / poll_interval) if poll_interval > 0 else 0)
     return (
-        "SECONDS=0; i=0; while :; do "
+        f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
         f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
@@ -916,10 +919,13 @@ def build_health_check_command(
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
-        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
-        f'\' "$body" && echo "ok:$i" && exit 0; '
+        'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
+        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        '\' "$body"; ready=$?; '
+        '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
-        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
+        '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
         "done"
     )
@@ -930,7 +936,8 @@ def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0
 
 
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
+    budget_seconds = max(health_check_budget_seconds(max_attempts, poll_interval), SETUP_HOOKS_BUDGET_SECONDS)
+    return max(30, budget_seconds + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]
