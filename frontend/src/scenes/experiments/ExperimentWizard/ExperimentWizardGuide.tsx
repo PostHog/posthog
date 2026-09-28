@@ -26,8 +26,9 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
         ],
     },
     variants: {
-        title: 'Configuring variants',
+        title: 'Variants',
         tips: [
+            "A variant is one version of what you're testing, like your current page (control) and the change you want to try (test).",
             'The more variants you add, the more traffic you need to get reliable results.',
             'It is recommended to split traffic equally between variants. The lower the traffic a variant has, the longer it will take to reach reliable results.',
         ],
