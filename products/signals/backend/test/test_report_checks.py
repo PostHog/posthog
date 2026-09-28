@@ -1258,6 +1258,7 @@ class TestCheckResultTool(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("its_report_is_ready", SignalReport.Status.READY, timedelta(days=30)),
             ("its_report_is_suppressed", SignalReport.Status.SUPPRESSED, timedelta(days=30)),
             ("its_horizon_passed", SignalReport.Status.RESOLVED, -timedelta(minutes=1)),
         ]

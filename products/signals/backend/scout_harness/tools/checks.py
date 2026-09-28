@@ -35,11 +35,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
-from products.signals.backend.report_check_execution import (
-    CHECKABLE_REPORT_STATUSES,
-    CheckVerdict,
-    record_check_verdict,
-)
+from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
@@ -73,7 +69,7 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
     is `due` to a run only when the coordinator would dispatch it too.
     """
-    if report_status not in CHECKABLE_REPORT_STATUSES:
+    if report_status != SignalReport.Status.RESOLVED:
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
