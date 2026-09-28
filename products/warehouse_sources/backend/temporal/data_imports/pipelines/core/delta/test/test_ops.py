@@ -47,7 +47,7 @@ class TestExecuteWithConflictRetry:
     DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
     conflict instead of refreshing the table and re-running the operation, as the error's own
     "must be rerun" message calls for. Shared by merges, overwrite/append writes, and
-    `compact_table`'s optimize.compact."""
+    `compact_if_fragmented`'s optimize.compact."""
 
     @pytest.mark.asyncio
     async def test_succeeds_without_retry(self):

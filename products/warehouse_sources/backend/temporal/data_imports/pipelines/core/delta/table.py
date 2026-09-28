@@ -13,9 +13,6 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    conditional_lru_cache_async,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_delta_maintenance_error,
@@ -163,6 +160,7 @@ class DeltaTableRef:
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
     _is_first_sync: bool
+    _cached_table: deltalake.DeltaTable | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -171,6 +169,7 @@ class DeltaTableRef:
         self._job = job
         self._logger = logger
         self._is_first_sync = is_first_sync
+        self._cached_table = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -239,8 +238,32 @@ class DeltaTableRef:
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
 
-    @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
     async def get_delta_table(self) -> deltalake.DeltaTable | None:
+        """Open the table once and hand back the same handle for the rest of this ref's life.
+
+        The cache is per instance on purpose. A process-wide slot lets any other table in flight on
+        the same worker evict this one's handle, and every re-open is a full Delta-log replay against
+        object storage. Writes through the handle keep it current, so it stays valid until this ref's
+        own `invalidate_cached_table` (reset, repartition swap) says otherwise. A missing table is
+        never cached, so a table created after the first probe is found by the next call.
+        """
+        if self._cached_table is not None:
+            return self._cached_table
+        table = await self._open_delta_table()
+        self._cached_table = table
+        return table
+
+    def invalidate_cached_table(self) -> None:
+        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log."""
+        self._cached_table = None
+
+    def pop_cached_table(self) -> deltalake.DeltaTable | None:
+        """Release the cached handle without opening the table, for end-of-run memory cleanup."""
+        table = self._cached_table
+        self._cached_table = None
+        return table
+
+    async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
@@ -335,7 +358,7 @@ class DeltaTableRef:
             except FileNotFoundError:
                 pass
 
-        self.get_delta_table.cache_clear()
+        self.invalidate_cached_table()
 
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True

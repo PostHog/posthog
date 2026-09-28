@@ -470,6 +470,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         keywords: "grid tasks parallel dashboard",
         icon: <SquaresFourIcon size={12} className="text-muted-foreground" />,
         action: "open-command-center",
+        shortcut: SHORTCUTS.COMMAND_CENTER,
         onRun: () => {
           closeSettingsDialog();
           navigateToCommandCenter();
