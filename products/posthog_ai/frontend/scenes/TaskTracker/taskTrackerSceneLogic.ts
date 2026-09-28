@@ -957,6 +957,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()

@@ -2,9 +2,6 @@ import { MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
 
 import type { AttachedContextItem } from '../types/contextTypes'
 
-// A prompt to prefill into the composer, plus whether to submit it straight away. Kept deliberately
-// generic — the Max-specific `!`/`mode=` command-string parsing happens in the consuming app before the
-// seed reaches this surface, so this seam never learns the side-panel option format.
 export interface ComposerSeed {
     prompt: string
     autoSubmit: boolean

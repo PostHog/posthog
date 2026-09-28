@@ -344,7 +344,10 @@ describe('taskTrackerSceneLogic', () => {
             })
             logic.mount()
             router.actions.push('/tasks/new')
-            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            logic.actions.setNewTaskData({
+                description: 'Explain the example chart',
+                seedContextItems: [{ type: 'skill', key: 'example-skill' }],
+            })
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
@@ -369,6 +372,7 @@ describe('taskTrackerSceneLogic', () => {
             expect(logic.values.newTaskData.description).toBe(
                 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
+            expect(logic.values.newTaskData.seedContextItems).toEqual([{ type: 'skill', key: 'example-skill' }])
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
@@ -559,7 +563,7 @@ describe('taskTrackerSceneLogic', () => {
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
-    it.each(['scene', 'seed'])(
+    it.each(['scene', 'seed', 'both'])(
         'marks %s context sent for the created task without adding it to later sends',
         async (source) => {
             logic.mount()
@@ -567,8 +571,13 @@ describe('taskTrackerSceneLogic', () => {
                 { type: 'insight', key: 'sig', label: 'Signups' },
                 { type: 'text', value: 'always resend me' },
             ]
+            if (source !== 'seed') {
+                attachedContextLogic().actions.registerContext(
+                    'scene',
+                    source === 'both' ? [{ type: 'insight', key: 'scene-sig', label: 'Scene signups' }] : contextItems
+                )
+            }
             if (source === 'scene') {
-                attachedContextLogic().actions.registerContext('scene', contextItems)
                 logic.actions.setNewTaskData({ description: 'why the drop?' })
                 logic.actions.submitNewTask()
             } else {
@@ -579,10 +588,17 @@ describe('taskTrackerSceneLogic', () => {
 
             expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
             expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+            expect(runBody?.pending_user_message).toContain(
+                source === 'both' ? '- insight scene-sig ("Scene signups")' : '- insight sig ("Signups")'
+            )
             expect(createBody?.description).toBe('why the drop?')
-            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
+                'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
+            })
             expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
-            expect(attachedContextLogic().values.contextItems).toHaveLength(source === 'seed' ? 0 : 2)
+            expect(attachedContextLogic().values.contextItems).toHaveLength(
+                source === 'seed' ? 0 : source === 'both' ? 1 : 2
+            )
         }
     )
 
