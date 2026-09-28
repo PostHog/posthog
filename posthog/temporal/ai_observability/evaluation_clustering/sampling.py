@@ -119,7 +119,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         filter_exprs = [property_to_expr(f, team) for f in inputs.event_filters]
         filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
-    # boffin: the embedding formatter cannot represent numeric or categorical results.
+    # The embedding formatter cannot represent numeric or categorical results.
     query = parse_select(
         """
         SELECT
