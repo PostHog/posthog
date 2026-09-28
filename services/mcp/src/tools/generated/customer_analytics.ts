@@ -1832,7 +1832,7 @@ const FeatureRequestsPartialUpdateSchema = () => {
     const FeatureRequestsPartialUpdateParams = orvalSchemas.FeatureRequestsPartialUpdateParams()
     return FeatureRequestsPartialUpdateParams.omit({ project_id: true })
         .extend(FeatureRequestsPartialUpdateBody.shape)
-        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].unwrap() })
+        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].nonoptional() })
 }
 
 const featureRequestsPartialUpdate = (): ToolBase<

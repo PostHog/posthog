@@ -31,6 +31,7 @@ from ..constants import (
     build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
+from .amazon_ads import AmazonAdsAdapter
 from .apple_search_ads import AppleSearchAdsAdapter
 from .base import (
     BingAdsConfig,
@@ -48,6 +49,7 @@ from .base import (
 )
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
+from .openai_ads import OpenAIAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
 
 logger = structlog.get_logger(__name__)
@@ -78,7 +80,9 @@ class MarketingSourceFactory:
     # Registry of adapter classes
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
+        "AmazonAds": AmazonAdsAdapter,
         "AppleSearchAds": AppleSearchAdsAdapter,
+        "OpenAIAds": OpenAIAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -99,7 +103,9 @@ class MarketingSourceFactory:
     # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
     # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "AmazonAds": (NativeMarketingSource.AMAZON_ADS, HierarchicalNativeAdsConfig),
         "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
+        "OpenAIAds": (NativeMarketingSource.OPEN_AI_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
