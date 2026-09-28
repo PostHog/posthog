@@ -33,6 +33,7 @@ from products.signals.backend.report_check_agent import (
     CHECK_DISPATCH_DEFER_AFTER,
     FALLBACK_CHECK_SKILL_NAME,
     build_check_run_note,
+    reactivate_checks_errored_by_scout_pause,
     resolve_check_skill_name,
     run_agent_check,
 )
@@ -1063,9 +1064,8 @@ class TestAgentCheckDispatch(APIBaseTest):
 
         scout_config.enabled = True
         scout_config.save()
-        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
-            next_run_at=timezone.now() - timedelta(minutes=1)
-        )
+        check.refresh_from_db()
+        assert check.next_run_at <= timezone.now()
         with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
             summary = run_due_report_checks()
 
@@ -1120,19 +1120,63 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert check.dispatched_at is None
         assert check.status == SignalReportCheck.Status.ACTIVE
 
-    def test_a_run_that_never_records_a_result_errors_the_check(self) -> None:
+    @parameterized.expand([("live_lane", True), ("paused_lane", False)])
+    def test_a_run_that_never_records_a_result_errors_the_check_unless_its_lane_is_paused(
+        self, _name, lane_enabled
+    ) -> None:
         now = timezone.now()
         check = self._check(dispatched_at=now - AGENT_CHECK_RESULT_WINDOW, next_run_at=now - timedelta(minutes=1))
+        self.scout_config.enabled = lane_enabled
+        self.scout_config.save()
 
         with patch(_CONNECT), patch(_DISPATCH) as dispatch:
             summary = run_due_report_checks()
 
-        assert summary.errored == 1
         dispatch.assert_not_called()
         check.refresh_from_db()
         assert check.dispatched_at is None
-        assert check.consecutive_errors == 1
-        assert "ended without recording a result" in self._results()[0].content
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        if lane_enabled:
+            assert summary.errored == 1
+            assert check.consecutive_errors == 1
+            assert "ended without recording a result" in self._results()[0].content
+        else:
+            assert summary.deferred == 1
+            assert check.consecutive_errors == 0
+            assert self._results() == []
+            assert check.next_run_at > now + CHECK_DISPATCH_DEFER_AFTER - timedelta(minutes=5)
+
+    @parameterized.expand(
+        [
+            (
+                "paused_refusal",
+                "The `signals-scout-inbox-validation` scout is paused, so the check could not run.",
+                True,
+            ),
+            ("other_error", "the follow-up run ended without recording a result.", False),
+        ]
+    )
+    def test_the_repair_reactivates_only_checks_a_paused_refusal_retired(self, _name, reason, reactivated) -> None:
+        check = self._check(consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1)
+        record_check_verdict(
+            check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {reason}"), now=timezone.now()
+        )
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ERRORED
+
+        dry_run = reactivate_checks_errored_by_scout_pause(apply=False)
+        summary = reactivate_checks_errored_by_scout_pause(apply=True)
+
+        assert (dry_run.matched, dry_run.reactivated) == (int(reactivated), 0)
+        assert summary.reactivated == int(reactivated)
+        check.refresh_from_db()
+        if reactivated:
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.consecutive_errors == 0
+            with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1"):
+                assert run_due_report_checks().dispatched == 1
+        else:
+            assert check.status == SignalReportCheck.Status.ERRORED
 
 
 class TestCheckResultTool(APIBaseTest):
