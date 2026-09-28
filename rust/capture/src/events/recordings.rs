@@ -272,17 +272,17 @@ pub async fn process_replay_events(
     )
     .await
     {
-        // The batch collapses into one message carrying one distinct_id, so a
-        // truncation is always exactly one modified id: `count` is 1 and the
-        // sample is never an arbitrary pick among several.
-        Ok(truncated_sample) => {
-            if truncated_sample.is_some() {
+        // Each session becomes one message carrying one distinct_id, so the count
+        // is the number of messages whose id was cut.
+        Ok(truncated_samples) => {
+            let count = truncated_samples.len() as u64;
+            if let Some(sample) = truncated_samples.into_iter().next() {
                 emit_distinct_id_truncated_warning(
                     ingestion_warning_emitter.as_deref(),
                     &request_context(context),
                     CAPTURE_REPLAY,
-                    truncated_sample,
-                    1,
+                    Some(sample),
+                    count,
                 );
             }
             return Ok(());
@@ -344,20 +344,130 @@ impl ReplayAbort {
     }
 }
 
-/// Returns the truncated-distinct_id sample when the ingested id was cut down to
-/// the 200-char cap, for the caller to warn about. `None` means nothing was
-/// modified, including when the request was dropped by an event restriction and
-/// so ingested nothing to warn about.
+/// The snapshots of one `$session_id` within a request.
+struct SessionEvents {
+    session_id: Option<Value>,
+    events: Vec<RawRecording>,
+}
+
+/// Split a request into one group per `$session_id`, in order of first appearance.
+///
+/// SDK replay queues can flush the end of one session and the start of the next
+/// in the same request, for example after the app is killed before a flush. Each
+/// session must become its own message, or the frames of the new session land in
+/// the old recording.
+///
+/// An event without a `$session_id` joins the group of the event before it. A
+/// first event without one gets its own group, which the caller rejects.
+fn group_by_session_id(events: Vec<RawRecording>) -> Vec<SessionEvents> {
+    let mut groups: Vec<SessionEvents> = Vec::new();
+    let mut current: Option<usize> = None;
+
+    for mut event in events {
+        let index = match event.properties.session_id.take() {
+            None => current.unwrap_or_else(|| {
+                groups.push(SessionEvents {
+                    session_id: None,
+                    events: Vec::new(),
+                });
+                groups.len() - 1
+            }),
+            Some(session_id) => {
+                match groups
+                    .iter()
+                    .position(|g| g.session_id.as_ref() == Some(&session_id))
+                {
+                    Some(index) => index,
+                    None => {
+                        groups.push(SessionEvents {
+                            session_id: Some(session_id),
+                            events: Vec::new(),
+                        });
+                        groups.len() - 1
+                    }
+                }
+            }
+        };
+        groups[index].events.push(event);
+        current = Some(index);
+    }
+
+    groups
+}
+
+/// Returns one sample per ingested distinct_id that was cut down to the
+/// 200-char cap, for the caller to warn about. An empty list means nothing was
+/// modified, including when event restrictions dropped every session and so
+/// nothing was ingested to warn about.
+///
+/// Every session is validated before anything is published, so an invalid
+/// session still rejects the whole request.
 async fn process_replay_events_inner(
     outputs: Arc<OutputRegistry>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
     context: &ProcessingContext,
-) -> Result<Option<(String, usize, Uuid)>, ReplayAbort> {
+) -> Result<Vec<(String, usize, Uuid)>, ReplayAbort> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
     Span::current().record("request_id", &context.request_id);
+
+    if events.is_empty() {
+        return Err(CaptureError::EmptyBatch.into());
+    }
+
+    let sessions = group_by_session_id(events);
+    if sessions.len() > 1 {
+        counter!("capture_replay_mixed_session_requests_total").increment(1);
+    }
+
+    let mut processed_events = Vec::with_capacity(sessions.len());
+    let mut truncated_samples = Vec::new();
+    for session in sessions {
+        let Some(message) = build_session_message(
+            session,
+            restriction_service.as_ref(),
+            replay_overflow_limiter.as_deref(),
+            context,
+        )
+        .await?
+        else {
+            continue;
+        };
+        truncated_samples.extend(message.truncated_sample);
+        processed_events.push(message.event);
+    }
+
+    if processed_events.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    histogram!("capture_event_batch_size").record(processed_events.len() as f64);
+    outputs.publish(processed_events).await?;
+
+    debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
+
+    Ok(truncated_samples)
+}
+
+/// One `$snapshot_items` message, with the truncated-distinct_id sample when its
+/// id was cut down to the 200-char cap.
+struct SessionMessage {
+    event: ProcessedEvent,
+    truncated_sample: Option<(String, usize, Uuid)>,
+}
+
+/// Build the `$snapshot_items` message for one session. Returns `None` when an
+/// event restriction drops the session.
+async fn build_session_message(
+    session: SessionEvents,
+    restriction_service: Option<&EventRestrictionService>,
+    replay_overflow_limiter: Option<&RedisLimiter>,
+    context: &ProcessingContext,
+) -> Result<Option<SessionMessage>, ReplayAbort> {
+    let chatty_debug_enabled = context.chatty_debug_enabled;
+    let events = session.events;
 
     // Compute the actual event timestamp using our timestamp parsing logic from the first event
     let sent_at_utc = context.sent_at.map(|sa| {
@@ -395,11 +505,7 @@ async fn process_replay_events_inner(
         .ok_or(CaptureError::InvalidCookielessMode)?;
 
     // Take metadata fields by ownership (no clone!)
-    let session_id = first_event
-        .properties
-        .session_id
-        .take()
-        .ok_or(CaptureError::MissingSessionId)?;
+    let session_id = session.session_id.ok_or(CaptureError::MissingSessionId)?;
 
     // Validate session_id. Split into two checks so the ingestion warning can
     // name which rule the id broke; the accept/reject outcome is unchanged, and
@@ -425,7 +531,7 @@ async fn process_replay_events_inner(
     Span::current().record("session_id", session_id_str);
 
     // Apply event restrictions
-    let applied = if let Some(ref service) = restriction_service {
+    let applied = if let Some(service) = restriction_service {
         let uuid_str = uuid.to_string();
         let event_ctx = RestrictionEventContext {
             distinct_id: Some(&distinct_id),
@@ -539,7 +645,7 @@ async fn process_replay_events_inner(
         // needed in that case (None leaves room for `force_overflow` to drive
         // the sink's routing switch without double-stamping).
         None
-    } else if let Some(ref limiter) = replay_overflow_limiter {
+    } else if let Some(limiter) = replay_overflow_limiter {
         let started = Instant::now();
         let is_overflowing = limiter.is_limited(session_id_str).await;
         histogram!("capture_pipeline_replay_overflow_check_duration_seconds")
@@ -600,15 +706,10 @@ async fn process_replay_events_inner(
         historical_migration: context.historical_migration,
     };
 
-    // One `$snapshot_items` event per call.
-    histogram!("capture_event_batch_size").record(1.0);
-    outputs
-        .publish(vec![ProcessedEvent { metadata, event }])
-        .await?;
-
-    debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
-
-    Ok(truncated_sample)
+    Ok(Some(SessionMessage {
+        event: ProcessedEvent { metadata, event },
+        truncated_sample,
+    }))
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool
@@ -1644,20 +1745,85 @@ mod tests {
         assert_eq!(emitted[0].warning, WarningType::MissingDistinctId);
     }
 
-    // A later event's missing snapshot data aborts the whole request, so the
-    // warning must charge every event in it, not just the offending one.
+    // A later event's invalid data aborts the whole request, so the warning must
+    // charge every event in it, not just the offending one.
+    #[rstest]
+    #[case::missing_snapshot_data(json!({"$session_id": "s"}), WarningType::MissingSnapshotData)]
+    #[case::invalid_session_id(
+        json!({"$session_id": "not a valid id", "$snapshot_data": [{"type": 1}]}),
+        WarningType::InvalidSessionId
+    )]
     #[tokio::test]
-    async fn a_later_events_bad_snapshot_data_charges_the_whole_batch() {
+    async fn a_later_events_bad_data_charges_the_whole_batch(
+        #[case] bad_properties: Value,
+        #[case] expected: WarningType,
+    ) {
         let good = recording_with_properties(json!({
             "$session_id": "s", "$snapshot_data": [{"type": 1}]
         }));
-        let bad = recording_with_properties(json!({"$session_id": "s"}));
+        let bad = recording_with_properties(bad_properties);
 
         let emitted = warnings_from_replay(vec![good, bad]).await;
 
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0].warning, WarningType::MissingSnapshotData);
+        assert_eq!(emitted[0].warning, expected);
         assert_eq!(emitted[0].count, 2);
+    }
+
+    // SDK replay queues can flush the end of one session together with the start
+    // of the next. Filing all of it under the first session id moves the new
+    // session's first frames into the old recording.
+    #[tokio::test]
+    async fn a_request_that_spans_sessions_emits_one_message_per_session() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let recordings = vec![
+            recording_with_properties(json!({"$session_id": "old", "$snapshot_data": [{"n": 1}]})),
+            recording_with_properties(json!({"$session_id": "new", "$snapshot_data": [{"n": 2}]})),
+            recording_with_properties(json!({"$snapshot_data": [{"n": 3}]})),
+            recording_with_properties(json!({"$session_id": "old", "$snapshot_data": [{"n": 4}]})),
+        ];
+
+        process_replay_events(
+            outputs,
+            None,
+            None,
+            None,
+            recordings,
+            &create_test_context(),
+        )
+        .await
+        .unwrap();
+
+        let captured = events_captured.lock().unwrap();
+        let messages: Vec<(Option<String>, Value, Value)> = captured
+            .iter()
+            .map(|e| {
+                let data: Value = serde_json::from_str(&e.event.data).unwrap();
+                (
+                    e.metadata.session_id.clone(),
+                    data["properties"]["$session_id"].clone(),
+                    data["properties"]["$snapshot_items"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                (
+                    Some("old".to_string()),
+                    json!("old"),
+                    json!([{"n": 1}, {"n": 4}])
+                ),
+                (
+                    Some("new".to_string()),
+                    json!("new"),
+                    json!([{"n": 2}, {"n": 3}])
+                ),
+            ]
+        );
     }
 
     #[tokio::test]
