@@ -48,6 +48,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     run_review_in_sandbox,
+    start_review_sandbox,
 )
 from products.stamphog.backend.temporal.constants import (
     NETWORK_RESTRICTED_AGENT_ENV,
@@ -512,8 +513,10 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
     # Clearing the scripted failure is what makes this prove the stamp: a second attempt would
-    # otherwise provision successfully and run the reviewer again.
+    # otherwise provision successfully and run the reviewer again. A real retry comes before the
+    # workflow marks the run failed, so the run is still reviewing when it starts.
     stamphog_chain.sandbox_class.create_error = None
+    ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.REVIEWING)
     with pytest.raises(SandboxPhaseError):
         _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
@@ -2718,3 +2721,27 @@ def test_post_verdict_keeps_output_keys_written_while_it_runs(team, stamphog_cha
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.output["sandbox_id"] == "sb-late"
     assert run.output["timings_captured"] is True
+
+
+@pytest.mark.parametrize(
+    "status", [ReviewRunStatus.GATED, ReviewRunStatus.FAILED, ReviewRunStatus.COMPLETED, ReviewRunStatus.SUPERSEDED]
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_late_sandbox_start_leaves_a_finished_run_alone(
+    team, stamphog_chain: StamphogChain, status: ReviewRunStatus
+) -> None:
+    # The start runs beside the pre-check, so a queued start can begin after a fast verdict or a
+    # failure is saved. Flipping that run back to REVIEWING would leave it non-terminal for good.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=132, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha132", status=status
+    )
+
+    result = _run_activity(start_review_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"skipped": "terminal"}
+    assert ReviewRun.objects.for_team(team.id).get(id=run.id).status == status
+    assert not stamphog_chain.sandbox_class.created_configs

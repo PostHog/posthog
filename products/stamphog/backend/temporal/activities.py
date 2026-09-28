@@ -929,15 +929,17 @@ def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
 
 
 def _begin_sandbox_phase(input: StamphogReviewInput) -> ReviewRun | None:
-    """Load the run and flip it to REVIEWING. None when a delivery superseded it."""
+    """Load the run and flip it to REVIEWING. None when the run is superseded or already terminal."""
     run = _load_run(input)
 
     # A newer relevant delivery for the same PR may have superseded this run while it queued — even
     # one that didn't move the head SHA (e.g. `labeled`, `ready_for_review`). Bail before flipping the
     # status back to REVIEWING: reviving it here would defeat the post_verdict superseded guard (which
-    # keys off status) and let a stale run post its verdict. Skip the sandbox entirely.
-    if run.status == ReviewRunStatus.SUPERSEDED:
-        activity.logger.info(f"Skipping sandbox for superseded run {run.id}")
+    # keys off status) and let a stale run post its verdict. Skip the sandbox entirely. The sandbox
+    # start runs beside the pre-check, so a queued start can also find a fast verdict or a failure
+    # already saved, and must not revive that run either.
+    if run.status in TERMINAL_STATUSES:
+        activity.logger.info(f"Skipping sandbox for run {run.id} in status {run.status}")
         return None
 
     # Flip to REVIEWING only if a delivery hasn't superseded this run since the early guard above.
@@ -948,11 +950,11 @@ def _begin_sandbox_phase(input: StamphogReviewInput) -> ReviewRun | None:
     updated = (
         ReviewRun.objects.for_team(input.team_id)
         .filter(id=run.id)
-        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .exclude(status__in=TERMINAL_STATUSES)
         .update(status=ReviewRunStatus.REVIEWING, updated_at=timezone.now())
     )
     if not updated:
-        activity.logger.info(f"Skipping sandbox for superseded run {run.id} (superseded before REVIEWING)")
+        activity.logger.info(f"Skipping sandbox for run {run.id} (superseded or terminal before REVIEWING)")
         return None
     return run
 
@@ -1134,7 +1136,7 @@ def start_review_sandbox(input: StamphogReviewInput) -> dict:
     deadline = _sandbox_deadline(SANDBOX_START_TIMEOUT)
     run = _begin_sandbox_phase(input)
     if run is None:
-        return {"skipped": "superseded"}
+        return {"skipped": "terminal"}
     gateway = _hosted_gateway()
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     token = client._get_installation_token()
@@ -1151,10 +1153,10 @@ def start_review_sandbox(input: StamphogReviewInput) -> dict:
 def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
     deadline = _sandbox_deadline(SANDBOX_CHECKOUT_TIMEOUT)
     run = _load_run(input)
-    if run.status == ReviewRunStatus.SUPERSEDED:
-        activity.logger.info(f"Skipping the checkout for superseded run {run.id}")
+    if run.status in TERMINAL_STATUSES:
+        activity.logger.info(f"Skipping the checkout for run {run.id} in status {run.status}")
         _destroy_sandbox_in_background(_reconnect_review_sandbox(input.sandbox_id), str(run.id))
-        return {"skipped": "superseded"}
+        return {"skipped": run.status}
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     token = client._get_installation_token()
     merge_base_sha = _review_merge_base(run, client)
@@ -1178,10 +1180,10 @@ def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
 def review_in_sandbox(input: ReviewSandboxInput) -> dict:
     deadline = _sandbox_deadline(RUN_REVIEW_TIMEOUT)
     run = _load_run(input)
-    if run.status == ReviewRunStatus.SUPERSEDED:
-        activity.logger.info(f"Skipping the review for superseded run {run.id}")
+    if run.status in TERMINAL_STATUSES:
+        activity.logger.info(f"Skipping the review for run {run.id} in status {run.status}")
         _destroy_sandbox_in_background(_reconnect_review_sandbox(input.sandbox_id), str(run.id))
-        return {"skipped": "superseded"}
+        return {"skipped": run.status}
     # The checkout ran git with this token. Scrub it too, in case a git step left it in the sandbox.
     token = StamphogGitHubClient(run.pull_request.repo_config.installation_id)._get_installation_token()
     # Minted here and not at provision, so the token outlives the review whatever the bot wait took.
@@ -1240,7 +1242,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     deadline = _sandbox_deadline(RUN_REVIEW_TIMEOUT)
     run = _begin_sandbox_phase(input)
     if run is None:
-        return {"skipped": "superseded"}
+        return {"skipped": "terminal"}
 
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     token = client._get_installation_token()
