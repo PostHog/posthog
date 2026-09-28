@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -231,6 +231,48 @@ class TestGetRowsFanOut:
         assert fetched == ["MSFT", "GOOGL"]
 
 
+class TestGetRowsRequestParams:
+    def _params_for(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
+            captured.update(params)
+            return []
+
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint=endpoint,
+                    symbols=["AAPL"],
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    **kwargs,
+                )
+            )
+        return captured
+
+    @parameterized.expand([("key_metrics",), ("ratios",), ("dividends",), ("earnings",)])
+    def test_requests_the_maximum_page_size(self, endpoint: str) -> None:
+        # These endpoints have no page cursor, so dropping `limit` truncates the symbol's history
+        # to FMP's small default instead of failing.
+        assert self._params_for(endpoint)["limit"] == "1000"
+
+    @parameterized.expand([("key_metrics",), ("ratios",), ("dividends",), ("earnings",), ("key_metrics_ttm",)])
+    def test_no_date_window_is_sent(self, endpoint: str) -> None:
+        # None of these accept `from`/`to`, so a watermark must not leak into the query.
+        params = self._params_for(
+            endpoint,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01",
+        )
+        assert "from" not in params
+        assert "to" not in params
+
+    def test_ttm_endpoint_sends_only_the_symbol(self) -> None:
+        assert self._params_for("key_metrics_ttm") == {"symbol": "AAPL"}
+
+
 class TestGetRowsMarketWide:
     def test_single_request_no_symbol(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -262,6 +304,13 @@ class TestFinancialModellingSourceResponse:
         [
             ("stock_list", ["symbol"]),
             ("income_statements", ["symbol", "date", "period"]),
+            ("key_metrics", ["symbol", "date", "period"]),
+            ("ratios", ["symbol", "date", "period"]),
+            # The TTM endpoints return one always-current row per symbol, with no fiscal date.
+            ("key_metrics_ttm", ["symbol"]),
+            ("ratios_ttm", ["symbol"]),
+            ("dividends", ["symbol", "date"]),
+            ("earnings", ["symbol", "date"]),
             ("historical_prices", ["symbol", "date"]),
             ("earnings_calendar", ["symbol", "date"]),
         ]
@@ -287,10 +336,11 @@ class TestFinancialModellingSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
 
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
+    @parameterized.expand([("company_profiles",), ("key_metrics_ttm",), ("ratios_ttm",)])
+    def test_unpartitioned_endpoint_has_no_partitioning(self, endpoint: str) -> None:
         response = financial_modelling_source(
             api_key="k",
-            endpoint="company_profiles",
+            endpoint=endpoint,
             symbols=["AAPL"],
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),

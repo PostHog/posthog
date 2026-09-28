@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate, TruncHour
@@ -53,6 +54,15 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     ManagedWarehouseMonitoringUpstreamError,
     serialize_monitoring_series,
     serialize_monitoring_snapshot,
+)
+from products.data_warehouse.backend.presentation.pipeline_stats import (
+    CompletedActivityQuerySerializer,
+    DataHealthIssuesResponseSerializer,
+    JobStatsQuerySerializer,
+    PipelineActivityResponseSerializer,
+    PipelineErrorSerializer,
+    PipelineJobStatsResponseSerializer,
+    PipelineRowsStatsResponseSerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -129,6 +139,61 @@ def _managed_warehouse_monitoring_error_response(upstream_response: Response) ->
         },
         status=status.HTTP_502_BAD_GATEWAY,
     )
+
+
+# Both aggregates are dashboard reads that fan out across a team's whole sync history, and a
+# dashboard polls. The window they report is coarse enough that a short cache costs the reader
+# nothing. `total_rows_stats` gets the longer one because it also makes a synchronous call out
+# to billing.
+JOB_STATS_CACHE_TTL_SECONDS = 60
+TOTAL_ROWS_STATS_CACHE_TTL_SECONDS = 300
+
+
+def _pipeline_stats_cache_key(name: str, team_id: int, *parts: object) -> str:
+    # team_id is in the key, not a filter applied afterwards, so one team can never be served
+    # another team's cached aggregate.
+    suffix = ":".join(str(part) for part in parts)
+    return f"data_warehouse:{name}:{team_id}" + (f":{suffix}" if suffix else "")
+
+
+# A run counts as failed when it errored or when billing stopped it. Kept in one place
+# because the three aggregates below drifted apart: each listed `BILLING_LIMIT_REACHED`
+# twice and none counted `BILLING_LIMIT_TOO_LOW`, so those runs were reported as neither
+# successful nor failed.
+FAILED_EXTERNAL_JOB_STATUSES = [
+    ExternalDataJobStatus.FAILED,
+    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+    ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW,
+]
+
+
+# A schema halted by billing reports one of two statuses, and the health list used to name
+# only the first, so a sync stopped by "billing limit too low" appeared nowhere and the user
+# had no way to see why it stopped.
+# `completed_activity` answers "what finished", which a dashboard needs in two flavours: the
+# runs that worked and the runs that did not. They differ only by which statuses to match, so
+# this is one parameter rather than a second near-copy of the union query.
+ACTIVITY_OUTCOME_COMPLETED = "completed"
+ACTIVITY_OUTCOME_FAILED = "failed"
+
+ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
+    ACTIVITY_OUTCOME_COMPLETED: (
+        [ExternalDataJobStatus.COMPLETED],
+        [DataModelingJob.Status.COMPLETED],
+    ),
+    ACTIVITY_OUTCOME_FAILED: (
+        list(FAILED_EXTERNAL_JOB_STATUSES),
+        [DataModelingJob.Status.FAILED],
+    ),
+}
+
+
+BILLING_LIMITED_SCHEMA_STATUSES = [
+    ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+    ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
+]
+
+FAILING_SCHEMA_STATUSES = [ExternalDataSchemaStatus.FAILED, *BILLING_LIMITED_SCHEMA_STATUSES]
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -267,12 +332,31 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             resp["Cache-Control"] = "max-age=10"
             return resp
 
+    @extend_schema(
+        responses={
+            200: PipelineRowsStatsResponseSerializer,
+            500: OpenApiResponse(response=PipelineErrorSerializer, description="Billing could not be reached."),
+        }
+    )
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
         Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
         Used by the frontend data warehouse scene to display usage information.
         """
+        # breakdown_of_rows_by_source depends on the caller's readable sources, so it can never be
+        # part of the cached payload: a value cached for a broadly-permissioned caller would leak
+        # source ids and row counts to a teammate whose access is narrower. Everything else in the
+        # payload is team-wide and permission-independent, so only that part is cached.
+        cache_key = _pipeline_stats_cache_key("total_rows_stats", self.team_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            payload = dict(cached)
+            payload["breakdown_of_rows_by_source"] = self._breakdown_of_rows_by_source(
+                cached["billing_period_start"], cached["billing_period_end"]
+            )
+            return Response(status=status.HTTP_200_OK, data=payload)
+
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None
@@ -281,8 +365,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         pending_billing_rows = 0
         rows_synced = 0
         billing_available = False
-        breakdown_of_rows_by_source = {}
-        sources = self._readable_sources().filter(deleted=False)
+        breakdown_of_rows_by_source: dict[str, int] = {}
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -317,17 +400,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
-                for source in sources:
-                    total_rows = (
-                        ExternalDataJob.objects.filter(
-                            pipeline=source,
-                            created_at__gte=billing_period_start,
-                            created_at__lt=billing_period_end,
-                        ).aggregate(total=Sum("rows_synced"))["total"]
-                        or 0
-                    )
-
-                    breakdown_of_rows_by_source[str(source.id)] = total_rows
+                breakdown_of_rows_by_source = self._breakdown_of_rows_by_source(
+                    billing_period_start, billing_period_end
+                )
 
             else:
                 logger.info("No billing period information available, using defaults")
@@ -339,21 +414,50 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 data={"error": "An error occurred retrieving billing information"},
             )
 
-        return Response(
-            status=status.HTTP_200_OK,
-            data={
-                "billing_available": billing_available,
-                "billing_interval": billing_interval,
-                "billing_period_end": billing_period_end,
-                "billing_period_start": billing_period_start,
-                "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
-                "materialized_rows_in_billing_period": materialized_rows,
-                "total_rows": rows_synced,
-                "tracked_billing_rows": billing_tracked_rows,
-                "pending_billing_rows": pending_billing_rows,
-            },
-        )
+        payload = {
+            "billing_available": billing_available,
+            "billing_interval": billing_interval,
+            "billing_period_end": billing_period_end,
+            "billing_period_start": billing_period_start,
+            "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
+            "materialized_rows_in_billing_period": materialized_rows,
+            "total_rows": rows_synced,
+            "tracked_billing_rows": billing_tracked_rows,
+            "pending_billing_rows": pending_billing_rows,
+        }
 
+        # Only a complete answer is worth reusing: caching a response assembled while billing was
+        # unreachable would keep serving zeroes long after billing recovered. The cached copy omits
+        # the per-source breakdown; see the comment at the top of this method for why.
+        if billing_available:
+            cacheable_payload = {k: v for k, v in payload.items() if k != "breakdown_of_rows_by_source"}
+            cache.set(cache_key, cacheable_payload, TOTAL_ROWS_STATS_CACHE_TTL_SECONDS)
+        return Response(status=status.HTTP_200_OK, data=payload)
+
+    def _breakdown_of_rows_by_source(
+        self, billing_period_start: datetime, billing_period_end: datetime
+    ) -> dict[str, int]:
+        # Computed fresh on every request (never cached) because it is scoped to the caller's own
+        # readable sources, which differ from one caller to the next on the same team.
+        breakdown: dict[str, int] = {}
+        for source in self._readable_sources().filter(deleted=False):
+            total_rows = (
+                ExternalDataJob.objects.filter(
+                    pipeline=source,
+                    created_at__gte=billing_period_start,
+                    created_at__lt=billing_period_end,
+                ).aggregate(total=Sum("rows_synced"))["total"]
+                or 0
+            )
+            breakdown[str(source.id)] = total_rows
+        return breakdown
+
+    @extend_schema(
+        responses={
+            200: PipelineActivityResponseSerializer,
+            500: OpenApiResponse(response=PipelineErrorSerializer, description="The activity query failed."),
+        }
+    )
     @action(methods=["GET"], detail=False)
     def running_activity(self, request: Request, **kwargs) -> Response:
         """
@@ -451,6 +555,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             }
         )
 
+    @extend_schema(
+        parameters=[CompletedActivityQuerySerializer],
+        responses={
+            200: PipelineActivityResponseSerializer,
+            500: OpenApiResponse(response=PipelineErrorSerializer, description="The activity query failed."),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def completed_activity(self, request: Request, **kwargs) -> Response:
         """
@@ -469,6 +580,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
+
+        outcome = request.GET.get("outcome", ACTIVITY_OUTCOME_COMPLETED)
+        if outcome not in ACTIVITY_OUTCOME_STATUSES:
+            supported = ", ".join(sorted(ACTIVITY_OUTCOME_STATUSES))
+            return Response(
+                {"error": f"Invalid outcome parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        external_statuses, modeling_statuses = ACTIVITY_OUTCOME_STATUSES[outcome]
 
         source_ids = list(self._readable_sources().values_list("id", flat=True))
         schema_ids = self._readable_team_schema_ids()
@@ -490,7 +610,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
-                        WHERE edj.team_id = %s AND edj.status = 'Completed' AND edj.created_at >= %s
+                        WHERE edj.team_id = %s AND edj.status = ANY(%s) AND edj.created_at >= %s
                           AND edj.pipeline_id = ANY(%s::uuid[])
                           AND (edj.schema_id IS NULL OR edj.schema_id = ANY(%s::uuid[]))
                     ),
@@ -501,7 +621,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                dwsq.origin
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
-                        WHERE dmj.team_id = %s AND dmj.status = 'Completed' AND dmj.created_at >= %s
+                        WHERE dmj.team_id = %s AND dmj.status = ANY(%s) AND dmj.created_at >= %s
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
@@ -512,10 +632,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 """,
                     [
                         self.team_id,
+                        external_statuses,
                         cutoff_time,
                         source_ids,
                         schema_ids,
                         self.team_id,
+                        modeling_statuses,
                         cutoff_time,
                         saved_query_ids,
                         limit + 1,
@@ -536,9 +658,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         next_url = None
         prev_url = None
         if has_more:
-            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}"
+            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}&outcome={outcome}"
         if offset > 0:
-            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}"
+            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}&outcome={outcome}"
 
         return Response(
             {
@@ -548,6 +670,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             }
         )
 
+    @extend_schema(
+        parameters=[JobStatsQuerySerializer],
+        responses={
+            200: PipelineJobStatsResponseSerializer,
+            400: OpenApiResponse(response=PipelineErrorSerializer, description="`days` was not 1, 7 or 30."),
+            500: OpenApiResponse(response=PipelineErrorSerializer, description="The statistics query failed."),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def job_stats(self, request: Request, **kwargs) -> Response:
         """
@@ -555,7 +685,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Query parameter 'days' can be 1, 7, or 30 (default: 7).
         """
 
-        # TODO: Will want to cache this data to not spam PG
         try:
             days = int(request.GET.get("days", 7))
             if days not in [1, 7, 30]:
@@ -565,6 +694,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
         except (ValueError, TypeError):
             return Response({"error": "Invalid days parameter"}, status=status.HTTP_400_BAD_REQUEST)
+
+        cache_key = _pipeline_stats_cache_key("job_stats", self.team_id, days)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
 
         try:
             project_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
@@ -583,13 +717,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                 failed=Count(
                     "id",
-                    filter=Q(
-                        status__in=[
-                            ExternalDataJobStatus.FAILED,
-                            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                        ]
-                    ),
+                    filter=Q(status__in=FAILED_EXTERNAL_JOB_STATUSES),
                 ),
             )
 
@@ -614,13 +742,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                         failed=Count(
                             "id",
-                            filter=Q(
-                                status__in=[
-                                    ExternalDataJobStatus.FAILED,
-                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                                ]
-                            ),
+                            filter=Q(status__in=FAILED_EXTERNAL_JOB_STATUSES),
                         ),
                     )
                 )
@@ -654,13 +776,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                         failed=Count(
                             "id",
-                            filter=Q(
-                                status__in=[
-                                    ExternalDataJobStatus.FAILED,
-                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-                                ]
-                            ),
+                            filter=Q(status__in=FAILED_EXTERNAL_JOB_STATUSES),
                         ),
                     )
                 )
@@ -694,28 +810,29 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team_id=self.team_id, status=DataModelingJob.Status.RUNNING, created_at__gte=cutoff_time
             ).count()
 
-            return Response(
-                {
-                    "days": days,
-                    "cutoff_time": cutoff_time,
-                    "total_jobs": total_jobs,
-                    "successful_jobs": total_successful,
-                    "failed_jobs": total_failed,
-                    "external_data_jobs": {
-                        "total": external_stats["total"],
-                        "running": running_external_data_jobs,
-                        "successful": external_stats["successful"],
-                        "failed": external_stats["failed"],
-                    },
-                    "modeling_jobs": {
-                        "total": modeling_stats["total"],
-                        "running": running_modeling_jobs,
-                        "successful": modeling_stats["successful"],
-                        "failed": modeling_stats["failed"],
-                    },
-                    "breakdown": breakdown,
-                }
-            )
+            payload = {
+                "days": days,
+                "cutoff_time": cutoff_time,
+                "total_jobs": total_jobs,
+                "successful_jobs": total_successful,
+                "failed_jobs": total_failed,
+                "external_data_jobs": {
+                    "total": external_stats["total"],
+                    "running": running_external_data_jobs,
+                    "successful": external_stats["successful"],
+                    "failed": external_stats["failed"],
+                },
+                "modeling_jobs": {
+                    "total": modeling_stats["total"],
+                    "running": running_modeling_jobs,
+                    "successful": modeling_stats["successful"],
+                    "failed": modeling_stats["failed"],
+                },
+                "breakdown": breakdown,
+            }
+
+            cache.set(cache_key, payload, JOB_STATS_CACHE_TTL_SECONDS)
+            return Response(payload)
 
         except Exception as e:
             logger.exception("Error retrieving job statistics", exc_info=e)
@@ -724,7 +841,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read", "external_data_source:read"])
+    @extend_schema(
+        responses={
+            200: DataHealthIssuesResponseSerializer,
+            500: OpenApiResponse(response=PipelineErrorSerializer, description="The health query failed."),
+        }
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        required_scopes=["warehouse_view:read", "external_data_source:read", "batch_export:read", "hog_function:read"],
+    )
     def data_health_issues(self, request: Request, **kwargs) -> Response:
         """
         Returns failed/disabled data pipeline items for the Pipeline status side panel.
@@ -765,11 +892,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # Only show syncs that are actively enabled but failing
             readable_sources = self._readable_sources()
             problem_syncs = list(
-                self._team_schemas()
-                .filter(should_sync=True)
-                .filter(
-                    Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
-                )
+                self._team_schemas().filter(should_sync=True).filter(status__in=FAILING_SCHEMA_STATUSES)
             )
             visible_schema_ids = self._readable_schema_ids(problem_syncs)
 
@@ -777,7 +900,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 if schema.id not in visible_schema_ids:
                     continue
                 sync_status = "failed"
-                if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
+                if schema.status in BILLING_LIMITED_SCHEMA_STATUSES:
                     sync_status = "billing_limit"
 
                 results.append(

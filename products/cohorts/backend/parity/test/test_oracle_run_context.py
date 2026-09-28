@@ -74,9 +74,11 @@ class TestLoadRunContext(BaseTest):
             pinned_filters=cohort.filters,
         )
 
-    def _chunk(self, run: CohortBackfillRun, day: date, band: int, status: str) -> None:
+    def _chunk(
+        self, run: CohortBackfillRun, day: date, band: int, status: str, claimable_after: datetime | None = None
+    ) -> None:
         CohortBackfillChunk.objects.for_team(self.team.id).create(
-            run=run, team_id=self.team.id, day=day, band=band, status=status
+            run=run, team_id=self.team.id, day=day, band=band, status=status, claimable_after=claimable_after
         )
 
     def test_loads_seeding_run_and_confirms_only_fully_seeded_days(self) -> None:
@@ -91,6 +93,8 @@ class TestLoadRunContext(BaseTest):
         self._chunk(run, date(2026, 7, 19), 1, _CONFIRMED)
         self._chunk(run, date(2026, 7, 20), 0, _CONFIRMED)
         self._chunk(run, date(2026, 7, 20), 1, _PENDING)  # day 20 only partially seeded
+        # The boundary day's held trailing chunk: readiness never waits for it, so it is not partial seeding.
+        self._chunk(run, date(2026, 7, 21), 0, _PENDING, claimable_after=datetime(2026, 7, 22, 0, 30, tzinfo=UTC))
 
         ctx = load_run_context(self.team.id, cohort.id, None)
 
@@ -100,6 +104,7 @@ class TestLoadRunContext(BaseTest):
         self.assertEqual(ctx.boundary_day, date(2026, 7, 21))
         self.assertEqual(ctx.confirmed_days, frozenset({date(2026, 7, 19)}))
         self.assertEqual(ctx.non_confirmed_chunks, 1)
+        self.assertTrue(ctx.trailing_day_planned)
         self.assertFalse(ctx.shape_hash_drift)
 
     def test_boundary_day_uses_run_timezone(self) -> None:
@@ -113,6 +118,7 @@ class TestLoadRunContext(BaseTest):
         assert ctx is not None
         self.assertEqual(ctx.run_timezone, "US/Pacific")
         self.assertEqual(ctx.boundary_day, date(2026, 7, 20))
+        self.assertFalse(ctx.trailing_day_planned)
 
     def test_shape_hash_drift_when_pinned_hash_differs_from_current(self) -> None:
         cohort = self._cohort()
