@@ -45,6 +45,8 @@ describe('postHogClassify', () => {
         const [url, options] = fetchSpy.mock.calls[0]
         expect(url).toMatch(/\/api\/projects\/1\/workflow_classifications\/$/)
         expect(parseJSON(options.body)).toEqual(payload)
+        // Must exceed Django's 5 second gateway timeout so the worker receives its 503 instead of aborting first.
+        expect(options.timeoutMs).toBeGreaterThan(5000)
         // The literal pins the dev default shared with Django's WORKFLOW_CLASSIFY_JWT_SECRETS.
         // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const claims = jwt.verify(
