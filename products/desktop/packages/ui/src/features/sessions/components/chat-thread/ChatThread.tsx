@@ -241,11 +241,10 @@ function lastRenderableIdsByTurn(
       erroredTurns.add(item.turnContext);
     }
   });
-  const supersededTurns = new Set(
-    [...lastIndexByTurn]
-      .filter(([, lastIndex]) => lastIndex < lastSessionUpdateIndex)
-      .map(([turnContext]) => turnContext),
-  );
+  const supersededTurns = new Set<TurnContext>();
+  for (const [turnContext, lastIndex] of lastIndexByTurn) {
+    if (lastIndex < lastSessionUpdateIndex) supersededTurns.add(turnContext);
+  }
 
   const out = new Map<TurnContext, string>();
   for (const item of items) {
