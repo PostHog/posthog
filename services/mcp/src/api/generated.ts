@@ -13791,7 +13791,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `S3` - S3
      * * `AwsS3` - Aws S3
      * * `S3Compatible` - S3 Compatible
      * * `Snowflake` - Snowflake
@@ -13809,7 +13808,6 @@ export namespace Schemas {
 
 
     export const BatchExportDestinationDestinationEnum = {
-      S3: 'S3',
       AwsS3: 'AwsS3',
       S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
@@ -14090,7 +14088,6 @@ export namespace Schemas {
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
        *
-       * * `S3` - S3
        * * `AwsS3` - Aws S3
        * * `S3Compatible` - S3 Compatible
        * * `Snowflake` - Snowflake
@@ -39393,6 +39390,7 @@ export namespace Schemas {
      * * `session_recordings` - Session Recordings
      * * `errortracking` - Errortracking
      * * `clientwarnings` - Clientwarnings
+     * * `heatmaps` - Heatmaps
      * * `ai` - Ai
      */
     export type IngestionPipelineEnum = typeof IngestionPipelineEnum[keyof typeof IngestionPipelineEnum];
@@ -39403,6 +39401,7 @@ export namespace Schemas {
       SessionRecordings: 'session_recordings',
       Errortracking: 'errortracking',
       Clientwarnings: 'clientwarnings',
+      Heatmaps: 'heatmaps',
       Ai: 'ai',
     } as const;
 
@@ -62198,6 +62197,20 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    export interface OfflineCategorySummary {
+      /** Category key from the pinned configuration. */
+      key: string;
+      /** Successful results selecting this category. */
+      count: number;
+      /**
+         * Selection count divided by successful result count; null with no successes.
+         * @nullable
+         */
+      rate: number | null;
+      /** Category label from the pinned configuration. */
+      label: string;
+    }
+
     export interface OfflineEvaluationValidationError {
       /** Stable validation error code. */
       code: string;
@@ -62288,6 +62301,465 @@ export namespace Schemas {
     export interface OfflineExperimentItemsResponse {
       /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
       results: unknown[][];
+    }
+
+    export interface OfflineExperimentRead {
+      /** Stable experiment UUID. */
+      id: string;
+      /** Experiment name. */
+      name: string;
+      /** Execution source.
+       *
+       * * `ci` - CI
+       * * `local` - Local
+       * * `scheduled` - Scheduled */
+      run_source: OfflineExperimentRunSourceEnum | null;
+      /** Upload lifecycle state.
+       *
+       * * `uploading` - Uploading
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: OfflineExperimentStatusEnum;
+      /** Caller-supplied execution time. */
+      started_at: string;
+      /** First server acceptance time. */
+      created_at: string;
+      /**
+         * Server closure time, or null while uploading.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * Declared expected items, when supplied.
+         * @nullable
+         */
+      expected_item_count: number | null;
+      /**
+         * Declared expected results across all scorers.
+         * @nullable
+         */
+      expected_result_count: number | null;
+      /** Observed items, including items without a selected scorer result. */
+      accepted_item_count: number;
+      /**
+         * Results visible to this caller; unavailable without scorer-read scope.
+         * @nullable
+         */
+      visible_result_count: number | null;
+      /**
+         * Distinct visible scorer definitions.
+         * @nullable
+         */
+      visible_scorer_definition_count: number | null;
+      /**
+         * Distinct visible scorer versions.
+         * @nullable
+         */
+      visible_scorer_version_count: number | null;
+      /** authorized for visible-result counts, or unavailable without scorer-read scope. */
+      result_count_scope: string;
+      /**
+         * Durable suite identifier.
+         * @nullable
+         */
+      suite_key: string | null;
+      /**
+         * Dataset provider or source.
+         * @nullable
+         */
+      dataset_source: string | null;
+      /**
+         * Durable dataset identifier.
+         * @nullable
+         */
+      dataset_identifier: string | null;
+      /**
+         * Durable dataset revision identifier.
+         * @nullable
+         */
+      dataset_revision_identifier: string | null;
+      /**
+         * Optional hosted revision navigation reference.
+         * @nullable
+         */
+      dataset_revision_id: string | null;
+      /**
+         * Application revision under evaluation.
+         * @nullable
+         */
+      application_version: string | null;
+      /**
+         * Model revision under evaluation.
+         * @nullable
+         */
+      model_version: string | null;
+      /**
+         * Prompt revision under evaluation.
+         * @nullable
+         */
+      prompt_version: string | null;
+    }
+
+    export interface OfflineExperimentPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Experiment page. */
+      results: OfflineExperimentRead[];
+    }
+
+    /**
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean
+     */
+    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+
+
+    export const ScoreDefinitionKindEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface OfflineScorerVersionRead {
+      /** Exact immutable scorer-version UUID. */
+      id: string;
+      /** Stable scorer definition UUID. */
+      definition_id: string;
+      /** Version number within the definition. */
+      version: number;
+      /** Scorer value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Current scorer display name. */
+      name: string;
+      /** Current scorer description. */
+      description: string;
+      /** Whether the scorer is archived. */
+      archived: boolean;
+      /** Pinned immutable configuration used to interpret these results. */
+      config: ScoreDefinitionConfig;
+    }
+
+    export interface OfflineStatusCounts {
+      /** Successful results. */
+      ok: number;
+      /** Evaluator errors. */
+      error: number;
+      /** Skipped evaluations. */
+      skipped: number;
+      /** Not-applicable evaluations. */
+      not_applicable: number;
+    }
+
+    export interface OfflineScorerSummary {
+      /** Exact scorer version summarized. */
+      scorer: OfflineScorerVersionRead;
+      /** All observed experiment items, independent of scorer selection or item pagination. */
+      observed_item_count: number;
+      /** Submitted results for this scorer version, across all statuses. */
+      result_count: number;
+      /** Counts for each submitted outcome. */
+      status_counts: OfflineStatusCounts;
+      /** Observed items without a result for this version; not the number of all intended missing items. */
+      missing_result_count: number;
+      /** Distinct non-null case keys in observed items. */
+      distinct_case_count: number;
+      /** Observed items with case keys. */
+      items_with_case_key_count: number;
+      /** Observed items without case keys. */
+      items_without_case_key_count: number;
+      /** Observed items with trial identifiers. */
+      trial_item_count: number;
+      /** Distinct case/trial identities; trial-only items remain independent. */
+      distinct_trial_count: number;
+      /**
+         * Numeric mean of successful scores only; null for other kinds or no successes.
+         * @nullable
+         */
+      mean: number | null;
+      /**
+         * Successful boolean true results; null for other kinds.
+         * @nullable
+         */
+      true_count: number | null;
+      /**
+         * Successful boolean false results; null for other kinds.
+         * @nullable
+         */
+      false_count: number | null;
+      /**
+         * Boolean true fraction among successes; null with no successes or for other kinds.
+         * @nullable
+         */
+      true_rate: number | null;
+      /** Pinned categorical distribution; multiselect rates may sum above one. */
+      categories: OfflineCategorySummary[];
+    }
+
+    export interface OfflineHistoryPoint {
+      /** Experiment execution and cohort context. */
+      experiment: OfflineExperimentRead;
+      /** Complete summary for one experiment and scorer version. */
+      summary: OfflineScorerSummary;
+    }
+
+    export interface OfflineHistoryPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Experiment/scorer-version history page. */
+      results: OfflineHistoryPoint[];
+    }
+
+    /**
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired
+     */
+    export type PayloadStateEnum = typeof PayloadStateEnum[keyof typeof PayloadStateEnum];
+
+
+    export const PayloadStateEnum = {
+      NotProvided: 'not_provided',
+      Available: 'available',
+      Expired: 'expired',
+    } as const;
+
+    export interface OfflineResultCell {
+      /** Stable result UUID. */
+      id: string;
+      /** Item evaluated by this result. */
+      item_id: string;
+      /** Evaluation outcome.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Typed score for ok outcomes; null for other outcomes. */
+      value: number | boolean | string[] | null;
+      /**
+         * Optional evaluator error code.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * Optional evaluator trace navigation reference.
+         * @nullable
+         */
+      evaluator_trace_id: string | null;
+      /**
+         * Caller-supplied evaluation time.
+         * @nullable
+         */
+      evaluated_at: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Result payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Exact scorer-version UUID in the item page's scorer_versions list. */
+      scorer_version_id: string;
+    }
+
+    export interface OfflineItemRead {
+      /** Stable item UUID. */
+      id: string;
+      /** Owning experiment UUID. */
+      experiment_id: string;
+      /**
+         * Optional stable case identifier.
+         * @nullable
+         */
+      case_key: string | null;
+      /**
+         * Optional trial identifier within a case.
+         * @nullable
+         */
+      trial: string | null;
+      /**
+         * Durable dataset item identifier.
+         * @nullable
+         */
+      dataset_item_identifier: string | null;
+      /**
+         * Durable dataset item-version identifier.
+         * @nullable
+         */
+      dataset_item_version_identifier: string | null;
+      /**
+         * Optional hosted item-version navigation reference.
+         * @nullable
+         */
+      dataset_item_version_id: string | null;
+      /**
+         * Optional application trace navigation reference.
+         * @nullable
+         */
+      application_trace_id: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Item payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Cells for explicitly selected scorer versions; empty when none selected. */
+      results: OfflineResultCell[];
+    }
+
+    export interface OfflineItemPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Item page. */
+      results: OfflineItemRead[];
+      /** Selected scorer versions, each returned once, including versions with no results. */
+      scorer_versions: OfflineScorerVersionRead[];
+    }
+
+    export interface OfflineItemPayloadRead {
+      /** Owning item UUID. */
+      id: string;
+      /** Durable payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Whether the stored payload is currently available. */
+      available: boolean;
+      /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
+      data: OfflineExperimentItemPayloadInput | null;
+    }
+
+    export interface OfflineResultRead {
+      /** Stable result UUID. */
+      id: string;
+      /** Item evaluated by this result. */
+      item_id: string;
+      /** Evaluation outcome.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Typed score for ok outcomes; null for other outcomes. */
+      value: number | boolean | string[] | null;
+      /**
+         * Optional evaluator error code.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * Optional evaluator trace navigation reference.
+         * @nullable
+         */
+      evaluator_trace_id: string | null;
+      /**
+         * Caller-supplied evaluation time.
+         * @nullable
+         */
+      evaluated_at: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Result payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Pinned scorer version. */
+      scorer: OfflineScorerVersionRead;
+    }
+
+    export interface OfflineResultPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Result page. */
+      results: OfflineResultRead[];
+    }
+
+    export interface OfflineResultPayloadRead {
+      /** Owning result UUID. */
+      id: string;
+      /** Durable payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Whether the stored payload is currently available. */
+      available: boolean;
+      /** Stored reasoning/error payload; null if unavailable. */
+      data: OfflineEvaluationResultPayloadInput | null;
+    }
+
+    export interface OfflineSummaryPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Scorer-version summary page; each group includes all matching results. */
+      results: OfflineScorerSummary[];
     }
 
     export interface OnboardWarehouseTeamRequest {
@@ -66163,22 +66635,6 @@ export namespace Schemas {
       results: SchemaPropertyGroup[];
     }
 
-    /**
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean
-     */
-    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
-
-
-    export const ScoreDefinitionKindEnum = {
-      Categorical: 'categorical',
-      Numeric: 'numeric',
-      Boolean: 'boolean',
-    } as const;
-
-    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
-
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
@@ -68425,6 +68881,8 @@ export namespace Schemas {
          * @nullable
          */
       task_summary: string | null;
+      /** Latest slug tags for this task, including tags inherited from an earlier run. */
+      task_tags: string[];
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -78396,6 +78854,13 @@ export namespace Schemas {
          * @maxLength 1500
          */
       summary?: string;
+      /**
+         * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+         * @maxItems 10
+         * @items.maxLength 50
+         * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+         */
+      tags?: string[];
     }
 
     /**
@@ -78467,6 +78932,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -78495,6 +78961,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     /**
@@ -78553,7 +79020,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -80058,6 +80526,127 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type SandboxPollStatusEnum = typeof SandboxPollStatusEnum[keyof typeof SandboxPollStatusEnum];
+
+
+    export const SandboxPollStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SandboxSource {
+      /** Source reference the reply relies on. */
+      ref: string;
+      /** Short excerpt that supports the reply. */
+      excerpt: string;
+    }
+
+    /**
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window
+     */
+    export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
+
+
+    export const SandboxToolNameEnum = {
+      BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+      BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    } as const;
+
+    export interface SandboxSearch {
+      /** Business knowledge tool the agent called.
+       *
+       * * `business-knowledge-documents-search` - Search
+       * * `business-knowledge-document-window-retrieve` - Window */
+      tool: SandboxToolNameEnum;
+      /** Tool input the agent sent. */
+      input: string;
+    }
+
+    export interface SandboxRun {
+      /** Sandbox task id. */
+      task_id: string;
+      /** Latest run id for this task. */
+      run_id: string;
+      /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      status: SandboxPollStatusEnum;
+      /**
+         * Answer text when status is completed. Null otherwise.
+         * @nullable
+         */
+      reply: string | null;
+      /** Sources cited in a completed answer. Empty when the run has not completed. */
+      sources: SandboxSource[];
+      /** Business knowledge search and window calls observed in the run log. */
+      searches: SandboxSearch[];
+      /**
+         * Why the run did not produce an answer. Null while running and on a completed answer.
+         * @nullable
+         */
+      error: string | null;
+      /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+      docs_search_called: boolean;
+    }
+
+    export interface PlaygroundTurn {
+      /** Turn id. */
+      id: string;
+      /** Question that started this turn's sandbox run. */
+      question: string;
+      /** Sandbox task id for this turn. */
+      task_id: string;
+      /** Order of this turn in the chat, starting at 0. */
+      position: number;
+      /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+      run: SandboxRun | null;
+      /**
+         * Why this turn could not be loaded. Null when run is present.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PlaygroundChat {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+      /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+      turns: PlaygroundTurn[];
+    }
+
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
     }
 
     /**
@@ -87125,7 +87714,7 @@ export namespace Schemas {
     } as const;
 
     export interface ResolveTemplateRequest {
-      /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+      /** Template to resolve. The templates endpoint lists each one with its description. Required.
        *
        * * `likely_active_soon` - Likely Active Soon
        * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -88601,6 +89190,21 @@ export namespace Schemas {
       task_id?: string;
     }
 
+    export interface SandboxQuestion {
+      /**
+         * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+         * @maxLength 4000
+         */
+      question: string;
+    }
+
+    export interface SandboxRunStarted {
+      /** Sandbox task id. Poll this id until the run finishes. */
+      task_id: string;
+      /** Run id for this question. */
+      run_id: string;
+    }
+
     export interface SaveRequest {
       /**
          * Label this config computes, e.g. ai_pilled.
@@ -89261,6 +89865,39 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface ScoreDefinitionVersion {
+      /** UUID identifying this exact immutable version. */
+      readonly id: string;
+      /** Scorer definition that owns this version. */
+      readonly definition_id: string;
+      /** Immutable version number within this scorer. */
+      readonly version: number;
+      /** Scorer value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      readonly kind: ScoreDefinitionKindEnum;
+      /** Immutable configuration for this exact version. */
+      readonly config: ScoreDefinitionConfig;
+      /** Time this version was created. */
+      readonly created_at: string;
+      /** User who created this version. */
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface ScoreDefinitionVersionPage {
+      /** Total immutable versions for this scorer. */
+      count: number;
+      /**
+         * Continuation cursor, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Versions on this page, newest first. */
+      results: ScoreDefinitionVersion[];
+    }
+
     export interface ScoutChatTask {
       /** The created chat task. Open it on the task detail page to continue. */
       task_id: string;
@@ -89306,6 +89943,20 @@ export namespace Schemas {
          * @nullable
          */
       last_outcome: string | null;
+      /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+      run_state: string;
+      /** True while an `agent` check waits on a dispatched run to record its verdict. */
+      waiting_on_run: boolean;
+      /**
+         * The scout run the coordinator dispatched for the check, once it started. Null while queued.
+         * @nullable
+         */
+      dispatched_run_id: string | null;
+      /**
+         * When the coordinator last dispatched a run for the check. Null when no run waits.
+         * @nullable
+         */
+      dispatched_at: string | null;
     }
 
     /**
@@ -97810,7 +98461,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -99441,7 +100093,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -105641,8 +106294,12 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest start first. */
+      /** AI events in the trace, earliest start first, up to `limit` of them. */
       results: _TracingTraceAiEvent[];
+      /** The most AI events the lookup returns for one trace. */
+      limit: number;
+      /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+      has_more: boolean;
     }
 
     export interface _TracingTraceRequest {
@@ -107634,6 +108291,259 @@ export namespace Schemas {
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
      */
     refresh?: boolean;
+    };
+
+    export type AiObservabilityOfflineExperimentsListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string;
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string;
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string;
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string;
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string;
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string;
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string;
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string;
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string;
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineScorersHistoryListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string;
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string;
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string;
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string;
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string;
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string;
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string;
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string;
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string;
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string;
     };
 
     export type AlertsListParams = {
@@ -113950,6 +114860,21 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
+    /**
+     * Continuation cursor from the prior page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
@@ -117106,6 +118031,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -117250,6 +118176,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

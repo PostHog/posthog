@@ -615,6 +615,7 @@ class TaskRunDetailDTO:
     task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -690,7 +691,10 @@ SPACE_SETUP_SCOPES = (
     "person:read",
     "group:read",
     "integration:read",
+    # The MCP server reads the caller from `/api/users/@me/` and refuses the whole session without it.
+    "user:read",
     "query:read",
+    "action:read",
     "data_catalog:read",
     "insight:read",
     "dashboard:read",
