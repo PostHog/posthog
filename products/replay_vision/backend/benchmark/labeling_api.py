@@ -5,6 +5,7 @@ knows the labeling database, the image ref formats or the v2 encryption; the pla
 returns a recording with all of that already resolved.
 """
 
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -20,6 +21,10 @@ EXPORT_SCHEMA_VERSION = 1
 _PAGE_SIZE = 200
 # A playable recording is decoded and image-resolved on request, so a long one takes a while.
 _TIMEOUT = (10, 300)
+# The app caps playable exports in flight and answers the overflow with a 429, which clears once
+# another export finishes, so a busy answer is waited out here rather than failing the case.
+_BUSY_RETRIES = 4
+_BUSY_BACKOFF_SECONDS = 5
 
 
 class ExportSnapshot(BaseModel, frozen=True):
@@ -46,7 +51,11 @@ class LabelingExportClient:
         return cls(settings.REPLAY_VISION_BENCHMARK_LABELING_URL, settings.REPLAY_VISION_BENCHMARK_LABELING_TOKEN)
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> requests.Response:
-        response = requests.get(f"{self.base}{path}", params=params, headers=self.headers, timeout=_TIMEOUT)
+        for attempt in range(_BUSY_RETRIES + 1):
+            response = requests.get(f"{self.base}{path}", params=params, headers=self.headers, timeout=_TIMEOUT)
+            if response.status_code != 429 or attempt == _BUSY_RETRIES:
+                break
+            time.sleep(_BUSY_BACKOFF_SECONDS * 2**attempt)
         response.raise_for_status()
         return response
 
@@ -106,16 +115,14 @@ def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, A
             question = parsed.get(label["questionId"])
             if question is not None and label["questionVersion"] == question.version:
                 answers[label["questionId"]].append(label["label"])
-        goldens = {golden["questionId"]: golden["label"] for golden in recording["goldens"]}
         recording_cells = [
             consensus
-            for question_id in sorted((answers.keys() | goldens.keys()) & parsed.keys())
+            for question_id in sorted(answers.keys() & parsed.keys())
             if (
                 consensus := cell_consensus(
                     parsed[question_id],
                     recording["recordingId"],
-                    answers.get(question_id, []),
-                    goldens.get(question_id),
+                    answers[question_id],
                 )
             )
             is not None

@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import temporalio.worker
 from parameterized import parameterized
@@ -12,8 +12,9 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from products.replay_vision.backend.benchmark import labeling_api
 from products.replay_vision.backend.benchmark.consensus import Question, cell_consensus
-from products.replay_vision.backend.benchmark.labeling_api import build_snapshot
+from products.replay_vision.backend.benchmark.labeling_api import LabelingExportClient, build_snapshot
 from products.replay_vision.backend.benchmark.layout import BenchmarkCase
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
 from products.replay_vision.backend.temporal import benchmark_workflow
@@ -73,7 +74,7 @@ def _span_label(*spans: tuple[int, int]) -> dict[str, Any]:
 def test_majority_consensus(
     _name: str, question: Question, labels: list[dict[str, Any]], expected: dict[str, Any] | None
 ) -> None:
-    consensus = cell_consensus(question, "rec-1", labels, golden=None)
+    consensus = cell_consensus(question, "rec-1", labels)
     if expected is None:
         assert consensus is None
     else:
@@ -81,18 +82,18 @@ def test_majority_consensus(
         assert {key: consensus.answer[key] for key in expected} == expected
 
 
-def test_golden_overrides_labels_and_takes_the_consensus_shape() -> None:
-    consensus = cell_consensus(
-        _question("itemized"),
-        "rec-1",
-        [{"items": []}, {"items": []}],
-        golden=_span_label((2_000, 3_000)),
-    )
+def test_playable_waits_out_a_busy_labeling_app() -> None:
+    busy = MagicMock(status_code=429)
+    ready = MagicMock(status_code=200, content=b"{}\n", headers={"x-benchmark-images-resolved": "3"})
+    client = LabelingExportClient("https://labeling.example.com", "lbl_test")
+    with (
+        patch.object(labeling_api.requests, "get", side_effect=[busy, busy, ready]),
+        patch.object(labeling_api.time, "sleep"),
+    ):
+        playable = client.playable("rec-1")
 
-    assert consensus is not None
-    assert consensus.source == "golden"
-    assert consensus.answer["present"] is True
-    assert consensus.answer["moments"] == [{"startMs": 2_000, "endMs": 3_000, "labelers": 1}]
+    assert (playable.jsonl, playable.images_resolved) == (b"{}\n", 3)
+    busy.raise_for_status.assert_not_called()
 
 
 def test_snapshot_keeps_v2_recordings_and_current_question_versions() -> None:
@@ -109,7 +110,6 @@ def test_snapshot_keeps_v2_recordings_and_current_question_versions() -> None:
         "sessionRef": "s1",
         "idKind": "real",
         "siteBrief": None,
-        "goldens": [],
         # Two current answers say no; two answers to the old wording say yes and must not outvote them.
         "labels": [answer(0, 2, False), answer(1, 2, False), answer(2, 1, True), answer(3, None, True)],
     }

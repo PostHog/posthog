@@ -7,7 +7,7 @@ correction) produce no consensus; the benchmark leaves them out.
 
 import statistics
 from collections import Counter
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -34,29 +34,13 @@ class CellConsensus(BaseModel, frozen=True):
     question_id: str
     question_version: int
     recording_id: str
-    source: Literal["golden", "majority"]
     answer: dict[str, Any]
     # Share of labelers whose answer matches the consensus; None where answers have no single comparable value.
     agreement: float | None
     label_count: int
 
 
-def cell_consensus(
-    question: Question,
-    recording_id: str,
-    labels: list[dict[str, Any]],
-    golden: dict[str, Any] | None,
-) -> CellConsensus | None:
-    if golden is not None:
-        return CellConsensus(
-            question_id=question.question_id,
-            question_version=question.version,
-            recording_id=recording_id,
-            source="golden",
-            answer=_golden_answer(question, golden),
-            agreement=None,
-            label_count=len(labels),
-        )
+def cell_consensus(question: Question, recording_id: str, labels: list[dict[str, Any]]) -> CellConsensus | None:
     if len(labels) < MIN_LABELS:
         return None
     result = _majority_answer(question, labels)
@@ -67,21 +51,10 @@ def cell_consensus(
         question_id=question.question_id,
         question_version=question.version,
         recording_id=recording_id,
-        source="majority",
         answer={"questionId": question.question_id, "type": question.type, **answer},
         agreement=agreement,
         label_count=len(labels),
     )
-
-
-def _golden_answer(question: Question, golden: dict[str, Any]) -> dict[str, Any]:
-    """A golden in the consensus shape, so span questions read the same whichever source set the answer."""
-    spans = {"itemized": _itemized_spans, "timeline_marking": _marker_spans}.get(question.type)
-    if spans is None:
-        return golden
-    marked = spans(golden)
-    moments = [{"startMs": span.start_ms, "endMs": span.end_ms, "labelers": 1} for span in marked]
-    return {"questionId": question.question_id, "type": question.type, "present": bool(marked), "moments": moments}
 
 
 def _majority_answer(question: Question, labels: list[dict[str, Any]]) -> tuple[dict[str, Any], float | None] | None:
