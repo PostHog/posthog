@@ -45,6 +45,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryNotReady, ActorsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
+from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -115,15 +116,25 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
         assert len(response.results[0][0].get("distinct_ids")) > 0
 
-    def test_source_readiness_is_not_an_empty_result(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_source_readiness_is_not_an_empty_result(self, single_flight_enabled: bool) -> None:
         runner = self._create_runner(
             ActorsQuery(
                 source=InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="2023-01-10")
             )
         )
         assert runner.source_query_runner is not None
-        with patch.object(runner.source_query_runner, "to_actors_query", side_effect=ActorsQueryNotReady):
+        with (
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: single_flight_enabled and key == QUERY_SINGLE_FLIGHT_FLAG,
+            ),
+            patch.object(QuerySingleFlight, "acquire", return_value=False) as acquire,
+            patch.object(QuerySingleFlight, "wait", return_value=FlightWait(outcome="released")),
+            patch.object(runner.source_query_runner, "to_actors_query", side_effect=ActorsQueryNotReady),
+        ):
             response = runner.run(user=self.user)
+        acquire.assert_not_called()
         assert response.precomputeNotReady is True
         assert response.results == []
         assert response.hasMore is False
