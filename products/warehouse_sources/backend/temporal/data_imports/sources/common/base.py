@@ -479,11 +479,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return None
 
 
+class SourceExtractionNotImplementedError(NotImplementedError):
+    """A source class carries no `source_for_pipeline` of its own, so only the base stub is left.
+
+    Reaching this in a sync means the worker runs an older build than the web code that created
+    the source: a scaffolded source is only connectable once its implementation ships. Kept
+    distinct from a plain `NotImplementedError`, which a source implementation raises for a real
+    defect the pipeline must keep reporting.
+    """
+
+
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
 
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
@@ -492,7 +502,7 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
     @abstractmethod
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResumableData]:
@@ -543,6 +553,15 @@ class ExternalWebhookInfo:
     error: str | None = None
 
 
+def _serialized_input_has_value(serialized: dict[str, Any] | None) -> bool:
+    # A set secret is redacted to `{"secret": True}`, so the marker is the only proof it has a value.
+    if not serialized:
+        return False
+    if serialized.get("secret"):
+        return True
+    return serialized.get("value") not in (None, "")
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -582,6 +601,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         surfaces from `create_webhook`.
         """
         return None
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
+
+        While one is missing the webhook accepts and drops every delivery. Override where the
+        provider stores the credential under another input, so a configured webhook is not reported.
+        """
+        return [
+            field.name
+            for field in (self.get_source_config.webhookFields or [])
+            if getattr(field, "required", False) and not _serialized_input_has_value(inputs.get(field.name))
+        ]
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no

@@ -47,10 +47,12 @@ class FilloutSource(SimpleSource[FilloutSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fillout",
             iconPath="/static/services/fillout.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/fillout",
             caption="""Enter a Fillout API key to sync forms and submissions.
 
 Supported endpoints:
 - `forms`
+- `form_metadata`
 - `submissions`
 
 You can generate an API key in your Fillout account under **Settings → Developer**.

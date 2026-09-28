@@ -29,6 +29,7 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AmazonAdsDefaultSources as AmazonAdsDefaultSources,
     AnnotationScope as AnnotationScope,
     AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
@@ -2177,6 +2178,19 @@ class MarketingIntegrationConfig10(BaseModel):
     statsTableName: Literal["campaign_insights"] = "campaign_insights"
 
 
+class MarketingIntegrationConfig11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["sp_campaigns"] = "sp_campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["amazon"] = "amazon"
+    sourceType: Literal["AmazonAds"] = "AmazonAds"
+    statsTableName: Literal["sp_campaign_reports"] = "sp_campaign_reports"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2189,6 +2203,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     ]
 ):
     root: (
@@ -2202,6 +2217,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     )
 
 
@@ -7627,7 +7643,9 @@ class SidebarItemsConfiguration(BaseModel):
     starred: UIVisibilityConfig | None = Field(
         default=None, description='"Starred" panel trigger in the Project section.'
     )
-    tools: UIVisibilityConfig | None = Field(default=None, description='"Tools" panel trigger in the Project section.')
+    tools: UIVisibilityConfig | None = Field(
+        default=None, description='"Products" panel trigger in the Project section.'
+    )
 
 
 class SidebarSectionsConfiguration(BaseModel):
@@ -7636,12 +7654,12 @@ class SidebarSectionsConfiguration(BaseModel):
     )
     my_tools: UIVisibilityConfig | None = Field(
         default=None,
-        description='The "My tools" section, listing the user\'s selected tools.',
+        description='The "My products" section, listing the user\'s selected products.',
     )
     project: UIVisibilityConfig | None = Field(
         default=None,
         description=(
-            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            'The "Project" section (Home and the Data/Files/Products/Starred panel'
             " triggers). Activity stays visible even when this section is hidden."
         ),
     )
@@ -30028,7 +30046,7 @@ class TraceSpansQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
+    dateRange: DateRange | None = None
     excludeAttributes: bool | None = Field(
         default=None,
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),

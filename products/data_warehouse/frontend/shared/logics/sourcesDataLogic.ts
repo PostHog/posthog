@@ -28,34 +28,24 @@ export interface sourcesDataLogicActions {
     }
     loadSourcesSuccess: (
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
-              }
-            | {
-                  count?: undefined
-                  next: null
-                  previous?: string | null | undefined
-                  results: ExternalDataSource[]
               },
         payload?: {
             value: true
         }
     ) => {
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
-              }
-            | {
-                  count?: undefined
-                  next: null
-                  previous?: string | null | undefined
-                  results: ExternalDataSource[]
               }
         payload?: {
             value: true
@@ -150,6 +140,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         const results = [...res.results]
                         let next = res.next
                         while (next) {
+                            // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
                             const page = await api.get<PaginatedResponse<ExternalDataSource>>(next, methodOptions)
                             breakpoint()
                             results.push(...page.results)
@@ -157,7 +148,8 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         }
                         cache.abortController = null
 
-                        return { ...res, results, next: null }
+                        const response: PaginatedResponse<ExternalDataSource> = { ...res, results, next: null }
+                        return response
                     } catch (error: any) {
                         // Transient failures shouldn't surface as exceptions:
                         //   - 403: the user has no access to the endpoint

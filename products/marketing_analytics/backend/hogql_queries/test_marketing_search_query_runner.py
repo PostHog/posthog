@@ -1,10 +1,19 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from django.core.cache import cache
+
+from parameterized import parameterized
 
 from posthog.schema import CompareFilter, DateRange, MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchSource
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from .marketing_search_query_runner import MarketingAnalyticsSearchQueryRunner
@@ -152,3 +161,40 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_year.clicks == 40
         assert previous_year.previous is not None and previous_year.previous.clicks == 8
         assert not any(row.keyword == "previous only" for row in year_compared)
+
+
+@pytest.mark.ee
+class TestMarketingSearchCacheAccessControl(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.addCleanup(cache.clear)
+
+    @parameterized.expand(
+        [
+            ("warehouse_objects", {"warehouse_table", "warehouse_view"}),
+            ("external_data_source", {"external_data_source"}),
+        ]
+    )
+    def test_marketing_search_partitions_cache_on_warehouse_access_control(
+        self, resource: str, expected_scopes: set[str]
+    ) -> None:
+        query = MarketingAnalyticsSearchQuery(
+            sources=[MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable="example.keyword_stats")]
+        )
+        access_control = AccessControl.objects.create(team=self.team, resource=resource, access_level="none")
+        denied_runner = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user)
+        assert expected_scopes.issubset(denied_runner.get_cache_payload().get("restricted_resources") or [])
+        key_denied = denied_runner.get_cache_key()
+
+        access_control.access_level = "editor"
+        access_control.save()
+        key_granted = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != key_granted

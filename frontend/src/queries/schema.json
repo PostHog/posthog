@@ -1502,6 +1502,10 @@
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
+        "AmazonAdsDefaultSources": {
+            "enum": ["amazon", "amazon_ads"],
+            "type": "string"
+        },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
             "properties": {
@@ -27033,6 +27037,7 @@
                 "revenue_analytics_metadata",
                 "marketing_settings",
                 "marketing_analytics",
+                "customer_analytics",
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
@@ -27049,6 +27054,7 @@
                 "experiment",
                 "feature_flag",
                 "feature_flag_off",
+                "data_modeling",
                 "data_pipeline",
                 "data_pipeline_metadata",
                 "data_warehouse",
@@ -27105,7 +27111,25 @@
                 "llm_prompts",
                 "llm_clusters",
                 "mcp_analytics",
-                "exports"
+                "exports",
+                "pulse",
+                "skill",
+                "wizard",
+                "data_catalog",
+                "warehouse_destination",
+                "warehouse_property",
+                "data_source",
+                "data_destination",
+                "data_transformation",
+                "event_filter",
+                "managed_migration",
+                "web_script",
+                "core_event",
+                "property_group",
+                "mcp_server",
+                "streamlit_app",
+                "sql_variable",
+                "business_knowledge"
             ],
             "type": "string"
         },
@@ -36917,6 +36941,60 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "sp_campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "amazon",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "amazon_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "amazon",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "AmazonAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "sp_campaign_reports",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38826,7 +38904,8 @@
                 "SnapchatAds",
                 "PinterestAds",
                 "AppleSearchAds",
-                "OpenAIAds"
+                "OpenAIAds",
+                "AmazonAds"
             ],
             "type": "string"
         },
@@ -40431,15 +40510,14 @@
         "ProductItemCategory": {
             "enum": [
                 "Analytics",
+                "Data",
                 "AI engineering",
-                "Behavior",
+                "Product engineering",
                 "Messaging",
-                "App monitoring",
-                "Features",
+                "Monitoring",
                 "Tools",
                 "Schema",
-                "Pipeline",
-                "Metadata",
+                "CDP",
                 "Unreleased"
             ],
             "type": "string"
@@ -52350,7 +52428,7 @@
                 },
                 "tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Tools\" panel trigger in the Project section."
+                    "description": "\"Products\" panel trigger in the Project section."
                 }
             },
             "type": "object"
@@ -52361,11 +52439,11 @@
             "properties": {
                 "my_tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"My tools\" section, listing the user's selected tools."
+                    "description": "The \"My products\" section, listing the user's selected products."
                 },
                 "project": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
+                    "description": "The \"Project\" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden."
                 },
                 "recents": {
                     "$ref": "#/definitions/UIVisibilityConfig",
@@ -54717,7 +54795,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "TraceSpansQueryResponse": {

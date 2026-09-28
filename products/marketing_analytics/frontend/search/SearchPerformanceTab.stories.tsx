@@ -164,7 +164,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
             </BindLogic>
         ),
     ],
-    parameters: { layout: 'padded', msw: { mocks: MOCKS } },
+    parameters: { layout: 'fullscreen', msw: { mocks: MOCKS } },
 }
 export default meta
 type Story = StoryObj<typeof meta>
@@ -176,6 +176,7 @@ export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true` },
 }
 export const Narrow: Story = {
+    parameters: { layout: 'padded' },
     decorators: [
         (Story) => (
             <div className="w-[520px]">
@@ -226,12 +227,22 @@ export const Empty: Story = {
         },
     },
 }
+const pendingLoadingQueries = new Set<() => void>()
+
 export const Loading: Story = {
+    beforeEach: () => () => {
+        // Release the query slot so the loading fixture cannot block later stories.
+        pendingLoadingQueries.forEach((resolve) => resolve())
+        pendingLoadingQueries.clear()
+    },
     parameters: {
         msw: {
             mocks: {
                 post: {
-                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': () => new Promise(() => {}),
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async () => {
+                        await new Promise<void>((resolve) => pendingLoadingQueries.add(resolve))
+                        return { results: [] }
+                    },
                 },
             },
         },
@@ -240,6 +251,10 @@ export const Loading: Story = {
 }
 export const QueryError: Story = {
     parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-search-performance"] .LemonBanner--error',
+        },
         msw: {
             mocks: {
                 post: {
@@ -254,6 +269,10 @@ export const QueryError: Story = {
 }
 export const SourcesError: Story = {
     parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-search-performance"] .LemonBanner--error',
+        },
         msw: {
             mocks: {
                 get: { '/api/environments/:team_id/external_data_sources/': [500, { detail: 'Sources unavailable' }] },
