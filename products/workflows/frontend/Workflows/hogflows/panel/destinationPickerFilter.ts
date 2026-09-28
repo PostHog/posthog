@@ -10,6 +10,14 @@ export function destinationPickerFilter(
             return false
         }
 
+        // The hog flow worker does not apply a step's mappings, so a destination that reads its fields
+        // from mappings skips the event or sends empty fields. This check keeps out the mapping
+        // destinations that have a secret input. Mapping destinations without one, such as Google Ads,
+        // have the same gap and are still offered.
+        if (template.mapping_templates?.length && template.inputs_schema?.some((input) => input.secret)) {
+            return false
+        }
+
         return !['hidden', 'coming_soon'].includes(template.status)
     }
 }
