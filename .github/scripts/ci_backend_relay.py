@@ -218,15 +218,18 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """The first app in `app_ids` that has the check wins.
+        """The first app in `app_ids` that has the check wins, and later apps are not read.
 
         Depot can deliver its copy of an old attempt after a newer one, so check ids do not order
-        the two apps' copies. A failed read of either app reads as no check, which keeps polling.
+        the two apps' copies. A failed read before any copy is found reads as no check, which keeps polling.
         """
-        copies = [self._read_app(name, app_id) for app_id in self._app_ids]
-        if any(runs is None for runs in copies):
-            return []
-        return next((runs for runs in copies if runs), [])
+        for app_id in self._app_ids:
+            runs = self._read_app(name, app_id)
+            if runs is None:
+                return []
+            if runs:
+                return runs
+        return []
 
     def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
         """Read every page, reusing a cached answer only when the API confirms it with 304."""

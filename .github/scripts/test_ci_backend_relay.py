@@ -492,7 +492,7 @@ def test_reader_keeps_valid_checks_beside_a_malformed_one() -> None:
         pytest.param([], (relay.Phase.FINISHED, "success"), id="Depot's copies lag"),
         # Depot delivers attempt 1's failure after the mirror posted attempt 2's success.
         pytest.param([(9, "failure")], (relay.Phase.FINISHED, "success"), id="a late copy of an older attempt"),
-        pytest.param(None, (relay.Phase.RUNNING, ""), id="Depot's app read fails"),
+        pytest.param(None, (relay.Phase.FINISHED, "success"), id="Depot's app read fails"),
     ],
 )
 def test_relay_prefers_the_mirrored_checks(depot_gate: list[tuple[int, str]] | None, expected: tuple[Any, str]) -> None:
