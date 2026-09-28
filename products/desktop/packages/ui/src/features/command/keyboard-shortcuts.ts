@@ -8,6 +8,13 @@ export function panelTabShortcut(macPlatform: boolean): string {
   ).join(",");
 }
 
+/** App-wide shortcuts that must also fire while focus is in a text field. */
+export const GLOBAL_HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  preventDefault: true,
+} as const;
+
 export const SHORTCUTS = {
   COMMAND_MENU: "mod+k",
   NEW_TASK: "mod+n",

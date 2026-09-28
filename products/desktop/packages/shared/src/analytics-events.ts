@@ -320,7 +320,7 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
-  /** `shortcut` when the rail previous/next keys picked the item. Absent means a click. */
+  /** How a rail destination was picked. Only the channels rail sends it. */
   source?: "click" | "shortcut";
 }
 
