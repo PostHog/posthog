@@ -1,8 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -11,101 +10,25 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, SessionRecordingPlaylistType } from '~/types'
 
 import { BuiltInCollections } from './BuiltInCollections'
-import { getCollectionCounts, watchNextUrl } from './collectionUtils'
+import { COLUMN_WIDTHS, countColumn, nameColumn, progressColumn, watchNextColumn } from './collectionColumns'
+import { CollectionSectionHeading } from './CollectionSectionHeading'
 import { SessionRecordingCollectionsEmptyState } from './SessionRecordingCollectionsEmptyState'
 import { PLAYLISTS_PER_PAGE, sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
 
-function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
-    return {
-        title: 'Name',
-        dataIndex: 'name',
-        render: function Render(name, { short_id, derived_name, description }) {
-            return (
-                <>
-                    <Link
-                        className={clsx('font-semibold', !name && 'italic')}
-                        to={urls.replayPlaylist(short_id)}
-                        data-attr="collections-scene-table-clicked-user-collection"
-                    >
-                        {name || derived_name || 'Unnamed'}
-                    </Link>
-                    {description ? <div className="truncate">{description}</div> : null}
-                </>
-            )
-        },
-    }
-}
-
-function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'recordings_counts'> {
-    return {
-        dataIndex: 'recordings_counts',
-        title: 'Count',
-        tooltip: 'Count of recordings in the collection',
-        width: 0,
-        render: function Render(recordings_counts) {
-            const counts = getCollectionCounts(recordings_counts)
-            const tooltip = (
-                <div className="text-start">
-                    {counts ? (
-                        counts.total && counts.total > 0 ? (
-                            counts.unwatched > 0 ? (
-                                <p>
-                                    You have {counts.unwatched} unwatched recordings to watch out of a total of{' '}
-                                    {counts.total} in this collection.
-                                </p>
-                            ) : (
-                                <p>You have watched all of the {counts.total} recordings in this collection.</p>
-                            )
-                        ) : (
-                            <p>No results found for this collection.</p>
-                        )
-                    ) : (
-                        <p>Counts have not yet been calculated for this collection.</p>
-                    )}
-                </div>
-            )
-
-            return (
-                <div className="flex items-center justify-start w-full h-full">
-                    <Tooltip title={tooltip}>
-                        {counts ? (
-                            <span className="flex items-center gap-x-1 cursor-help">
-                                <LemonBadge.Number
-                                    status={counts.unwatched ? 'primary' : 'muted'}
-                                    className="text-xs cursor-pointer"
-                                    count={counts.total || 0}
-                                    maxDigits={3}
-                                    showZero={true}
-                                />
-                            </span>
-                        ) : (
-                            <span>
-                                <LemonBadge status="muted" content="?" className="cursor-pointer" />
-                            </span>
-                        )}
-                    </Tooltip>
-                </div>
-            )
-        },
-    }
-}
-
 export function SessionRecordingCollections(): JSX.Element {
-    const { playlists, playlistsLoading, builtInPlaylists, filters, sorting, pagination } = useValues(
-        sessionRecordingCollectionsLogic
-    )
+    const { playlists, playlistsLoading, builtInPlaylists, builtInPlaylistsLoading, filters, sorting, pagination } =
+        useValues(sessionRecordingCollectionsLogic)
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
         sessionRecordingCollectionsLogic
     )
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
-            width: 0,
+            width: COLUMN_WIDTHS.leading,
             dataIndex: 'pinned',
             render: function Render(pinned, { short_id }) {
                 return (
@@ -122,21 +45,21 @@ export function SessionRecordingCollections(): JSX.Element {
                 )
             },
         },
-        countColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
-        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
+        countColumn(),
+        nameColumn(),
         {
             ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
                 SessionRecordingPlaylistType,
                 keyof SessionRecordingPlaylistType | undefined
             >),
-            width: 0,
+            width: COLUMN_WIDTHS.createdBy,
         },
         {
             title: 'Last modified',
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
-            width: 0,
+            width: COLUMN_WIDTHS.lastModified,
             render: function Render(last_modified_at) {
                 return (
                     <div>
@@ -147,24 +70,10 @@ export function SessionRecordingCollections(): JSX.Element {
                 )
             },
         },
+        progressColumn(),
+        watchNextColumn(),
         {
-            width: 0,
-            render: function Render(_, playlist) {
-                const counts = getCollectionCounts(playlist.recordings_counts)
-                return counts && counts.unwatched > 0 ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        to={watchNextUrl(playlist.short_id)}
-                        data-attr="collections-scene-watch-next"
-                    >
-                        Watch next
-                    </LemonButton>
-                ) : null
-            },
-        },
-        {
-            width: 0,
+            width: COLUMN_WIDTHS.actions,
             render: function Render(_, playlist) {
                 return (
                     <More
@@ -209,64 +118,58 @@ export function SessionRecordingCollections(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-6">
-            <BuiltInCollections playlists={builtInPlaylists} />
+            <BuiltInCollections playlists={builtInPlaylists} loading={builtInPlaylistsLoading} />
 
-            <div className="flex flex-col gap-2">
-                <div className="flex justify-between gap-2 items-center flex-wrap">
-                    <div className="flex items-center gap-2">
-                        <h3 className="mb-0">Your collections</h3>
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for collections"
-                            onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
-                            value={filters.search || ''}
-                        />
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <LemonButton
-                            data-attr="session-recording-playlist-pinned-filter"
-                            active={filters.pinned}
-                            size="small"
-                            type="secondary"
-                            status="alt"
-                            center
-                            onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
-                            icon={filters.pinned ? <IconPinFilled /> : <IconPin />}
-                        >
-                            Pinned
-                        </LemonButton>
-                        <div className="flex items-center gap-2">
-                            <span>Last modified:</span>
-                            <DateFilter
-                                disabled={false}
-                                dateFrom={filters.dateFrom}
-                                dateTo={filters.dateTo}
-                                onChange={(fromDate, toDate) =>
-                                    setSavedPlaylistsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
-                                }
-                                makeLabel={(key) => (
-                                    <>
-                                        <IconCalendar />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                                max={21}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <MemberSelect
-                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                                onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id || 'All users' })}
-                            />
-                        </div>
-                    </div>
-                </div>
+            <div className="border rounded overflow-hidden bg-surface-primary">
+                <CollectionSectionHeading title="Your collections" description="Made by your team.">
+                    <LemonButton
+                        data-attr="session-recording-playlist-pinned-filter"
+                        active={filters.pinned}
+                        size="small"
+                        type="secondary"
+                        status="alt"
+                        center
+                        onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
+                        icon={filters.pinned ? <IconPinFilled /> : <IconPin />}
+                    >
+                        Pinned
+                    </LemonButton>
+                    <DateFilter
+                        disabled={false}
+                        dateFrom={filters.dateFrom}
+                        dateTo={filters.dateTo}
+                        onChange={(fromDate, toDate) =>
+                            setSavedPlaylistsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
+                        }
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar />
+                                <span className="hide-when-small"> {key}</span>
+                            </>
+                        )}
+                        max={21}
+                        size="small"
+                    />
+                    <MemberSelect
+                        defaultLabel="Any creator"
+                        value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                        onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id || 'All users' })}
+                    />
+                    <LemonInput
+                        type="search"
+                        size="small"
+                        placeholder="Search for collections"
+                        onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
+                        value={filters.search || ''}
+                    />
+                </CollectionSectionHeading>
 
                 {!playlistsLoading && playlists.count < 1 ? (
                     <SessionRecordingCollectionsEmptyState />
                 ) : (
                     <LemonTable
+                        embedded
+                        tableLayout="fixed"
                         loading={playlistsLoading}
                         columns={columns}
                         dataSource={playlists.results}

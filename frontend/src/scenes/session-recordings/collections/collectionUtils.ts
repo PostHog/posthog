@@ -7,7 +7,9 @@ import { PlaylistRecordingsCounts } from '~/types'
 
 export interface CollectionCounts {
     total: number | null
+    watched: number
     unwatched: number
+    watchedPercent: number
 }
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -18,13 +20,19 @@ export function getCollectionCounts(recordingsCounts: unknown): CollectionCounts
     if (!isPlaylistRecordingsCounts(recordingsCounts)) {
         return null
     }
-    const hasResults = recordingsCounts.collection.count !== null || recordingsCounts.saved_filters?.count !== null
+    const hasResults =
+        recordingsCounts.collection.count !== null || (recordingsCounts.saved_filters?.count ?? null) !== null
     if (!hasResults) {
         return null
     }
     const total = recordingsCounts.collection.count ?? recordingsCounts.saved_filters?.count ?? null
     const watched = recordingsCounts.collection.watched_count ?? recordingsCounts.saved_filters?.watched_count ?? 0
-    return { total, unwatched: Math.max(0, (total ?? 0) - watched) }
+    return {
+        total,
+        watched,
+        unwatched: Math.max(0, (total ?? 0) - watched),
+        watchedPercent: total ? Math.min(100, Math.round((watched / total) * 100)) : 0,
+    }
 }
 
 export function watchNextUrl(shortId: string): string {

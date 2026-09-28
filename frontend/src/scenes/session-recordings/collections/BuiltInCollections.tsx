@@ -1,53 +1,61 @@
-import { LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconClock, IconComment, IconDownload, IconRewindPlay, IconShare, IconWarning } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
-import { getCollectionCounts, watchNextUrl } from './collectionUtils'
+import { COLUMN_WIDTHS, countColumn, nameColumn, progressColumn, watchNextColumn } from './collectionColumns'
+import { CollectionSectionHeading } from './CollectionSectionHeading'
 
-export function BuiltInCollections({ playlists }: { playlists: SessionRecordingPlaylistType[] }): JSX.Element | null {
-    if (playlists.length === 0) {
-        return null
-    }
+const BUILT_IN_ICONS: Record<string, JSX.Element> = {
+    'synthetic-watch-history': <IconRewindPlay />,
+    'synthetic-commented': <IconComment />,
+    'synthetic-shared': <IconShare />,
+    'synthetic-exported': <IconDownload />,
+    'synthetic-expiring': <IconClock />,
+    'synthetic-frustrated': <IconWarning />,
+}
+
+const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
+    {
+        width: COLUMN_WIDTHS.leading,
+        render: function Render(_, { short_id }) {
+            return (
+                <span className="flex items-center justify-center w-9 h-8 text-xl text-secondary">
+                    {BUILT_IN_ICONS[short_id]}
+                </span>
+            )
+        },
+    },
+    countColumn(),
+    nameColumn(),
+    { width: COLUMN_WIDTHS.createdBy + COLUMN_WIDTHS.lastModified, render: () => null },
+    progressColumn(),
+    watchNextColumn(),
+    { width: COLUMN_WIDTHS.actions, render: () => null },
+]
+
+export function BuiltInCollections({
+    playlists,
+    loading,
+}: {
+    playlists: SessionRecordingPlaylistType[]
+    loading: boolean
+}): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <h3 className="mb-0">Built-in</h3>
-            <div className="flex flex-wrap gap-2 items-stretch">
-                {playlists.map((playlist) => {
-                    const counts = getCollectionCounts(playlist.recordings_counts)
-                    return (
-                        <LemonCard
-                            key={playlist.short_id}
-                            hoverEffect={false}
-                            className="flex flex-col gap-0.5 p-3 w-64"
-                        >
-                            <Link
-                                to={urls.replayPlaylist(playlist.short_id)}
-                                className="font-semibold"
-                                data-attr="collections-scene-table-clicked-synthetic-collection"
-                            >
-                                {playlist.name}
-                            </Link>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xl font-bold leading-tight">
-                                    {counts ? (counts.total ?? 0) : '?'}
-                                </span>
-                                {counts && counts.unwatched > 0 ? (
-                                    <Link to={watchNextUrl(playlist.short_id)} data-attr="collections-scene-watch-next">
-                                        <LemonTag type="primary" size="small">
-                                            {counts.unwatched} unwatched
-                                        </LemonTag>
-                                    </Link>
-                                ) : null}
-                            </div>
-                            {playlist.description ? (
-                                <span className="text-xs text-secondary">{playlist.description}</span>
-                            ) : null}
-                        </LemonCard>
-                    )
-                })}
-            </div>
+        <div className="border rounded overflow-hidden bg-surface-primary">
+            <CollectionSectionHeading title="Built-in" description="Kept up to date by PostHog." />
+            <LemonTable
+                embedded
+                tableLayout="fixed"
+                loading={loading}
+                columns={columns}
+                dataSource={playlists}
+                rowKey="short_id"
+                loadingSkeletonRows={6}
+                nouns={['collection', 'collections']}
+            />
         </div>
     )
 }
