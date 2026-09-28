@@ -1956,9 +1956,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(flag_response["has_encrypted_payloads"], True)
         self.assertEqual(flag_response["key"], encrypted_flag.key)
 
-        returned_payload = flag_response["filters"]["payloads"]["true"]
-        self.assertNotEqual(returned_payload, REDACTED_PAYLOAD_VALUE)
-        self.assertEqual(get_decrypted_flag_payload(returned_payload, should_decrypt=True), '{"key": "secret_value"}')
+        self.assertEqual(flag_response["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
 
         # Verify the flag in the database has encrypted payloads
         copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
@@ -3135,6 +3133,25 @@ class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
         response = self._post_with_key(value)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_personal_api_key_receives_the_decrypted_payloads(self):
+        filters = {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "secret_value"}'}}
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": filters})
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-key-to-copy",
+            filters=filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+        self.body["feature_flag_key"] = "encrypted-key-to-copy"
+        value = self._create_key(scopes=["feature_flag:write"])
+
+        response = self._post_with_key(value)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"][0]["filters"]["payloads"]["true"] == '{"key": "secret_value"}'
 
 
 class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):

@@ -1422,11 +1422,10 @@ class OrganizationFeatureFlagView(
                 )
                 schedule_copy_error = str(e)
 
-        # An overwrite reaches the response redacted, because FeatureFlagSerializer.update() redacts
-        # and update_flag then reloads the stored ciphertext over it. A create returns the ciphertext,
-        # because FeatureFlagSerializer.create() never redacts. Keep both as they are.
-        if existing_flag:
-            self._redact_encrypted_payloads(request, saved_flag)
+        # Neither branch reaches here redacted: FeatureFlagSerializer.create() never redacts, and
+        # update_flag reloads the stored ciphertext over the redaction update() did. Redact both the
+        # way every other flag read path does, so only a personal API key sees the payloads.
+        self._redact_encrypted_payloads(request, saved_flag)
         copy_context = {"request": request, "team_id": target_team.id, "project_id": target_project_id}
         result = dict(serialize_flags([saved_flag], context=copy_context)[0])
         result["team_id"] = saved_flag.team_id
