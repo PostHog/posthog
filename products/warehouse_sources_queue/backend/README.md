@@ -92,7 +92,7 @@ The migration must be `atomic = False` and re-runnable (a cancelled `CONCURRENTL
 
 ### Architecture
 
-![Postgres queue architecture](./20260423%20-%20PostgresArchitecture.png)
+![Postgres queue architecture](../../warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/20260423%20-%20PostgresArchitecture.png)
 
 This diagram predates the lease model: it shows `pg_try_advisory_lock` coordination, `SELECT ... FOR UPDATE SKIP LOCKED`, and status UPDATEs, none of which exist any more.
 The overall topology (Temporal producer activity, two tables, a fleet of consumer pods polling in a loop) is still right; read the "What we use" section above for the current coordination design.
