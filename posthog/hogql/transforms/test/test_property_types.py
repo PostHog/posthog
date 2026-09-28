@@ -34,6 +34,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -79,6 +80,7 @@ def _normalize_snapshot_sql(sql: str) -> str:
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
     def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
         team = Team(id=1, project_id=1)
@@ -241,14 +243,14 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "legacy",
+                "legacy_reads_flags_as_stored",
                 "SELECT properties.$feature_flags, properties.$feature_flags.checkout, "
-                "JSONHas(properties, '$feature_flags', 'checkout') FROM events",
+                "JSONHas(properties, '$feature_flags', 'checkout'), JSONHas(properties, '$feature/secret') FROM events",
                 False,
-                None,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
-                ("events.properties_group_feature_flags", "substring("),
-                ("mapFilter(",),
+                (f"JSONExtractRaw({JSON_DROP_KEYS_CLICKHOUSE_NAME}(", f"JSONHas({JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                ("properties_group_feature_flags", "mapFilter("),
             ),
             (
                 "native",
@@ -268,16 +270,6 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 None,
                 ("events.properties.`$feature_flags`", "mapFilter("),
                 ("events.properties.`$active_feature_flags`", "events._active_feature_flags"),
-            ),
-            (
-                "legacy_restricted",
-                "SELECT properties.$feature_flags, properties.$feature_flags.secret, "
-                "JSONHas(properties, '$feature_flags', 'secret') FROM events",
-                False,
-                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
-                PropertyGroupsMode.OPTIMIZED,
-                ("mapFilter(", "_sensitive)s"),
-                ("has(events.properties_group_feature_flags",),
             ),
             (
                 "native_restricted",
@@ -316,15 +308,6 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 None,
                 ("JSONMergePatch(", "mapFilter("),
                 (),
-            ),
-            (
-                "legacy_disabled",
-                "SELECT properties.$feature_flags FROM events",
-                False,
-                None,
-                PropertyGroupsMode.DISABLED,
-                ("JSONExtractRaw(events.properties, %(hogql_val_0)s)",),
-                ("events.properties_group_feature_flags",),
             ),
         ]
     )
@@ -1548,12 +1531,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             assert native[2] == legacy[2]
 
     def test_feature_flag_interfaces_work_across_event_schemas(self) -> None:
-        legacy_uuid = _create_event(
-            team=self.team,
-            distinct_id="legacy-flags",
-            event="schema-parity",
-            properties={"$feature/checkout": True, "$feature/variant": "control"},
-        )
         native_uuid = _create_event(
             team=self.team,
             distinct_id="native-flags",
@@ -1634,13 +1611,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             [(flag,) for flag in active_flags],
         )
 
-        legacy = execute_hogql_query(
-            "SELECT properties.$feature_flags, properties.$feature_flags.checkout "
-            f"FROM events WHERE uuid = '{legacy_uuid}'",
-            team=self.team,
-            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=False),
-            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
-        )
         native = execute_hogql_query(
             "SELECT properties.`$feature/checkout`, properties.`$feature/variant`, "
             "properties.$feature_flags.checkout, JSONHas(properties, '$feature_flags', 'checkout'), "
@@ -1654,9 +1624,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
         )
 
-        assert legacy.results is not None
-        assert json.loads(legacy.results[0][0]) == {"checkout": "true", "variant": "control"}
-        assert legacy.results[0][1] == "true"
         assert native.results is not None
         assert native.results[0][:4] == ("true", "control", "true", 1)
         assert json.loads(native.results[0][4]) == ["checkout", "false-variant", "only-in-map", "secret", "variant"]

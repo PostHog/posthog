@@ -595,11 +595,18 @@ class SnowflakeImplementation(
                 table_name=table_name,
                 exc_info=e,
             )
+            error_str = str(e)
             # The table/schema was dropped, renamed, or its grant revoked after discovery —
             # `SnowflakeSource.get_non_retryable_errors` already treats this exact phrase as
             # user/upstream and non-actionable. Reporting it here would just be noise, since the
             # pipeline already recovers via the None fallback above.
-            if "does not exist or not authorized" not in str(e):
+            #
+            # "HTTP 503: Service Unavailable" is Snowflake's backend briefly unavailable — the
+            # connector already retried internally (it re-raises after exhausting its own
+            # `RetryRequest` budget) before this `SHOW` failed, the same self-recovering signature
+            # `SnowflakeSource.get_retryable_errors` excludes from error tracking elsewhere.
+            # Reporting it here would be noise for the same reason.
+            if "does not exist or not authorized" not in error_str and "HTTP 503: Service Unavailable" not in error_str:
                 capture_exception(e)
             return None
 

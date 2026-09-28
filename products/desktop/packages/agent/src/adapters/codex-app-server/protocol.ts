@@ -73,7 +73,11 @@ export const APP_SERVER_REQUESTS = {
   TOOL_USER_INPUT: "item/tool/requestUserInput",
   PERMISSIONS_APPROVAL: "item/permissions/requestApproval",
   MCP_ELICITATION: "mcpServer/elicitation/request",
+  CHATGPT_AUTH_TOKENS_REFRESH: "account/chatgptAuthTokens/refresh",
 } as const;
+
+/** Codex fails the turn if the host does not answer a refresh in this time. */
+export const CHATGPT_AUTH_TOKENS_REFRESH_TIMEOUT_MS = 10_000;
 
 /** JSON-RPC ids are `string | number` per the codex schema (`RequestId.ts`). */
 export type RequestId = string | number;

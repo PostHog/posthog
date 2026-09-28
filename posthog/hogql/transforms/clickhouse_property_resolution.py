@@ -31,7 +31,7 @@ from posthog.hogql.constants import (
     EXCEPTION_STRING_ARRAY_PROPERTIES,
     FEATURE_FLAG_FALSE_VARIANT_SENTINEL,
     FEATURE_FLAG_PROPERTY_PREFIX,
-    is_virtual_feature_flag_property,
+    is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
@@ -577,10 +577,8 @@ def _false_variant_read(value: ast.Expr) -> ast.Expr:
     )
 
 
-def _feature_flag_value_read(feature_flags: ast.Expr, key: str, context: HogQLContext) -> ast.Expr:
-    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back on the native table."""
-    if not context.uses_new_events_schema():
-        return _map_value_read(feature_flags, key)
+def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
+    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back to "false"."""
     return ast.Call(
         name="if",
         args=[
@@ -627,25 +625,15 @@ def _is_events_properties(field_type: ast.FieldType, context: HogQLContext) -> b
     )
 
 
-def _physical_feature_flag_key(key: str, context: HogQLContext) -> str:
-    return key if context.uses_new_events_schema() else f"{FEATURE_FLAG_PROPERTY_PREFIX}{key}"
-
-
 def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.Expr | None:
-    if context.uses_new_events_schema():
-        source = resolve_json_subcolumn_source(
-            field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", "$feature_flags", context
-        )
-        return (
-            _json_subcolumn_access(field_type, ["$feature_flags"], source=source, is_nullable=False)
-            if source is not None
-            else None
-        )
-
-    if context.modifiers.materializationMode == MaterializationMode.DISABLED:
-        return None
-    source = resolve_property_group_source(field_type, FEATURE_FLAG_PROPERTY_PREFIX, context)
-    return _synthetic_column_field(field_type, source.column, is_nullable=False) if source is not None else None
+    source = resolve_json_subcolumn_source(
+        field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", "$feature_flags", context
+    )
+    return (
+        _json_subcolumn_access(field_type, ["$feature_flags"], source=source, is_nullable=False)
+        if source is not None
+        else None
+    )
 
 
 def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLContext) -> list[str]:
@@ -654,7 +642,7 @@ def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLConte
         for key in restricted_property_keys_for_table_type(field_type.table_type, context)
         if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
     )
-    return sorted(_physical_feature_flag_key(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX), context) for key in keys)
+    return sorted(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys)
 
 
 def _not_in_lambda_values(name: str, values: list[str], *, is_sensitive: bool = False) -> ast.Call:
@@ -681,44 +669,21 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
 
 
 def _compact_feature_flags_map(
-    feature_flags: ast.Expr, restricted_keys: list[str], context: HogQLContext, *, map_values: bool = True
+    feature_flags: ast.Expr, restricted_keys: list[str], *, map_values: bool = True
 ) -> ast.Expr:
-    """The visible flags map, with legacy `$feature/` prefixes stripped and `$false` read back as "false".
+    """The visible flags map, with `$false` read back as "false".
 
     Presence checks pass `map_values=False`: the mapping cannot change the key set, so they skip the per-row `mapApply`.
     """
     filtered = _filter_feature_flags(feature_flags, restricted_keys)
-    if context.uses_new_events_schema():
-        if not map_values:
-            return filtered
-        return ast.Call(
-            name="mapApply",
-            args=[
-                ast.Lambda(
-                    args=["key", "value"],
-                    expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
-                ),
-                filtered,
-            ],
-        )
+    if not map_values:
+        return filtered
     return ast.Call(
         name="mapApply",
         args=[
             ast.Lambda(
                 args=["key", "value"],
-                expr=ast.Tuple(
-                    exprs=[
-                        ast.Call(
-                            name="substring",
-                            args=[
-                                _lambda_string_arg("key"),
-                                ast.Constant(value=len(FEATURE_FLAG_PROPERTY_PREFIX) + 1),
-                                ast.Call(name="length", args=[_lambda_string_arg("key")]),
-                            ],
-                        ),
-                        _lambda_string_arg("value"),
-                    ]
-                ),
+                expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
             ),
             filtered,
         ],
@@ -786,17 +751,19 @@ def _active_feature_flags_present(feature_flags: ast.Expr, restricted_keys: list
 def _feature_flag_compatibility_read(
     node: ast.PropertyAccess, field_type: ast.FieldType, context: HogQLContext, *, as_json: bool = False
 ) -> ast.Expr | None:
-    """The read of a virtual flag property, or None when `node` is not one.
+    """The read of a flag property the native table rebuilds from `$feature_flags`, or None to read it as stored.
 
+    The legacy table stores every flag property as sent, so it always reads them as stored.
     `as_json` reads `$feature/<key>` as the JSON text a JSON function parses instead of the unquoted value.
     `$active_feature_flags` and the whole `$feature_flags` map read as JSON text either way.
     """
-    if not _is_events_properties(field_type, context):
-        return None
-
     first_key = str(node.keys[0])
     deeper_keys = list(node.keys[1:])
-    if not is_virtual_feature_flag_property(first_key, uses_new_events_schema=context.uses_new_events_schema()):
+    if (
+        not context.uses_new_events_schema()
+        or not is_virtual_feature_flag_key(first_key)
+        or not _is_events_properties(field_type, context)
+    ):
         return None
 
     restricted_properties = restricted_property_keys_for_table_type(field_type.table_type, context)
@@ -808,28 +775,26 @@ def _feature_flag_compatibility_read(
         return None
     restricted_keys = _restricted_feature_flag_keys(field_type, context)
 
-    if context.uses_new_events_schema() and first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+    if first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
         flag_key = first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
         value = (
             _feature_flag_json_read(feature_flags, flag_key)
             if as_json
-            else _feature_flag_value_read(feature_flags, flag_key, context)
+            else _feature_flag_value_read(feature_flags, flag_key)
         )
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
-    if context.uses_new_events_schema() and first_key == "$active_feature_flags":
+    if first_key == "$active_feature_flags":
         value = _active_feature_flags_json(feature_flags, restricted_keys)
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
-    if first_key != "$feature_flags":
-        return None
     if deeper_keys:
-        map_key = _physical_feature_flag_key(str(deeper_keys[0]), context)
+        map_key = str(deeper_keys[0])
         if map_key in restricted_keys:
             return ast.Constant(value=None, type=ast.StringType(nullable=True))
-        value = _feature_flag_value_read(feature_flags, map_key, context)
+        value = _feature_flag_value_read(feature_flags, map_key)
         return ast.PropertyAccess(expr=value, keys=deeper_keys[1:]) if len(deeper_keys) > 1 else value
-    return _nonempty_container_json(_compact_feature_flags_map(feature_flags, restricted_keys, context), "{}")
+    return _nonempty_container_json(_compact_feature_flags_map(feature_flags, restricted_keys), "{}")
 
 
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
@@ -859,9 +824,7 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     feature_flag_read = _feature_flag_compatibility_read(node, field_type, context)
     if feature_flag_read is not None:
         denied = isinstance(feature_flag_read, ast.Constant) and feature_flag_read.value is None
-        _record_property_usage(
-            context, None if denied else "json_subcolumn" if context.uses_new_events_schema() else "property_group"
-        )
+        _record_property_usage(context, None if denied else "json_subcolumn")
         return feature_flag_read
 
     source = resolve_materialized_property_source(field_type, first_key, context)
@@ -1195,8 +1158,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         return None
 
     def _is_virtual_feature_flag_property(self, field_type: ast.FieldType, property_name: str) -> bool:
-        return _is_events_properties(field_type, self.context) and is_virtual_feature_flag_property(
-            property_name, uses_new_events_schema=self.context.uses_new_events_schema()
+        return (
+            self.context.uses_new_events_schema()
+            and is_virtual_feature_flag_key(property_name)
+            and _is_events_properties(field_type, self.context)
         )
 
     def _single_key_property_from_boolean_conversion(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
@@ -1317,31 +1282,26 @@ class ClickHousePropertyResolver(CloningVisitor):
         return super().visit_call(node)
 
     def _rewrite_feature_flag_json_call(self, node: ast.Call) -> ast.Expr | None:
-        """A JSON function over a virtual flag key, rewritten to parse the flag read instead of the stored document.
+        """A JSON function over a virtual flag key, rewritten on native events to parse the flag read.
 
         The native stored document has no `$feature/<key>` or `$active_feature_flags` key, so a JSON function that reads
-        the document sees a missing key. The legacy document holds both keys as sent, so on that table only
-        `JSONExtract*` over `$feature_flags` reads the rebuilt map.
+        the document sees a missing key. The legacy document holds every flag key as sent, so it is read as stored.
         """
-        if not node.name.startswith("JSON") or len(node.args) < 2:
+        if not self.context.uses_new_events_schema() or not node.name.startswith("JSON") or len(node.args) < 2:
             return None
         key_arg = node.args[1]
         if not isinstance(key_arg, ast.Constant) or not isinstance(key_arg.value, str):
             return None
         first_key = key_arg.value
-        uses_new_events_schema = self.context.uses_new_events_schema()
-        if not is_virtual_feature_flag_property(first_key, uses_new_events_schema=uses_new_events_schema):
-            return None
-        if not uses_new_events_schema and not node.name.startswith("JSONExtract"):
+        if not is_virtual_feature_flag_key(first_key):
             return None
 
         document = node.args[0]
-        if uses_new_events_schema:
-            # On the legacy table `toString(properties)` is the stored document itself, so queries pass it to JSON
-            # functions in place of `properties`.
-            unwrapped = document.expr if isinstance(document, ast.Alias) else document
-            if isinstance(unwrapped, ast.Call) and unwrapped.name == "toString" and len(unwrapped.args) == 1:
-                document = unwrapped.args[0]
+        # On the legacy table `toString(properties)` is the stored document itself, so queries pass it to JSON
+        # functions in place of `properties`.
+        unwrapped = document.expr if isinstance(document, ast.Alias) else document
+        if isinstance(unwrapped, ast.Call) and unwrapped.name == "toString" and len(unwrapped.args) == 1:
+            document = unwrapped.args[0]
         field_type = resolve_field_type(document)
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
@@ -1366,7 +1326,12 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _rewrite_feature_flag_json_has(self, node: ast.Call) -> ast.Expr | None:
-        if node.name != "JSONHas" or len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name != "JSONHas"
+            or len(node.args) < 2
+            or not isinstance(node.args[1], ast.Constant)
+        ):
             return None
         field_type = resolve_field_type(node.args[0])
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
@@ -1376,9 +1341,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-        if not is_virtual_feature_flag_property(
-            first_key, uses_new_events_schema=self.context.uses_new_events_schema()
-        ):
+        if not is_virtual_feature_flag_key(first_key):
             return None
 
         restricted_properties = restricted_property_keys_for_table_type(field_type.table_type, self.context)
@@ -1389,7 +1352,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if feature_flags is None:
             return None
         restricted_keys = _restricted_feature_flag_keys(field_type, self.context)
-        if self.context.uses_new_events_schema() and first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+        if first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
             value_key = first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
             if len(node.args) > 2:
                 return ast.Call(
@@ -1403,7 +1366,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             map_key = node.args[2]
             if not isinstance(map_key, ast.Constant) or not isinstance(map_key.value, str):
                 compact_map = _nonempty_container_json(
-                    _compact_feature_flags_map(feature_flags, restricted_keys, self.context, map_values=False), "{}"
+                    _compact_feature_flags_map(feature_flags, restricted_keys, map_values=False), "{}"
                 )
                 return ast.Call(
                     name="JSONHas",
@@ -1412,7 +1375,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                         *[self.visit(arg) for arg in node.args[2:]],
                     ],
                 )
-            value_key = _physical_feature_flag_key(map_key.value, self.context)
+            value_key = map_key.value
             if len(node.args) > 3:
                 if value_key in restricted_keys:
                     return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
@@ -1429,7 +1392,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             if value_key in restricted_keys:
                 return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
             return ast.Call(name="has", args=[feature_flags, ast.Constant(value=value_key)])
-        if self.context.uses_new_events_schema() and first_key == "$active_feature_flags":
+        if first_key == "$active_feature_flags":
             if len(node.args) > 2:
                 return ast.Call(
                     name="JSONHas",
@@ -1448,7 +1411,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if first_key == "$feature_flags":
             return ast.Call(
                 name="notEmpty",
-                args=[_compact_feature_flags_map(feature_flags, restricted_keys, self.context, map_values=False)],
+                args=[_compact_feature_flags_map(feature_flags, restricted_keys, map_values=False)],
             )
         return None
 
@@ -2046,7 +2009,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return None
             if active_feature_flags is not None:
                 feature_flags, restricted_keys = active_feature_flags
-                map_key = _physical_feature_flag_key(constant_expr.value, self.context)
+                map_key = constant_expr.value
                 if map_key in restricted_keys:
                     return _const(node.op == ast.CompareOperationOp.NotEq)
                 map_value = ast.ArrayAccess(

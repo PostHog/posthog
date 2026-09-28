@@ -80,12 +80,13 @@ Native-event queries derive `$active_feature_flags` from the `$feature_flags` ma
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
 
-HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
-On native events, every JSON function whose first key is `$feature/<key>`, `$active_feature_flags` or `$feature_flags` parses the rebuilt value instead of the stored document, also when the document is `toString(properties)`.
+On native events, every HogQL JSON function whose first key is `$feature/<key>`, `$active_feature_flags` or `$feature_flags` parses the restricted-property-aware value that dotted property access reads, not the stored document.
+This also holds when the document is `toString(properties)`.
 The original function still determines the return type, the missing-value default and any deeper keys.
 A `$feature/<key>` value parses as the SDK sent it: a boolean flag as JSON `true` or `false`, and a variant as a JSON string, so `$false` parses as `"false"`.
 A variant named `true` parses as boolean `true`, because the map cannot tell it apart from an enabled boolean flag.
 These reads do not see the rebuilt flags: key listings of the whole document such as `JSONExtractKeys(properties)`, JSON functions with a computed key, and JSON functions over `properties` selected through a subquery.
+The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner
 
@@ -178,6 +179,38 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
+
+### `JSONDropKeysPool(json, keys)`
+
+Removes the given keys from a JSON document and returns the result as a `String`.
+It produces the same output as `JSONDropKeys(keys)(json)`, including dotted-key expansion.
+Each key is a dot-separated path, such as `properties.secret`.
+
+```sql
+SELECT JSONDropKeysPool('{"a":1,"b":{"c":2,"d":3}}', ['a', 'b.c']);
+-- {"b":{"d":3}}
+```
+
+`JSONDropKeys` receives its keys as a query parameter in the command line.
+ClickHouse accepts parameters only for the `executable` type, which starts a new process for every block.
+`JSONDropKeysPool` receives the keys as a regular argument, so it can use `executable_pool`.
+The worker stays alive across blocks and queries, and the keys can differ between rows.
+The worker keeps the parsed filter for the most recent key array and parses it again only when the array changes.
+
+Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
+RowBinary transport lets the JSON contain raw newlines and tabs.
+Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
+
+With 1,000,000 small synthetic rows, `max_threads = 1`, and ClickHouse 26.6.2.158 on an Apple M4 Pro, best of three runs, recorded September 24, 2026:
+
+| `max_block_size` | `JSONDropKeys` | `JSONDropKeysPool` |
+| ---------------- | -------------: | -----------------: |
+| 65,536           |        0.346 s |             0.26 s |
+| 8,192            |        0.873 s |             0.30 s |
+| 1,024            |        4.885 s |            0.504 s |
+
+A `countIf` comparison of both functions over the same rows returned zero differences.
+These timings measure process startup and transport, not production block sizes or concurrent load.
 
 ### `decompress(data, codec)`
 

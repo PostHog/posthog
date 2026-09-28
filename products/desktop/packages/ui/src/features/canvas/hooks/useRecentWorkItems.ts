@@ -57,7 +57,10 @@ export function selectRecentWorkItems({
     sessionFacts,
   })
     .sort((a, b) => b.ts - a.ts)
-    .slice(0, RECENT_WORK_CAP)
+    .filter(
+      (item, index) =>
+        index < RECENT_WORK_CAP || (item.kind === "task" && item.pinned),
+    )
     .map((item) => ({
       item,
       channelId: item.task?.channel ?? canvasChannelId.get(item.id),

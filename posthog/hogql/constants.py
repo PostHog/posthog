@@ -28,15 +28,9 @@ FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
 FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
 
 
-def is_virtual_feature_flag_property(name: str, *, uses_new_events_schema: bool) -> bool:
-    """Whether an events property is rebuilt from the stored flags instead of read from a key with that name.
-
-    The native table moves `$feature/<key>` values into the `$feature_flags` map and drops `$active_feature_flags`, so
-    reads rebuild both from the map. The legacy table stores both keys as sent and only builds `$feature_flags`.
-    """
-    if uses_new_events_schema:
-        return name in ("$active_feature_flags", "$feature_flags") or name.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-    return name == "$feature_flags"
+def is_virtual_feature_flag_key(key: str) -> bool:
+    """Whether a native events property is rebuilt from the `$feature_flags` map instead of read under its own name."""
+    return key in ("$active_feature_flags", "$feature_flags") or key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
 
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
@@ -108,6 +102,7 @@ type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
+    SQL_ALERT = "sql_alert"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -122,6 +117,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
+        LimitContext.SQL_ALERT,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.EXPORT:
@@ -148,7 +144,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.SQL_ALERT):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100

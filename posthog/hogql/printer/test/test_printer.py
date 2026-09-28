@@ -1470,10 +1470,8 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_feature_flag_json_extracts_match_map_document(self, restricted: str | None, populated: bool) -> None:
-        native = settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
         flags = {"flag.with.dot": "control", "numeric": "42", "enabled": "true"} if populated else {}
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=native)
-        context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
         context.restricted_properties = (
             {RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
         )
@@ -1495,16 +1493,12 @@ class TestPrinter(BaseTest):
         ]
         expression = "tuple(" + ", ".join(extracts) + ")"
         printed = self._expr(expression, context)
-        physical_flags = flags if native else {f"$feature/{key}": value for key, value in flags.items()}
-        raw = json.dumps({"$feature_flags": flags} if native else physical_flags)
-        source = "CAST(%(raw)s, %(json_type)s)" if native else "%(raw)s"
         actual = sync_execute(
-            f"SELECT {printed} FROM (SELECT {source} AS properties, JSONExtract(%(flags)s, 'Map(String, String)') AS properties_group_feature_flags) AS events",
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
             {
                 **context.values,
-                "raw": raw,
+                "raw": json.dumps({"$feature_flags": flags}),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
-                "flags": json.dumps(physical_flags),
             },
         )
         visible_flags = {
