@@ -109,9 +109,10 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - name: Poll GitHub and npm for the pinned version
+              id: wait
               run: |
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
-                  sha=$(sed -n 's/^ARG AGENT_TARBALL_SHA256=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  sha=$(sed -n 's/^ARG AGENT_TARBALL_SHA256=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base | tr -d '"')
                   if [ -z "$pinned" ]; then
                     echo "::error::no ARG AGENT_VERSION line in Dockerfile.sandbox-base"
                     exit 1

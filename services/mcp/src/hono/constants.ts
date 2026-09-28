@@ -1,3 +1,4 @@
+import { parseSigningKeys } from '@/lib/client-ip-signature'
 import type { Env } from '@/tools/types'
 
 export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
@@ -16,6 +17,14 @@ export {
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
 } from '@/lib/constants'
+
+export function getEdgeClientIpSigningKeys(): string[] {
+    return parseSigningKeys(process.env.MCP_EDGE_CLIENT_IP_SIGNING_KEYS)
+}
+
+export function getClientIpSigningKeys(): string[] {
+    return parseSigningKeys(process.env.MCP_CLIENT_IP_SIGNING_KEYS)
+}
 
 export function getEnv(): Env {
     const extras: Record<string, string | undefined> = {}

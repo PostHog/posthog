@@ -32,6 +32,8 @@ const UNHEALTHY = {
             url: '/data-management/sources/2',
         },
         {
+            // Kept deliberately: the endpoint answers for the whole warehouse, and this row must
+            // not appear in the rendered scene.
             id: '3',
             name: 'account_activity',
             type: 'materialized_view',
@@ -97,6 +99,35 @@ const FAILED_RUNS = {
     ],
 }
 
+// The synced-sources table is the real one from the sources page, so the stories have to answer
+// the endpoints it loads for itself.
+const SOURCES = {
+    count: 2,
+    results: [
+        {
+            id: '1',
+            source_type: 'Stripe',
+            prefix: null,
+            status: 'Running',
+            access_method: 'warehouse',
+            last_run_at: '2026-09-25T08:00:00Z',
+            schemas: [
+                { id: 's1', name: 'charges', should_sync: true, status: 'Running' },
+                { id: 's2', name: 'customers', should_sync: true, status: 'Completed' },
+            ],
+        },
+        {
+            id: '2',
+            source_type: 'Postgres',
+            prefix: 'billing_',
+            status: 'Error',
+            access_method: 'warehouse',
+            last_run_at: '2026-09-24T02:00:00Z',
+            schemas: [{ id: 's3', name: 'public.invoices', should_sync: true, status: 'Failed' }],
+        },
+    ],
+}
+
 function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
@@ -104,6 +135,9 @@ function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): 
             '/api/projects/:team_id/data_warehouse/total_rows_stats': ROWS_STATS,
             '/api/projects/:team_id/data_warehouse/data_health_issues': health,
             '/api/projects/:team_id/data_warehouse/completed_activity': runs,
+            '/api/projects/:team_id/external_data_sources': SOURCES,
+            '/api/projects/:team_id/external_data_sources/wizard': {},
+            '/api/projects/:team_id/external_data_destinations': { count: 0, results: [] },
         },
     })
 }
