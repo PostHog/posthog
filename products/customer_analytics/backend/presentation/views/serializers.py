@@ -47,10 +47,12 @@ from products.customer_analytics.backend.facade.constants import (
     SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
+    TASK_DIGEST_SEND_TIME_FORMAT,
     AccountAssignment,
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresence,
     AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -71,6 +73,7 @@ from products.customer_analytics.backend.facade.contracts import (
     FeatureRequestAccountLinkView,
     FeatureRequestAccountView,
     FeatureRequestEvidenceView,
+    FeatureRequestGitHubLinkView,
     FeatureRequestHistoryView,
     FeatureRequestProductAreaView,
     FeatureRequestStatusHistoryView,
@@ -78,7 +81,11 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -382,6 +389,37 @@ class FeatureRequestAccountLinkSerializer(DataclassSerializer):
         fields = ["id", "account", "evidence", "evidence_count", "created_at", "updated_at"]
 
 
+class FeatureRequestGitHubLinkSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable GitHub link ID.")
+    issue_url = serializers.URLField(read_only=True, help_text="Canonical GitHub issue URL.")
+    repository = serializers.CharField(read_only=True, help_text="Canonical owner and repository name.")
+    issue_number = serializers.IntegerField(read_only=True, min_value=1, help_text="GitHub issue number.")
+    issue_title = serializers.CharField(read_only=True, help_text="Latest GitHub issue title.")
+    issue_state = serializers.ChoiceField(
+        read_only=True, choices=["open", "closed"], help_text="Latest GitHub issue state."
+    )
+    sync_enabled = serializers.BooleanField(
+        read_only=True, help_text="Whether GitHub issue changes update this request."
+    )
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When GitHub last updated this link."
+    )
+
+    class Meta:
+        dataclass = FeatureRequestGitHubLinkView
+        ref_name = "FeatureRequestGitHubLink"
+        fields = [
+            "id",
+            "issue_url",
+            "repository",
+            "issue_number",
+            "issue_title",
+            "issue_state",
+            "sync_enabled",
+            "last_synced_at",
+        ]
+
+
 class FeatureRequestSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Stable feature request ID.")
     title = serializers.CharField(read_only=True, help_text="Customer-facing request title.")
@@ -436,6 +474,11 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Product areas affected by this request.",
     )
+    github_link = FeatureRequestGitHubLinkSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Linked GitHub issue, or null when no issue is linked.",
+    )
     created_by = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="ID of the user who created the request."
     )
@@ -463,6 +506,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "account_links",
             "evidence_count",
             "product_areas",
+            "github_link",
             "created_by",
             "updated_by",
             "created_at",
@@ -474,6 +518,20 @@ _FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
     "nullable": True,
     "oneOf": [
         {"type": "string"},
+        {"type": "boolean"},
+        {
+            "type": "object",
+            "required": ["id", "issue_url", "repository", "issue_number", "issue_title", "issue_state", "sync_enabled"],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "issue_url": {"type": "string", "format": "uri"},
+                "repository": {"type": "string"},
+                "issue_number": {"type": "integer"},
+                "issue_title": {"type": "string"},
+                "issue_state": {"type": "string", "enum": ["open", "closed"]},
+                "sync_enabled": {"type": "boolean"},
+            },
+        },
         {
             "type": "object",
             "required": ["id", "name"],
@@ -544,6 +602,8 @@ class FeatureRequestHistoryChangeSerializer(serializers.Serializer):
             ("accounts", "Accounts"),
             ("evidence", "Evidence"),
             ("product_areas", "Product areas"),
+            ("github_link", "GitHub link"),
+            ("github_sync", "GitHub sync"),
         ],
         help_text="Request field represented by this change.",
     )
@@ -570,7 +630,7 @@ class FeatureRequestHistorySerializer(DataclassSerializer):
     )
     change_source = serializers.ChoiceField(
         read_only=True,
-        choices=[("manual", "Manual")],
+        choices=[("manual", "Manual"), ("github", "GitHub")],
         help_text="System that recorded the request change.",
     )
     actor_id = serializers.IntegerField(
@@ -614,7 +674,7 @@ class FeatureRequestStatusHistorySerializer(DataclassSerializer):
     )
     change_source = serializers.ChoiceField(
         read_only=True,
-        choices=[("manual", "Manual")],
+        choices=[("manual", "Manual"), ("github", "GitHub")],
         help_text="System that recorded the status change.",
     )
     actor_id = serializers.IntegerField(
@@ -847,6 +907,14 @@ class FeatureRequestEvidenceDeleteSerializer(serializers.Serializer):
     evidence_id = serializers.UUIDField(help_text="Evidence item to delete.")
 
 
+class FeatureRequestGitHubLinkSerializerInput(serializers.Serializer):
+    integration_id = serializers.IntegerField(min_value=1, help_text="GitHub integration ID connected to this project.")
+    issue_url = serializers.URLField(help_text="GitHub issue URL. Pull request URLs are not supported.")
+    expected_version = serializers.IntegerField(
+        min_value=1, help_text="Request version loaded by the editor. Stale versions return 409 Conflict."
+    )
+
+
 class FeatureRequestVersionSerializer(serializers.Serializer):
     expected_version = serializers.IntegerField(
         min_value=1,
@@ -1022,6 +1090,23 @@ class AccountPresenceViewerSerializer(DataclassSerializer):
     class Meta:
         dataclass = AccountPresenceViewer
         fields = ["user_id", "display_name"]
+
+
+class AccountPresenceListRequestSerializer(serializers.Serializer):
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=100,
+        help_text="Up to 100 account IDs to read presence for.",
+    )
+
+
+class AccountPresenceSerializer(DataclassSerializer):
+    account_id = serializers.UUIDField(read_only=True, help_text="Customer analytics account ID.")
+    viewers = AccountPresenceViewerSerializer(many=True, read_only=True, help_text="People viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresence
+        fields = ["account_id", "viewers"]
 
 
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
@@ -2013,11 +2098,43 @@ class PinnedAccountPropertySerializer(serializers.Serializer):
     )
 
 
+class TaskDigestPreferencesSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Whether the task digest email is sent to this user.")
+    send_time = serializers.TimeField(
+        format=TASK_DIGEST_SEND_TIME_FORMAT,
+        input_formats=[TASK_DIGEST_SEND_TIME_FORMAT],
+        help_text="Time of day to send the digest, as HH:MM in the project timezone.",
+    )
+    cadence = serializers.ChoiceField(
+        choices=TaskDigestCadence.choices,
+        help_text="How often the digest is sent.",
+    )
+
+
+class TaskDigestPreferencesUpdateSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False, help_text="Whether the task digest email is sent to this user.")
+    send_time = serializers.TimeField(
+        required=False,
+        format=TASK_DIGEST_SEND_TIME_FORMAT,
+        input_formats=[TASK_DIGEST_SEND_TIME_FORMAT],
+        help_text="Time of day to send the digest, as HH:MM in the project timezone.",
+    )
+    cadence = serializers.ChoiceField(
+        required=False,
+        choices=TaskDigestCadence.choices,
+        help_text="How often the digest is sent.",
+    )
+
+
 class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
         read_only=True,
         help_text="Account properties pinned in sidebar display order.",
+    )
+    task_digest = TaskDigestPreferencesSerializer(
+        read_only=True,
+        help_text="Task digest email preferences. Disabled until the user turns the digest on.",
     )
 
 
@@ -2027,6 +2144,10 @@ class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
         allow_empty=True,
         required=False,
         help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
+    )
+    task_digest = TaskDigestPreferencesUpdateSerializer(
+        required=False,
+        help_text="Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.",
     )
 
 

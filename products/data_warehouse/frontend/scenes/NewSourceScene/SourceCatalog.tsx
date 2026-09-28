@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -19,8 +19,11 @@ import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
 
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
 // height) so a wrapped name plus the "Notify me" button can never clip.
-const TILE_CLASS =
+// Exported so `SourceCatalogSkeleton` lays its placeholders out on the same grid, and the tiles
+// don't jump when the real catalog lands.
+export const CATALOG_TILE_CLASS =
     'flex flex-row items-center gap-4 p-5 min-h-[8.5rem] rounded-lg border border-border bg-surface-primary'
+export const CATALOG_GRID_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3'
 
 export interface SourceCatalogProps {
     allowedSources?: ExternalDataSourceTypeEnumApi[]
@@ -62,6 +65,11 @@ const SourceTile = memo(function SourceTile({
                     </>
                 ) : (
                     <div className="flex flex-wrap items-center gap-1">
+                        {item.existingSource && (
+                            <Tooltip title="You already have a source of this type. Connecting another one needs a table name prefix so its tables don't clash.">
+                                <LemonTag type="completion">Already connected</LemonTag>
+                            </Tooltip>
+                        )}
                         {item.selfManaged && (
                             <Tooltip title="Self-managed: your files stay in your own bucket and PostHog queries them there. The managed version copies the data into PostHog on a schedule.">
                                 <LemonTag type="muted">Self-managed</LemonTag>
@@ -77,7 +85,7 @@ const SourceTile = memo(function SourceTile({
     if (item.status === 'coming_soon') {
         return (
             <Tooltip title="This source isn't available yet. Choose 'Notify me' and we'll let you know when it launches.">
-                <div className={`${TILE_CLASS} cursor-default`}>{content}</div>
+                <div className={`${CATALOG_TILE_CLASS} cursor-default`}>{content}</div>
             </Tooltip>
         )
     }
@@ -85,7 +93,7 @@ const SourceTile = memo(function SourceTile({
     if (accessDisabledReason) {
         return (
             <Tooltip title={accessDisabledReason}>
-                <div className={`${TILE_CLASS} opacity-50 cursor-not-allowed`}>{content}</div>
+                <div className={`${CATALOG_TILE_CLASS} opacity-50 cursor-not-allowed`}>{content}</div>
             </Tooltip>
         )
     }
@@ -93,7 +101,7 @@ const SourceTile = memo(function SourceTile({
     return (
         <Link
             to={item.url}
-            className={`${TILE_CLASS} hover:border-primary cursor-pointer`}
+            className={`${CATALOG_TILE_CLASS} hover:border-primary cursor-pointer`}
             data-attr="catalog-source"
             onClick={() => onSelect(item)}
         >
@@ -106,7 +114,7 @@ function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Elemen
     return (
         <button
             type="button"
-            className={`${TILE_CLASS} border-dashed hover:border-primary cursor-pointer text-left`}
+            className={`${CATALOG_TILE_CLASS} border-dashed hover:border-primary cursor-pointer text-left`}
             onClick={onRequest}
             data-attr="catalog-request-source"
         >
@@ -165,7 +173,16 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
-                <WarehouseWizardHint />
+                {/* The wizard CLI creates sources through the same API, so it can't help a user
+                    who lacks the access — show what unblocks them instead. */}
+                {accessDisabledReason ? (
+                    <LemonBanner type="info">
+                        You don't have permission to connect a data warehouse source. Ask a project admin for editor
+                        access to data warehouse sources.
+                    </LemonBanner>
+                ) : (
+                    <WarehouseWizardHint />
+                )}
                 <LemonInput
                     type="search"
                     placeholder="Search sources..."
@@ -205,7 +222,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     </div>
                 )}
 
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
+                <div className={CATALOG_GRID_CLASS}>
                     {filteredItems.map((item) => (
                         <SourceTile
                             key={item.name}

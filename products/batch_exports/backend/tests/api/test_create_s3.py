@@ -60,6 +60,8 @@ def test_create_s3_family_batch_export(
     )
     assert response.status_code == status.HTTP_201_CREATED, response.json()
     assert response.json()["destination"]["type"] == expected_persisted_type
+    # A destination created now has no Parquet files to grandfather, so it starts on `.parquet`.
+    assert response.json()["destination"]["config"]["legacy_parquet_extension"] is False
 
 
 @pytest.mark.parametrize("destination_type", sorted(S3_FAMILY_TYPES))
@@ -315,3 +317,33 @@ def test_create_s3_family_batch_export_rejects_mismatched_integration_kind(
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+def test_create_s3_family_batch_export_rejects_an_explicit_legacy_parquet_extension(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
+    """A new export has written nothing, so it has no file names to grandfather."""
+    destination_type = "AwsS3"
+    integration = aws_s3_integration
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {
+                "type": destination_type,
+                "config": {
+                    **_S3_FAMILY_BASE_CONFIG,
+                    "file_format": "Parquet",
+                    "compression": "zstd",
+                    "legacy_parquet_extension": True,
+                },
+                "integration": integration.id,
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "legacy_parquet_extension" in response.json()["detail"]

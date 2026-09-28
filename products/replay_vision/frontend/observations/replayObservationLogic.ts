@@ -11,8 +11,15 @@ import { visionObservationsRetrieve, visionObservationsViewedCreate } from '../g
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
-import { scannerBreadcrumb } from '../utils/breadcrumbs'
+import { searchBreadcrumb } from '../search/observationQueries'
+import {
+    OBSERVATION_ORIGIN_PARAM,
+    WATCH_FEED_ORIGIN,
+    scannerBreadcrumb,
+    watchFeedBreadcrumb,
+} from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -65,8 +72,7 @@ export function observationParentUrl(
  */
 export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
     const params: Record<string, string> = {}
-    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
-    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+    for (const key of ['tab', 'q', 'scanner', 'similar', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
         const value = searchParams[key]
         // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
         // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
@@ -75,6 +81,16 @@ export function scannerReturnParams(searchParams: Record<string, unknown>): Reco
         }
     }
     return params
+}
+
+/**
+ * Carries the home-view origin (`from`) across prev/next, so back keeps returning to the feed the
+ * reader came from even after they page through neighbors within the scene.
+ */
+export function observationOriginParams(searchParams: Record<string, unknown>): Record<string, string> {
+    return searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
+        ? { [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN }
+        : {}
 }
 
 /** The crumb the observation page's back button returns to. */
@@ -301,10 +317,18 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
-        // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the vision home.
+        // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the
+        // vision home. The watch feed is the exception: it opens rows from the home scene, so back returns
+        // to the feed rather than the scanner that owns the row.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
+            const { searchParams } = router.values
+            const returnParams = scannerReturnParams(searchParams)
             replayObservationSceneLogic().actions.setParentBreadcrumb(
-                observationParentBreadcrumb(observation, scannerReturnParams(router.values.searchParams))
+                searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
+                    ? watchFeedBreadcrumb()
+                    : returnParams.tab === ReplayScannerTab.Search
+                      ? searchBreadcrumb(returnParams)
+                      : observationParentBreadcrumb(observation, returnParams)
             )
         }
         return {

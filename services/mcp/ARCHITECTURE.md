@@ -90,17 +90,16 @@ There are three independent layers that emit signals about each MCP request:
 2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
 3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
 
-#### `$mcp_tool_call` event paths
+#### MCP Analytics SDK integration
 
-The canonical event is `$mcp_tool_call`.
-The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
-The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the shared wire contract.
+The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) documents the `PostHogMCP` API used by this Hono server.
 
-- **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
-- **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.
-- **`lib/posthog-mcp-analytics.ts`** — the [`@posthog/mcp-analytics`](https://github.com/PostHog/mcp-analytics) SDK. Property names are `$`-prefixed (`$mcp_session_id`, `$mcp_conversation_id`, …). This is the path most live traffic flows through today.
-
-Adding a new property to events means wiring it into the `McpCatIdentityProvider` interface and the property-builder in **all three** emitters, then sourcing the value on `requestProperties` (or pulling it from another DO-level source).
+The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
+The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool calls, and tool listings.
+Direct tool calls and inner exec calls use the same `trackToolCall()` path.
+The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+New `$mcp_*` events and properties belong in the SDK, not in this server.
 
 #### Three correlation identifiers
 

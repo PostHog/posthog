@@ -36,6 +36,7 @@ StreamConnectionOutcome = Literal[
     "backlog_busy",
 ]
 StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
+StreamTokenRoute = Literal["proxy", "django", "thin_tail_withheld"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report", "agent"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -118,6 +119,19 @@ WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
 )
 WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
     "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
+)
+SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL = Counter(
+    "posthog_tasks_scheduled_task_run_materialization_total",
+    "Scheduled task runs processed by the due-run materializer",
+    labelnames=["outcome"],
+)
+SCHEDULED_TASK_RUN_DUE = Gauge(
+    "posthog_tasks_scheduled_task_run_due",
+    "Scheduled task runs whose requested start time has passed",
+)
+SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
+    "posthog_tasks_scheduled_task_run_oldest_due_age_seconds",
+    "Age of the oldest due scheduled task run",
 )
 
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
@@ -301,6 +315,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_token_routed_total",
+    "Stream read tokens minted, labeled by the read leg the client was routed to and whether it asked to resync",
+    labelnames=["origin_product", "route", "resync_requested"],
+)
+
 TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
     "posthog_tasks_task_run_stream_write_skipped_total",
     "Task-run events not mirrored into Redis because presence gating found no attached reader",
@@ -357,6 +377,12 @@ TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     "posthog_tasks_wizard_run_unbound_total",
     "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
     labelnames=["status"],
+)
+
+TURN_COMPLETED_SUPPRESSED_TOTAL = Counter(
+    "posthog_tasks_turn_completed_suppressed_total",
+    "Interactive turn completion notifications and activity updates suppressed by ingest",
+    labelnames=["reason"],
 )
 
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
@@ -635,6 +661,14 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_token_routed(origin_product: str, route: StreamTokenRoute, resync_requested: bool) -> None:
+    TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL.labels(
+        origin_product=_metric_label(origin_product),
+        route=route,
+        resync_requested="true" if resync_requested else "false",
+    ).inc()
 
 
 def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:

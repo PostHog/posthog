@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse, HogFlowListType } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +18,10 @@ export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
 
 export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
+
+// What this page covers. A surface that grows its own page drops out of this list, rather than every
+// other list learning to exclude it.
+const WORKFLOWS_PAGE_TYPES: HogFlowListType[] = ['messaging', 'automation', 'loop']
 
 const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
 
@@ -65,7 +69,7 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
-    type?: Exclude<WorkflowTypeFilter, 'all'>
+    type?: HogFlowListType[]
     trigger?: string
     limit: number
     offset: number
@@ -417,7 +421,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: filters.search || undefined,
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
-                type: filters.type !== 'all' ? filters.type : undefined,
+                // Name the types this page covers rather than the one it hides, so a surface that
+                // grows its own page drops out here instead of every list learning to exclude it.
+                // Server-side keeps `count` honest, which dropping rows from the page did not.
+                type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,

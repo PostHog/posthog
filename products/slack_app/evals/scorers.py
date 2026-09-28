@@ -226,6 +226,73 @@ class NoUnaskedOverride(Scorer):
 
 
 # ---------------------------------------------------------------------------
+# Project-route classifier
+# ---------------------------------------------------------------------------
+
+PROJECT_ROUTE_KEY = "project_route_match"
+
+
+def _routes_to(output: dict | None) -> int | None:
+    """The integration the classifier moved the run to, or `None` for the default."""
+    return ((output or {}).get("route") or {}).get("integration_id")
+
+
+class ProjectRouteMatch(Scorer):
+    """Did the classifier answer from the project a person would have picked?"""
+
+    def _name(self) -> str:
+        return PROJECT_ROUTE_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        want = (expected or {}).get(PROJECT_ROUTE_KEY)
+        if want is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+
+        got = _routes_to(output)
+        wanted = want.get("integration_id")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == wanted else 0.0,
+            metadata={"expected_integration_id": wanted, "actual_integration_id": got},
+        )
+
+
+class NoUnaskedProjectSwitch(Scorer):
+    """The expensive direction, and worse here than for a model.
+
+    A run moved onto the wrong model still answers the question. A run moved onto the
+    wrong project answers a different question and reads as though it answered this one.
+    Missing a real request only costs the author a rephrase.
+
+    Skips (`None`) on cases that really do name a project, so the score reads as a rate
+    over the mentions that should have stayed on the default.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_project_switch"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(PROJECT_ROUTE_KEY) or {}
+        if want.get("integration_id"):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case names a project"})
+
+        if output and output.get("error"):
+            # A failed call routes nowhere, this scorer's passing answer — scoring it
+            # would let a wholly broken classifier post a perfect rate.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        got = _routes_to(output)
+        return Score(
+            name=self._name(),
+            score=0.0 if got is not None else 1.0,
+            metadata={"actual_integration_id": got},
+        )
+
+
+# ---------------------------------------------------------------------------
 # Untagged follow-up routing
 # ---------------------------------------------------------------------------
 

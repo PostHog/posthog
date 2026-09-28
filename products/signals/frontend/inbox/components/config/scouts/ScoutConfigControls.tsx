@@ -47,7 +47,14 @@ interface ScoutConfigControlsProps {
 
 // The models the picker offers, a deliberate subset of the Tasks catalog the backend
 // validates pins against — growing this list is a frontend-only change.
-const SCOUT_MODEL_IDS = ['claude-sonnet-5', 'claude-opus-5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']
+const SCOUT_MODEL_IDS = [
+    'claude-sonnet-5',
+    'claude-opus-5',
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.6-sol',
+    'gpt-6-astra',
+]
 
 // Labels come from the generated catalog, so every surface names a model the same way.
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [

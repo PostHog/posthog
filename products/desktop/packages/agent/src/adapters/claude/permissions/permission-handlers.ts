@@ -9,15 +9,17 @@ import type {
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  qualifiedLocalToolName,
+  SHOW_ACTIONS_TOOL_NAME,
+  SPEAK_TOOL_NAME,
+} from "@posthog/harness/extensions/local-tools";
+import {
   extractPostHogSubTool,
   isPostHogExecTool,
   matchesPostHogExecPermission,
-} from "../../../posthog-exec-permission";
+} from "@posthog/harness/extensions/posthog-mcp-policy";
 import { text } from "../../../utils/acp-content";
 import type { Logger } from "../../../utils/logger";
-import { qualifiedLocalToolName } from "../../local-tools";
-import { SHOW_ACTIONS_TOOL_NAME } from "../../local-tools/tools/show-actions";
-import { SPEAK_TOOL_NAME } from "../../local-tools/tools/speak";
 import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp";
 import {
   getMcpToolApprovalState,

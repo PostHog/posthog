@@ -11,6 +11,13 @@ IMAGE_NAME="recording-rasterizer:local"
 DOCKERFILE="$ROOT_DIR/Dockerfile.recording-rasterizer"
 HASH_FILE="$ROOT_DIR/.posthog/.generated/rasterizer-image.hash"
 
+# Build for the host: chrome-headless-shell ships an arm64 build, and an emulated amd64 Chromium is
+# far too slow to render with. Apple Silicon and the arm64 devboxes both land here.
+case "$(uname -m)" in
+arm64 | aarch64) PLATFORM="linux/arm64" ;;
+*) PLATFORM="linux/amd64" ;;
+esac
+
 cd "$ROOT_DIR"
 
 # --- Step 1: Build TypeScript locally ---
@@ -26,12 +33,13 @@ pnpm --filter=@posthog/nodejs build
 # Hash the Dockerfile and key dependency files to detect when a rebuild is needed.
 # Source code changes are picked up via volume mounts, so we only need to rebuild
 # when the image structure (deps, base image, system packages) changes.
-current_hash=$(cat \
+# The platform is part of the hash so a cached image from another architecture is rebuilt.
+current_hash=$( { cat \
     "$DOCKERFILE" \
     "$ROOT_DIR/pnpm-lock.yaml" \
     "$ROOT_DIR/nodejs/package.json" \
     "$ROOT_DIR/common/replay-headless/package.json" \
-    2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+    2>/dev/null; echo "$PLATFORM"; } | shasum -a 256 | cut -d' ' -f1)
 
 previous_hash=""
 if [ -f "$HASH_FILE" ]; then
@@ -46,7 +54,7 @@ fi
 if [ "$current_hash" != "$previous_hash" ]; then
     echo "Docker image outdated or missing, rebuilding..."
     docker build \
-        --platform linux/amd64 \
+        --platform "$PLATFORM" \
         -f "$DOCKERFILE" \
         -t "$IMAGE_NAME" \
         "$ROOT_DIR"
@@ -84,7 +92,7 @@ fi
 docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
     --name "$CONTAINER_NAME" \
     --network posthog_default \
-    --platform linux/amd64 \
+    --platform "$PLATFORM" \
     --add-host localhost:host-gateway \
     --add-host host.docker.internal:host-gateway \
     -e NODE_ENV=development \

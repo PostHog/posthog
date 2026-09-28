@@ -140,6 +140,21 @@ class TestFixtureCoverage(SimpleTestCase):
         assert {fixture.ticket_type for fixture in FIXTURES} == set(TICKET_TYPES)
         assert {fixture.blocker for fixture in FIXTURES} == set(BLOCKER_TYPES)
         assert {fixture.expected_outcome for fixture in FIXTURES} == set(EVAL_OUTCOMES)
+        assert len({fixture.name for fixture in FIXTURES}) == len(FIXTURES)
+        assert FIXTURES_BY_NAME["how_to_sdk_install_posthog"].docs_source == "posthog"
+        assert FIXTURES_BY_NAME["how_to_sdk_install"].docs_source is None
+
+
+@pytest.mark.django_db
+def test_seed_case_applies_docs_source():
+    fixture = FIXTURES_BY_NAME["how_to_sdk_install_posthog"]
+    eval_team = provision_eval_team(label="pytest-docs-source")
+    try:
+        seed_case(eval_team=eval_team, fixture=fixture)
+        eval_team.team.refresh_from_db()
+        assert eval_team.team.conversations_settings["docs_source"] == "posthog"
+    finally:
+        teardown_eval_team(eval_team=eval_team)
 
 
 @pytest.mark.django_db(transaction=True)

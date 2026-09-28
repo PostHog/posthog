@@ -48,8 +48,8 @@ export function MetricsGroupByButton({
                             labelComponent: (
                                 <span className="flex items-center justify-between gap-2">
                                     <span className="truncate">{option.label}</span>
-                                    <Tooltip title="Number of series with this attribute">
-                                        <span className="text-muted tabular-nums shrink-0">{option.seriesCount}</span>
+                                    <Tooltip title="Number of distinct values">
+                                        <span className="text-muted tabular-nums shrink-0">{option.valueCount}</span>
                                     </Tooltip>
                                 </span>
                             ),

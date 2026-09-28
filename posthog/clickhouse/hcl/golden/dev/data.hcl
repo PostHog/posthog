@@ -2204,6 +2204,41 @@ database "posthog" {
     }
   }
 
+  table "log_entries_distributed" {
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "log_entries_data"
+    }
+  }
+
   table "marketing_conversions_preaggregated" {
     column "team_id" {
       type = "Int64"
@@ -3853,6 +3888,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -3861,6 +3899,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -6336,6 +6380,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -6344,6 +6391,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -6355,6 +6408,21 @@ database "posthog" {
     }
     index "flag_keys_bloom_filter" {
       expr        = "flag_keys"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "hosts_bloom_filter" {
+      expr        = "hosts"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "emails_bloom_filter" {
+      expr        = "emails"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -7185,6 +7253,74 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.web_analytics_team_selection"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "web_sessions_dimensional_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
     }
   }
 
@@ -8335,6 +8471,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -8343,6 +8482,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -9492,12 +9637,11 @@ SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
-  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+  groupUniqArrayArray(2000)(urls) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -9530,8 +9674,14 @@ SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
-  groupUniqArrayMapMerge(flag_values) AS flag_values
+  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
+  max(has_autocapture) AS has_autocapture,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
+  groupUniqArrayArray(flag_keys) AS flag_keys,
+  groupUniqArrayArray(2000)(event_names) AS event_names,
+  groupUniqArrayArray(100)(hosts) AS hosts,
+  groupUniqArrayArray(10)(emails) AS emails,
+  max(has_replay_events) AS has_replay_events
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id

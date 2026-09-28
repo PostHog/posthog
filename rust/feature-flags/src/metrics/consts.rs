@@ -431,6 +431,9 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
 
+// V2 ingress outcomes use fixed labels and never include configuration values.
+pub const FLAG_V2_PARSE_COUNTER: &str = "flags_v2_config_parse_total";
+
 // Incremented once per flag left out of a team's payload because its `filters` JSON
 // does not deserialize into FlagFilters. A property filter with no `"type"` key is
 // one such blob, because PropertyFilter requires prop_type, and serde fails the

@@ -11,6 +11,116 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each(["implementation", "discussion"] as const)(
+    "creates a report %s without client repository credentials",
+    async (relationship) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.createSignalReportTask({
+        reportId: "report-1",
+        relationship,
+        description: "Read the report evidence",
+        title: "Review report",
+        question: "  What caused this?  ",
+      });
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
+      expect(request.method).toBe("POST");
+      expect(JSON.parse(request.body)).toEqual({
+        description: "Read the report evidence",
+        title: "Review report",
+        origin_product: "signal_report",
+        signal_report: "report-1",
+        signal_report_task_relationship: relationship,
+        ...(relationship === "discussion"
+          ? { signal_report_discussion_question: "What caused this?" }
+          : {}),
+      });
+    },
+  );
+
+  it("shows the setup dependency error returned by the server", async () => {
+    const detail =
+      "The workflow action is unavailable. Sync templates and retry setup.";
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 503 }),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "goal",
+        goal: {
+          statement: "Improve activation",
+          direction: "at_least",
+          period: "week",
+        },
+      }),
+    ).rejects.toThrow(new Error(detail));
+  });
+  it.each([{}, { task_id: 123 }, { task_id: "invalid" }])(
+    "rejects an invalid setup response: %j",
+    async (body) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+      await expect(
+        client.setupTaskChannel("channel-1", {
+          kind: "feature",
+          feature: { name: "Search" },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("returns the validated setup task", async () => {
+    const body = { task_id: "0198cf5c-67dd-7000-8000-000000000001" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "feature",
+        feature: { name: "Search" },
+      }),
+    ).resolves.toEqual(body);
+  });
+
   describe("Desktop beta terms", () => {
     it.each([
       [
@@ -1789,6 +1899,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1810,6 +1921,7 @@ describe("PostHogAPIClient", () => {
         runtime_adapter: "codex",
         model: "gpt-5.5",
         reasoning_effort: "high",
+        initial_permission_mode: "auto",
       });
 
       expect(fetch).toHaveBeenCalledWith(
@@ -1822,6 +1934,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: "codex",
               model: "gpt-5.5",
               reasoning_effort: "high",
+              initial_permission_mode: "auto",
             }),
           },
         }),
@@ -1853,6 +1966,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
               sandbox_environment_id: "environment-123",
               custom_image_id: "image-123",
             }),
@@ -1884,6 +1998,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1910,6 +2025,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),

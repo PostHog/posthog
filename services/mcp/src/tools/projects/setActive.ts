@@ -3,7 +3,7 @@ import type { z } from 'zod'
 import { wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { ProjectSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, CachedUser, Context, ToolBase } from '@/tools/types'
+import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = ProjectSetActiveSchema
 
@@ -67,16 +67,18 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         org = await context.stateManager.getCachedOrFetchOrg()
     }
 
-    // Read cached user (and org, when we didn't just fetch it) for the metadata block
-    const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
-    const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
+    // Record the switch on the MCP session so a pinned connection's resent pin
+    // doesn't revert it on the next request.
+    await context.setSessionActiveContext?.({ projectId: projectIdStr, ...(orgId ? { orgId } : {}) })
+
+    // Read the cached org, when we didn't just fetch it, for the metadata block
     if (!org && orgId) {
         org = (await context.cache.get(`cachedOrg:${orgId}` as const)) as CachedOrg | undefined
     }
 
     const orgNote = switchedOrg ? ` (also switched the active organization to ${orgId} to match)` : ''
     const integrationKinds = await context.stateManager.getOrFetchIntegrationKinds(projectIdStr).catch(() => undefined)
-    const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl, {
+    const metadata = buildActiveEnvironmentContextPrompt(org, project, context.api.publicBaseUrl, {
         integrationKinds,
     })
     const text = metadata
