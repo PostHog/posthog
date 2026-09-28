@@ -5297,6 +5297,21 @@ def resolve_task_run_preview_redirect(
     )
 
 
+def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+    """Whether ``sandbox_url`` is the configured hogland control-plane origin.
+
+    Thin facade wrapper: presentation may not import ``logic`` directly (see
+    products/architecture.md § Presentation Layer), so both the sandbox-URL allowlist gate
+    and the request-transport decision in the command relay view go through this one edge
+    instead of reaching into ``logic.services.agent_command`` themselves.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        is_hogland_sandbox_url as _is_hogland_sandbox_url,
+    )
+
+    return _is_hogland_sandbox_url(sandbox_url)
+
+
 # Relay control verbs whose outcome PostHog AI funnels track. Captured here (gated on
 # origin_product) so the generic relay stays product-agnostic while the conversation layer stops
 # firing them as the renderer drives permission/cancel through `runs/{run}/command/`.

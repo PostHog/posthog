@@ -3446,10 +3446,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         from urllib.parse import urlparse
 
-        from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-            is_hogland_sandbox_url,
-        )
-
         try:
             parsed = urlparse(url)
         except Exception:
@@ -3470,7 +3466,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # for both decisions means a URL this allowlist admits as hogland is always a
         # URL the bearer may travel to, and vice versa — the previous inline check
         # compared the hostname only, so it was slightly wider than the bearer gate.
-        return is_hogland_sandbox_url(url)
+        return tasks_facade.is_hogland_sandbox_url(url)
 
     @staticmethod
     def _proxy_command_to_agent_server(
@@ -3484,10 +3480,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {connection_token}",
         }
-
-        from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-            is_hogland_sandbox_url,
-        )
 
         command_url = f"{sandbox_url.rstrip('/')}/command"
 
@@ -3507,10 +3499,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "allow_redirects": payload.get("method") != "credential_response",
         }
 
-        if is_hogland_sandbox_url(sandbox_url):
+        if tasks_facade.is_hogland_sandbox_url(sandbox_url):
             # In-cluster DNS answers for the hogland host with a private address, and the
             # egress proxy answers 407 for it — so bypass HTTP(S)_PROXY for this one
-            # exact origin, the same way agent_command.send_agent_command does.
+            # exact origin, the same way agent_command.send_agent_command does. Redirects are
+            # disabled outright (rather than validated against the allowlist) because this
+            # transport already skips the egress proxy that would otherwise constrain where a
+            # followed redirect could reach from the web pod.
+            request_kwargs["allow_redirects"] = False
             with internal_requests_session() as session:
                 return session.post(command_url, **request_kwargs)
 
