@@ -530,6 +530,9 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
+            if self._resource.on_success is not None:
+                await database_sync_to_async_pool(self._resource.on_success)()
+
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.

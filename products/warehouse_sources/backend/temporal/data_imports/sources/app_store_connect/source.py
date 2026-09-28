@@ -1,3 +1,4 @@
+from datetime import date
 from functools import partial
 from typing import Optional, cast
 
@@ -54,6 +55,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 SNAPSHOT_OWED_CONFIG_KEY = "app_store_connect_snapshot_owed"
+SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY = "app_store_connect_snapshot_owed_coverage_start"
 
 _UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right now. Wait a few minutes, then try again."
 
@@ -63,17 +65,29 @@ _MISSING_VENDOR_NUMBER = (
 )
 
 
-def _load_snapshot_owed(schema_id: str, team_id: int) -> bool:
+def _load_snapshot_owed(schema_id: str, team_id: int) -> tuple[bool, date | None]:
     schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
-    return bool((schema.sync_type_config or {}).get(SNAPSHOT_OWED_CONFIG_KEY))
+    config = schema.sync_type_config or {}
+    coverage_start = config.get(SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY)
+    return (
+        bool(config.get(SNAPSHOT_OWED_CONFIG_KEY)),
+        date.fromisoformat(coverage_start) if isinstance(coverage_start, str) else None,
+    )
 
 
-def _record_snapshot_owed(schema_id: str, team_id: int, owed: bool) -> None:
+def _record_snapshot_owed(schema_id: str, team_id: int, owed: bool, coverage_start: date | None = None) -> None:
     close_old_connections()
     if owed:
-        update_sync_type_config_keys(schema_id, team_id, updates={SNAPSHOT_OWED_CONFIG_KEY: True})
+        updates = {SNAPSHOT_OWED_CONFIG_KEY: True}
+        if coverage_start is not None:
+            updates[SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY] = coverage_start.isoformat()
+        update_sync_type_config_keys(schema_id, team_id, updates=updates)
     else:
-        update_sync_type_config_keys(schema_id, team_id, removes=[SNAPSHOT_OWED_CONFIG_KEY])
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            removes=[SNAPSHOT_OWED_CONFIG_KEY, SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY],
+        )
 
 
 @SourceRegistry.register
@@ -302,6 +316,9 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         inputs: SourceInputs,
     ) -> SourceResponse:
         is_analytics = APP_STORE_CONNECT_ENDPOINTS[inputs.schema_name].kind == "analytics_report"
+        snapshot_owed, snapshot_owed_coverage_start = (
+            _load_snapshot_owed(inputs.schema_id, inputs.team_id) if is_analytics else (False, None)
+        )
         return app_store_connect_source(
             issuer_id=config.issuer_id,
             key_id=config.key_id,
@@ -315,7 +332,8 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            snapshot_owed=_load_snapshot_owed(inputs.schema_id, inputs.team_id) if is_analytics else False,
+            snapshot_owed=snapshot_owed,
+            snapshot_owed_coverage_start=snapshot_owed_coverage_start,
             record_snapshot_owed=partial(_record_snapshot_owed, inputs.schema_id, inputs.team_id)
             if is_analytics
             else None,

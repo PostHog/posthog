@@ -1228,7 +1228,10 @@ class TestAnalyticsSnapshotBackfill:
         recorded_owed: list[bool] = []
 
         rows = _collect_analytics(
-            api, _FakeManager(), should_use_incremental_field=True, record_snapshot_owed=recorded_owed.append
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            record_snapshot_owed=lambda owed, _: recorded_owed.append(owed),
         )
 
         for instance_id in ("I1", "I2", "IS1"):
@@ -1452,7 +1455,9 @@ class TestAnalyticsSnapshotBackfill:
         )
         recorded_owed: list[bool] = []
 
-        full_refresh_rows = _collect_analytics(pending_api, _FakeManager(), record_snapshot_owed=recorded_owed.append)
+        full_refresh_rows = _collect_analytics(
+            pending_api, _FakeManager(), record_snapshot_owed=lambda owed, _: recorded_owed.append(owed)
+        )
 
         assert [(row["processing_date"], row["_line"]) for row in full_refresh_rows] == [(date(2026, 8, 1), 1)]
         assert recorded_owed == [True]
@@ -1463,7 +1468,7 @@ class TestAnalyticsSnapshotBackfill:
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2026, 8, 1),
             snapshot_owed=True,
-            record_snapshot_owed=recorded_owed.append,
+            record_snapshot_owed=lambda owed, _: recorded_owed.append(owed),
         )
 
         assert [(row["processing_date"], row["_line"], row["date"]) for row in incremental_rows] == [
@@ -1472,7 +1477,8 @@ class TestAnalyticsSnapshotBackfill:
             (date(2026, 8, 2), -1, date(2024, 6, 1)),
             (date(2026, 8, 2), -2, date(2026, 7, 15)),
         ]
-        assert recorded_owed == [True, False]
+        # Clearing is deferred until the pipeline has written the final batch and checkpoint.
+        assert recorded_owed == [True]
 
     def test_steady_state_incremental_sync_leaves_the_snapshot_alone(self) -> None:
         # A table with a watermark holds ongoing history the source can't see, so no safe

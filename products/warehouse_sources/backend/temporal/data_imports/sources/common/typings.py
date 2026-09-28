@@ -114,6 +114,8 @@ class SourceResponse:
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
+    on_success: Optional[Callable[[], None]] = None
+    """Called after all source rows and resumable state have been written successfully."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source

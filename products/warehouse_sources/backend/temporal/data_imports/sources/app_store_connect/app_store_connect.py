@@ -1596,7 +1596,9 @@ def _get_analytics_report(
     db_incremental_field_last_value: Any,
     selected_app_ids: frozenset[str],
     snapshot_owed: bool = False,
-    record_snapshot_owed: Callable[[bool], None] | None = None,
+    snapshot_owed_coverage_start: date | None = None,
+    record_snapshot_owed: Callable[[bool, date | None], None] | None = None,
+    snapshot_owed_fulfilled: list[bool] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     # Filtering before the loop keeps `_ensure_report_request` away from the excluded apps, so an
     # unselected app never gets an ONGOING analytics report request created on it.
@@ -1639,6 +1641,8 @@ def _get_analytics_report(
     snapshot_lower_bound = resumed_date if snapshot_owed else lower_bound
     instances_by_date: dict[date, list[_WalkInstance]] = {}
     hold_for_snapshot = False
+    snapshot_still_unavailable = False
+    ongoing_coverage_start: date | None = None
     snapshot_ceiling: date | None = None
     for app_id in app_ids:
         report_requests = _list_report_requests(session, token_provider, logger, app_id)
@@ -1668,6 +1672,8 @@ def _get_analytics_report(
             ongoing_instances = _analytics_instances(session, token_provider, logger, report_id)
 
         for instance_id, processing_date in ongoing_instances:
+            if ongoing_coverage_start is None or processing_date < ongoing_coverage_start:
+                ongoing_coverage_start = processing_date
             # The lower bound is inclusive: an instance's rows can restate earlier data
             # dates, and re-reading the boundary merges idempotently on the primary key.
             if lower_bound is not None and processing_date < lower_bound:
@@ -1678,6 +1684,8 @@ def _get_analytics_report(
 
         if snapshot_plan is None:
             continue
+        if snapshot_plan.state == "pending":
+            snapshot_still_unavailable = True
         if snapshot_plan.state == "pending" and report_id is not None:
             # A live ongoing report is the only in-module evidence that the app is entitled to
             # this report at all. An app that is entitled to nothing stays "pending" forever, so
@@ -1686,7 +1694,11 @@ def _get_analytics_report(
             # app's emission can ratchet the shared watermark past it and leave that app's
             # history to a resync.
             hold_for_snapshot = True
-        snapshot_cutoff = min((processing_date for _, processing_date in ongoing_instances), default=None)
+        ongoing_app_coverage_start = min((processing_date for _, processing_date in ongoing_instances), default=None)
+        snapshot_cutoff = min(
+            (candidate for candidate in (ongoing_app_coverage_start, snapshot_owed_coverage_start) if candidate is not None),
+            default=None,
+        )
         for instance_id, processing_date in snapshot_plan.instances:
             if snapshot_lower_bound is not None and processing_date < snapshot_lower_bound:
                 continue
@@ -1709,7 +1721,7 @@ def _get_analytics_report(
         _raise_snapshot_pending()
 
     if hold_for_snapshot and not snapshot_owed and record_snapshot_owed is not None:
-        record_snapshot_owed(True)
+        record_snapshot_owed(True, ongoing_coverage_start)
 
     has_snapshot_instances = any(
         walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
@@ -1732,7 +1744,7 @@ def _get_analytics_report(
                     if watermark is None:
                         _raise_snapshot_pending()
                     if not snapshot_owed and record_snapshot_owed is not None:
-                        record_snapshot_owed(True)
+                        record_snapshot_owed(True, ongoing_coverage_start)
                     return
                 probed_segments[walk_instance.instance_id] = segments
 
@@ -1824,8 +1836,8 @@ def _get_analytics_report(
             )
         )
 
-    if snapshot_owed and not hold_for_snapshot and record_snapshot_owed is not None:
-        record_snapshot_owed(False)
+    if snapshot_owed and not snapshot_still_unavailable and snapshot_owed_fulfilled is not None:
+        snapshot_owed_fulfilled[0] = True
 
 
 def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[int | None, str | None]:
@@ -1909,7 +1921,9 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
     app_ids: str | None = None,
     snapshot_owed: bool = False,
-    record_snapshot_owed: Callable[[bool], None] | None = None,
+    snapshot_owed_coverage_start: date | None = None,
+    record_snapshot_owed: Callable[[bool, date | None], None] | None = None,
+    snapshot_owed_fulfilled: list[bool] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
     session = _make_session(private_key)
@@ -1942,7 +1956,9 @@ def get_rows(
                 db_incremental_field_last_value,
                 selected_app_ids,
                 snapshot_owed,
+                snapshot_owed_coverage_start,
                 record_snapshot_owed,
+                snapshot_owed_fulfilled,
             )
         else:  # "sales_report"
             # `/v1/salesReports` returns one file per vendor number, so no app id filter applies.
@@ -1981,9 +1997,11 @@ def app_store_connect_source(
     db_incremental_field_last_value: Optional[Any] = None,
     app_ids: Optional[str] = None,
     snapshot_owed: bool = False,
-    record_snapshot_owed: Callable[[bool], None] | None = None,
+    snapshot_owed_coverage_start: date | None = None,
+    record_snapshot_owed: Callable[[bool, date | None], None] | None = None,
 ) -> SourceResponse:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
+    snapshot_owed_fulfilled = [False]
 
     return SourceResponse(
         name=endpoint,
@@ -1999,7 +2017,9 @@ def app_store_connect_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             app_ids=app_ids,
             snapshot_owed=snapshot_owed,
+            snapshot_owed_coverage_start=snapshot_owed_coverage_start,
             record_snapshot_owed=record_snapshot_owed,
+            snapshot_owed_fulfilled=snapshot_owed_fulfilled,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -2011,4 +2031,9 @@ def app_store_connect_source(
         # per-batch watermark checkpoints stay safe despite the fan-out), and collections are
         # full refreshes merged on a unique key, so asc fits everything.
         sort_mode="asc",
+        on_success=(
+            lambda: record_snapshot_owed(False, None)
+            if snapshot_owed_fulfilled[0] and record_snapshot_owed is not None
+            else None
+        ),
     )
