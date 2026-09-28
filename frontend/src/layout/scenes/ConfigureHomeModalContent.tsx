@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
@@ -37,6 +38,7 @@ export function ConfigureHomeModalContent(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setHomepage } = useActions(sceneLogic)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
@@ -92,6 +94,7 @@ export function ConfigureHomeModalContent(): JSX.Element {
                                 setPendingMode(null)
                                 setHomepage(newTabHomepage)
                             } else if (newValue === 'default_dashboard') {
+                                loadDashboardsIfNeeded()
                                 const dashboardId = currentTeam?.primary_dashboard
                                 if (dashboardId) {
                                     setPendingMode(null)

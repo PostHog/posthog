@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 from google.auth.exceptions import RefreshError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -38,6 +39,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     build_report_schemas,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Fallback messages for unexpected failures during credential validation. The raw exception can
+# embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
+# guidance instead of surfacing `str(e)` to the user.
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your Google Analytics connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_METADATA_ERROR = (
+    "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
+)
 
 
 @SourceRegistry.register
@@ -196,7 +207,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
             )
         except Exception as e:
-            return False, f"Could not load Google Analytics credentials: {e}"
+            capture_exception(e)
+            return False, _LOAD_CONNECTION_ERROR
 
         try:
             get_property_metadata(session, property_id)
@@ -214,7 +226,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     f"GA4 property '{property_id}' was not found. Verify the numeric property ID in "
                     "Google Analytics admin settings.",
                 )
-            return False, f"Failed to read Google Analytics property metadata: {e}"
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
         except RefreshError:
             # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
             # invalid_grant): the stored token is missing the required permissions, or has expired or
@@ -227,7 +240,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "account and grant access to Google Analytics.",
             )
         except Exception as e:
-            return False, f"Failed to read Google Analytics property metadata: {e}"
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
 
         return True, None
 

@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+    - match: '/playground/'
+      owners: team-experiments
+    - match: ['/emptyState/LLMPrompt*', '/emptyState/llmPrompts*']
+      owners: team-experiments

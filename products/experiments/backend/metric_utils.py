@@ -14,6 +14,8 @@ def _get_source_name(source: dict) -> str:
     kind = source.get("kind", "")
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
+    if kind == "ExperimentExposureNode":
+        return "Exposure"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 

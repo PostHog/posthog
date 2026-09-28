@@ -126,6 +126,12 @@ function StripBody(): JSX.Element {
                 {batchStatus === 'failed' && (
                     <span>The last scan didn't finish, so these are the picks from before it.</span>
                 )}
+                {batchStatus === 'low_activity' && (
+                    <span>
+                        This project has been quiet, so the last scan was skipped and these are the picks from before
+                        it.
+                    </span>
+                )}
                 <span>
                     Want something else? <SuggestWithAiLink />.
                 </span>

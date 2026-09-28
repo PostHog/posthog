@@ -8,6 +8,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and two volume levers: `sampling_mode` (a quality pre-filter over the matched sessions) and `sampling_rate` (a random downsample applied after it).
 Each enabled scanner has a Temporal schedule that fires every 5 minutes and sweeps for newly settled recordings past the scanner's watermark (`last_swept_at`); disabling a scanner removes its schedule, and re-enabling restarts the sweep from now rather than backfilling the gap (see **Backfill** for the explicit way to cover history).
 Every succeeded observation is embedded (the summary, or the reasoning) for downstream free-text search.
+The Search tab ranks observations by embedding distance, then a decision model rereads the query and each of the top 20 together and reorders them by how well they match. The reorder has a two-second budget, and search falls back to the embedding order when the model is slow, failing, or not configured.
 A scanner with `emits_signals` also pushes one signal per finding into the Signals inbox (`replay_vision` / `scanner_finding`), which is what the editor's Self-driving step turns on.
 
 **Inline scan** — a prompt pointed at named sessions with nothing saved, for a one-off question (`POST /vision/scanners/inline_scan/`, and the path agents take instead of creating a throwaway scanner). An observation belongs to a scanner, so a scan mints one keyed by a fingerprint of its config: the same question reuses the observations it already has, a different question gets its own. Those rows carry `origin=inline`, are never listed or swept, and are reaped once they have nothing to show. See `backend/inline_scan.py` for why they exist and `backend/scanner_access.py` for how results are read back.
@@ -37,18 +38,16 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scanners | (none)  | The team's scanner roster plus the team-wide vision metrics.              |
 | Usage    | `usage` | Credit spend over time for the org, bucketed daily/weekly/monthly/yearly. |
 
-**Scanner** (`/replay-vision/<scanner-id>`), seven tabs switched through `?tab=`. Overview is the default and writes no param.
+**Scanner** (`/replay-vision/<scanner-id>`), six tabs switched through `?tab=`. Overview is the default and writes no param.
 
-| Tab           | `?tab=`         | What it shows                                                                                                               |
-| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | `overview`      | At-a-glance panels: impact, verdict mix, top fixed and freeform tags, score distribution. Leads with the scout digest card. |
-| Observations  | `observations`  | The scanner's observations, filterable by status, verdict, tags, and date.                                                  |
-| On-demand     | `on-demand`     | Scan now: by session ID, or by picking from recent recordings.                                                              |
-| Backfills     | `backfills`     | The scanner's historical backfills: create one over a past window, watch progress, pause/resume.                            |
-| Configuration | `configuration` | Read-only view of the scanner's current config.                                                                             |
-| Calibration   | `calibration`   | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.         |
-| Scouts        | `scouts`        | The scanner's signals scouts, including its daily digest.                                                                   |
-| Alerts        | `alerts`        | The scanner's alerts on the shared alerts platform.                                                                         |
+| Tab          | `?tab=`        | What it shows                                                                                                                                             |
+| ------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview     | `overview`     | Scanner status, findings (verdict mix, top tags, score distribution), the scout digest, a configuration summary, and self-driving results.                |
+| Observations | `observations` | The scanner's observations, filterable by status, verdict, tags, and date.                                                                                |
+| Run          | `run`          | Scan one recording, a batch of recordings, or backfill a date range. Old `on-demand` and `backfills` links open here, and `configuration` opens Overview. |
+| Calibration  | `calibration`  | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.                                       |
+| Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
+| Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
 **Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
 Observations have their own scene under `/replay-vision/observations/…`.
@@ -71,6 +70,7 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
+- `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/prompt_suggestions.py` + `backend/proposers/` — rating-driven prompt rewrites, one proposer per scanner type. `backend/prompt_evaluation.py` re-runs a suggestion against rated sessions before it's applied, and `backend/feedback_themes.py` clusters written thumbs-down feedback.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
 - `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.

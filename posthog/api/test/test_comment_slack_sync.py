@@ -11,7 +11,7 @@ from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
-from posthog.helpers.slack_thread_mirror import _discussion_card_blocks, escape_slack_mrkdwn
+from posthog.helpers.slack_thread_mirror import _discussion_card_blocks
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
 from posthog.tasks.comment_slack_sync import (
@@ -620,15 +620,3 @@ class TestSlackThreadSerialization(APIBaseTest):
             res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
         assert res.status_code == status.HTTP_200_OK
         assert res.json()["slack_thread"] is None
-
-
-class TestEscapeSlackMrkdwn(APIBaseTest):
-    @parameterized.expand(
-        [
-            ("link_injection", "<https://evil|click>", "&lt;https://evil|click&gt;"),
-            ("ampersand", "Tom & Jerry", "Tom &amp; Jerry"),
-            ("plain", "Alice", "Alice"),
-        ]
-    )
-    def test_escapes_slack_control_chars(self, _name, raw, expected):
-        assert escape_slack_mrkdwn(raw) == expected

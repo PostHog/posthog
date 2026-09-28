@@ -13,6 +13,7 @@ import type { UserType } from '~/types'
 
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
+import { parseTeammateInboxScope } from '../inboxMembership'
 import {
     INBOX_LEGACY_TAB_KEYS,
     INBOX_REPORT_SECTION_KEYS,
@@ -241,6 +242,10 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     isRedesign: boolean
+    knownTeammate: {
+        label: string
+        uuid: string
+    } | null
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
     scoutFilter: string[]
@@ -297,6 +302,13 @@ export interface inboxFiltersLogicActions {
     }
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
+    }
+    setKnownTeammate: (
+        uuid: string,
+        label: string
+    ) => {
+        label: string
+        uuid: string
     }
     setPriorityFilter: (priorities: SignalReportPriority[]) => {
         priorities: SignalReportPriority[]
@@ -376,6 +388,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
     actions({
         setScope: (scope: InboxScope) => ({ scope }),
+        setKnownTeammate: (uuid: string, label: string) => ({ uuid, label }),
         // Auto-select a default scope (e.g. Entire project when the user has no assigned reports)
         // without marking it as an explicit user choice, so a later real choice still wins and persists.
         applyDefaultScope: (scope: InboxScope) => ({ scope }),
@@ -435,14 +448,26 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 hasActiveFilters: values.hasActiveFilters,
             })
 
+        const rememberSelectedTeammate = (): void => {
+            const uuid = parseTeammateInboxScope(values.scope)
+            const reviewer = values.availableReviewers.find((reviewer) => reviewer.user_uuid === uuid)
+            if (uuid && reviewer) {
+                actions.setKnownTeammate(uuid, reviewer.name || reviewer.email)
+            }
+        }
+
         return {
+            loadAvailableReviewersSuccess: rememberSelectedTeammate,
             searchAvailableReviewers: async ({ query }, breakpoint) => {
                 await breakpoint(300)
                 actions.loadAvailableReviewers({ query: query.trim() || undefined })
             },
             // `applyDefaultScope` is deliberately absent — it's the empty-inbox auto-default, not a
             // user choice, and counting it as engagement is exactly the inflation we're trying to avoid.
-            setScope: () => captureQueryChange('scope'),
+            setScope: () => {
+                rememberSelectedTeammate()
+                captureQueryChange('scope')
+            },
             setSort: () => captureQueryChange('sort'),
             toggleSourceProduct: () => captureQueryChange('source_product'),
             toggleScout: () => captureQueryChange('scout'),
@@ -451,7 +476,10 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setPriorityFilter: () => captureQueryChange('priority'),
             toggleState: () => captureQueryChange('state'),
             clearFilters: () => captureQueryChange('clear'),
-            setFilters: () => captureQueryChange('url'),
+            setFilters: () => {
+                rememberSelectedTeammate()
+                captureQueryChange('url')
+            },
             // The search box fires per keystroke; settle first so a typed phrase is one event.
             setSearchQuery: async (_, breakpoint) => {
                 await breakpoint(600)
@@ -461,6 +489,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     }),
 
     reducers({
+        // Keep the selected label when a search removes its row from the returned roster.
+        knownTeammate: [
+            null as { uuid: string; label: string } | null,
+            { setKnownTeammate: (_, { uuid, label }) => ({ uuid, label }) },
+        ],
         scope: [
             INBOX_SCOPE_FOR_YOU as InboxScope,
             { persist: true },

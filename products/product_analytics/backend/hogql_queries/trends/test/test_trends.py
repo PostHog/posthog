@@ -1,8 +1,7 @@
-import json
 import uuid
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,11 +26,36 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import TrendsQuery
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    Breakdown,
+    BreakdownFilter,
+    BreakdownType,
+    ChartDisplayType,
+    CohortPropertyFilter,
+    CompareFilter,
+    CountPerActorMathType,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FilterLogicalOperator,
+    GroupMathType,
+    GroupPropertyFilter,
+    IntervalType,
+    MathGroupTypeIndex,
+    MultipleBreakdownType,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyMathType,
+    PropertyOperator,
+    TrendsFilter,
+    TrendsQuery,
+)
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LINEAR, TRENDS_TABLE
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Entity, Filter, Organization, Person
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.models import Entity, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.person.util import create_person_distinct_id
@@ -82,21 +106,13 @@ def _create_cohort(
 class TestTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _run(self, filter: Filter, team: Team):
-        flush_persons_and_events()
-
-        trend_query = cast(TrendsQuery, filter_to_query(filter.to_dict()))
-        tqr = TrendsQueryRunner(team=team, query=trend_query)
-        return tqr.calculate().results
-
     def _run_query(self, trend_query: TrendsQuery, team: Team):
         flush_persons_and_events()
 
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
 
-    def _get_actors(self, filters: dict[str, Any], **kwargs) -> list[list[Any]]:
-        trends_query = cast(TrendsQuery, filter_to_query(filters))
+    def _get_actors(self, trends_query: TrendsQuery, **kwargs) -> list[list[Any]]:
         return get_actors(trends_query=trends_query, **kwargs)
 
     def _create_event(self, **kwargs):
@@ -362,13 +378,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # with self.assertNumQueries(16):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up"}, {"id": "no events"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -388,41 +412,50 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
-                        ],
-                    },
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -436,41 +469,50 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
-                        ],
-                    },
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -484,41 +526,50 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
-                        ],
-                    },
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            },
-                            {"id": "no events"},
+            self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -526,14 +577,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_per_day_48hours(self):
         self._create_events()
         with time_machine.travel("2020-01-03T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-48h",
-                        "interval": "day",
-                        "events": [{"id": "sign up"}, {"id": "no events"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-48h",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -545,14 +603,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraphCumulative",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                    ),
                 ),
                 self.team,
             )
@@ -580,14 +644,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraphCumulative",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                    ),
                 ),
                 self.team,
             )
@@ -610,20 +681,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self._create_event_count_per_actor_events()
         with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraph",
-                        "events": [
-                            {
-                                "id": "viewed video",
-                                "math": "unique_group",
-                                "math_group_type_index": 0,
-                            }
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="viewed video",
+                            math=GroupMathType.UNIQUE_GROUP,
+                            math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                            name="viewed video",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -642,20 +712,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self._create_event_count_per_actor_events()
         with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraphCumulative",
-                        "events": [
-                            {
-                                "id": "viewed video",
-                                "math": "unique_group",
-                                "math_group_type_index": 0,
-                            }
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="viewed video",
+                            math=GroupMathType.UNIQUE_GROUP,
+                            math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                            name="viewed video",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                    ),
                 ),
                 self.team,
             )
@@ -669,15 +741,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_breakdown_cumulative(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraphCumulative",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                        "breakdown": "$some_property",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                    ),
                 ),
                 self.team,
             )
@@ -699,16 +780,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_breakdown_normalize_url(self):
         self._create_breakdown_url_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "display": "ActionsLineGraphCumulative",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                        "breakdown": "$current_url",
-                        "breakdown_normalize_url": True,
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$current_url",
+                        breakdown_normalize_url=True,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                    ),
                 ),
                 self.team,
             )
@@ -721,27 +811,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_single_aggregate_dau(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "events": [{"id": "sign up", "math": "dau"}],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -806,39 +905,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$math_prop",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$math_prop",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$math_prop",
-                            }
-                        ],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$math_prop",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -930,39 +1028,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fourth session lasted 15 seconds
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1053,20 +1150,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fourth session lasted 15 seconds
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": "ActionsLineGraph",
-                        "interval": "day",
-                        "events": [{"id": "sign up", "math": "unique_session"}],
-                        "breakdown": "$session_duration",
-                        "breakdown_type": "session",
-                        "insight": "TRENDS",
-                        "breakdown_histogram_bin_count": 3,
-                        "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
-                        "date_from": "-3d",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$session_duration",
+                        breakdown_histogram_bin_count=3,
+                        breakdown_type=BreakdownType.SESSION,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-3d",
+                    ),
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="$some_prop",
+                                        operator=PropertyOperator.EXACT,
+                                        value="some_val",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.UNIQUE_SESSION,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -1143,15 +1258,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari"},
             )
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdown": json.dumps([cohort1.pk, cohort2.pk, cohort3.pk, "all"]),
-                        "breakdown_type": "cohort",
-                        "events": [{"id": "sign up"}],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort1.pk, cohort2.pk, cohort3.pk, "all"],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1219,14 +1340,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdown": "$browser",
-                        "events": [{"id": "sign up"}],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$browser",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1290,17 +1417,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdowns": [
-                            {"property": "$browser"},
-                            {"property": "$variant"},
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$browser",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
+                            Breakdown(
+                                property="$variant",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                        "events": [{"id": "sign up"}],
-                    },
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1409,14 +1548,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdown": "$browser",
-                        "events": [{"id": "sign up"}],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$browser",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1429,14 +1574,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "breakdowns": [{"property": "$browser"}],
-                        "events": [{"id": "sign up"}],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$browser",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1499,47 +1655,55 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$math_prop": 4},
             )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_property"},
-            {"breakdowns": [{"property": "$some_property"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_property",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_property",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "display": TRENDS_TABLE,
-                            "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$math_prop",
-                                }
-                            ],
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=PropertyMathType.MEDIAN,
+                                math_property="$math_prop",
+                                name="sign up",
+                            ),
+                        ],
+                        trendsFilter=TrendsFilter(
+                            display=ChartDisplayType.ACTIONS_TABLE,
+                        ),
                     ),
                     self.team,
                 )
 
             with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-                weekly_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "display": TRENDS_TABLE,
-                            "interval": "week",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$math_prop",
-                                }
-                            ],
-                        },
+                weekly_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        interval=IntervalType.WEEK,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=PropertyMathType.MEDIAN,
+                                math_property="$math_prop",
+                                name="sign up",
+                            ),
+                        ],
+                        trendsFilter=TrendsFilter(
+                            display=ChartDisplayType.ACTIONS_TABLE,
+                        ),
                     ),
                     self.team,
                 )
@@ -1646,21 +1810,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # single breakdown
         with time_machine.travel("2020-01-04T13:00:33Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1675,21 +1841,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1705,21 +1872,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple breakdowns
         with time_machine.travel("2020-01-04T13:00:33Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1734,21 +1908,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1857,22 +2037,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fourth session lasted 15 seconds
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "breakdown": "$some_prop",
-                        "breakdown_type": "person",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_prop",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1886,21 +2068,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "week",
-                        "breakdowns": [{"type": "person", "property": "$some_prop"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_prop",
+                                type=MultipleBreakdownType.PERSON,
+                            ),
                         ],
-                    },
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1917,25 +2106,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_any_event_total_count(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response1 = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_LINEAR,
-                        "interval": "day",
-                        "events": [{"id": None, "math": "total"}],
-                    },
+            response1 = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            math=BaseMathType.TOTAL,
+                            name="All events",
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            response2 = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_LINEAR,
-                        "interval": "day",
-                        "events": [{"id": "sign up", "math": "total"}],
-                    },
+            response2 = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.TOTAL,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -1970,21 +2160,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # single breakdown
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "p90",
-                                "math_property": "$math_prop",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.P90,
+                            math_property="$math_prop",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -1994,21 +2185,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple breakdown
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": TRENDS_TABLE,
-                        "interval": "day",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "p90",
-                                "math_property": "$math_prop",
-                            }
+            daily_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.P90,
+                            math_property="$math_prop",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
                 ),
                 self.team,
             )
@@ -2020,14 +2217,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_compare_day_interval_relative_range(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "compare": "true",
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    compareFilter=CompareFilter(
+                        compare=True,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -2071,10 +2274,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["data"][4], 0.0)
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            no_compare_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={"compare": "false", "events": [{"id": "sign up"}]},
+            no_compare_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -2088,16 +2295,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_compare_day_interval_fixed_range_single(self):
         self._create_events(use_time=True)
         with time_machine.travel("2020-01-02T20:17:00Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "compare": "true",
-                        # A fixed single-day range requires different handling than a relative range like -7d
-                        "date_from": "2020-01-02",
-                        "interval": "day",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    compareFilter=CompareFilter(
+                        compare=True,
+                    ),
+                    dateRange=DateRange(
+                        date_from="2020-01-02",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -2128,15 +2339,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_compare_hour_interval_relative_range(self):
         self._create_events(use_time=True)
         with time_machine.travel("2020-01-02T20:17:00Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "compare": "true",
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    compareFilter=CompareFilter(
+                        compare=True,
+                    ),
+                    dateRange=DateRange(
+                        date_from="dStart",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -2254,7 +2471,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
+    def _test_events_with_dates(
+        self,
+        dates: list[str],
+        result,
+        query_time=None,
+        *,
+        date_from: str,
+        date_to: Optional[str] = None,
+        interval: IntervalType = IntervalType.DAY,
+    ):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         for time in dates:
             with time_machine.travel(time, tick=False):
@@ -2265,23 +2491,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     properties={"$browser": "Safari"},
                 )
 
+        query = TrendsQuery(
+            series=[EventsNode(event="event_name", name="event_name")],
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=interval,
+        )
         if query_time:
             with time_machine.travel(query_time, tick=False):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={**filter_params, "events": [{"id": "event_name"}]},
-                    ),
-                    self.team,
-                )
+                response = self._run_query(query, self.team)
         else:
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={**filter_params, "events": [{"id": "event_name"}]},
-                ),
-                self.team,
-            )
+            response = self._run_query(query, self.team)
 
         self.assertEqual(result[0]["count"], response[0]["count"])
         self.assertEqual(result[0]["labels"], response[0]["labels"])
@@ -2293,7 +2512,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_week_interval(self):
         self._test_events_with_dates(
             dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
-            interval="week",
+            interval=IntervalType.WEEK,
             date_from="2020-10-29",  # having date after sunday + no events caused an issue in CH
             date_to="2020-11-24",
             result=[
@@ -2334,7 +2553,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_month_interval(self):
         self._test_events_with_dates(
             dates=["2020-07-10", "2020-07-30", "2020-10-18"],
-            interval="month",
+            interval=IntervalType.MONTH,
             date_from="2020-6-01",
             date_to="2020-11-24",
             result=[
@@ -2377,7 +2596,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_rounding(self):
         self._test_events_with_dates(
             dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
-            interval="week",
+            interval=IntervalType.WEEK,
             date_from="2020-11-04",
             date_to="2020-11-24",
             result=[
@@ -2411,7 +2630,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_rounding_monthly(self):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
-            interval="month",
+            interval=IntervalType.MONTH,
             date_from="2020-6-7",  # rounds labels down to 6-1 but only includes events on or after date_from
             date_to="2020-7-30",
             result=[
@@ -2437,388 +2656,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_today_timerange(self):
-        self._test_events_with_dates(
-            dates=["2020-11-01 10:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
-            date_from="dStart",
-            query_time="2020-11-01 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 3,
-                    "data": [3],
-                    "labels": ["1-Nov-2020"],
-                    "days": ["2020-11-01"],
-                }
-            ],
-        )
-
-    def test_yesterday_timerange(self):
-        self._test_events_with_dates(
-            dates=["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
-            date_from="-1d",
-            date_to="-1d",
-            query_time="2020-11-02 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 3.0,
-                    "data": [3.0],
-                    "labels": ["1-Nov-2020"],
-                    "days": ["2020-11-01"],
-                }
-            ],
-        )
-
-    def test_last24hours_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-01 10:22:00",
-                "2020-11-01 10:25:00",
-                "2020-11-02 08:25:00",
-            ],
-            date_from="-24h",
-            query_time="2020-11-02 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 3,
-                    "data": [2, 1],
-                    "labels": ["1-Nov-2020", "2-Nov-2020"],
-                    "days": ["2020-11-01", "2020-11-02"],
-                }
-            ],
-        )
-
-    def test_last48hours_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-01 10:22:00",
-                "2020-11-01 10:25:00",
-                "2020-11-02 08:25:00",
-            ],
-            date_from="-48h",
-            query_time="2020-11-02 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 4.0,
-                    "data": [0.0, 3.0, 1.0],
-                    "labels": ["31-Oct-2020", "1-Nov-2020", "2-Nov-2020"],
-                    "days": ["2020-10-31", "2020-11-01", "2020-11-02"],
-                }
-            ],
-        )
-
-    def test_last7days_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-02 10:22:00",
-                "2020-11-04 10:25:00",
-                "2020-11-05 08:25:00",
-            ],
-            date_from="-7d",
-            query_time="2020-11-07 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 4.0,
-                    "data": [0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0],
-                    "labels": [
-                        "31-Oct-2020",
-                        "1-Nov-2020",
-                        "2-Nov-2020",
-                        "3-Nov-2020",
-                        "4-Nov-2020",
-                        "5-Nov-2020",
-                        "6-Nov-2020",
-                        "7-Nov-2020",
-                    ],
-                    "days": [
-                        "2020-10-31",
-                        "2020-11-01",
-                        "2020-11-02",
-                        "2020-11-03",
-                        "2020-11-04",
-                        "2020-11-05",
-                        "2020-11-06",
-                        "2020-11-07",
-                    ],
-                }
-            ],
-        )
-
-    def test_last14days_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-02 10:22:00",
-                "2020-11-04 10:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-10 08:25:00",
-            ],
-            date_from="-14d",
-            query_time="2020-11-14 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 6.0,
-                    "data": [
-                        0.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        1.0,
-                        2.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "labels": [
-                        "31-Oct-2020",
-                        "1-Nov-2020",
-                        "2-Nov-2020",
-                        "3-Nov-2020",
-                        "4-Nov-2020",
-                        "5-Nov-2020",
-                        "6-Nov-2020",
-                        "7-Nov-2020",
-                        "8-Nov-2020",
-                        "9-Nov-2020",
-                        "10-Nov-2020",
-                        "11-Nov-2020",
-                        "12-Nov-2020",
-                        "13-Nov-2020",
-                        "14-Nov-2020",
-                    ],
-                    "days": [
-                        "2020-10-31",
-                        "2020-11-01",
-                        "2020-11-02",
-                        "2020-11-03",
-                        "2020-11-04",
-                        "2020-11-05",
-                        "2020-11-06",
-                        "2020-11-07",
-                        "2020-11-08",
-                        "2020-11-09",
-                        "2020-11-10",
-                        "2020-11-11",
-                        "2020-11-12",
-                        "2020-11-13",
-                        "2020-11-14",
-                    ],
-                }
-            ],
-        )
-
-    def test_last30days_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-11 10:22:00",
-                "2020-11-24 10:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-10 08:25:00",
-            ],
-            date_from="-30d",
-            interval="week",
-            query_time="2020-11-30 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 6.0,
-                    "data": [0.0, 3.0, 2.0, 0.0, 1.0, 0.0],
-                    "labels": [
-                        "31-Oct-2020",
-                        "1–7 Nov",
-                        "8–14 Nov",
-                        "15–21 Nov",
-                        "22–28 Nov",
-                        "29–30 Nov",
-                    ],
-                    "days": [
-                        "2020-10-25",
-                        "2020-11-01",
-                        "2020-11-08",
-                        "2020-11-15",
-                        "2020-11-22",
-                        "2020-11-29",
-                    ],
-                }
-            ],
-        )
-
-    def test_last90days_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-09-01 05:20:00",
-                "2020-10-05 05:20:00",
-                "2020-10-20 05:20:00",
-                "2020-11-01 05:20:00",
-                "2020-11-11 10:22:00",
-                "2020-11-24 10:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-10 08:25:00",
-            ],
-            date_from="-90d",
-            interval="month",
-            query_time="2020-11-30 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 9,
-                    "data": [1, 2, 6],
-                    "labels": ["Sep 2020", "Oct 2020", "Nov 2020"],
-                    "days": ["2020-09-01", "2020-10-01", "2020-11-01"],
-                }
-            ],
-        )
-
-    def test_this_month_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-11-01 05:20:00",
-                "2020-11-11 10:22:00",
-                "2020-11-24 10:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-05 08:25:00",
-                "2020-11-10 08:25:00",
-            ],
-            date_from="mStart",
-            interval="month",
-            query_time="2020-11-30 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 6,
-                    "data": [6],
-                    "labels": ["Nov 2020"],
-                    "days": ["2020-11-01"],
-                }
-            ],
-        )
-
     def test_previous_month_timerange(self):
         self._test_events_with_dates(
             dates=[
@@ -2831,7 +2668,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
             date_from="-1mStart",
             date_to="-1mEnd",
-            interval="month",
+            interval=IntervalType.MONTH,
             query_time="2020-12-30 10:20:00",
             result=[
                 {
@@ -2867,7 +2704,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2020-05-10 08:25:00",
             ],
             date_from="yStart",
-            interval="month",
+            interval=IntervalType.MONTH,
             query_time="2020-04-30 10:20:00",
             result=[
                 {
@@ -2888,89 +2725,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "data": [2.0, 2.0, 1.0, 0.0],
                     "labels": ["Jan 2020", "Feb 2020", "Mar 2020", "Apr 2020"],
                     "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
-                }
-            ],
-        )
-
-    def test_all_time_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-01-01 05:20:00",
-                "2020-01-11 10:22:00",
-                "2020-02-24 10:25:00",
-                "2020-02-05 08:25:00",
-                "2020-03-05 08:25:00",
-            ],
-            date_from="all",
-            interval="month",
-            query_time="2020-04-30 10:20:00",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 5.0,
-                    "data": [2.0, 2.0, 1.0, 0.0],
-                    "labels": ["Jan 2020", "Feb 2020", "Mar 2020", "Apr 2020"],
-                    "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
-                }
-            ],
-        )
-
-    def test_custom_range_timerange(self):
-        self._test_events_with_dates(
-            dates=[
-                "2020-01-05 05:20:00",
-                "2020-01-05 10:22:00",
-                "2020-01-04 10:25:00",
-                "2020-01-11 08:25:00",
-                "2020-01-09 08:25:00",
-            ],
-            date_from="2020-01-05",
-            query_time="2020-01-10",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 3.0,
-                    "data": [2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                    "labels": [
-                        "5-Jan-2020",
-                        "6-Jan-2020",
-                        "7-Jan-2020",
-                        "8-Jan-2020",
-                        "9-Jan-2020",
-                        "10-Jan-2020",
-                    ],
-                    "days": [
-                        "2020-01-05",
-                        "2020-01-06",
-                        "2020-01-07",
-                        "2020-01-08",
-                        "2020-01-09",
-                        "2020-01-10",
-                    ],
                 }
             ],
         )
@@ -2979,13 +2733,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_property_filtering(self):
         self._create_events()
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "properties": [{"key": "$some_property", "value": "value"}],
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$some_property",
+                                        value="value",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3019,19 +2788,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T12:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "interval": "week",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "hogql",
-                                "math_hogql": "avg(properties.x) + 1000",
-                            }
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math="hogql",
+                            math_hogql="avg(properties.x) + 1000",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3136,37 +2903,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fifth session lasted 5 seconds
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "interval": "week",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            daily_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            daily_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3287,46 +3049,44 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fifth session lasted 5 seconds
 
         for breakdown_type in ("single", "multiple"):
-            breakdown_filter: dict[str, Any] = (
-                {"breakdown": "$some_property"}
+            breakdown_filter = (
+                BreakdownFilter(breakdown="$some_property")
                 if breakdown_type == "single"
-                else {"breakdowns": [{"property": "$some_property"}]}
+                else BreakdownFilter(
+                    breakdowns=[Breakdown(property="$some_property", type=MultipleBreakdownType.EVENT)]
+                )
             )
 
             with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-                weekly_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "interval": "week",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                }
-                            ],
-                        },
+                weekly_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        interval=IntervalType.WEEK,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                                math=PropertyMathType.MEDIAN,
+                                math_property="$session_duration",
+                            )
+                        ],
                     ),
                     self.team,
                 )
 
             with time_machine.travel("2020-01-04T13:00:05Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                }
-                            ],
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        interval=IntervalType.DAY,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                                math=PropertyMathType.MEDIAN,
+                                math_property="$session_duration",
+                            )
+                        ],
                     ),
                     self.team,
                 )
@@ -3427,19 +3187,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Second session lasted 96 hours = a lot of seconds
 
         with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
-            weekly_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "math": "median",
-                                "math_property": "$session_duration",
-                            }
-                        ],
-                    },
+            weekly_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.MEDIAN,
+                            math_property="$session_duration",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3506,13 +3263,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
         )
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                    "events": [{"id": "event_name"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                CohortPropertyFilter(
+                                    value=cohort.pk,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                series=[
+                    EventsNode(
+                        event="event_name",
+                        name="event_name",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -3562,13 +3333,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             cohort.calculate_people_ch(pending_version=0)
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                            "events": [{"id": "event_name"}],
-                        },
+                response = self._run_query(
+                    TrendsQuery(
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        CohortPropertyFilter(
+                                            value=cohort.pk,
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        series=[
+                            EventsNode(
+                                event="event_name",
+                                name="event_name",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -3580,13 +3365,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_events(use_time=True)
 
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    data={
-                        "date_from": "2019-12-24",
-                        "interval": "hour",
-                        "events": [{"id": "sign up"}],
-                    }
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="2019-12-24",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3599,15 +3389,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_events(use_time=True)
 
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        #  2019-11-24 is a Sunday, i.e. beginning of our week
-                        "date_from": "2019-11-24",
-                        "interval": "week",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="2019-11-24",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3621,14 +3414,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_events(use_time=True)
 
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "2019-9-24",
-                        "interval": "month",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="2019-9-24",
+                    ),
+                    interval=IntervalType.MONTH,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3646,14 +3443,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
 
         with time_machine.travel("2020-01-02T23:31:00Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="dStart",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3711,22 +3512,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"key": "oh"},
         )
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "-14d",
-                    "breakdown": "key",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="key",
+                ),
+                dateRange=DateRange(
+                    date_from="-14d",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                EventPropertyFilter(
+                                    key="key",
+                                    operator=PropertyOperator.NOT_ICONTAINS,
+                                    value="oh",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": [{"key": "key", "value": "oh", "operator": "not_icontains"}],
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -3735,11 +3549,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
-        action_response = self._run(
-            Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}]}),
+        action_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    ActionsNode(
+                        id=sign_up_action.id,
+                    ),
+                ],
+            ),
             self.team,
         )
-        event_response = self._run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
+        event_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
+            ),
+            self.team,
+        )
         self.assertEqual(len(action_response), 1)
 
         self.assertEntityResponseEqual(action_response, event_response)
@@ -3750,11 +3580,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         sign_up_action.team = other_team_in_project
         sign_up_action.save()
 
-        action_response = self._run(
-            Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}]}),
+        action_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    ActionsNode(
+                        id=sign_up_action.id,
+                    ),
+                ],
+            ),
             self.team,
         )
-        event_response = self._run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
+        event_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
+            ),
+            self.team,
+        )
         self.assertEqual(len(action_response), 1)
 
         self.assertEntityResponseEqual(action_response, event_response)
@@ -3803,15 +3649,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         cohort.calculate_people_ch(pending_version=2)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "actions": [{"id": sign_up_action.id}],
-                        "date_from": "2020-01-01",
-                        "date_to": "2020-01-07",
-                        "properties": [{"key": "$bool_prop", "value": "x", "type": "person"}],
-                    },
+            action_response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="2020-01-01",
+                        date_to="2020-01-07",
+                    ),
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="$bool_prop",
+                                        operator=PropertyOperator.EXACT,
+                                        value="x",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=sign_up_action.id,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3820,11 +3683,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_for_non_existing_action(self):
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
+            response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        ActionsNode(
+                            id=50000000,
+                        ),
+                    ],
+                ),
+                self.team,
+            )
         self.assertEqual(len(response), 0)
 
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
+            response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="DNE",
+                            name="DNE",
+                        ),
+                    ],
+                ),
+                self.team,
+            )
         self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
     @also_test_with_materialized_columns(person_properties=["email", "bar"])
@@ -3864,10 +3746,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={"actions": [{"id": event_filtering_action.id}]},
+            response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        ActionsNode(
+                            id=event_filtering_action.id,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3875,20 +3760,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["count"], 3)
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response_with_email_filter = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "actions": [{"id": event_filtering_action.id}],
-                        "properties": [
-                            {
-                                "key": "email",
-                                "type": "person",
-                                "value": "is_set",
-                                "operator": "is_set",
-                            }
+            response_with_email_filter = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="email",
+                                        operator=PropertyOperator.IS_SET,
+                                        value="is_set",
+                                    ),
+                                ],
+                            ),
                         ],
-                    },
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=event_filtering_action.id,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -3903,14 +3796,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="someone_else")
 
         with time_machine.travel("2020-01-04", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={"actions": [{"id": sign_up_action.id, "math": "dau"}]},
+            action_response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        ActionsNode(
+                            id=sign_up_action.id,
+                            math=BaseMathType.DAU,
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            response = self._run(Filter(data={"events": [{"id": "sign up", "math": "dau"}]}), self.team)
+            response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
+                ),
+                self.team,
+            )
 
         self.assertEqual(response[0]["data"][4], 1)
         self.assertEqual(response[0]["data"][5], 2)
@@ -3934,35 +3842,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         return sign_up_action
 
-    def _test_math_property_aggregation(self, math_property, values, expected_value):
+    def _test_math_property_aggregation(self, math_property: PropertyMathType, values, expected_value):
         sign_up_action = self._create_maths_events(values)
 
-        action_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "actions": [
-                        {
-                            "id": sign_up_action.id,
-                            "math": math_property,
-                            "math_property": "some_number",
-                        }
-                    ]
-                },
+        action_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    ActionsNode(
+                        id=sign_up_action.id,
+                        math=math_property,
+                        math_property="some_number",
+                    )
+                ]
             ),
             self.team,
         )
-        event_response = self._run(
-            Filter(
-                data={
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "math": math_property,
-                            "math_property": "some_number",
-                        }
-                    ]
-                }
+        event_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=math_property,
+                        math_property="some_number",
+                    )
+                ]
             ),
             self.team,
         )
@@ -3972,39 +3875,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["some_number"])
     def test_sum_filtering(self):
-        self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
+        self._test_math_property_aggregation(PropertyMathType.SUM, values=[2, 3, 5.5, 7.5], expected_value=18)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_avg_filtering(self):
-        self._test_math_property_aggregation("avg", values=[2, 3, 5.5, 7.5], expected_value=4.5)
+        self._test_math_property_aggregation(PropertyMathType.AVG, values=[2, 3, 5.5, 7.5], expected_value=4.5)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_min_filtering(self):
-        self._test_math_property_aggregation("min", values=[2, 3, 5.5, 7.5], expected_value=2)
+        self._test_math_property_aggregation(PropertyMathType.MIN, values=[2, 3, 5.5, 7.5], expected_value=2)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_max_filtering(self):
-        self._test_math_property_aggregation("max", values=[2, 3, 5.5, 7.5], expected_value=7.5)
+        self._test_math_property_aggregation(PropertyMathType.MAX, values=[2, 3, 5.5, 7.5], expected_value=7.5)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_median_filtering(self):
-        self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
+        self._test_math_property_aggregation(PropertyMathType.MEDIAN, values=range(101, 201), expected_value=150)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_p75_filtering(self):
-        self._test_math_property_aggregation("p75", values=range(101, 201), expected_value=175)
+        self._test_math_property_aggregation(PropertyMathType.P75, values=range(101, 201), expected_value=175)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_p90_filtering(self):
-        self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
+        self._test_math_property_aggregation(PropertyMathType.P90, values=range(101, 201), expected_value=190)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_p95_filtering(self):
-        self._test_math_property_aggregation("p95", values=range(101, 201), expected_value=195)
+        self._test_math_property_aggregation(PropertyMathType.P95, values=range(101, 201), expected_value=195)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_p99_filtering(self):
-        self._test_math_property_aggregation("p99", values=range(101, 201), expected_value=199)
+        self._test_math_property_aggregation(PropertyMathType.P99, values=range(101, 201), expected_value=199)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_avg_filtering_non_number_resiliency(self):
@@ -4034,22 +3937,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_id="someone_else",
             properties={"some_number": 8},
         )
-        action_response = self._run(
-            Filter(
-                data={
-                    "actions": [
-                        {
-                            "id": sign_up_action.id,
-                            "math": "avg",
-                            "math_property": "some_number",
-                        }
-                    ]
-                }
+        action_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    ActionsNode(
+                        id=sign_up_action.id,
+                        math=PropertyMathType.AVG,
+                        math_property="some_number",
+                    ),
+                ],
             ),
             self.team,
         )
-        event_response = self._run(
-            Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}),
+        event_response = self._run_query(
+            TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=PropertyMathType.AVG,
+                        math_property="some_number",
+                        name="sign up",
+                    ),
+                ],
+            ),
             self.team,
         )
         self.assertEqual(action_response[0]["data"][-1], 5)
@@ -4059,22 +3969,33 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_per_entity_filtering(self):
         self._create_events()
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "properties": [{"key": "$some_property", "value": "value"}],
-                            },
-                            {
-                                "id": "sign up",
-                                "properties": [{"key": "$some_property", "value": "other_value"}],
-                            },
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="$some_property",
+                                    value="value",
+                                ),
+                            ],
+                        ),
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="$some_property",
+                                    value="other_value",
+                                ),
+                            ],
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4178,13 +4099,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_person_property_filtering(self):
         self._create_multiple_people()
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "properties": [{"key": "name", "value": "person1", "type": "person"}],
-                        "events": [{"id": "watched movie"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="name",
+                                        operator=PropertyOperator.EXACT,
+                                        value="person1",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4201,13 +4138,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # For resiliency, we reverse the filter as well.
         self._create_multiple_people()
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "properties": [{"key": "name", "value": "person1", "type": "person"}],
-                        "events": [{"id": "watched movie"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="name",
+                                        operator=PropertyOperator.EXACT,
+                                        value="person1",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4218,13 +4171,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][5], 0)
 
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "properties": [{"key": "name", "value": "1", "type": "event"}],
-                        "events": [{"id": "watched movie"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="name",
+                                        value="1",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4238,23 +4206,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_entity_person_property_filtering(self):
         self._create_multiple_people()
         with time_machine.travel("2020-01-04", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "properties": [
-                                    {
-                                        "key": "name",
-                                        "value": "person1",
-                                        "type": "person",
-                                    }
-                                ],
-                            }
-                        ]
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="name",
+                                    operator=PropertyOperator.EXACT,
+                                    value="person1",
+                                ),
+                            ],
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4273,15 +4239,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": json.dumps(["all"]),
-                        "breakdown_type": "cohort",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=["all"],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            name="$pageview",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4314,34 +4286,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         action = _create_action(name="watched movie", team=self.team)
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": json.dumps([cohort.pk, cohort2.pk, cohort3.pk, "all"]),
-                        "breakdown_type": "cohort",
-                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    },
+            action_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk, cohort2.pk, cohort3.pk, "all"],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=action.pk,
+                        ),
+                    ],
                 ),
                 self.team,
             )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": json.dumps([cohort.pk, cohort2.pk, cohort3.pk, "all"]),
-                        "breakdown_type": "cohort",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk, cohort2.pk, cohort3.pk, "all"],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4385,16 +4361,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "interval": "hour",
-                        "events": [{"id": "$pageview"}],
-                        "breakdown": "distinct_id",
-                        "breakdown_type": "event_metadata",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="distinct_id",
+                        breakdown_type=BreakdownType.EVENT_METADATA,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            name="$pageview",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4415,16 +4397,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # test hour
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "2019-12-24",
-                        "interval": "hour",
-                        "events": [{"id": "sign up"}],
-                        "breakdown": json.dumps([cohort.pk]),
-                        "breakdown_type": "cohort",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="2019-12-24",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4435,17 +4423,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # test week
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        # 2019-11-24 is a Sunday
-                        "date_from": "2019-11-24",
-                        "interval": "week",
-                        "events": [{"id": "sign up"}],
-                        "breakdown": json.dumps([cohort.pk]),
-                        "breakdown_type": "cohort",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="2019-11-24",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4458,16 +4451,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # test month
         with time_machine.travel("2020-01-02", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "2019-9-24",
-                        "interval": "month",
-                        "events": [{"id": "sign up"}],
-                        "breakdown": json.dumps([cohort.pk]),
-                        "breakdown_type": "cohort",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="2019-9-24",
+                    ),
+                    interval=IntervalType.MONTH,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4481,16 +4480,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # test today + hourly
         with time_machine.travel("2020-01-02T23:31:00Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up"}],
-                        "breakdown": json.dumps([cohort.pk]),
-                        "breakdown_type": "cohort",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown=[cohort.pk],
+                        breakdown_type=BreakdownType.COHORT,
+                    ),
+                    dateRange=DateRange(
+                        date_from="dStart",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4502,49 +4507,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         action = _create_action(name="watched movie", team=self.team)
 
         for breakdown_type in ("single", "multiple"):
-            breakdown_filter: dict[str, Any] = (
-                {
-                    "breakdowns": [
-                        {
-                            "type": "person",
-                            "property": "name",
-                        }
-                    ]
-                }
+            breakdown_filter = (
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.PERSON, property="name")])
                 if breakdown_type == "multiple"
-                else {
-                    "breakdown": "name",
-                    "breakdown_type": "person",
-                }
+                else BreakdownFilter(breakdown="name", breakdown_type=BreakdownType.PERSON)
             )
 
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                action_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "date_from": "-14d",
-                            "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                        },
+                action_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        dateRange=DateRange(date_from="-14d"),
+                        series=[ActionsNode(id=action.pk)],
                     ),
                     self.team,
                 )
-                event_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "date_from": "-14d",
-                            "events": [
-                                {
-                                    "id": "watched movie",
-                                    "name": "watched movie",
-                                    "type": "events",
-                                    "order": 0,
-                                }
-                            ],
-                        },
+                event_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        dateRange=DateRange(date_from="-14d"),
+                        series=[EventsNode(event="watched movie", name="watched movie")],
                     ),
                     self.team,
                 )
@@ -4614,15 +4596,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up"}],
-                        "breakdown": "$virt_initial_channel_type",
-                        "breakdown_type": "person",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$virt_initial_channel_type",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4641,22 +4629,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # single breakdown
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="name",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4677,26 +4664,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple breakdowns
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [
-                            {
-                                "property": "name",
-                                "type": "person",
-                            }
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="name",
+                                type=MultipleBreakdownType.PERSON,
+                            ),
                         ],
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4748,22 +4734,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="name",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4783,26 +4768,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response["count"], 3)
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [
-                            {
-                                "property": "name",
-                                "type": "person",
-                            }
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="name",
+                                type=MultipleBreakdownType.PERSON,
+                            ),
                         ],
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -4875,26 +4859,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            filters = {
-                "date_from": "-14d",
-                "breakdown": "fake_prop",
-                "breakdown_type": "event",
-                "display": "ActionsPie",
-                "events": [
-                    {
-                        "id": "watched movie",
-                        "name": "watched movie",
-                        "type": "events",
-                        "order": 0,
-                        "math": "dau",
-                    }
-                ],
-            }
-            event_response = self._run(Filter(team=self.team, data=filters), self.team)
+            query = TrendsQuery(
+                breakdownFilter=BreakdownFilter(breakdown="fake_prop"),
+                dateRange=DateRange(date_from="-14d"),
+                series=[EventsNode(event="watched movie", name="watched movie", math=BaseMathType.DAU)],
+                trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            )
+            event_response = self._run_query(query, self.team)
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
             people_value_1 = self._get_actors(
-                filters=filters, team=self.team, series=0, breakdown="value_1", includeRecordings=True
+                query, team=self.team, series=0, breakdown="value_1", includeRecordings=True
             )
             # Persons with higher value come first
             self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
@@ -4903,7 +4878,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
 
             people_value_2 = self._get_actors(
-                filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
+                query, team=self.team, series=0, breakdown="value_2", includeRecordings=True
             )
             self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
             self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
@@ -4913,24 +4888,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_multiple_people()
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                        "display": "ActionsPie",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                                "math": "dau",
-                            }
-                        ],
-                    },
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="name",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            math=BaseMathType.DAU,
+                            name="watched movie",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_PIE,
+                    ),
                 ),
                 self.team,
             )
@@ -4946,23 +4922,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [{"type": "person", "property": "name"}],
-                        "display": "ActionsPie",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                                "math": "dau",
-                            }
+            event_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="name",
+                                type=MultipleBreakdownType.PERSON,
+                            ),
                         ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            math=BaseMathType.DAU,
+                            name="watched movie",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_PIE,
+                    ),
                 ),
                 self.team,
             )
@@ -4981,38 +4963,31 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
         self._create_multiple_people()
 
-        filter = {
-            "date_from": "-14d",
-            "display": "ActionsPie",
-            "events": [
-                {
-                    "id": "watched movie",
-                    "name": "watched movie",
-                    "type": "events",
-                    "order": 0,
-                    "math": "dau",
-                    "properties": [
-                        {
-                            "key": "name",
-                            "operator": "not_icontains",
-                            "value": "person3",
-                            "type": "person",
-                        }
-                    ],
-                }
-            ],
-        }
+        def query_with(breakdown_filter: BreakdownFilter) -> TrendsQuery:
+            return TrendsQuery(
+                breakdownFilter=breakdown_filter,
+                dateRange=DateRange(date_from="-14d"),
+                series=[
+                    EventsNode(
+                        event="watched movie",
+                        name="watched movie",
+                        math=BaseMathType.DAU,
+                        properties=[
+                            PersonPropertyFilter(
+                                key="name",
+                                operator=PropertyOperator.NOT_ICONTAINS,
+                                value="person3",
+                            )
+                        ],
+                    )
+                ],
+                trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            )
 
         # single breakdown
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    data={
-                        **filter,
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                    }
-                ),
+            event_response = self._run_query(
+                query_with(BreakdownFilter(breakdown="name", breakdown_type=BreakdownType.PERSON)),
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
@@ -5026,18 +5001,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple breakdowns
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            event_response = self._run(
-                Filter(
-                    data={
-                        **filter,
-                        "breakdowns": [
-                            {
-                                "type": "person",
-                                "property": "name",
-                            }
-                        ],
-                    }
-                ),
+            event_response = self._run_query(
+                query_with(BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.PERSON, property="name")])),
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
@@ -5066,10 +5031,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
         self.team.save()
 
-        response = self._run(
-            Filter(
-                data={"events": [{"id": "event_name"}], "filter_test_accounts": True},
-                team=self.team,
+        response = self._run_query(
+            TrendsQuery(
+                filterTestAccounts=True,
+                series=[
+                    EventsNode(
+                        event="event_name",
+                        name="event_name",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -5092,13 +5062,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         cohort.calculate_people_ch(pending_version=0)
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "events": [{"id": "event_name"}],
-                        "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    CohortPropertyFilter(
+                                        value=cohort.pk,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="event_name",
+                            name="event_name",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5124,15 +5108,31 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # single breakdown
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "events": [{"id": "event_name"}],
-                        "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
-                        "breakdown": "name",
-                        "breakdown_type": "person",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="name",
+                        breakdown_type=BreakdownType.PERSON,
+                    ),
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    CohortPropertyFilter(
+                                        value=cohort.pk,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="event_name",
+                            name="event_name",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5143,19 +5143,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # multiple breakdowns
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "events": [{"id": "event_name"}],
-                        "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
-                        "breakdowns": [
-                            {
-                                "type": "person",
-                                "property": "name",
-                            },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="name",
+                                type=MultipleBreakdownType.PERSON,
+                            ),
                         ],
-                    },
+                    ),
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    CohortPropertyFilter(
+                                        value=cohort.pk,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        EventsNode(
+                            event="event_name",
+                            name="event_name",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5169,14 +5185,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # with self.assertNumQueries(16):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up"}, {"id": "no events"}],
-                        "display": TRENDS_BAR_VALUE,
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                        EventsNode(
+                            event="no events",
+                            name="no events",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_BAR_VALUE,
+                    ),
                 ),
                 self.team,
             )
@@ -5204,13 +5230,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk},4"):
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5218,20 +5246,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[0]["data"][0], 3)
 
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                            "properties": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "some_val",
-                                    "type": "person",
-                                }
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        PersonPropertyFilter(
+                                            key="$some_prop",
+                                            operator=PropertyOperator.EXACT,
+                                            value="some_val",
+                                        ),
+                                    ],
+                                ),
                             ],
-                        },
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5239,15 +5277,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             # single breakdown person props
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                            "breakdown_type": "person",
-                            "breakdown": "$some_prop",
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown="$some_prop",
+                            breakdown_type=BreakdownType.PERSON,
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5258,14 +5300,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             # multiple breakdown person props
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                            "breakdowns": [{"type": "person", "property": "$some_prop"}],
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdowns=[
+                                Breakdown(
+                                    property="$some_prop",
+                                    type=MultipleBreakdownType.PERSON,
+                                ),
+                            ],
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5276,26 +5327,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             # MAU
             with time_machine.travel("2019-12-31T13:00:03Z", tick=False):
-                monthly_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "monthly_active"}],
-                        },
+                monthly_response = self._run_query(
+                    TrendsQuery(
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.MONTHLY_ACTIVE,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
             self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                weekly_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "weekly_active"}],
-                        },
+                weekly_response = self._run_query(
+                    TrendsQuery(
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.WEEKLY_ACTIVE,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5309,14 +5364,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 type=PropertyDefinition.Type.EVENT,
             )
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
-                daily_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "interval": "day",
-                            "events": [{"id": "sign up", "math": "dau"}],
-                            "breakdown": "$some_prop",
-                        },
+                daily_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown="$some_prop",
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5325,40 +5384,43 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
             self.assertEqual(len(response), 25)
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdowns": [{"property": "$some_property"}],
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            }
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(
+                                property="$some_property",
+                                type=MultipleBreakdownType.EVENT,
+                            ),
                         ],
-                    },
+                    ),
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5369,79 +5431,42 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
 
-        action_filter = {
-            "date_from": "-14d",
-            "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-            "properties": [{"key": "name", "value": "person2", "type": "person"}],
-        }
-        event_filter = {
-            "date_from": "-14d",
-            "events": [
-                {
-                    "id": "watched movie",
-                    "name": "watched movie",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [
-                        {
-                            "key": "name",
-                            "value": "person2",
-                            "type": "person",
-                        }
+        person_filter = PersonPropertyFilter(key="name", operator=PropertyOperator.EXACT, value="person2")
+
+        def action_query(breakdown_filter: BreakdownFilter) -> TrendsQuery:
+            return TrendsQuery(
+                breakdownFilter=breakdown_filter,
+                dateRange=DateRange(date_from="-14d"),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[person_filter]),
                     ],
-                }
-            ],
-        }
+                ),
+                series=[ActionsNode(id=action.pk)],
+            )
+
+        def event_query(breakdown_filter: BreakdownFilter) -> TrendsQuery:
+            return TrendsQuery(
+                breakdownFilter=breakdown_filter,
+                dateRange=DateRange(date_from="-14d"),
+                series=[EventsNode(event="watched movie", name="watched movie", properties=[person_filter])],
+            )
 
         # single breakdown
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **action_filter,
-                        "breakdown": "order",
-                    },
-                ),
-                self.team,
-            )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **event_filter,
-                        "breakdown": "order",
-                    },
-                ),
-                self.team,
-            )
+            action_response = self._run_query(action_query(BreakdownFilter(breakdown="order")), self.team)
+            event_response = self._run_query(event_query(BreakdownFilter(breakdown="order")), self.team)
 
         self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
         self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
         # multiple
+        multiple = BreakdownFilter(breakdowns=[Breakdown(property="order", type=MultipleBreakdownType.EVENT)])
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **action_filter,
-                        "breakdowns": [{"property": "order"}],
-                    },
-                ),
-                self.team,
-            )
-            event_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **event_filter,
-                        "breakdowns": [{"property": "order"}],
-                    },
-                ),
-                self.team,
-            )
+            action_response = self._run_query(action_query(multiple), self.team)
+            event_response = self._run_query(event_query(multiple), self.team)
 
         self.assertLessEqual({"count": 2, "breakdown_value": ["2"]}.items(), event_response[0].items())
         self.assertLessEqual({"count": 1, "breakdown_value": ["1"]}.items(), event_response[1].items())
@@ -5450,31 +5475,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
-        filter = {
-            "date_from": "-14d",
-            "events": [
-                {
-                    "id": "sign up",
-                    "name": "sign up",
-                    "type": "events",
-                    "order": 0,
-                },
-                {"id": "no events"},
-            ],
-        }
+
+        def query_with(breakdown_filter: BreakdownFilter) -> TrendsQuery:
+            return TrendsQuery(
+                breakdownFilter=breakdown_filter,
+                dateRange=DateRange(date_from="-14d"),
+                series=[
+                    EventsNode(event="sign up", name="sign up"),
+                    EventsNode(event="no events", name="no events"),
+                ],
+            )
+
         # test breakdown filtering
         # single breakdown
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **filter,
-                        "breakdown": "$some_property",
-                    },
-                ),
-                self.team,
-            )
+            response = self._run_query(query_with(BreakdownFilter(breakdown="$some_property")), self.team)
 
         self.assertEqual(response[0]["label"], "sign up - value")
         self.assertEqual(response[1]["label"], "sign up - other_value")
@@ -5488,13 +5503,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # test breakdown filtering
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **filter,
-                        "breakdowns": [{"property": "$some_property"}],
-                    },
+            response = self._run_query(
+                query_with(
+                    BreakdownFilter(breakdowns=[Breakdown(property="$some_property", type=MultipleBreakdownType.EVENT)])
                 ),
                 self.team,
             )
@@ -5573,30 +5584,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Chrome", "$variant": ""},
             )
 
-        filter = {
-            "date_from": "-14d",
-            "events": [
-                {
-                    "id": "sign up",
-                    "name": "sign up",
-                    "type": "events",
-                    "order": 0,
-                },
-                {"id": "no events"},
-            ],
-        }
+        breakdowns = [
+            Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+            Breakdown(property="$variant", type=MultipleBreakdownType.EVENT),
+        ]
+
+        def query_with(breakdown_filter: BreakdownFilter) -> TrendsQuery:
+            return TrendsQuery(
+                breakdownFilter=breakdown_filter,
+                dateRange=DateRange(date_from="-14d"),
+                series=[
+                    EventsNode(event="sign up", name="sign up"),
+                    EventsNode(event="no events", name="no events"),
+                ],
+            )
 
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **filter,
-                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
-                    },
-                ),
-                self.team,
-            )
+            response = self._run_query(query_with(BreakdownFilter(breakdowns=breakdowns)), self.team)
 
         self.assertEqual(len(response), 6)
         self.assertEqual(response[0]["label"], "sign up - Safari::2")
@@ -5608,15 +5612,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # should group to "other" breakdowns
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **filter,
-                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
-                        "breakdown_limit": 1,
-                    },
-                ),
+            response = self._run_query(
+                query_with(BreakdownFilter(breakdowns=breakdowns, breakdown_limit=1)),
                 self.team,
             )
         self.assertEqual(len(response), 2)
@@ -5656,26 +5653,33 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "email", "breakdown_type": "person"},
-            {"breakdowns": [{"type": "person", "property": "email"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="email",
+                breakdown_type=BreakdownType.PERSON,
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="email",
+                        type=MultipleBreakdownType.PERSON,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **breakdown_filter,
-                        "date_from": "-14d",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
+        for breakdown_filter in breakdown_filters:
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=breakdown_filter,
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5726,19 +5730,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "email", "breakdown_type": "person"},
-            {"breakdowns": [{"property": "email", "type": "person"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="email",
+                breakdown_type=BreakdownType.PERSON,
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="email",
+                        type=MultipleBreakdownType.PERSON,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        **breakdown_filter,
-                        "date_from": "-14d",
-                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                    },
+        for breakdown_filter in breakdown_filters:
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=breakdown_filter,
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=action.pk,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -5795,26 +5812,53 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        filters: list[dict[str, Any]] = [{"breakdown": "$current_url"}, {"breakdowns": [{"property": "$current_url"}]}]
-        for breakdown_filter in filters:
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$current_url",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$current_url",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
+        ]
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "date_from": "-7d",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "name": "sign up",
-                                    "type": "events",
-                                    "order": 0,
-                                    "properties": [{"key": "$os", "value": "Mac"}],
-                                }
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        dateRange=DateRange(
+                            date_from="-7d",
+                        ),
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$browser",
+                                            value="Firefox",
+                                        ),
+                                    ],
+                                ),
                             ],
-                            "properties": [{"key": "$browser", "value": "Firefox"}],
-                        },
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                                properties=[
+                                    EventPropertyFilter(
+                                        key="$os",
+                                        value="Mac",
+                                    ),
+                                ],
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5824,13 +5868,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["label"], "second url")
 
             self.assertEqual(sum(response[0]["data"]), 1)
-            if "breakdown" in breakdown_filter:
+            if breakdown_filter.breakdown is not None:
                 self.assertEqual(response[0]["breakdown_value"], "first url")
             else:
                 self.assertEqual(response[0]["breakdown_value"], ["first url"])
 
             self.assertEqual(sum(response[1]["data"]), 1)
-            if "breakdown" in breakdown_filter:
+            if breakdown_filter.breakdown is not None:
                 self.assertEqual(response[1]["breakdown_value"], "second url")
             else:
                 self.assertEqual(response[1]["breakdown_value"], ["second url"])
@@ -5880,35 +5924,57 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$current_url"},
-            {"breakdowns": [{"property": "$current_url"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$current_url",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$current_url",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "date_from": "-14d",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "name": "sign up",
-                                    "type": "events",
-                                    "order": 0,
-                                    "properties": [{"key": "$os", "value": "Mac"}],
-                                }
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        dateRange=DateRange(
+                            date_from="-14d",
+                        ),
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.OR_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$browser",
+                                            value="Firefox",
+                                        ),
+                                        EventPropertyFilter(
+                                            key="$os",
+                                            value="Windows",
+                                        ),
+                                    ],
+                                ),
                             ],
-                            "properties": {
-                                "type": "OR",
-                                "values": [
-                                    {"key": "$browser", "value": "Firefox"},
-                                    {"key": "$os", "value": "Windows"},
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                                properties=[
+                                    EventPropertyFilter(
+                                        key="$os",
+                                        value="Mac",
+                                    ),
                                 ],
-                            },
-                        },
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5917,36 +5983,49 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["label"], "second url")
 
             self.assertEqual(sum(response[0]["data"]), 1)
-            if "breakdown" in breakdown_filter:
+            if breakdown_filter.breakdown is not None:
                 self.assertEqual(response[0]["breakdown_value"], "second url")
             else:
                 self.assertEqual(response[0]["breakdown_value"], ["second url"])
 
             # AND filter properties with disjoint set means results should be empty
             with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "date_from": "-14d",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "name": "sign up",
-                                    "type": "events",
-                                    "order": 0,
-                                    "properties": [{"key": "$os", "value": "Mac"}],
-                                }
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        dateRange=DateRange(
+                            date_from="-14d",
+                        ),
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$browser",
+                                            value="Firefox",
+                                        ),
+                                        EventPropertyFilter(
+                                            key="$os",
+                                            value="Windows",
+                                        ),
+                                    ],
+                                ),
                             ],
-                            "properties": {
-                                "type": "AND",
-                                "values": [
-                                    {"key": "$browser", "value": "Firefox"},
-                                    {"key": "$os", "value": "Windows"},
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                                properties=[
+                                    EventPropertyFilter(
+                                        key="$os",
+                                        value="Mac",
+                                    ),
                                 ],
-                            },
-                        },
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -5981,27 +6060,47 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla2")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla3")
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_prop", "breakdown_type": "person"},
-            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_prop",
+                breakdown_type=BreakdownType.PERSON,
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_prop",
+                        type=MultipleBreakdownType.PERSON,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                event_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "events": [{"id": "sign up", "math": "monthly_active"}],
-                            "properties": [
-                                {
-                                    "key": "filter_prop",
-                                    "value": "filter_val",
-                                    "type": "person",
-                                }
+                event_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        PersonPropertyFilter(
+                                            key="filter_prop",
+                                            operator=PropertyOperator.EXACT,
+                                            value="filter_val",
+                                        ),
+                                    ],
+                                ),
                             ],
-                            "display": "ActionsLineGraph",
-                        },
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.MONTHLY_ACTIVE,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -6026,29 +6125,43 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value"},
             )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_property"},
-            {"breakdowns": [{"property": "$some_property"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_property",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_property",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                action_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                        },
+                action_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        series=[
+                            ActionsNode(
+                                id=sign_up_action.id,
+                                math=BaseMathType.DAU,
+                            ),
+                        ],
                     ),
                     self.team,
                 )
-                event_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "events": [{"id": "sign up", "math": "dau"}],
-                        },
+                event_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -6063,7 +6176,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(sum(event_response[1]["data"]), 1, breakdown_filter)
             self.assertEqual(event_response[1]["data"][4], 1, breakdown_filter)  # property not defined
 
-            self.assertEntityResponseEqual(action_response, event_response, breakdown_filter)
+            self.assertEntityResponseEqual(action_response, event_response, remove=())
 
     @snapshot_clickhouse_queries
     def test_dau_with_breakdown_filtering_with_sampling(self):
@@ -6076,31 +6189,45 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value"},
             )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_property"},
-            {"breakdowns": [{"property": "$some_property"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_property",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_property",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                action_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "sampling_factor": 1,
-                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                        },
+                action_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        samplingFactor=1.0,
+                        series=[
+                            ActionsNode(
+                                id=sign_up_action.id,
+                                math=BaseMathType.DAU,
+                            ),
+                        ],
                     ),
                     self.team,
                 )
-                event_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "sampling_factor": 1,
-                            "events": [{"id": "sign up", "math": "dau"}],
-                        },
+                event_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        samplingFactor=1.0,
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -6128,31 +6255,71 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "other_value", "$os": "Windows"},
             )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_property"},
-            {"breakdowns": [{"property": "$some_property"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_property",
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_property",
+                        type=MultipleBreakdownType.EVENT,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                action_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                            "properties": [{"key": "$os", "value": "Windows"}],
-                        },
+                action_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$os",
+                                            value="Windows",
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        series=[
+                            ActionsNode(
+                                id=sign_up_action.id,
+                                math=BaseMathType.DAU,
+                            ),
+                        ],
                     ),
                     self.team,
                 )
-                event_response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "events": [{"id": "sign up", "math": "dau"}],
-                            "properties": [{"key": "$os", "value": "Windows"}],
-                        },
+                event_response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$os",
+                                            value="Windows",
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                math=BaseMathType.DAU,
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -6180,36 +6347,55 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-03T12:00:00Z",
         )
 
-        filters: list[dict[str, Any]] = [
-            {"breakdown": "$some_prop", "breakdown_type": "person"},
-            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
+        breakdown_filters = [
+            BreakdownFilter(
+                breakdown="$some_prop",
+                breakdown_type=BreakdownType.PERSON,
+            ),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        property="$some_prop",
+                        type=MultipleBreakdownType.PERSON,
+                    ),
+                ],
+            ),
         ]
-        for breakdown_filter in filters:
+        for breakdown_filter in breakdown_filters:
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                response = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            **breakdown_filter,
-                            "events": [
-                                {
-                                    "id": "$pageview",
-                                    "properties": [
-                                        {
-                                            "key": "$host",
-                                            "operator": "icontains",
-                                            "value": ".com",
-                                        }
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=breakdown_filter,
+                        properties=PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND_,
+                                    values=[
+                                        EventPropertyFilter(
+                                            key="$host",
+                                            value=[
+                                                "app.example.com",
+                                                "another.com",
+                                            ],
+                                        ),
                                     ],
-                                }
+                                ),
                             ],
-                            "properties": [
-                                {
-                                    "key": "$host",
-                                    "value": ["app.example.com", "another.com"],
-                                }
-                            ],
-                        },
+                        ),
+                        series=[
+                            EventsNode(
+                                event="$pageview",
+                                name="$pageview",
+                                properties=[
+                                    EventPropertyFilter(
+                                        key="$host",
+                                        operator=PropertyOperator.ICONTAINS,
+                                        value=".com",
+                                    ),
+                                ],
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -6251,13 +6437,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                        "properties": [{"key": "$current_url", "value": "fake"}],
-                    },
+            action_response = self._run_query(
+                TrendsQuery(
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$current_url",
+                                        value="fake",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=sign_up_action.id,
+                            math=BaseMathType.DAU,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -6274,15 +6475,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
-        action_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "actions": [{"id": sign_up_action.id, "math": "dau"}],
-                    "properties": [{"key": "$current_url", "value": "ii", "operator": "icontains"}],
-                    "breakdown": [cohort.pk, "all"],
-                    "breakdown_type": "cohort",
-                },
+        action_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown=[
+                        cohort.pk,
+                        "all",
+                    ],
+                    breakdown_type=BreakdownType.COHORT,
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                EventPropertyFilter(
+                                    key="$current_url",
+                                    operator=PropertyOperator.ICONTAINS,
+                                    value="ii",
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                series=[
+                    ActionsNode(
+                        id=sign_up_action.id,
+                        math=BaseMathType.DAU,
+                    ),
+                ],
             ),
             self.team,
         )
@@ -6309,13 +6531,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            action_response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "actions": [{"id": sign_up_action.id}],
-                        "breakdown": "$some_property",
-                    },
+            action_response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    series=[
+                        ActionsNode(
+                            id=sign_up_action.id,
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -6356,31 +6581,40 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "-14d",
-                    "breakdown": "email",
-                    "breakdown_type": "person",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="email",
+                    breakdown_type=BreakdownType.PERSON,
+                ),
+                dateRange=DateRange(
+                    date_from="-14d",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="email",
+                                    operator=PropertyOperator.NOT_ICONTAINS,
+                                    value="@posthog.com",
+                                ),
+                                EventPropertyFilter(
+                                    key="key",
+                                    value="val",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "@posthog.com",
-                            "operator": "not_icontains",
-                            "type": "person",
-                        },
-                        {"key": "key", "value": "val"},
-                    ],
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -6508,57 +6742,56 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-01 00:00:00",
-                    "date_to": "2020-07-01 00:00:00",
-                    "breakdown": "email",
-                    "breakdown_type": "person",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="email",
+                    breakdown_type=BreakdownType.PERSON,
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01 00:00:00",
+                    date_to="2020-07-01 00:00:00",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="email",
+                                    operator=PropertyOperator.NOT_ICONTAINS,
+                                    value="@posthog.com",
+                                ),
+                                EventPropertyFilter(
+                                    key="key",
+                                    value="val",
+                                ),
+                            ],
+                        ),
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="$os",
+                                    operator=PropertyOperator.EXACT,
+                                    value="android",
+                                ),
+                                PersonPropertyFilter(
+                                    key="$browser",
+                                    operator=PropertyOperator.EXACT,
+                                    value="safari",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "OR",
-                                "values": [
-                                    {
-                                        "key": "email",
-                                        "value": "@posthog.com",
-                                        "operator": "not_icontains",
-                                        "type": "person",
-                                    },
-                                    {"key": "key", "value": "val"},
-                                ],
-                            },
-                            {
-                                "type": "OR",
-                                "values": [
-                                    {
-                                        "key": "$os",
-                                        "value": "android",
-                                        "operator": "exact",
-                                        "type": "person",
-                                    },
-                                    {
-                                        "key": "$browser",
-                                        "value": "safari",
-                                        "operator": "exact",
-                                        "type": "person",
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -6572,57 +6805,53 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[4]["breakdown_value"], "test@gmail.com")
 
         # now have more strict filters with entity props
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-01 00:00:00",
-                    "date_to": "2020-07-01 00:00:00",
-                    "breakdown": "email",
-                    "breakdown_type": "person",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                            "properties": {
-                                "type": "AND",
-                                "values": [
-                                    {"key": "key", "value": "val"},
-                                    {
-                                        "key": "email",
-                                        "value": "@posthog.com",
-                                        "operator": "icontains",
-                                        "type": "person",
-                                    },
-                                ],
-                            },
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="email",
+                    breakdown_type=BreakdownType.PERSON,
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01 00:00:00",
+                    date_to="2020-07-01 00:00:00",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="$os",
+                                    operator=PropertyOperator.EXACT,
+                                    value="android",
+                                ),
+                                PersonPropertyFilter(
+                                    key="$browser",
+                                    operator=PropertyOperator.EXACT,
+                                    value="chrome",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "AND",
-                                "values": [
-                                    {
-                                        "key": "$os",
-                                        "value": "android",
-                                        "operator": "exact",
-                                        "type": "person",
-                                    },
-                                    {
-                                        "key": "$browser",
-                                        "value": "chrome",
-                                        "operator": "exact",
-                                        "type": "person",
-                                    },
-                                ],
-                            }
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                        properties=[
+                            EventPropertyFilter(
+                                key="key",
+                                value="val",
+                            ),
+                            PersonPropertyFilter(
+                                key="email",
+                                operator=PropertyOperator.ICONTAINS,
+                                value="@posthog.com",
+                            ),
                         ],
-                    },
-                },
+                    ),
+                ],
             ),
             self.team,
         )
@@ -6699,22 +6928,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_weekly_active_users_aggregated_range_wider_than_week(self):
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-18",
-            "display": TRENDS_TABLE,
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01",
+                date_to="2020-01-18",
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_TABLE,
+            ),
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
@@ -6722,23 +6953,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_weekly_active_users_aggregated_range_wider_than_week_with_sampling(self):
         self._create_active_users_events()
 
-        data = {
-            "sampling_factor": 1,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-18",
-            "display": TRENDS_TABLE,
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01",
+                date_to="2020-01-18",
+            ),
+            samplingFactor=1.0,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_TABLE,
+            ),
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
@@ -6746,22 +6979,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_weekly_active_users_aggregated_range_narrower_than_week(self):
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-11",
-            "date_to": "2020-01-12",
-            "display": TRENDS_TABLE,
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-11",
+                date_to="2020-01-12",
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_TABLE,
+            ),
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
 
@@ -6770,21 +7005,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_weekly_active_users_daily(self):
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-08",
-            "date_to": "2020-01-19",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-08",
+                date_to="2020-01-19",
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["days"],
             [
@@ -6838,22 +7073,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$group_0": "bouba"},
             )
 
-        data = {
-            "date_from": "2020-01-08",
-            "date_to": "2020-01-19",
-            "events": [
-                {
-                    "id": "viewed video",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                    "math_group_type_index": 0,
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-08",
+                date_to="2020-01-19",
+            ),
+            series=[
+                EventsNode(
+                    event="viewed video",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                    name="viewed video",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["days"],
             [
@@ -6894,21 +7129,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-08",
-            "date_to": "2020-01-19",
-            "actions": [
-                {
-                    "id": action.id,
-                    "type": "actions",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-08",
+                date_to="2020-01-19",
+            ),
+            series=[
+                ActionsNode(
+                    id=action.id,
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["days"],
             [
@@ -6943,22 +7177,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         """
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2019-12-29",
-            "date_to": "2020-01-18",
-            "interval": "week",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2019-12-29",
+                date_to="2020-01-18",
+            ),
+            interval=IntervalType.WEEK,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
         self.assertEqual(result[0]["data"], [1, 2, 1])
 
@@ -6966,22 +7200,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_weekly_active_users_hourly(self):
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-09T06:00:00Z",
-            "date_to": "2020-01-09T17:00:00Z",
-            "interval": "hour",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-09T06:00:00Z",
+                date_to="2020-01-09T17:00:00Z",
+            ),
+            interval=IntervalType.HOUR,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["days"],
             [
@@ -7031,22 +7265,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        data = {
-            "date_from": "2020-01-03T00:00:00Z",
-            "date_to": "2020-01-11T17:00:00Z",
-            "interval": "hour",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-03T00:00:00Z",
+                date_to="2020-01-11T17:00:00Z",
+            ),
+            interval=IntervalType.HOUR,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(24 * 7 * 3, sum(result[0]["data"]))
         self.assertEqual("2020-01-03 10:00:00", result[0]["days"][10])
         self.assertEqual(1, result[0]["data"][10])
@@ -7080,21 +7314,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             person_id="00000000-0000-0000-0000-000000000000",
         )
 
-        data = {
-            "date_from": "2020-01-08",
-            "date_to": "2020-01-19",
-            "actions": [
-                {
-                    "id": action.id,
-                    "type": "actions",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-08",
+                date_to="2020-01-19",
+            ),
+            series=[
+                ActionsNode(
+                    id=action.id,
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         # Zero person IDs shouldn't be counted
         self.assertEqual(
             result[0]["data"],
@@ -7142,22 +7375,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        data = {
-            "date_from": "2020-01-01T00:00:00Z",
-            "date_to": "2020-01-12T00:00:00Z",
-            "breakdown": "key",
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="key",
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0],
@@ -7189,31 +7424,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-11T12:00:00Z",
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "math": "weekly_active",
-                    }
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PersonPropertyFilter(
+                                key="name",
+                                operator=PropertyOperator.EXACT,
+                                value=[
+                                    "person-1",
+                                    "person-2",
+                                ],
+                            ),
+                        ],
+                    ),
                 ],
-                "properties": [
-                    {
-                        "key": "name",
-                        "operator": "exact",
-                        "value": ["person-1", "person-2"],
-                        "type": "person",
-                    }
-                ],
-            },
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
+            ],
         )
 
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0],
@@ -7308,22 +7551,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
-        data = {
-            "date_from": "2020-01-01T00:00:00Z",
-            "date_to": "2020-01-12T00:00:00Z",
-            "breakdown": "key",
-            "actions": [
-                {
-                    "id": pageview_action.id,
-                    "type": "actions",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="key",
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            series=[
+                ActionsNode(
+                    id=pageview_action.id,
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                ),
             ],
-        }
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         self.assertEqual(
             result[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0],
@@ -7334,23 +7578,27 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_weekly_active_users_aggregated(self):
         self._create_active_users_events()
 
-        data = {
-            "date_from": "2020-01-11",
-            "date_to": "2020-01-11",
-            "display": TRENDS_TABLE,
-            "events": [
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "weekly_active",
-                }
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="key",
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-11",
+                date_to="2020-01-11",
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.WEEKLY_ACTIVE,
+                    name="$pageview",
+                ),
             ],
-            "breakdown": "key",
-        }
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_TABLE,
+            ),
+        )
 
-        filter = Filter(team=self.team, data=data)
-        result = self._run(filter, self.team)
+        result = self._run_query(query, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["breakdown_value"], "bor")
@@ -7358,74 +7606,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["breakdown_value"], "val")
         self.assertEqual(result[1]["aggregated_value"], 2)
 
-    # TODO: test_account_filters conversion
-    # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
-    # def test_filter_test_accounts(self):
-    #     self._create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
-    #     self._create_event(
-    #         team=self.team,
-    #         event="$pageview",
-    #         distinct_id="p1",
-    #         timestamp="2020-01-11T12:00:00Z",
-    #         properties={"key": "val"},
-    #     )
-
-    #     self._create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-    #     self._create_event(
-    #         team=self.team,
-    #         event="$pageview",
-    #         distinct_id="p2",
-    #         timestamp="2020-01-11T12:00:00Z",
-    #         properties={"key": "val"},
-    #     )
-    #     self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
-    #     self.team.save()
-    #     filter = Filter(
-    #         team=self.team,
-    #         data={
-    #             "date_from": "2020-01-01T00:00:00Z",
-    #             "date_to": "2020-01-12T00:00:00Z",
-    #             "events": [{"id": "$pageview", "type": "events", "order": 0}],
-    #             "filter_test_accounts": True,
-    #         },
-    #     )
-    #     result = self._run(filter, self.team)
-    #     self.assertEqual(result[0]["count"], 1)
-    #     filter2 = Filter(
-    #         team=self.team,
-    #         data={
-    #             "date_from": "2020-01-01T00:00:00Z",
-    #             "date_to": "2020-01-12T00:00:00Z",
-    #             "events": [{"id": "$pageview", "type": "events", "order": 0}],
-    #         },
-    #     )
-    #     result = self._run(filter2, self.team)
-    #     self.assertEqual(result[0]["count"], 2)
-    #     result = self._run(filter.shallow_clone({"breakdown": "key"}), self.team)
-    #     self.assertEqual(result[0]["count"], 1)
-
     @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_bar_chart_by_value(self):
         self._create_events()
 
         # test breakdown filtering
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "breakdown": "$some_property",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                        "display": TRENDS_BAR_VALUE,
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$some_property",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_BAR_VALUE,
+                    ),
                 ),
                 self.team,
             )
@@ -7482,16 +7685,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                res = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "date_from": "-7d",
-                            "events": [{"id": "$pageview"}],
-                            "properties": [],
-                            "breakdown": [cohort1.pk, cohort2.pk],
-                            "breakdown_type": "cohort",
-                        },
+                res = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown=[
+                                cohort1.pk,
+                                cohort2.pk,
+                            ],
+                            breakdown_type=BreakdownType.COHORT,
+                        ),
+                        dateRange=DateRange(
+                            date_from="-7d",
+                        ),
+                        series=[
+                            EventsNode(
+                                event="$pageview",
+                                name="$pageview",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -7538,16 +7749,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-                res = self._run(
-                    Filter(
-                        team=self.team,
-                        data={
-                            "date_from": "-7d",
-                            "events": [{"id": "$pageview"}],
-                            "properties": [],
-                            "breakdown": cohort1.pk,
-                            "breakdown_type": "cohort",
-                        },
+                res = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown=cohort1.pk,
+                            breakdown_type=BreakdownType.COHORT,
+                        ),
+                        dateRange=DateRange(
+                            date_from="-7d",
+                        ),
+                        series=[
+                            EventsNode(
+                                event="$pageview",
+                                name="$pageview",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -7587,12 +7803,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        response = self._run(
-            Filter(
-                data={
-                    "date_from": "-14d",
-                    "actions": [{"id": action.pk, "type": "actions", "order": 0}],
-                }
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="-14d",
+                ),
+                series=[
+                    ActionsNode(
+                        id=action.pk,
+                    ),
+                ],
             ),
             self.team,
         )
@@ -7602,7 +7822,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @pytest.mark.skip(reason="We dont currently error out for this, but fallback instead. Good enough for now")
     def test_trends_math_without_math_property(self):
         with self.assertRaises(ValidationError):
-            self._run(Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team)
+            self._run_query(
+                TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=PropertyMathType.SUM,
+                            name="sign up",
+                        ),
+                    ],
+                ),
+                self.team,
+            )
 
     @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
@@ -7611,18 +7842,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # test breakdown filtering
         with self.assertRaises(Exception):
             with self.settings(TEST=False, DEBUG=False):
-                self._run(
-                    Filter(
-                        data={
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "name": "sign up",
-                                    "type": "events",
-                                    "order": 0,
-                                }
-                            ]
-                        }
+                self._run_query(
+                    TrendsQuery(
+                        series=[
+                            EventsNode(
+                                event="sign up",
+                                name="sign up",
+                            ),
+                        ],
                     ),
                     self.team,
                 )
@@ -7668,14 +7895,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
 
         with time_machine.travel(query_time, tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="dStart",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7697,14 +7929,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "dStart",
-                        "interval": "hour",
-                        "events": [{"id": "sign up", "name": "sign up"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="dStart",
+                    ),
+                    interval=IntervalType.HOUR,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7765,15 +8001,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Custom date range, single day, hourly interval
-        response = self._run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03 23:59:59",
-                    "interval": "hour",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03 23:59:59",
+                ),
+                interval=IntervalType.HOUR,
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -7811,14 +8051,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response[0]["data"]), 24)
 
         # Custom date range, single day, dayly interval
-        response = self._run(
-            Filter(
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
-                team=self.team,
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -7863,13 +8107,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel(datetime(2020, 1, 5, 5, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
-            response = self._run(
-                Filter(
-                    data={
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up", "name": "sign up"}],
-                    },
-                    team=self.team,
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7891,13 +8139,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # DAU
         with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7927,19 +8180,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "math": "weekly_active",
-                            }
-                        ],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.WEEKLY_ACTIVE,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7960,13 +8212,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "events": [{"id": "sign up", "name": "sign up", "breakdown": "$os"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -7988,14 +8244,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         #  breakdown + DAU
         with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "breakdown": "$os",
-                        "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$os",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-7d",
+                    ),
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            math=BaseMathType.DAU,
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -8073,14 +8336,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         with time_machine.travel("2022-11-30T13:01:01Z", tick=False):
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-30d",
-                        "events": [{"id": "sign up", "name": "sign up"}],
-                        "interval": "week",
-                    },
+            response = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-30d",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -8132,14 +8399,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # TRICKY: This is the previous UTC day in Asia/Tokyo
         with time_machine.travel(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
             # Total volume query
-            response_sunday = self._run(
-                Filter(
-                    data={
-                        "date_from": "-14d",
-                        "interval": "week",
-                        "events": [{"id": "sign up", "name": "sign up"}],
-                    },
-                    team=self.team,
+            response_sunday = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -8153,14 +8424,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # TRICKY: This is the previous UTC day in Asia/Tokyo
         with time_machine.travel(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
             # Total volume query
-            response_monday = self._run(
-                Filter(
-                    data={
-                        "date_from": "-14d",
-                        "interval": "week",
-                        "events": [{"id": "sign up", "name": "sign up"}],
-                    },
-                    team=self.team,
+            response_monday = self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    interval=IntervalType.WEEK,
+                    series=[
+                        EventsNode(
+                            event="sign up",
+                            name="sign up",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -8181,14 +8456,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             },
             timestamp="2020-01-03T01:01:01Z",
         )
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8231,27 +8510,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk)
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
         self.assertEqual(response[0]["data"], [2.0])
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=BaseMathType.DAU,
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8314,14 +8602,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 0)
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=BaseMathType.DAU,
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8329,14 +8622,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid3", self.team.pk, 1)
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=BaseMathType.DAU,
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8344,14 +8642,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 2)
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-03",
-                    "date_to": "2020-01-03",
-                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
-                },
+        response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-03",
+                    date_to="2020-01-03",
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=BaseMathType.DAU,
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8368,40 +8671,42 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # 2. Having multiple properties that filter on the same value
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "events": [
-                            {
-                                "id": "watched movie",
-                                "name": "watched movie",
-                                "type": "events",
-                                "order": 0,
-                            }
+            self._run_query(
+                TrendsQuery(
+                    dateRange=DateRange(
+                        date_from="-14d",
+                    ),
+                    properties=PropertyGroupFilter(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="email",
+                                        operator=PropertyOperator.NOT_ICONTAINS,
+                                        value="posthog.com",
+                                    ),
+                                    EventPropertyFilter(
+                                        key="name",
+                                        operator=PropertyOperator.NOT_ICONTAINS,
+                                        value="posthog.com",
+                                    ),
+                                    PersonPropertyFilter(
+                                        key="name",
+                                        operator=PropertyOperator.NOT_ICONTAINS,
+                                        value="posthog.com",
+                                    ),
+                                ],
+                            ),
                         ],
-                        "properties": [
-                            {
-                                "key": "email",
-                                "type": "event",
-                                "value": "posthog.com",
-                                "operator": "not_icontains",
-                            },
-                            {
-                                "key": "name",
-                                "type": "event",
-                                "value": "posthog.com",
-                                "operator": "not_icontains",
-                            },
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": "posthog.com",
-                                "operator": "not_icontains",
-                            },
-                        ],
-                    },
+                    ),
+                    series=[
+                        EventsNode(
+                            event="watched movie",
+                            name="watched movie",
+                        ),
+                    ],
                 ),
                 self.team,
             )
@@ -8411,15 +8716,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_daily(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8439,16 +8748,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_weekly(self):
         self._create_event_count_per_actor_events()
 
-        weekly_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                    "interval": "week",
-                },
+        weekly_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                interval=IntervalType.WEEK,
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8462,15 +8775,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_aggregated(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_TABLE,
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
+                trendsFilter=TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_TABLE,
+                ),
             ),
             self.team,
         )
@@ -8481,15 +8801,19 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_maximum(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [{"id": "viewed video", "math": "max_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.MAX_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8509,16 +8833,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_with_event_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "breakdown": "color",
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="color",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8545,17 +8875,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_with_person_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "breakdown": "fruit",
-                    "breakdown_type": "person",
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="fruit",
+                    breakdown_type=BreakdownType.PERSON,
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8579,16 +8915,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_aggregated_with_event_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_TABLE,
-                    "breakdown": "color",
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="color",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
+                trendsFilter=TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_TABLE,
+                ),
             ),
             self.team,
         )
@@ -8605,17 +8950,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling(self):
         self._create_event_count_per_actor_events()
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "sampling_factor": 1,
-                    "display": TRENDS_TABLE,
-                    "breakdown": "color",
-                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="color",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                samplingFactor=1.0,
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        name="viewed video",
+                    ),
+                ],
+                trendsFilter=TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_TABLE,
+                ),
             ),
             self.team,
         )
@@ -8639,21 +8993,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [
-                        {
-                            "id": "viewed video",
-                            "math": "avg_count_per_actor",
-                            "math_group_type_index": 0,
-                        }
-                    ],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8690,21 +9043,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
         self._create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_TABLE,
-                    "events": [
-                        {
-                            "id": "viewed video",
-                            "math": "avg_count_per_actor",
-                            "math_group_type_index": 0,
-                        }
-                    ],
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-01-07",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-07",
+                ),
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
+                        math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                        name="viewed video",
+                    ),
+                ],
+                trendsFilter=TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_TABLE,
+                ),
             ),
             self.team,
         )
@@ -8726,17 +9081,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"color": "orange"},
             )
 
-        daily_response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [{"id": "viewed video", "math": "dau"}],
-                    "breakdown": "color",
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-03-07",
-                    "interval": "month",
-                },
+        daily_response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="color",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-03-07",
+                ),
+                interval=IntervalType.MONTH,
+                series=[
+                    EventsNode(
+                        event="viewed video",
+                        math=BaseMathType.DAU,
+                        name="viewed video",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8805,30 +9166,37 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "key",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="key",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                GroupPropertyFilter(
+                                    group_type_index=0,
+                                    key="industry",
+                                    operator=PropertyOperator.EXACT,
+                                    value="finance",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "value": "finance",
-                            "type": "group",
-                            "group_type_index": 0,
-                        }
-                    ],
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8865,30 +9233,37 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "key",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="key",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                GroupPropertyFilter(
+                                    group_type_index=0,
+                                    key="industry",
+                                    operator=PropertyOperator.EXACT,
+                                    value="finance",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "value": "finance",
-                            "type": "group",
-                            "group_type_index": 0,
-                        }
-                    ],
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -8940,31 +9315,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         create_person_id_override_by_distinct_id("test_breakdown_d1", "test_breakdown_d2", self.team.pk)
-        response = self._run(
-            Filter(
-                team=self.team,
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "key",
-                    "events": [
-                        {
-                            "id": "sign up",
-                            "name": "sign up",
-                            "type": "events",
-                            "order": 0,
-                            "math": "dau",
-                        }
+        response = self._run_query(
+            TrendsQuery(
+                breakdownFilter=BreakdownFilter(
+                    breakdown="key",
+                ),
+                dateRange=DateRange(
+                    date_from="2020-01-01T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                properties=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[
+                                GroupPropertyFilter(
+                                    group_type_index=0,
+                                    key="industry",
+                                    operator=PropertyOperator.EXACT,
+                                    value="finance",
+                                ),
+                            ],
+                        ),
                     ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "value": "finance",
-                            "type": "group",
-                            "group_type_index": 0,
-                        }
-                    ],
-                },
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        math=BaseMathType.DAU,
+                        name="sign up",
+                    ),
+                ],
             ),
             self.team,
         )
@@ -9005,18 +9387,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(events_by_person=journey, team=self.team)
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12",
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-            },
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="industry",
+                breakdown_group_type_index=0,
+                breakdown_type=BreakdownType.GROUP,
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12",
+            ),
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
-        response = self._run(filter, self.team)
+        response = self._run_query(query, self.team)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -9025,7 +9413,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["count"], 1)
 
         res = self._get_actors(
-            filters=filter.to_dict(),
+            query,
             team=self.team,
             series=0,
             breakdown="technology",
@@ -9066,20 +9454,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(events_by_person=journey, team=self.team)
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-12",
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-            },
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="industry",
+                breakdown_group_type_index=0,
+                breakdown_type=BreakdownType.GROUP,
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01",
+                date_to="2020-01-12",
+            ),
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = self._run(filter, self.team)
+            response = self._run_query(query, self.team)
 
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -9088,7 +9482,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["count"], 1)
 
             res = self._get_actors(
-                filters=filter.to_dict(),
+                query,
                 team=self.team,
                 series=0,
                 breakdown="technology",
@@ -9123,20 +9517,40 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             group0_properties={"industry": "technology"},
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                "properties": [{"key": "key", "value": "value", "type": "person"}],
-            },
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="industry",
+                breakdown_group_type_index=0,
+                breakdown_type=BreakdownType.GROUP,
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PersonPropertyFilter(
+                                key="key",
+                                operator=PropertyOperator.EXACT,
+                                value="value",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
 
-        response = self._run(filter, self.team)
+        response = self._run_query(query, self.team)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -9175,25 +9589,41 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                "properties": [
-                    {
-                        "key": "industry",
-                        "value": "finance",
-                        "type": "group",
-                        "group_type_index": 0,
-                    },
-                    {"key": "key", "value": "value", "type": "person"},
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            GroupPropertyFilter(
+                                group_type_index=0,
+                                key="industry",
+                                operator=PropertyOperator.EXACT,
+                                value="finance",
+                            ),
+                            PersonPropertyFilter(
+                                key="key",
+                                operator=PropertyOperator.EXACT,
+                                value="value",
+                            ),
+                        ],
+                    ),
                 ],
-            },
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                ),
+            ],
         )
 
-        response = self._run(filter, self.team)
+        response = self._run_query(query, self.team)
         self.assertEqual(response[0]["count"], 1)
 
     def test_filtering_with_group_props_event_with_no_group_data(self):
@@ -9225,26 +9655,41 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                "properties": [
-                    {
-                        "key": "industry",
-                        "operator": "is_not",
-                        "value": "textiles",
-                        "type": "group",
-                        "group_type_index": 0,
-                    },
-                    {"key": "key", "value": "value", "type": "person"},
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            GroupPropertyFilter(
+                                group_type_index=0,
+                                key="industry",
+                                operator=PropertyOperator.IS_NOT,
+                                value="textiles",
+                            ),
+                            PersonPropertyFilter(
+                                key="key",
+                                operator=PropertyOperator.EXACT,
+                                value="value",
+                            ),
+                        ],
+                    ),
                 ],
-            },
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                ),
+            ],
         )
 
-        response = self._run(filter, self.team)
+        response = self._run_query(query, self.team)
 
         # we include all 4 events even though they do not have an associated group since the filter is a negative
         # i.e. "industry is not textiles" includes both events associated with a group that has the property "industry"
@@ -9276,21 +9721,41 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             group0_properties={"industry": "technology"},
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "breakdown": "industry",
-                "breakdown_type": "group",
-                "breakdown_group_type_index": 0,
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                "properties": [{"key": "key", "value": "value", "type": "person"}],
-            },
+        query = TrendsQuery(
+            breakdownFilter=BreakdownFilter(
+                breakdown="industry",
+                breakdown_group_type_index=0,
+                breakdown_type=BreakdownType.GROUP,
+            ),
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PersonPropertyFilter(
+                                key="key",
+                                operator=PropertyOperator.EXACT,
+                                value="value",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = self._run(filter, self.team)
+            response = self._run_query(query, self.team)
 
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -9329,26 +9794,42 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
-                "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                "properties": [
-                    {
-                        "key": "industry",
-                        "value": "finance",
-                        "type": "group",
-                        "group_type_index": 0,
-                    },
-                    {"key": "key", "value": "value", "type": "person"},
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12T00:00:00Z",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            GroupPropertyFilter(
+                                group_type_index=0,
+                                key="industry",
+                                operator=PropertyOperator.EXACT,
+                                value="finance",
+                            ),
+                            PersonPropertyFilter(
+                                key="key",
+                                operator=PropertyOperator.EXACT,
+                                value="value",
+                            ),
+                        ],
+                    ),
                 ],
-            },
+            ),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                ),
+            ],
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = self._run(filter, self.team)
+            response = self._run_query(query, self.team)
             self.assertEqual(response[0]["count"], 1)
 
     @time_machine.travel("2020-01-01", tick=False)
@@ -9413,31 +9894,43 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(events_by_person=journey, team=self.team)
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                "properties": [
-                    {
-                        "key": "industry",
-                        "value": "finance",
-                        "type": "group",
-                        "group_type_index": 0,
-                    },
-                    {
-                        "key": "name",
-                        "value": "six",
-                        "type": "group",
-                        "group_type_index": 2,
-                    },
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="2020-01-01T00:00:00Z",
+                date_to="2020-01-12",
+            ),
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            GroupPropertyFilter(
+                                group_type_index=0,
+                                key="industry",
+                                operator=PropertyOperator.EXACT,
+                                value="finance",
+                            ),
+                            GroupPropertyFilter(
+                                group_type_index=2,
+                                key="name",
+                                operator=PropertyOperator.EXACT,
+                                value="six",
+                            ),
+                        ],
+                    ),
                 ],
-            },
+            ),
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = self._run(filter, self.team)
+            response = self._run_query(query, self.team)
 
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["count"], 1)
@@ -9446,9 +9939,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             )
 
-            res = self._get_actors(
-                filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", includeRecordings=True
-            )
+            res = self._get_actors(query, team=self.team, series=0, day="2020-01-02", includeRecordings=True)
 
             self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
@@ -9464,18 +9955,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(events_by_person=journey, team=self.team)
 
-        filter = Filter(
-            team=self.team,
-            data={
-                "date_from": "-1dStart",
-                "date_to": "-1dEnd",
-                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                "interval": "hour",
-            },
+        query = TrendsQuery(
+            dateRange=DateRange(
+                date_from="-1dStart",
+                date_to="-1dEnd",
+            ),
+            interval=IntervalType.HOUR,
+            series=[
+                EventsNode(
+                    event="sign up",
+                    name="sign up",
+                ),
+            ],
         )
 
         with time_machine.travel("2020-01-03 13:06:02", tick=False):
-            response = self._run(filter, self.team)
+            response = self._run_query(query, self.team)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(

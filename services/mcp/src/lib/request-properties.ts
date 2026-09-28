@@ -38,6 +38,8 @@ export type RequestProperties = {
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
     featureFlagOverrides?: string | undefined
+    // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
+    excludeTools?: string[] | undefined
 }
 
 export type ClientInfo = {
@@ -56,6 +58,29 @@ function splitCsv(value: string | null): string[] | undefined {
     }
     const parts = value.split(',').filter(Boolean)
     return parts.length > 0 ? parts : undefined
+}
+
+const MCP_TOOL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+const MAX_EXCLUDE_TOOLS = 32
+
+function parseExcludeTools(value: string | undefined): string[] | undefined {
+    if (!value) {
+        return undefined
+    }
+    const unique: string[] = []
+    const seen = new Set<string>()
+    for (const part of value.split(',')) {
+        const token = part.trim().toLowerCase()
+        if (!MCP_TOOL_NAME.test(token) || seen.has(token)) {
+            continue
+        }
+        seen.add(token)
+        unique.push(token)
+        if (unique.length >= MAX_EXCLUDE_TOOLS) {
+            break
+        }
+    }
+    return unique.length > 0 ? unique : undefined
 }
 
 export function parseRequestProperties(
@@ -91,6 +116,9 @@ export function parseRequestProperties(
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
+        excludeTools: parseExcludeTools(
+            sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
+        ),
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,

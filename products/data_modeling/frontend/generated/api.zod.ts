@@ -61,9 +61,11 @@ export const dataModelingNodesCreateBodyDescriptionMax = 1024
 export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
         .optional()
-        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
+        .describe(
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+        ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
@@ -75,9 +77,11 @@ export const dataModelingNodesUpdateBodyDescriptionMax = 1024
 export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesUpdateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
         .optional()
-        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
+        .describe(
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+        ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
 })
@@ -89,9 +93,11 @@ export const dataModelingNodesPartialUpdateBodyDescriptionMax = 1024
 export const DataModelingNodesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesPartialUpdateBodyNameMax).optional(),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
         .optional()
-        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
+        .describe(
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+        ),
     dag: zod.uuid().optional(),
     description: zod.string().max(dataModelingNodesPartialUpdateBodyDescriptionMax).optional(),
 })
@@ -106,9 +112,11 @@ export const dataModelingNodesMaterializeCreateBodyDescriptionMax = 1024
 export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesMaterializeCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
         .optional()
-        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
+        .describe(
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+        ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesMaterializeCreateBodyDescriptionMax).optional(),
 })
@@ -128,9 +136,11 @@ export const dataModelingNodesRunCreateBodyDescriptionMax = 1024
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesRunCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
         .optional()
-        .describe('\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint'),
+        .describe(
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+        ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesRunCreateBodyDescriptionMax).optional(),
 })

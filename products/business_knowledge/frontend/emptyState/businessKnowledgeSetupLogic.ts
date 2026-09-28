@@ -14,6 +14,8 @@ import { businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
 export const businessKnowledgeSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.BUSINESS_KNOWLEDGE,
     path: ['products', 'business_knowledge', 'frontend', 'emptyState', 'businessKnowledgeSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await businessKnowledgeSourcesList(projectId, { limit: 1 })

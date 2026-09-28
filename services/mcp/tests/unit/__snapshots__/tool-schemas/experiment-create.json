@@ -5841,10 +5841,63 @@
             "maxLength": 400,
             "type": "string"
         },
-        "parameters": {
+        "running_time_calculation": {
             "anyOf": [
                 {
                     "properties": {
+                        "exposure_estimate_config": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "conversionRateInputType": {
+                                            "description": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                                            "enum": ["manual", "automatic"],
+                                            "type": "string"
+                                        },
+                                        "manualBaselineValue": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode."
+                                        },
+                                        "manualExposureRate": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."
+                                        },
+                                        "manualMetricType": {
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["funnel", "mean_count", "mean_sum_or_avg"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Metric type the manual baseline value refers to. Only used in manual mode."
+                                        }
+                                    },
+                                    "required": ["conversionRateInputType"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
+                        },
                         "minimum_detectable_effect": {
                             "anyOf": [
                                 {
@@ -5854,24 +5907,29 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
+                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
                         },
-                        "variant_notes": {
+                        "recommended_running_time": {
                             "anyOf": [
                                 {
-                                    "additionalProperties": {
-                                        "type": "string"
-                                    },
-                                    "propertyNames": {
-                                        "type": "string"
-                                    },
-                                    "type": "object"
+                                    "type": "number"
                                 },
                                 {
                                     "type": "null"
                                 }
                             ],
-                            "description": "Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL."
+                            "description": "Estimated number of days needed to reach the recommended sample size."
+                        },
+                        "recommended_sample_size": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Recommended number of exposed users needed for statistical significance."
                         }
                     },
                     "type": "object"
@@ -5880,7 +5938,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
+            "description": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one."
         },
         "stats_config": {},
         "tags": {

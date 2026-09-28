@@ -54,6 +54,18 @@ export type TicketTagsMatch = 'any' | 'all'
 export type AITriageStatus = 'in_progress' | 'done' | 'awaiting_clarification'
 export type AITriageFilterValue = AiTriageResultEnumApi
 export type AITriageResult = Exclude<AiTriageResultEnumApi, 'in_progress'>
+export type AITriageVerdict = 'answerable' | 'blocked_on_customer' | 'blocked_on_knowledge' | 'out_of_scope'
+export type AITriageBlocker = 'none' | 'customer_info' | 'knowledge' | 'contradiction'
+export type AIPersistAs = 'reply' | 'findings' | 'clarification'
+
+export interface AITriageSource {
+    ref: string
+    title: string
+    source_id?: string | null
+    url?: string | null
+    is_generated?: boolean
+    learned_from_ticket_number?: number | null
+}
 
 export interface AITriage {
     schema_version?: number
@@ -70,11 +82,13 @@ export interface AITriage {
     run_id?: string
     ai_trace_id?: string
     missing?: string[]
-    verdict?: 'answerable' | 'blocked_on_customer' | 'blocked_on_knowledge' | 'out_of_scope'
-    blocker?: 'none' | 'customer_info' | 'knowledge' | 'contradiction'
+    verdict?: AITriageVerdict
+    blocker?: AITriageBlocker
     unknowns?: string[]
     clarifying_questions?: string[]
     investigation_summary?: string
+    citations?: string[]
+    sources?: AITriageSource[]
     draft_confidence?: number
     validator_confidence?: number
     coverage?: number
@@ -149,7 +163,7 @@ export interface Ticket {
     unread_customer_count: number
     session_id?: string
     session_context?: {
-        session_replay_url?: string
+        replay_url?: string
         current_url?: string
         [key: string]: any
     }
@@ -185,7 +199,7 @@ export interface ConversationTicket {
     unread_count?: number
     session_id?: string
     session_context?: {
-        session_replay_url?: string
+        replay_url?: string
         current_url?: string
         [key: string]: any
     }
@@ -227,6 +241,10 @@ export interface ChatMessage {
      * is rendered with external image auto-loading disabled. */
     fromZendesk?: boolean
     hasFullEmailContent?: boolean
+    citations?: string[]
+    confidence?: number
+    persistAs?: AIPersistAs
+    clarifyingQuestions?: string[]
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -305,6 +323,20 @@ export const aiTriageStatusLabel: Record<AITriageStatus, string> = {
     awaiting_clarification: 'Waiting for the customer',
 }
 
+export const aiTriageVerdictLabel: Record<AITriageVerdict, string> = {
+    answerable: 'Answerable',
+    blocked_on_customer: 'Needs customer info',
+    blocked_on_knowledge: 'Needs knowledge',
+    out_of_scope: 'Out of scope',
+}
+
+export const aiTriageBlockerLabel: Record<AITriageBlocker, string> = {
+    none: 'None',
+    customer_info: 'Customer info',
+    knowledge: 'Knowledge',
+    contradiction: 'Contradiction',
+}
+
 export const aiTriageProcessingLabel = 'Processing'
 
 export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
@@ -329,6 +361,31 @@ const AI_TRIAGE_RESULT_TAG_TYPE: Record<AITriageResult, AITriageTagType> = {
 
 export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
     return AI_TRIAGE_RESULT_TAG_TYPE[result]
+}
+
+export type TicketListAiTriage =
+    | { kind: 'empty' }
+    | { kind: 'processing' }
+    | { kind: 'tag'; label: string; tagType: AITriageTagType }
+
+export function ticketListAiTriage(triage: AITriage | undefined): TicketListAiTriage {
+    if (!triage?.status) {
+        return { kind: 'empty' }
+    }
+    if (triage.status === 'in_progress') {
+        return { kind: 'processing' }
+    }
+    if (triage.status === 'awaiting_clarification') {
+        return { kind: 'tag', label: aiTriageStatusLabel.awaiting_clarification, tagType: 'warning' }
+    }
+    if (triage.result) {
+        return {
+            kind: 'tag',
+            label: aiTriageResultLabel[triage.result],
+            tagType: aiTriageResultTagType(triage.result),
+        }
+    }
+    return { kind: 'empty' }
 }
 
 export const aiTriageTicketTypeLabel: Record<string, string> = {

@@ -116,16 +116,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             sensitive_config={"access_token": "access-token"},
         )
 
-        api.create_external_reference(
+        reference = api.create_external_reference(
             team_id=self.team.id,
             issue_id=issue.id,
             integration_id=integration.id,
-            config={"team_id": "linear-team-id", "title": "Checkout TypeError", "description": ""},
+            config={"team_id": "linear-team-id", "title": " Checkout TypeError ", "description": ""},
             distinct_id=self.user.id,
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
+        assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
         assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+        assert reference.external_id == "LIN-1"
+        assert reference.title == "Checkout TypeError"
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
     @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_issue")
@@ -195,7 +198,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             team_id=self.team.id,
             issue_id=issue.id,
             integration_id=integration.id,
-            external_context={"id": "ENG-42"},
+            external_context={"id": "ENG-42", "title": "Checkout TypeError"},
             distinct_id=self.user.id,
         )
 
@@ -204,16 +207,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert linked_issue_id == "ENG-42"
         assert f"/project/{self.team.id}/error_tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
+        assert reference.external_id == "ENG-42"
+        assert reference.title == "Checkout TypeError"
 
         # Linking the same issue again returns the existing reference without re-attaching.
         duplicate = api.create_external_reference(
             team_id=self.team.id,
             issue_id=issue.id,
             integration_id=integration.id,
-            external_context={"id": "ENG-42"},
+            external_context={"id": "ENG-42", "title": "Updated title"},
             distinct_id=self.user.id,
         )
         assert duplicate.id == reference.id
+        assert duplicate.title == "Updated title"
         assert mock_create_attachment.call_count == 1
         created_events = [
             call
@@ -284,6 +290,10 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("blank_repository", {"repository": "   ", "number": 42}),
             ("path_traversal_repository", {"repository": "../../settings", "number": 42}),
             ("dot_segment_repository", {"repository": "..", "number": 42}),
+            (
+                "invalid_github_resource_type",
+                {"repository": "posthog", "number": 42, "resource_type": "discussion"},
+            ),
         ]
     )
     def test_link_existing_issue_rejects_invalid_external_context(self, _name, external_context):

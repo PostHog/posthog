@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconBalance,
+    IconBolt,
     IconChat,
     IconChevronDown,
     IconDirectedGraph,
@@ -20,6 +21,7 @@ import {
     LemonButton,
     LemonInput,
     LemonSegmentedButton,
+    LemonSelect,
     LemonSkeleton,
     LemonSlider,
     LemonSwitch,
@@ -54,6 +56,7 @@ import type {
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
+    ReviewUserSettingsFlashReasoningEffortEnumApi,
     ReviewUserSettingsUrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
@@ -677,7 +680,7 @@ function RecentReviewsSection(): JSX.Element | null {
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
  * start a publishing review, acting as the requesting user. A review resolves the PR's comment
  * threads afterwards when the user's resolve_comments setting is on; the split button's side
- * actions are the per-run variants (review without resolving / resolve only). Hidden unless the
+ * actions are the per-run variants (review without resolving / resolve only / flash). Hidden unless the
  * backend says this project can trigger reviews (limited to the designated ReviewHog team while
  * in alpha).
  */
@@ -741,6 +744,13 @@ function TriggerReviewSection(): JSX.Element | null {
                                         tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
                                     >
                                         Only resolve existing comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
+                                        tooltip="A faster, cheaper review that never resolves comments. Every message it posts is marked FLASH MODE."
+                                    >
+                                        Review in Flash mode
                                     </LemonButton>
                                 </>
                             ),
@@ -1231,6 +1241,54 @@ function TriggersSection(): JSX.Element {
                         checked={settings?.resolve_comments ?? true}
                         onChange={(checked) => updateSettings({ resolve_comments: checked })}
                         disabledReason={switchDisabledReason}
+                    />
+                </div>
+            </LemonCard>
+            <div className="mt-2">
+                <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>
+                <p className="m-0 text-xs text-secondary">These settings apply only to Flash reviews.</p>
+            </div>
+            <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconBolt className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
+                        <div className="text-xs text-secondary">
+                            Automatically review PRs you author in PostHog/posthog, including drafts and new commits.
+                            Starts with future PR activity.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Review all your PRs in Flash mode"
+                        checked={settings?.review_authored_prs ?? false}
+                        onChange={(checked) => updateSettings({ review_authored_prs: checked })}
+                        disabledReason={switchDisabledReason}
+                        loading={settingsLoading}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconBalance className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Flash strength</div>
+                        <div className="text-xs text-secondary">
+                            Applies to automatic and manually requested Flash reviews. Extra high takes longer and costs
+                            more.
+                        </div>
+                    </div>
+                    <LemonSelect<ReviewUserSettingsFlashReasoningEffortEnumApi>
+                        aria-label="Flash strength"
+                        value={settings?.flash_reasoning_effort ?? 'medium'}
+                        options={[
+                            { value: 'medium', label: 'Medium' },
+                            { value: 'xhigh', label: 'Extra high' },
+                        ]}
+                        onChange={(value) => updateSettings({ flash_reasoning_effort: value })}
+                        disabledReason={switchDisabledReason}
+                        loading={settingsLoading}
                     />
                 </div>
             </LemonCard>

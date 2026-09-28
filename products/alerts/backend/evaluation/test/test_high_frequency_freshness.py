@@ -155,7 +155,7 @@ EXTRACTOR_FORWARDING_CASES = [
     ),
     pytest.param(
         "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
-        MagicMock(result=[[5.0], [6.0]], columns=["value"]),
+        MagicMock(result=[[5.0], [6.0]], columns=["value"], has_more=False),
         _hogql_forward,
         id="hogql",
     ),

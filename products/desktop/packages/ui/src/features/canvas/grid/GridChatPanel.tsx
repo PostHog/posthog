@@ -7,10 +7,8 @@ import {
   TabsTrigger,
   Text,
 } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -183,53 +181,20 @@ function CanvasComments({
   canvasVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
 }) {
-  const { data: task } = useQuery(taskDetailQuery(taskId));
-  if (!task) {
-    return <LoadingState className="flex-1" />;
-  }
   return (
     <div className="min-h-0 flex-1">
-      <GridCanvasComments
-        task={task}
-        canvasId={canvasId}
-        canvasName={canvasName}
+      <TaskCommentsList
+        taskId={taskId}
+        onlySource={{
+          kind: "canvas",
+          name: canvasName,
+          target: { scope: "desktop_canvas", itemId: canvasId },
+          url: null,
+        }}
         canvasVersionId={canvasVersionId}
         commentVersionLabel={commentVersionLabel}
       />
     </div>
-  );
-}
-
-// Its own component so useThreadConversation runs only once the task exists.
-function GridCanvasComments({
-  task,
-  canvasId,
-  canvasName,
-  canvasVersionId,
-  commentVersionLabel,
-}: {
-  task: Task;
-  canvasId: string;
-  canvasName: string;
-  canvasVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string | null;
-}) {
-  const { timeline } = useThreadConversation(task, {
-    surface: "activity_panel",
-  });
-  return (
-    <TaskCommentsList
-      task={task}
-      timeline={timeline}
-      onlySource={{
-        kind: "canvas",
-        name: canvasName,
-        target: { scope: "desktop_canvas", itemId: canvasId },
-        url: null,
-      }}
-      canvasVersionId={canvasVersionId}
-      commentVersionLabel={commentVersionLabel}
-    />
   );
 }
 

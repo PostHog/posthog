@@ -3,6 +3,8 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.schema import AnyPropertyFilterDiscriminated
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
@@ -99,9 +101,21 @@ def list_mcp_sessions(
     order_by: str = "",
     date_from: str | None = None,
     date_to: str | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPSessionsPage:
     return logic.list_mcp_sessions(
-        team, limit=limit, offset=offset, search=search, order_by=order_by, date_from=date_from, date_to=date_to
+        team,
+        limit=limit,
+        offset=offset,
+        search=search,
+        order_by=order_by,
+        date_from=date_from,
+        date_to=date_to,
+        properties=properties,
+        filter_test_accounts=filter_test_accounts,
+        user=user,
     )
 
 
@@ -111,8 +125,20 @@ def list_mcp_tool_calls(
     limit: int,
     offset: int,
     date_from: datetime | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPToolCallsPage:
-    return logic.list_mcp_tool_calls(team, session_id=session_id, limit=limit, offset=offset, date_from=date_from)
+    return logic.list_mcp_tool_calls(
+        team,
+        session_id=session_id,
+        limit=limit,
+        offset=offset,
+        date_from=date_from,
+        properties=properties,
+        filter_test_accounts=filter_test_accounts,
+        user=user,
+    )
 
 
 def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
@@ -136,13 +162,20 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     return logic.generate_intent_digest(team)
 
 
-def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+def get_activity_overview(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
+) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
     Bounded to the last 30 days; always computed fresh (the view polls to watch
-    data arrive).
+    data arrive). ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """
-    return logic.get_activity_overview(team)
+    return logic.get_activity_overview(
+        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user
+    )
 
 
 def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
