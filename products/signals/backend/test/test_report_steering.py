@@ -50,14 +50,18 @@ def _attach_scout_run(team: Team, report: SignalReport) -> None:
 
 
 @pytest.mark.django_db
-def test_research_steering_carries_the_report_derived_notes(organization, team):
-    # The loop this closes: someone dismisses a report with a reason, that verdict becomes a note,
-    # and only scheduled scout runs ever read it. Research is the stage that judges whether the
-    # topic is worth surfacing again, so the same feedback has to reach it. The implementation run
-    # gets no pasted notes at all (see `load_report_steering`).
+def test_research_steering_nudges_a_search_and_pastes_only_its_own_audience(organization, team):
+    # The newest-ten page pushed older feedback on similar reports out before the next similar
+    # report arrived. The run now searches the notes by entity, so pasting fleet and scout notes
+    # would only spend the prompt on notes chosen by recency again.
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    # A team with no notes gets no nudge, because a search there can find nothing.
+    empty = load_research_steering(team.id, str(report.id))
+    assert empty.nudge_rendered is False
+    assert "scout-notes-list" not in empty.section
+
     with team_scope(team.id, canonical=True):
         _attach_scout_run(team, report)
         SignalScoutNote.objects.create(team=team, skill_name="", content="the checkout flow is frozen")
@@ -69,12 +73,6 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
         )
         SignalScoutNote.objects.create(
             team=team,
-            skill_name=SCOUT_SKILL,
-            content="which teams does this hit?",
-            origin=SignalScoutNote.Origin.REPORT_DISCUSSION,
-        )
-        SignalScoutNote.objects.create(
-            team=team,
             skill_name=PIPELINE_AUDIENCE_REPORT_RESEARCH,
             content="route billing-adjacent reports to the billing folks",
         )
@@ -83,30 +81,18 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
     # have to set their own scope or every fail-closed model raises.
     steering = load_research_steering(team.id, str(report.id))
 
-    assert steering.notes_attached == 4
-    assert steering.dismissal_notes_attached == 1
+    assert steering.nudge_rendered is True
+    assert "scout-notes-list" in steering.section
+    assert '"text"' in steering.section
+    assert steering.notes_attached == 1
     assert steering.pipeline_notes_attached == 1
-    assert "the checkout flow is frozen" in steering.section
-    # The research audience is a second read merged into the same list. It is this stage's own
-    # channel, so the implementation run must not get it pasted in.
     assert "route billing-adjacent reports" in steering.section
+    assert "the checkout flow is frozen" not in steering.section
+    assert "this is the approval flow" not in steering.section
+    # The research audience is this stage's own channel, so the implementation run must not get it.
     assert "route billing-adjacent reports" not in load_report_steering(team.id, str(report.id)).section
-    # A pipeline-authored report resolves no scout, so it reads the fleet-wide and research-audience
-    # notes and none of the scout-targeted ones.
-    pipeline_report = SignalReport.objects.create(
-        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
-    )
-    pipeline_steering = load_research_steering(team.id, str(pipeline_report.id))
-    assert pipeline_steering.notes_attached == 2
-    assert pipeline_steering.pipeline_notes_attached == 1
-    assert "route billing-adjacent reports" in pipeline_steering.section
-    assert "this is the approval flow" not in pipeline_steering.section
-    assert "this is the approval flow, not a bug" in steering.section
-    assert "which teams does this hit?" in steering.section
-    # A note is evidence about what the team wants, never a second set of instructions for a run
-    # whose output becomes the report every reviewer reads. A note is also the one part of this
-    # prompt a user writes directly, so dropping the rule would leave the only prompt-injection
-    # guard on the section that needs it most.
+    # A note is also the one part of this prompt a user writes directly, so dropping the rule would
+    # leave the only prompt-injection guard on the section that needs it most.
     assert "untrusted input" in steering.section
     # No fleet memory yet, so the scratchpad pointer must not tax the prompt.
     assert steering.scratchpad_available is False
