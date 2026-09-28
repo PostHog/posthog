@@ -391,6 +391,35 @@ async def test_linked_report_context_carries_the_linked_reports_findings(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_linked_report_context_cap_counts_only_usable_reports(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+
+    async def _link(target: SignalReport) -> None:
+        await database_sync_to_async(SignalReportArtefact.add_log)(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            content=ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    for index in range(10):
+        unjudged = await database_sync_to_async(SignalReport.objects.create)(
+            team=ateam, title=f"unjudged-{index}", summary="No verdict."
+        )
+        await _link(unjudged)
+    usable = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="usable", summary="s")
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=usable, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await _link(usable)
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    assert [entry.report_id for entry in context] == [str(usable.id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize("verdicts", [[], [False], [True, False], [False, True], ["invalid"], [{}], ["true"]])
 async def test_linked_report_context_requires_an_explicit_safe_verdict(ateam, verdicts):
     linked = await database_sync_to_async(SignalReport.objects.create)(
