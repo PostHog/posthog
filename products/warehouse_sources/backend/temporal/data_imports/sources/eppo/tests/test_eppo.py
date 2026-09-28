@@ -168,19 +168,30 @@ class TestEppoSourcePagination:
         assert rows == []
         assert session.send.call_count == 1
 
+    @parameterized.expand(
+        [
+            ("Tags", f"{BASE_URL}/tags"),
+            ("EntityDefinitions", f"{BASE_URL}/definitions/entities"),
+            ("FactDefinitions", f"{BASE_URL}/definitions/facts"),
+            ("DimensionDefinitions", f"{BASE_URL}/definitions/dimensions"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_single_page_with_no_offset_params(self, MockSession) -> None:
+    def test_unpaginated_endpoint_fetches_single_page_with_no_offset_params(
+        self, endpoint: str, expected_url: str, MockSession
+    ) -> None:
         session = MockSession.return_value
-        # A full-limit-sized page would normally imply another page exists, but Tags has no
-        # documented offset/limit — it must not be treated as paginated.
+        # A full-limit-sized page would normally imply another page exists, but none of these
+        # endpoints document offset/limit — they must not be treated as paginated. Eppo ignores
+        # the params, so an offset paginator would re-fetch the same full page forever.
         snapshots = _wire(session, [_response([{"id": i} for i in range(PAGE_LIMIT)])])
 
-        rows = _rows(_source("Tags"))
+        rows = _rows(_source(endpoint))
 
         assert len(rows) == PAGE_LIMIT
         assert session.send.call_count == 1
-        assert "limit" not in snapshots[0]["params"]
-        assert "offset" not in snapshots[0]["params"]
+        assert snapshots[0]["url"] == expected_url
+        assert snapshots[0]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_auth_is_framework_api_key(self, MockSession) -> None:
@@ -247,6 +258,9 @@ class TestEppoSourcePagination:
             ("Tags", ["id"]),
             ("Audiences", ["id"]),
             ("Environments", ["id"]),
+            ("EntityDefinitions", ["id"]),
+            ("FactDefinitions", ["id"]),
+            ("DimensionDefinitions", ["id"]),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -270,6 +284,9 @@ class TestEppoSourcePagination:
             ("Tags", "created_at"),
             ("Audiences", "created_at"),
             ("Environments", "created_at"),
+            ("EntityDefinitions", None),
+            ("FactDefinitions", None),
+            ("DimensionDefinitions", None),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
