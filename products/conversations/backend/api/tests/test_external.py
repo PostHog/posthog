@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
@@ -43,7 +44,37 @@ class TestExternalTicketAPI(BaseTest):
     def _auth_headers(self, token=None):
         return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
 
+    def _create_psak_token(self, scopes, team=None, label="external-ticket"):
+        _, token = create_project_secret_api_key(team or self.team, label=label, scopes=scopes)
+        return token
+
     # -- Authentication ---------------------------------------------------
+
+    def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_get_rejects_project_secret_api_key_without_support_ticket_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["endpoint:read"])))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_rejects_project_secret_api_key(self):
+        response = self.client.patch(
+            self.url,
+            {"status": "resolved"},
+            content_type="application/json",
+            **self._auth_headers(self._create_psak_token(["support_ticket:read"])),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
+
+    def test_psak_for_team_without_conversations_is_invisible(self):
+        self.team.conversations_enabled = False
+        self.team.save(update_fields=["conversations_enabled"])
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_get_requires_auth(self):
         response = self.client.get(self.url)
