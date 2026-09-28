@@ -839,6 +839,15 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_KEY_FILE_ERROR
     if "invalid_grant" in message:
         return BIGQUERY_CREDENTIALS_REJECTED_ERROR
+    if "iam.serviceAccounts.getAccessToken" in message:
+        # Raised as a `RefreshError` when Google rejects the impersonated-credentials token
+        # refresh: the ownership check only needs `iam.serviceAccounts.get`, so this can fail
+        # even though that check passed. Same remediation (grant Token Creator) as
+        # `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`, so reuse its wording. Doesn't match the
+        # generic "Access Denied"/"PermissionDenied"/"permission denied" wording below (this
+        # message reads "Permission '...' denied on resource"), so it would otherwise fall
+        # through to the generic message and get captured as unexpected noise.
+        return BIGQUERY_IMPERSONATION_PERMISSION_ERROR
     if (
         "Invalid project ID" in message
         or "Invalid dataset ID" in message

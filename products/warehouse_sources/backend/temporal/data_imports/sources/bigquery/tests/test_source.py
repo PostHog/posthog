@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
     BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
@@ -1319,6 +1320,15 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             False,
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
+        (
+            RefreshError(
+                "('Unable to acquire impersonated credentials', "
+                '\'{"error": {"code": 403, "message": "Permission \\\'iam.serviceAccounts.getAccessToken\\\' '
+                'denied on resource (or it may not exist).", "status": "PERMISSION_DENIED"}}\')'
+            ),
+            BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            False,
+        ),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
