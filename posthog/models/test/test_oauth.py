@@ -22,6 +22,7 @@ from posthog.models.oauth import (
     revoke_oauth_token_session,
 )
 from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
+from posthog.scopes import clamp_scopes_to_ceiling
 
 
 class TestOAuthModels(TestCase):
@@ -82,12 +83,45 @@ class TestOAuthModels(TestCase):
                 ["insight:read", "dashboard:write", "experiment:read"],
                 ["insight:read", "dashboard:write"],
             ),
+            (
+                "wizard_cli",
+                ["@default", "wizard_session:write"],
+                [],
+                ["@default", "wizard_session:write", "wizard_run:write"],
+                ["@default", "wizard_session:write", "wizard_run:write"],
+            ),
+            (
+                "wizard_cloud",
+                ["@default"],
+                [],
+                ["@default", "wizard_run:write"],
+                ["@default", "wizard_run:write"],
+            ),
+            (
+                "wizard_cli_eu",
+                ["@default"],
+                [],
+                ["@default", "wizard_run:write"],
+                ["@default", "wizard_run:write"],
+            ),
+            ("wizard_unconfigured", [], [], [], []),
         ]
     )
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="cloud-wizard-client")
     def test_ceiling_and_required_scope_properties(self, _name, scopes, optional, expected_ceiling, expected_required):
-        app = self._make_app(f"Split {_name}", f"split_{_name}_client", scopes=scopes, optional_scopes=optional)
+        client_id = {
+            "wizard_cli": "c4Rdw8DIxgtQfA80IiSnGKlNX8QN00cFWF00QQhM",
+            "wizard_cli_eu": "bx2C5sZRN03TkdjraCcetvQFPGH6N2Y9vRLkcKEy",
+            "wizard_cloud": "cloud-wizard-client",
+            "wizard_unconfigured": "c4Rdw8DIxgtQfA80IiSnGKlNX8QN00cFWF00QQhM",
+        }.get(_name, f"split_{_name}_client")
+        app = self._make_app(f"Split {_name}", client_id, scopes=scopes, optional_scopes=optional)
         self.assertEqual(app.ceiling_scopes, expected_ceiling)
         self.assertEqual(app.required_scopes, expected_required)
+        self.assertEqual(
+            clamp_scopes_to_ceiling(["wizard_run:write"], app.ceiling_scopes),
+            ["wizard_run:write"] if "wizard_run:write" in expected_ceiling else [],
+        )
 
     @parameterized.expand(
         [

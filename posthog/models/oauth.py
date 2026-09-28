@@ -64,6 +64,15 @@ class TokenEndpointAuthMethod(enum.Enum):
     PRIVATE_KEY_JWT = "private_key_jwt"
 
 
+WIZARD_RUN_WRITE_SCOPE = "wizard_run:write"
+WIZARD_CLI_CLIENT_IDS = frozenset(
+    {
+        "c4Rdw8DIxgtQfA80IiSnGKlNX8QN00cFWF00QQhM",
+        "bx2C5sZRN03TkdjraCcetvQFPGH6N2Y9vRLkcKEy",
+    }
+)
+
+
 def is_loopback_host(hostname: str | None) -> bool:
     """Check if hostname is a loopback address (localhost, 127.0.0.0/8, or ::1)."""
     if not hostname:
@@ -162,7 +171,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     @property
     def ceiling_scopes(self) -> list[str]:
         """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
-        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+        return list(dict.fromkeys([*self.required_scopes, *self.optional_scopes]))
 
     @property
     def required_scopes(self) -> list[str]:
@@ -171,7 +180,20 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
         # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
         # the user can decline by cancelling, so they carry the same required floor as any other app.
-        return list(self.scopes)
+        scopes = list(self.scopes)
+        if (
+            scopes
+            and (
+                self.client_id in WIZARD_CLI_CLIENT_IDS
+                or (
+                    settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID
+                    and self.client_id == settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID
+                )
+            )
+            and WIZARD_RUN_WRITE_SCOPE not in scopes
+        ):
+            scopes.append(WIZARD_RUN_WRITE_SCOPE)
+        return scopes
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions

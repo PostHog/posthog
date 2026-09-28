@@ -214,7 +214,7 @@ The setup agent sends its complete task snapshot to `PUT /api/projects/{project_
 ```
 
 The endpoint requires an OAuth token with `wizard_run:write` for the user who created the run.
-The CLI and cloud Wizard OAuth application scope ceilings include this scope.
+The OAuth scope ceiling includes this scope for the configured Wizard CLI and cloud applications, even when their stored ceiling does not list it.
 Agents that read snapshots also need `wizard_run:read`.
 Existing tokens need these grants through renewed authorization; the backend does not widen them automatically.
 It returns `204` with no body.
