@@ -166,6 +166,24 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+### Client IP
+
+`ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
+Only the activity log uses the rules below. Throttles, IP allowlists, and request logs read the IP from the request as before.
+
+- **Browser and API requests.** The IP comes from `get_ip_address`: the leftmost `X-Forwarded-For` entry, or `REMOTE_ADDR`.
+- **MCP requests.** The MCP server calls the API from inside the cluster, so `REMOTE_ADDR` is the MCP pod.
+  The MCP server signs the end user's IP and sends it in `X-PostHog-MCP-Client-IP`, `X-PostHog-MCP-Client-IP-Timestamp`, and `X-PostHog-MCP-Client-IP-Signature`.
+  The middleware removes these headers from every request.
+  When the signature verifies against `MCP_CLIENT_IP_SIGNING_KEYS`, the row records the signed IP.
+  Any other result keeps the `get_ip_address` value.
+  The signature format is the managed proxy format, `hex(HMAC-SHA256(key, f"{ip}:{unix_seconds}"))`, valid from 5 seconds ahead to 60 seconds old.
+  The `posthog_mcp_client_ip_verifications` counter records each outcome.
+- **Sandbox agents.** A row written with an OAuth token bound to a sandbox task keeps the request IP.
+  The token can leave the sandbox, so the IP is what tells a sandbox write apart from a write made elsewhere with the same token.
+  The audit log IP address column shows a dash for these rows, with the IP in its tooltip.
+  The User column tags a scout run "via scout <skill_name>" and any other sandbox task "via sandbox".
+
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
@@ -198,8 +216,17 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
 - Access control: resource `activity_log`, default level `viewer`.
-- Entitlement: the advanced endpoint is gated by `AvailableFeature.AUDIT_LOGS` and applies the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). The plain list the side panel reads is not gated the same way. Writes always happen.
+- Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
+
+Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
+MCP supplies bounded reader instructions only when its filtered catalog advertises `advanced-activity-logs-list`, and adds SQL instructions only when `execute-sql` is also advertised.
+Tools-mode clients receive these instructions inline. Exec clients receive them in the command reference; Claude web/desktop loads them from the analytics guide, with an inline fallback when guide loading is disabled.
+The universal scout skills carry only availability and stop guidance, so they do not send clients searching for readers they cannot access.
+The SQL table enforces the same entitlement, retention, and access controls; it is not a bypass.
+When a reader is unavailable, stop using that reader for the run and record the limitation. Other advertised, authorized readers remain usable: per-object endpoints such as feature-flag activity do not share the project-wide Audit Logs entitlement gate. Skip only checks that have no available reader.
+To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
+Do not infer that no configuration change occurred from missing access.
 
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
 Most scenes do not need this; the side panel and deep links work without it.

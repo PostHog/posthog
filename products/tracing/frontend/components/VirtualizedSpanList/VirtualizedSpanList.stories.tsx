@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import type { Span } from '../../types'
+import { DEFAULT_SPAN_COLUMNS } from './spanColumns'
 import { VirtualizedSpanList } from './VirtualizedSpanList'
 
 const span = (index: number, overrides: Partial<Span> = {}): Span => ({
@@ -47,6 +48,7 @@ const meta: Meta<typeof VirtualizedSpanList> = {
     ],
     args: {
         dataSource: SPANS,
+        spanColumns: DEFAULT_SPAN_COLUMNS,
         loading: false,
         orderBy: 'timestamp',
         orderDirection: 'DESC',
@@ -76,5 +78,20 @@ export const WithErrorBadges: Story = {
             ]),
             onShow: () => {},
         },
+    },
+}
+
+export const CustomColumns: Story = {
+    args: {
+        dataSource: SPANS.map((span, index) => ({
+            ...span,
+            attributes: { 'http.target': index % 2 === 0 ? '/api/v2/checkout/session/confirm' : '' },
+        })),
+        spanColumns: [
+            { type: 'timestamp' },
+            { type: 'name' },
+            { type: 'attribute', attributeKey: 'http.target' },
+            { type: 'duration' },
+        ],
     },
 }

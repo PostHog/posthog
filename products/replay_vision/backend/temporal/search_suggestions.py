@@ -1,4 +1,4 @@
-"""Periodic batch refresh of the per-scanner search suggestions shown on the Search tab's empty state."""
+"""Periodic batch refresh of the per-scanner and per-team search suggestions shown on the Search tab's empty state."""
 
 import asyncio
 from typing import TYPE_CHECKING
@@ -64,14 +64,14 @@ class RefreshSearchSuggestionsWorkflow(PostHogWorkflow):
 
         outcomes = await asyncio.gather(*(refresh(entry) for entry in stale), return_exceptions=True)
         result = RefreshSearchSuggestionsResult(
-            refreshed=[e.scanner_id for e, ok in zip(stale, outcomes) if ok is True],
-            skipped=[e.scanner_id for e, ok in zip(stale, outcomes) if ok is False],
-            failed=[e.scanner_id for e, ok in zip(stale, outcomes) if isinstance(ok, BaseException)],
+            refreshed=[e.key for e, ok in zip(stale, outcomes) if ok is True],
+            skipped=[e.key for e, ok in zip(stale, outcomes) if ok is False],
+            failed=[e.key for e, ok in zip(stale, outcomes) if isinstance(ok, BaseException)],
         )
         if result.failed:
             workflow.logger.warning(
                 "replay_vision.search_suggestions_partial_failure",
-                extra={"failed": [str(s) for s in result.failed], "refreshed": len(result.refreshed)},
+                extra={"failed": result.failed, "refreshed": len(result.refreshed)},
             )
         return result
 

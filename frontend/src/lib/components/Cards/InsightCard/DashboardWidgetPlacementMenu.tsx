@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
+import { IconChevronRight } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -128,7 +130,9 @@ export function DashboardWidgetPlacementMenu({
                 }
             }}
         >
-            <LemonButton fullWidth>{label}</LemonButton>
+            <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                {label}
+            </LemonButton>
         </LemonMenu>
     )
 }

@@ -31,6 +31,7 @@ import type { UserBasicType } from '~/types'
 import {
     accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -44,6 +45,8 @@ import {
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type {
+    AccountPresenceApi,
+    AccountPresenceViewerApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
     CustomPropertyValueWriteApi,
@@ -81,6 +84,9 @@ export const SEARCH_DEBOUNCE_MS = 300
 
 // Debounce tag edits because ObjectTags emits each addition and removal separately.
 export const TAGS_SAVE_DEBOUNCE_MS = 300
+export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
+
+type AccountPresenceResponse = AccountPresenceApi[]
 
 // Wait for refetched rows before scrolling to an account.
 const SCROLL_TO_ACCOUNT_POLL_MS = 100
@@ -282,6 +288,7 @@ export interface accountsLogicValues {
     user: UserType | null // userLogic
     accountFilters: AccountFilter[]
     accountIdFilter: string | null
+    accountPresenceByAccountId: Record<string, AccountPresenceViewerApi[]>
     accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsTableQuery | null
     accountsTableQueryPlan: AccountsTableQueryPlan
@@ -485,6 +492,15 @@ export interface accountsLogicActions {
     ) => {
         accountId: string
         definitionId: string
+    }
+    loadAccountPresence: (accountIds: string[]) => {
+        accountIds: string[]
+    }
+    loadAccountPresenceFailure: () => {
+        value: true
+    }
+    loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => {
+        presence: AccountPresenceResponse
     }
     openAccount: (
         accountId: string,
@@ -823,6 +839,9 @@ export const accountsLogic = kea<accountsLogicType>([
             completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
             serverSortOrder: AccountSortOrder
         ) => ({ datasetKey, completeness, serverSortOrder }),
+        loadAccountPresence: (accountIds: string[]) => ({ accountIds }),
+        loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => ({ presence }),
+        loadAccountPresenceFailure: true,
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         restoreViewStateFromRoute: (method?: 'POP' | 'PUSH' | 'REPLACE') => ({ method }),
@@ -945,6 +964,15 @@ export const accountsLogic = kea<accountsLogicType>([
                     completeness,
                     serverSortOrder,
                 }),
+            },
+        ],
+
+        accountPresenceByAccountId: [
+            {} as Record<string, AccountPresenceViewerApi[]>,
+            {
+                loadAccountPresenceSuccess: (_, { presence }) =>
+                    Object.fromEntries(presence.map(({ account_id, viewers }) => [account_id, [...viewers]])),
+                loadAccountPresenceFailure: () => ({}),
             },
         ],
         savingCustomProperties: [
@@ -1442,6 +1470,23 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
         listLoadDataSuccess: ({ response, payload }) => {
+            const accountIds =
+                response && typeof response === 'object' && 'results' in response && Array.isArray(response.results)
+                    ? response.results.filter(isAccountsTableRow).map((account) => account.id)
+                    : []
+            cache.disposables.dispose('accountPresencePoll')
+            if (accountIds.length) {
+                cache.disposables.add(() => {
+                    actions.loadAccountPresence(accountIds)
+                    const intervalId = window.setInterval(
+                        () => actions.loadAccountPresence(accountIds),
+                        ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS
+                    )
+                    return () => window.clearInterval(intervalId)
+                }, 'accountPresencePoll')
+            } else {
+                actions.loadAccountPresence([])
+            }
             const queryId = payload?.queryId
             const requestState = cache.latestListRequestState
             if (
@@ -1462,6 +1507,26 @@ export const accountsLogic = kea<accountsLogicType>([
             if (queryId === cache.customPropertyRefreshQueryId) {
                 cache.customPropertyRefreshQueryId = undefined
                 actions.clearCustomPropertyOverrides()
+            }
+        },
+        loadAccountPresence: async ({ accountIds }) => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
+            if (!values.currentTeamId || !accountIds.length) {
+                actions.loadAccountPresenceSuccess([])
+                return
+            }
+            try {
+                const presence = await accountsPresenceList(String(values.currentTeamId), {
+                    account_ids: accountIds.slice(0, 100),
+                })
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceSuccess(presence)
+                }
+            } catch {
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceFailure()
+                }
             }
         },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {

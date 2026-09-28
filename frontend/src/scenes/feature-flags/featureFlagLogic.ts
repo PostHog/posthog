@@ -20,6 +20,7 @@ import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
@@ -38,7 +39,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -142,6 +142,18 @@ import {
     isSchedulePaused,
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
+
+function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
+    posthog.capture('failed to create feature flag with cohort', { detail, code })
+}
+
+function reportFeatureFlagCopyFailure(error: string): void {
+    posthog.capture('feature flag copy failure', { error })
+}
+
+function reportFeatureFlagScheduleSuccess(): void {
+    posthog.capture('feature flag scheduled')
+}
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -594,13 +606,13 @@ async function copyNewFlagToAdditionalProjects(
         ),
     ].filter((part): part is string => part !== null)
 
-    eventUsageLogic.actions.reportFeatureFlagCreatedInAdditionalProjects(
-        targetProjectIds.length,
-        created.length,
-        overwritten.length,
-        pendingApproval.length,
-        hardFailures.length
-    )
+    posthog.capture('feature flag created in additional projects', {
+        target_count: targetProjectIds.length,
+        created_count: created.length,
+        overwritten_count: overwritten.length,
+        pending_approval_count: pendingApproval.length,
+        failed_count: hardFailures.length,
+    })
 
     const level =
         aggregated.failed.length === 0 && overwritten.length === 0
@@ -3114,6 +3126,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsCreate() from 'products/feature_flags/frontend/generated/api' instead.
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
@@ -3151,6 +3164,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
                         }
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             {
@@ -3163,7 +3177,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
                         // "Save feature flag failed: ..." toast. The global loaders handler
@@ -3187,11 +3201,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsCreate() from 'products/feature_flags/frontend/generated/api' instead.
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
                     } else {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             {
@@ -3205,7 +3221,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
                 }
@@ -3219,6 +3235,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!values.featureFlag.id) {
                         throw new Error('Cannot toggle active state of unsaved flag')
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         { active }
@@ -3239,6 +3256,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw new Error('Cannot archive an unsaved flag')
                     }
                     // Archiving also disables the flag — the backend rejects archived+enabled flags
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         archived ? { archived: true, active: false } : { archived: false }
@@ -3298,6 +3316,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
                         const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
@@ -3513,6 +3532,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadDependentFlags: async () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsDependentFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                         return await api.get(
                             `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
                         )
@@ -3758,12 +3778,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Paired schedules created')
             }
             resetScheduleForm()
-            eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+            reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
                 await breakpoint(1000) // in ms
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create(
                     `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
@@ -4029,7 +4050,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const experimentId = currentPath.split('/').pop()
 
             if (experimentId) {
-                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
+                posthog.capture('experiment release conditions updated', {
+                    experiment_id: parseInt(experimentId),
+                })
                 experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
             }
         },
@@ -4176,7 +4199,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ? `Feature flag ${operation} successfully with ${copiedDependencyCount} dependenc${copiedDependencyCount === 1 ? 'y' : 'ies'}!`
                         : `Feature flag ${operation} successfully!`
                 )
-                eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+                posthog.capture('feature flag copied')
 
                 // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
                 // doesn't exist in the target, or scheduled changes that failed to copy).
@@ -4198,12 +4221,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             projectName ?? 'the destination project'
                         }; the copy will apply once approved.`
                     )
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
+                    reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
                 } else {
                     const errorMessage =
                         failure?.error_message ?? stringifyWithBigInts(featureFlagCopy?.failed ?? featureFlagCopy)
                     lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                    reportFeatureFlagCopyFailure(errorMessage)
                 }
             }
 
@@ -4254,7 +4277,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setCronExpression(null)
                 actions.setEndDate(null)
                 actions.loadScheduledChanges()
-                eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+                reportFeatureFlagScheduleSuccess()
             }
         },
         setScheduledChangeOperation: ({ changeType }) => {
@@ -4302,7 +4325,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeFailure: ({ error }) => {
-            eventUsageLogic.actions.reportFeatureFlagScheduleFailure({ error })
+            posthog.capture('feature flag schedule failure', { error: { error } })
         },
         deleteScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
@@ -4366,6 +4389,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     name,
                 })
@@ -4403,6 +4427,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await breakpoint(250)
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     tags,
                 })
