@@ -53,9 +53,9 @@ _PRICING_PROMPT = (
 )
 _CROSSES_LOGIN_CALLOUT = (
     "The pricing page is seen by the same people both logged out and logged in, so default user-id "
-    "bucketing can switch their variant at login. The summary names that risk, gives device-id "
-    "bucketing and persistence as the alternatives with what each one needs, and leaves the choice "
-    "to the user rather than making it."
+    "bucketing can switch their variant at login. The summary names that risk, gives at least one "
+    "alternative the surface supports together with the evidence for it, and leaves the choice to "
+    "the user rather than making it."
 )
 
 
@@ -73,9 +73,8 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
                 "primary_metric_shape": {"metric_types": ["funnel"], "event": "signed_up", "requires_window": True},
                 "running_time_stored": True,
                 "setup_summary_callouts": [
-                    "Almost all visitors to the landing page are logged out. The summary reports "
-                    "that mix, keeps default user-id bucketing, and does not offer the mix as the "
-                    "reason the default is right.",
+                    "The summary reports that almost all visitors to the landing page are logged "
+                    "out, and keeps default user-id bucketing.",
                 ],
             },
         ),
@@ -121,9 +120,8 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
                 "primary_metric_shape": {"metric_types": ["funnel", "mean"], "event": "invited_team_member"},
                 "running_time_stored": True,
                 "setup_summary_callouts": [
-                    "Everyone who sees the team settings page is logged in. The summary reports "
-                    "that mix, keeps default user-id bucketing, and does not offer the mix as the "
-                    "reason the default is right.",
+                    "The summary reports that everyone who sees the team settings page is logged "
+                    "in, and keeps default user-id bucketing.",
                 ],
             },
         ),
