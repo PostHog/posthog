@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from typing import Any
+
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from products.warehouse_sources.backend.duckgres_naming import duckgres_data_imports_table_name_for_version
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
+    QueryFolderPointerHistory,
+    query_folder_table_prefix,
+)
 
 from .contracts import DuckLakeImportedTable
 from .types import ExternalDataSourceAccessMethod
@@ -38,3 +44,16 @@ def list_ducklake_imported_tables(team_id: int, naming_version: str) -> list[Duc
         )
 
     return imported_tables
+
+
+def query_folder_publishing_job_id(sync_type_config: Any, queryable_folder: str) -> str | None:
+    """The import job that pointed the table at `queryable_folder`, or None when the pointer is
+    elsewhere or the move was not recorded.
+
+    A query folder with a fixed name is reused by later syncs, so the folder name alone does not
+    identify a generation of the table; the job that published it does.
+    """
+    history = QueryFolderPointerHistory.from_config(sync_type_config, query_folder_table_prefix(queryable_folder))
+    if history is None or history.active != queryable_folder:
+        return None
+    return history.active_job_id

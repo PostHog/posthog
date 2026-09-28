@@ -7,7 +7,13 @@ from django.test import SimpleTestCase, override_settings
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists, get_size_of_folder
+from products.data_warehouse.backend.s3 import (
+    _LOOP_S3_CLIENTS,
+    _shared_async_s3_client,
+    aget_s3_client,
+    ensure_bucket_exists,
+    get_size_of_folder,
+)
 
 
 def _client_error(code: str) -> ClientError:
@@ -36,6 +42,32 @@ class TestAgetS3Client(SimpleTestCase):
 
         fake_s3._s3creator.__aexit__.assert_awaited_once_with(None, None, None)
         fake_s3._s3.close.assert_not_awaited()
+
+
+class TestSharedAsyncS3ClientLoopEviction(SimpleTestCase):
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_evicts_a_closed_loops_entry_instead_of_leaking_it_forever(self) -> None:
+        # _LOOP_S3_CLIENTS is a WeakKeyDictionary keyed on the event loop, but each cached client's
+        # aiohttp session keeps a strong reference back to that loop, so the loop is never weakly
+        # reachable and its entry never disappears on its own (the leak both review bots flagged).
+        # A worker whose call path keeps starting new short-lived loops needs those dead entries
+        # swept explicitly, or they and their clients accumulate for the life of the process.
+        dead_loop = asyncio.new_event_loop()
+        dead_loop.run_until_complete(asyncio.sleep(0))
+        _LOOP_S3_CLIENTS[dead_loop] = {None: MagicMock()}
+        dead_loop.close()
+        assert dead_loop in _LOOP_S3_CLIENTS
+
+        fake_s3 = MagicMock()
+        fake_s3.set_session = AsyncMock()
+
+        async def run() -> None:
+            with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
+                return await _shared_async_s3_client(None)
+
+        asyncio.run(run())
+
+        assert dead_loop not in _LOOP_S3_CLIENTS
 
 
 class TestGetSizeOfFolder(SimpleTestCase):

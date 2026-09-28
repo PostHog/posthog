@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
@@ -69,6 +70,8 @@ async def _run_post_load(
     *,
     cdc_write_mode: str | None = None,
     resource: Optional[MagicMock] = None,
+    double_buffer_enabled: bool = False,
+    stored_sync_type_config: dict | None = None,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
@@ -79,6 +82,8 @@ async def _run_post_load(
     run_scheduled = AsyncMock()
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
+        patch(f"{_LOAD_MODULE}.is_schema_flag_enabled", MagicMock(return_value=double_buffer_enabled)),
+        patch(f"{_LOAD_MODULE}._stored_sync_type_config", MagicMock(return_value=stored_sync_type_config)),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
         patch(f"{_LOAD_MODULE}.sync_revenue_analytics_views", MagicMock()),
         patch(f"{_LOAD_MODULE}.DataWarehouseTable", MagicMock()),
@@ -158,6 +163,58 @@ class TestRunPostLoadDeltaMaintenance:
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
+
+
+class TestPublishQueryableFilesDoubleBufferRollout:
+    _STATE = {
+        "query_folder_state": {
+            "orders__query": {
+                "active": "orders__query_a",
+                "active_since": "2026-08-19T10:00:00+00:00",
+                "active_job_id": "job-1",
+                "history_since": "2026-08-19T09:00:00+00:00",
+                "inactive_since": {"orders__query_c": "2026-08-19T10:00:00+00:00"},
+            }
+        }
+    }
+    _HISTORY = QueryFolderPointerHistory(
+        active="orders__query_a",
+        active_since=datetime(2026, 8, 19, 10, tzinfo=UTC),
+        active_job_id="job-1",
+        history_since=datetime(2026, 8, 19, 9, tzinfo=UTC),
+        inactive_since={"orders__query_c": datetime(2026, 8, 19, 10, tzinfo=UTC)},
+    )
+
+    @parameterized.expand(
+        [
+            # The flag is the rollback switch: off must reach the timestamped-folder path even when a
+            # pointer record is stored, or turning it off after a bad rollout would change nothing.
+            ("flag_off", False, _STATE, False, _HISTORY),
+            ("flag_on_with_record", True, _STATE, True, _HISTORY),
+            ("flag_on_no_record", True, None, True, None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_passes_the_flag_and_the_pointer_history_to_the_publish_step(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        stored_config: dict | None,
+        expected_double_buffer: bool,
+        expected_history: QueryFolderPointerHistory | None,
+    ) -> None:
+        schema = _make_schema(is_cdc=False)
+        schema.table.queryable_folder = "orders__query_a"
+
+        _, prepare_s3 = await _run_post_load(
+            schema, _make_helper(), double_buffer_enabled=flag_enabled, stored_sync_type_config=stored_config
+        )
+
+        prepare_s3.assert_awaited_once()
+        assert prepare_s3.await_args is not None
+        assert prepare_s3.await_args.kwargs["existing_queryable_folder"] == "orders__query_a"
+        assert prepare_s3.await_args.kwargs["double_buffer"] is expected_double_buffer
+        assert prepare_s3.await_args.kwargs["pointer_history"] == expected_history
 
 
 class TestZeroRowSkip:

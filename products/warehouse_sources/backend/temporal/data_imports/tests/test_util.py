@@ -1,10 +1,13 @@
+import re
 import errno
 import contextlib
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.db import (
     OperationalError as DjangoOperationalError,
     ProgrammingError,
@@ -18,6 +21,7 @@ from parameterized import parameterized
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     _INTERNAL_DB_MAX_ATTEMPTS,
     NonRetryableException,
@@ -57,6 +61,7 @@ def _fake_s3(**kwargs):
         "invalidate_cache": lambda: None,
         "_ls": AsyncMock(return_value=[]),
         "_exists": AsyncMock(return_value=False),
+        "_find": AsyncMock(return_value={}),
         "_cp_file": AsyncMock(),
         "_copy": AsyncMock(),
         "_rm": AsyncMock(),
@@ -337,6 +342,263 @@ class TestPrepareS3FilesForQuerying:
             )
 
         s3._cp_file.assert_awaited_once()
+
+
+_JOB_URI = f"{settings.BUCKET_URL}/job"
+_JOB_KEY = _JOB_URI.split("://", 1)[-1]
+_TIMESTAMPED_FOLDER = re.compile(r"^my_table__query_\d+_[0-9a-f]{8}$")
+
+
+def _live(*names: str) -> list[str]:
+    return [f"{_JOB_URI}/my_table/{name}" for name in names]
+
+
+def _standby_listing(folder: str, *names: str) -> dict[str, dict]:
+    return {
+        f"{_JOB_KEY}/{folder}/{name}": {"Key": f"{_JOB_KEY}/{folder}/{name}", "type": "file", "size": 1}
+        for name in names
+    }
+
+
+def _job_folder_listing(*folders: str) -> list[dict]:
+    return [{"Key": f"{_JOB_KEY}/{folder}", "type": "directory"} for folder in folders]
+
+
+def _stale_epoch() -> int:
+    return int((datetime.now(UTC) - timedelta(seconds=util_module.S3_DELETE_TIME_BUFFER * 2)).timestamp())
+
+
+_LONG_AGO = datetime.now(UTC) - timedelta(seconds=util_module.S3_DELETE_TIME_BUFFER * 2)
+_MOMENTS_AGO = datetime.now(UTC) - timedelta(seconds=30)
+_SLOT_A, _SLOT_B, _SLOT_C = "my_table__query_a", "my_table__query_b", "my_table__query_c"
+
+
+def _history(
+    active: str | None,
+    *,
+    inactive: dict[str, datetime] | None = None,
+    history_since: datetime = _LONG_AGO,
+) -> QueryFolderPointerHistory:
+    return QueryFolderPointerHistory(
+        active=active,
+        active_since=_MOMENTS_AGO,
+        active_job_id="job",
+        history_since=history_since,
+        inactive_since=inactive or {},
+    )
+
+
+def _find_returning(listings: dict[str, dict[str, dict]]) -> AsyncMock:
+    async def _find(path: str, detail: bool = True) -> dict[str, dict]:
+        folder = path.rstrip("/").split("/")[-1]
+        if folder not in listings:
+            raise FileNotFoundError(path)
+        return listings[folder]
+
+    return AsyncMock(side_effect=_find)
+
+
+async def _prepare_double_buffered(
+    s3: SimpleNamespace,
+    *,
+    existing: str | None,
+    history: QueryFolderPointerHistory | None,
+    file_uris: list[str],
+    double_buffer: bool = True,
+) -> str:
+    with (
+        patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
+        return await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="my_table",
+            file_uris=file_uris,
+            existing_queryable_folder=existing,
+            double_buffer=double_buffer,
+            pointer_history=history,
+        )
+
+
+class TestDoubleBufferedQueryFolders:
+    def _copied(self, s3: SimpleNamespace) -> set[str]:
+        return {call.args[1] for call in s3._cp_file.await_args_list}
+
+    @parameterized.expand(
+        [
+            # A table with no pointer yet, and one still on a timestamped folder, both start on slot a.
+            ("new_table", None, None, _SLOT_A),
+            (
+                "migrating_from_timestamped_folder",
+                "my_table__query_1700000000_0badf00d",
+                _history("my_table__query_1700000000_0badf00d"),
+                _SLOT_A,
+            ),
+            # The rotation fills every empty slot before it rewrites one that held a generation.
+            ("second_sync_fills_b", _SLOT_A, _history(_SLOT_A), _SLOT_B),
+            (
+                "third_sync_fills_c_before_reusing_a",
+                _SLOT_B,
+                _history(_SLOT_B, inactive={_SLOT_A: _MOMENTS_AGO}),
+                _SLOT_C,
+            ),
+        ]
+    )
+    async def test_fills_the_least_recently_used_empty_slot_in_full(
+        self, _name: str, existing: str | None, history: QueryFolderPointerHistory | None, expected: str
+    ):
+        s3 = _fake_s3(_find=_find_returning({}))
+
+        folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p0", "p1"))
+
+        assert folder == expected
+        assert self._copied(s3) == {f"{_JOB_URI}/{expected}/p0", f"{_JOB_URI}/{expected}/p1"}
+        s3._rm.assert_not_awaited()
+
+    async def test_reconciles_the_slot_that_stopped_being_read_longest_ago(self):
+        # Steady-state rotation a -> b -> c -> a: with c active, a stopped being the pointer when b
+        # took over, one whole sync interval before c did, so a is the slot to rewrite. The rewrite
+        # pays for the files that changed, not for every live file, and a file that stopped being live
+        # leaves the slot before readers are pointed at it, or the glob returns its rows twice.
+        s3 = _fake_s3(
+            _find=_find_returning(
+                {_SLOT_A: _standby_listing(_SLOT_A, "p1", "stale"), _SLOT_B: _standby_listing(_SLOT_B, "p1")}
+            )
+        )
+        history = _history(_SLOT_C, inactive={_SLOT_A: _LONG_AGO, _SLOT_B: _MOMENTS_AGO})
+
+        folder = await _prepare_double_buffered(s3, existing=_SLOT_C, history=history, file_uris=_live("p1", "p2"))
+
+        assert folder == _SLOT_A
+        assert self._copied(s3) == {f"{_JOB_URI}/{_SLOT_A}/p2"}
+        s3._rm.assert_awaited_once_with([f"s3://{_JOB_KEY}/{_SLOT_A}/stale"])
+
+    @parameterized.expand(
+        [
+            ("stopped_just_past_the_buffer", util_module.S3_DELETE_TIME_BUFFER + 1, _SLOT_A),
+            ("stopped_just_inside_the_buffer", util_module.S3_DELETE_TIME_BUFFER - 1, None),
+        ]
+    )
+    async def test_reuses_a_populated_slot_only_once_it_is_older_than_the_buffer(
+        self, _name: str, seconds_since_a_stopped: int, expected_slot: str | None
+    ):
+        # The age that matters is when the slot stopped being the pointer (its successor took over),
+        # not when it became the pointer: a reader that started just before the flip may still be
+        # globbing it for up to the buffer.
+        s3 = _fake_s3(
+            _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1"), _SLOT_B: _standby_listing(_SLOT_B, "p1")})
+        )
+        a_stopped = datetime.now(UTC) - timedelta(seconds=seconds_since_a_stopped)
+        history = _history(_SLOT_C, inactive={_SLOT_A: a_stopped, _SLOT_B: _MOMENTS_AGO})
+
+        folder = await _prepare_double_buffered(s3, existing=_SLOT_C, history=history, file_uris=_live("p1", "p2"))
+
+        if expected_slot is None:
+            assert _TIMESTAMPED_FOLDER.match(folder)
+            assert self._copied(s3) == {f"{_JOB_URI}/{folder}/p1", f"{_JOB_URI}/{folder}/p2"}
+        else:
+            assert folder == expected_slot
+            assert self._copied(s3) == {f"{_JOB_URI}/{expected_slot}/p2"}
+
+    async def test_skips_a_recently_read_populated_slot_for_an_empty_one(self):
+        # After an unrecorded pointer move the history restarts, so a populated slot with no record
+        # is as suspect as one read moments ago. An empty slot has no prefix in S3 and nothing can be
+        # reading it, so it is still usable even when it sorts behind the suspect one.
+        s3 = _fake_s3(_find=_find_returning({_SLOT_B: _standby_listing(_SLOT_B, "p1")}))
+        history = _history(_SLOT_A, inactive={_SLOT_B: _MOMENTS_AGO}, history_since=_MOMENTS_AGO)
+
+        folder = await _prepare_double_buffered(s3, existing=_SLOT_A, history=history, file_uris=_live("p1"))
+
+        assert folder == _SLOT_C
+        assert self._copied(s3) == {f"{_JOB_URI}/{_SLOT_C}/p1"}
+
+    async def test_reconcile_diffs_against_a_refreshed_listing_after_a_vanished_source_file(self):
+        # A zombie compaction can replace live files between the listing and the copy. The retry must
+        # diff the fresh listing against the standby again, otherwise it copies the vanished file
+        # forever or leaves the compacted file behind.
+        cp_file = AsyncMock(side_effect=[FileNotFoundError("p2"), None])
+        s3 = _fake_s3(_cp_file=cp_file, _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1")}))
+        refresh = AsyncMock(return_value=_live("p1", "compacted"))
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            folder = await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=_live("p1", "p2"),
+                existing_queryable_folder=_SLOT_C,
+                double_buffer=True,
+                pointer_history=_history(_SLOT_C, inactive={_SLOT_A: _LONG_AGO, _SLOT_B: _MOMENTS_AGO}),
+                refresh_file_uris=refresh,
+            )
+
+        assert folder == _SLOT_A
+        assert cp_file.await_args_list[-1].args[1] == f"{_JOB_URI}/{_SLOT_A}/compacted"
+        s3._rm.assert_not_awaited()
+
+    @parameterized.expand(
+        [
+            # No record at all: nothing says when a populated slot was last read.
+            ("no_history_and_populated_slots", None, None),
+            # Every other slot stopped being read within the buffer.
+            (
+                "all_slots_read_recently",
+                _SLOT_C,
+                _history(_SLOT_C, inactive={_SLOT_A: _MOMENTS_AGO, _SLOT_B: _MOMENTS_AGO}),
+            ),
+            # A move this record missed (a crash between pointer write and record, or a schema reset)
+            # restarts the history, and unrecorded populated slots are not trusted until it is old.
+            ("history_restarted_recently", _SLOT_A, _history(_SLOT_A, history_since=_MOMENTS_AGO)),
+        ]
+    )
+    async def test_falls_back_to_a_fresh_timestamped_folder_when_every_slot_may_still_be_read(
+        self, _name: str, existing: str | None, history: QueryFolderPointerHistory | None
+    ):
+        s3 = _fake_s3(
+            _find=_find_returning({slot: _standby_listing(slot, "p1") for slot in (_SLOT_A, _SLOT_B, _SLOT_C)})
+        )
+
+        folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p1", "p2"))
+
+        assert _TIMESTAMPED_FOLDER.match(folder)
+        assert self._copied(s3) == {f"{_JOB_URI}/{folder}/p1", f"{_JOB_URI}/{folder}/p2"}
+        s3._rm.assert_not_awaited()
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    async def test_age_based_cleanup_never_removes_the_slot_folders(self, _name: str, double_buffer: bool):
+        # Turning the flag off after a table moved onto the slots returns it to timestamped folders;
+        # the cleanup must still take the stale timestamped folders and must leave every slot alone,
+        # because one of them is what readers are on right now.
+        stale = f"my_table__query_{_stale_epoch()}_0badf00d"
+        s3 = _fake_s3(
+            _ls=AsyncMock(return_value=_job_folder_listing(_SLOT_A, _SLOT_B, _SLOT_C, stale)),
+            _find=_find_returning({}),
+        )
+
+        folder = await _prepare_double_buffered(
+            s3, existing=_SLOT_A, history=_history(_SLOT_A), file_uris=_live("p1"), double_buffer=double_buffer
+        )
+
+        if double_buffer:
+            assert folder == _SLOT_B
+        else:
+            assert _TIMESTAMPED_FOLDER.match(folder)
+        s3._rm.assert_awaited_once_with(f"{_JOB_KEY}/{stale}", recursive=True)
+
+    async def test_a_failed_stale_file_delete_raises_instead_of_returning_the_standby(self):
+        # The old-folder cleanup is best effort because nobody is pointed at those folders. A stale
+        # file left in the standby is different: the caller flips readers to it next, so swallowing
+        # the failure would publish duplicate rows. Raising keeps the pointer where it is.
+        s3 = _fake_s3(
+            _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1", "stale")}),
+            _rm=AsyncMock(side_effect=PermissionError("Access Denied")),
+        )
+        history = _history(_SLOT_C, inactive={_SLOT_A: _LONG_AGO, _SLOT_B: _MOMENTS_AGO})
+
+        with pytest.raises(S3OperationError):
+            await _prepare_double_buffered(s3, existing=_SLOT_C, history=history, file_uris=_live("p1"))
 
 
 @parameterized.expand(

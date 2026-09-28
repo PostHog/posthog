@@ -57,8 +57,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
-    is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
+    is_pending_repartition_released_by_flag,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     target_partition_bytes,
@@ -334,13 +334,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # completion because temp is the source of truth in that window and live may already be deleted.
     if pending is not None and swap is None:
         reason = pending.get("trigger_reason")
-        if reason in ("proactive_threshold", "oom_history"):
-            release = not enabled
-        elif reason == "coarsening":
-            release = not is_auto_coarsen_enabled(schema)
-        else:
-            release = False
-        if release:
+        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
             logger.info(
                 f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
                 schema_id=str(schema.id),
