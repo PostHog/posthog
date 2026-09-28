@@ -7621,28 +7621,54 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
     def test_create_writes_its_internal_flag_through_the_rollout_gate(self) -> None:
         self._create_policy("feature_flag.update")
 
-        self.client.post(
+        response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={"name": "Gated survey", "type": "popover", "questions": [{"type": "open", "question": "Q?"}]},
             format="json",
         )
 
-        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").count() == 1
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["status"] == "approval_required"
+        change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert response.json()["change_request_id"] == str(change_request.id)
 
     def test_targeting_filter_change_goes_through_the_rollout_gate(self) -> None:
         self._create_policy("feature_flag.update")
         assert self.survey.targeting_flag is not None
         filters_before = self.survey.targeting_flag.filters
 
-        self.client.patch(
+        response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
             data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}},
             format="json",
         )
 
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["status"] == "approval_required"
         self.survey.targeting_flag.refresh_from_db()
         assert self.survey.targeting_flag.filters == filters_before
-        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").count() == 1
+        change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert response.json()["change_request_id"] == str(change_request.id)
+
+    def test_a_rejected_replacement_keeps_the_existing_targeting_flag(self) -> None:
+        self._create_policy("feature_flag.update")
+        assert self.survey.targeting_flag is not None
+        existing_flag_id = self.survey.targeting_flag_id
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
+            data={
+                "remove_targeting_flag": True,
+                "targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 25}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert FeatureFlag.objects.filter(pk=existing_flag_id).exists()
+        self.survey.refresh_from_db()
+        assert self.survey.targeting_flag_id == existing_flag_id
+        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").exists()
 
 
 class TestSurveyListTypeFilter(APIBaseTest):

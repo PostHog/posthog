@@ -68,6 +68,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.transactions import gated_atomic
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     MinimalFeatureFlagSerializer,
@@ -1794,70 +1796,74 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
 
-        if validated_data.get("remove_targeting_flag"):
-            if instance.targeting_flag:
+        # One PATCH can remove the existing targeting flag and ask for new filters. The gate can
+        # reject the replacement, so the delete and the write stay in one block. Without it a
+        # rejected change leaves the survey with no targeting flag at all.
+        with gated_atomic():
+            if validated_data.get("remove_targeting_flag"):
+                if instance.targeting_flag:
+                    assert_feature_flag_write_scope(
+                        self.context["request"],
+                        action="survey.update.remove_targeting_flag",
+                        resource_scope="survey:write",
+                        team_id=self.context["team_id"],
+                        feature_flag_id=instance.targeting_flag_id,
+                    )
+                    # Manually delete the flag and log the change
+                    # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                    # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                    changes.append(
+                        Change(type="Survey", field="targeting_flag", action="deleted", before=instance.targeting_flag)
+                    )
+                    instance.targeting_flag.delete()
+                    validated_data["targeting_flag_id"] = None
+                validated_data.pop("remove_targeting_flag")
+
+                # make sure instance.targeting_flag is gone
+                instance.refresh_from_db()
+
+            # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
+            if validated_data.get("targeting_flag_filters"):
                 assert_feature_flag_write_scope(
                     self.context["request"],
-                    action="survey.update.remove_targeting_flag",
+                    action="survey.update.targeting_flag_filters",
                     resource_scope="survey:write",
                     team_id=self.context["team_id"],
                     feature_flag_id=instance.targeting_flag_id,
                 )
-                # Manually delete the flag and log the change
-                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
-                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
-                changes.append(
-                    Change(type="Survey", field="targeting_flag", action="deleted", before=instance.targeting_flag)
-                )
-                instance.targeting_flag.delete()
-                validated_data["targeting_flag_id"] = None
-            validated_data.pop("remove_targeting_flag")
-
-            # make sure instance.targeting_flag is gone
-            instance.refresh_from_db()
-
-        # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
-        if validated_data.get("targeting_flag_filters"):
-            assert_feature_flag_write_scope(
-                self.context["request"],
-                action="survey.update.targeting_flag_filters",
-                resource_scope="survey:write",
-                team_id=self.context["team_id"],
-                feature_flag_id=instance.targeting_flag_id,
-            )
-            new_filters = validated_data["targeting_flag_filters"]
-            if instance.targeting_flag:
-                existing_targeting_flag = instance.targeting_flag
-                existing_targeting_flag_filters = existing_targeting_flag.filters
-                serialized_data_filters = {
-                    **existing_targeting_flag_filters,
-                    **new_filters,
-                }
-                # Log the existing filter change
-                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
-                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
-                changes.append(
-                    Change(
-                        type="Survey",
-                        field="targeting_flag_filters",
-                        action="changed",
-                        before=existing_targeting_flag_filters,
-                        after=new_filters,
+                new_filters = validated_data["targeting_flag_filters"]
+                if instance.targeting_flag:
+                    existing_targeting_flag = instance.targeting_flag
+                    existing_targeting_flag_filters = existing_targeting_flag.filters
+                    serialized_data_filters = {
+                        **existing_targeting_flag_filters,
+                        **new_filters,
+                    }
+                    # Log the existing filter change
+                    # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                    # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                    changes.append(
+                        Change(
+                            type="Survey",
+                            field="targeting_flag_filters",
+                            action="changed",
+                            before=existing_targeting_flag_filters,
+                            after=new_filters,
+                        )
                     )
-                )
-                self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
-            else:
-                new_flag = self._create_or_update_targeting_flag(
-                    None, new_filters, instance.name, bool(instance.start_date)
-                )
-                # Log the new filter change
-                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
-                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
-                changes.append(
-                    Change(type="Survey", field="targeting_flag_filters", action="created", after=new_filters)
-                )
-                validated_data["targeting_flag_id"] = new_flag.id
-            validated_data.pop("targeting_flag_filters")
+                    self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
+                else:
+                    new_flag = self._create_or_update_targeting_flag(
+                        None, new_filters, instance.name, bool(instance.start_date)
+                    )
+                    # Log the new filter change
+                    # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                    # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                    changes.append(
+                        Change(type="Survey", field="targeting_flag_filters", action="created", after=new_filters)
+                    )
+                    validated_data["targeting_flag_id"] = new_flag.id
+                validated_data.pop("targeting_flag_filters")
 
         iteration_count = validated_data.get("iteration_count", None)
         if (
@@ -2271,7 +2277,7 @@ class SurveyFilterSet(FilterSet):
         ],
     ),
 )
-class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
