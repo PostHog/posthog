@@ -45,7 +45,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, sanitizeDashboard } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -1728,18 +1728,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         updatedDashboard.persisted_filters = latestDashboard.persisted_filters
                         updatedDashboard.persisted_variables = latestDashboard.persisted_variables
                         if (scope === 'colors' && breakdownColorsChanged) {
-                            eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
-                                values.dashboard,
-                                breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
-                                breakdownColorsToSave.filter((c) => c.source === 'auto').length,
-                                Array.from(new Set(breakdownColorsToSave.map((c) => String(c.breakdownType))))
-                            )
+                            posthog.capture('dashboard breakdown colors saved', {
+                                dashboard_id: values.dashboard?.id,
+                                dashboard: sanitizeDashboard(values.dashboard),
+                                manual_count: breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
+                                auto_count: breakdownColorsToSave.filter((c) => c.source === 'auto').length,
+                                breakdown_types: Array.from(
+                                    new Set(breakdownColorsToSave.map((c) => String(c.breakdownType)))
+                                ),
+                            })
                         }
                         if (scope === 'colors' && themeChanged) {
-                            eventUsageLogic.actions.reportDashboardColorThemeSet(
-                                values.dashboard,
-                                values.dataColorThemeId
-                            )
+                            posthog.capture('dashboard color theme set', {
+                                dashboard_id: values.dashboard?.id,
+                                dashboard: sanitizeDashboard(values.dashboard),
+                                theme_id: values.dataColorThemeId,
+                            })
                         }
                         cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
@@ -1881,11 +1885,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ])
                         }
 
-                        eventUsageLogic.actions.reportCopiedDashboardTileToDashboard(
-                            fromDashboard,
-                            toDashboard,
-                            widgetType
-                        )
+                        posthog.capture('dashboard widget copied to other dashboard', {
+                            from_dashboard_id: fromDashboard,
+                            to_dashboard_id: toDashboard,
+                            tile_type: widgetType,
+                        })
 
                         lemonToast.success(
                             <>
@@ -3521,13 +3525,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (refreshStatus?.timer) {
                 const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
-                eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
+                posthog.capture('insight refresh time', {
+                    loadingMilliseconds: loadingMilliseconds,
+                    insightShortId: shortId,
+                })
             }
         },
         reportLoadTiming: () => {
             if (values.loadTimer) {
                 const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
-                eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+                posthog.capture('dashboard loading time', {
+                    loadingMilliseconds: loadingMilliseconds,
+                    dashboardId: props.id,
+                })
             }
         },
         handleDashboardLoadComplete: () => {
@@ -3802,9 +3812,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         children: 'Delete insight everywhere',
                         status: 'danger',
                         onClick: () => {
-                            eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalConfirmed(
-                                otherDashboardCount
-                            )
+                            posthog.capture('dashboard insight delete after removal confirmed', {
+                                other_dashboard_count: otherDashboardCount,
+                            })
                             return deleteInsightWithUndo({
                                 object: { ...tile.insight!, dashboards: dashboardIds },
                                 endpoint: `projects/${values.currentTeamId}/insights`,
@@ -4321,22 +4331,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
 
-                eventUsageLogic.actions.reportDashboardRefreshed(
-                    dashboardId,
-                    urlFilters,
-                    urlVariables,
-                    lastDashboardRefresh,
-                    action,
-                    !!forceRefresh,
-                    {
-                        totalTileCount,
-                        tilesStaleCount,
-                        tilesRefreshedCount,
-                        tilesErroredCount,
-                        tilesAbortedCount,
-                        refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
-                    }
-                )
+                const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
+                posthog.capture(`dashboard refreshed`, {
+                    dashboard_id: dashboardId,
+                    filters: urlFilters,
+                    variables: urlVariables,
+                    last_refreshed: lastDashboardRefresh?.toString(),
+                    refreshAge: lastDashboardRefresh ? now().diff(lastDashboardRefresh, 'seconds') : undefined,
+                    action: action,
+                    force_refresh: !!forceRefresh,
+                    refresh_duration_ms: refreshDurationMs,
+                    total_tile_count: totalTileCount,
+                    tiles_stale_count: tilesStaleCount,
+                    tiles_refreshed_count: tilesRefreshedCount,
+                    tiles_errored_count: tilesErroredCount,
+                    tiles_aborted_count: tilesAbortedCount,
+                })
 
                 if (
                     (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
@@ -5009,11 +5019,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     tile.filters_overrides = tileFilterOverrides
                     if (wasIgnored !== isIgnored) {
-                        eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
-                            props.id,
-                            tile.insight?.id ?? null,
-                            isIgnored
-                        )
+                        posthog.capture('dashboard tile ignore dashboard filters toggled', {
+                            dashboard_id: props.id,
+                            insight_id: tile.insight?.id ?? null,
+                            ignored: isIgnored,
+                        })
                     }
                     actions.refreshDashboardItem({ tile })
                     lemonToast.success('Tile filters saved')

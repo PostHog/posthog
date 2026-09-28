@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -153,7 +154,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             const existingFilter = props.filters[props.filterIndex]
             if (!existingFilter || !isValidPropertyFilter(existingFilter)) {
                 if (eventUsageLogic.isMounted()) {
-                    eventUsageLogic.actions.reportTaxonomicFilterAddFilterClicked(props.eventNames?.[0])
+                    posthog.capture('taxonomic filter add filter clicked', { eventName: props.eventNames?.[0] })
                 }
             }
         },

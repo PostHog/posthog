@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, eventUsageLogic, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -170,6 +170,9 @@ export interface insightSceneLogicActions {
     setScenePanelIsPresent: (active: boolean) => {
         active: boolean
     } // sceneLayoutLogic
+    reportInsightStarted: (query: Node | null) => {
+        query: Node<Record<string, any>> | null
+    }
     setFreshQuery: (freshQuery: boolean) => {
         freshQuery: boolean
     }
@@ -335,6 +338,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         actions: [sceneLayoutLogic, ['setScenePanelIsPresent']],
     })),
     actions({
+        reportInsightStarted: (query: Node | null) => ({ query }),
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
         setSceneState: (
@@ -752,6 +756,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
     })),
     listeners(({ sharedListeners, values }) => ({
+        reportInsightStarted: async ({ query }, breakpoint) => {
+            // "insight started" means the user opened a blank insight editor (intent — it may never be
+            // persisted). The actual creation is tracked server-side as "insight created".
+            await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
+
+            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
+        },
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: [
             sharedListeners.reloadInsightLogic,
@@ -957,7 +968,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    eventUsageLogic.actions.reportInsightStarted(query)
+                    actions.reportInsightStarted(query)
                 } else {
                     // queryFromUrl can also come from the insightType hash param (above), so only
                     // treat it as a shared link's query when q itself is present.

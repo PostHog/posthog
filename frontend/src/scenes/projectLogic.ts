@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -246,7 +247,12 @@ export const projectLogic = kea<projectLogicType>([
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic.findMounted()?.actions?.reportProjectSettingChange(property, payload[property])
+                        if (eventUsageLogic.findMounted()) {
+                            posthog.capture(`${property} project setting updated`, {
+                                setting: property,
+                                value: payload[property],
+                            })
+                        }
                     })
 
                     if (!window.location.pathname.match(/\/(onboarding|products)/)) {

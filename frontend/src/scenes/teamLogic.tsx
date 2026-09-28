@@ -461,9 +461,12 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic
-                            .findMounted()
-                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
+                        if (eventUsageLogic.findMounted()) {
+                            posthog.capture(`${property} team setting updated`, {
+                                setting: property,
+                                value: payload[property as keyof TeamType],
+                            })
+                        }
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')

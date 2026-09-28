@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
@@ -279,23 +280,23 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         },
         loadPropertyDefinitionsSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
-                        performance.now() - cache.propertiesStartTime,
-                        values.propertyDefinitions.results.length
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event property definitions page load succeeded', {
+                        load_time: performance.now() - cache.propertiesStartTime,
+                        num_results: values.propertyDefinitions.results.length,
+                    })
+                }
                 cache.propertiesStartTime = undefined
             }
         },
         loadPropertyDefinitionsFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadFailed(
-                        performance.now() - cache.propertiesStartTime,
-                        error ?? 'There was an unknown error fetching property definitions.'
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event property definitions page load failed', {
+                        load_time: performance.now() - cache.propertiesStartTime,
+                        error: error ?? 'There was an unknown error fetching property definitions.',
+                    })
+                }
                 cache.propertiesStartTime = undefined
             }
         },

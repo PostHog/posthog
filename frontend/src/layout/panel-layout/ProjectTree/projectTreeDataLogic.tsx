@@ -15,7 +15,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -1067,8 +1066,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
-                    lemonToast.success('Added to starred')
+                    posthog.capture('navbar starred item added', {
+                        item_type: shortcutItem.type ?? 'unknown',
+                        item_name: shortcutPath,
+                    })
+                    lemonToast.success('Added to starred', {
+                        button: {
+                            label: 'View',
+                            dataAttr: 'project-tree-view-shortcuts',
+                            action: () => {
+                                actions.setActivePanelIdentifier('Shortcuts')
+                            },
+                        },
+                    })
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
@@ -1086,10 +1096,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
-                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
-                        shortcut?.type ?? 'unknown',
-                        shortcut?.path ?? 'unknown'
-                    )
+                    posthog.capture('navbar starred item removed', {
+                        item_type: shortcut?.type ?? 'unknown',
+                        item_name: shortcut?.path ?? 'unknown',
+                    })
                     lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
@@ -1821,7 +1831,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.reorderShortcuts(next)
         },
         reorderShortcutsSuccess: ({ shortcutData }) => {
-            eventUsageLogic.actions.reportNavbarStarredItemsReordered(shortcutData.length, true)
+            posthog.capture('navbar starred items reordered', {
+                item_count: shortcutData.length,
+                is_ai_first: true,
+            })
         },
         reorderShortcutsFailure: () => {
             actions.loadShortcuts()
