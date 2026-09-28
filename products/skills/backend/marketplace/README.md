@@ -37,8 +37,7 @@ unit-testable against the real `git` binary without booting the app
   cap, and sizes are checked from column byte counts before any content loads.
   `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped` (failed the spec
   check, or a legacy name or file path that is not safe to unpack) carry counts; names are logged.
-  Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
-  `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
+  Requires `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
   cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
 - **Sandbox run state** — `select_skill_stubs` in `adapters.py` is the same stub walk without the zip.
   The tasks worker calls it when it builds a run's processing context and writes the entries into

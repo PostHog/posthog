@@ -702,17 +702,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.agent_proxy_keep_stream_open is False
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "flag_value,expected_state",
-        [
-            (True, "resolved"),
-            (False, []),
-            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
-        ],
-    )
-    def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, flag_value, expected_state
-    ):
+    def test_store_skills_state_lists_the_users_store_skills(self, activity_environment, test_task, user):
         LLMSkill.objects.create(
             team=test_task.team,
             name="my-skill",
@@ -726,23 +716,14 @@ class TestGetTaskProcessingContextActivity:
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
-            return_value=flag_value,
-        ):
-            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
-        if expected_state == "untouched":
-            assert stored == [{"name": "from-last-session"}]
-        elif expected_state == "resolved":
-            assert len(stored) == 1
-            assert stored[0]["name"] == "my-skill"
-            assert stored[0]["version"] == 1
-            assert stored[0]["description"].startswith("Forecast quota usage. xxx")
-            assert len(stored[0]["description"]) == 300
-        else:
-            assert stored == expected_state
+        assert len(stored) == 1
+        assert stored[0]["name"] == "my-skill"
+        assert stored[0]["version"] == 1
+        assert stored[0]["description"].startswith("Forecast quota usage. xxx")
+        assert len(stored[0]["description"]) == 300
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):

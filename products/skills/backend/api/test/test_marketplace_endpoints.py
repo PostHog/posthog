@@ -219,9 +219,6 @@ class TestSkillZipExport(APIBaseTest):
         assert "The description is 1025 characters. Shorten it to 1024 characters or fewer" in body["detail"]
 
 
-SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
-
-
 class TestSkillBundle(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -246,7 +243,6 @@ class TestSkillBundle(APIBaseTest):
     def _fetch(
         self,
         *,
-        flag: bool | None = True,
         authorization: str | None = None,
         content: str | None = None,
         limit: int | str | None = None,
@@ -258,21 +254,12 @@ class TestSkillBundle(APIBaseTest):
         if limit is not None:
             query["limit"] = str(limit)
         headers = {name: value for name, value in {"Authorization": authorization, "Accept": accept}.items() if value}
-        with patch(SANDBOX_FLAG, return_value=flag):
-            return self.client.get(self._url(), query, headers=headers)
+        return self.client.get(self._url(), query, headers=headers)
 
     @staticmethod
     def _skill_dirs(response: HttpResponse) -> set[str]:
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             return {name.split("/", 1)[0] for name in archive.namelist()}
-
-    def test_flag_off_is_404(self):
-        self._create_skill("mine")
-        assert self._fetch(flag=False).status_code == status.HTTP_404_NOT_FOUND
-
-    def test_flag_service_unavailable_is_503_not_404(self):
-        self._create_skill("mine")
-        assert self._fetch(flag=None).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_personal_api_key_with_read_scope_gets_the_bundle(self):
         self._create_skill("mine")
@@ -402,10 +389,10 @@ class TestSkillBundle(APIBaseTest):
         assert response["Content-Type"] == "application/zip"
         assert self._skill_dirs(response) == {"mine"}
 
-        not_enabled = self._fetch(flag=False, accept="application/zip")
-        assert not_enabled.status_code == status.HTTP_404_NOT_FOUND
-        assert not_enabled["Content-Type"] == "application/json"
-        assert json.loads(not_enabled.content)["detail"] == "Not found."
+        invalid = self._fetch(limit="abc", accept="application/zip")
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST
+        assert invalid["Content-Type"] == "application/json"
+        assert "limit" in json.loads(invalid.content)
 
     def test_skipped_skills_page_at_a_fixed_size_not_the_limit(self):
         def queries_with_skipped_rows(count: int) -> int:
