@@ -141,6 +141,20 @@ class TestPlanRollup(BaseTest):
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
 
+    def test_plan_closes_when_it_becomes_ready_after_its_steps(self):
+        parent = self._report("plan", status=SignalReport.Status.IN_PROGRESS)
+        child = self._report("step")
+        self._part_of(child, parent)
+
+        self._close(child, SignalReport.Status.RESOLVED)
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.IN_PROGRESS
+
+        with self.captureOnCommitCallbacks(execute=True):
+            parent.save(update_fields=parent.transition_to(SignalReport.Status.READY, title="plan", summary="s"))
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.RESOLVED
+
     def test_a_report_with_no_plan_rolls_up_nothing(self):
         report = self._report("standalone")
 

@@ -102,7 +102,7 @@ def _close_parent(*, parent: SignalReport, target: SignalReport.Status) -> bool:
     return True
 
 
-def roll_up_plan_parents(*, team_id: int, report_id: str) -> list[str]:
+def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool = False) -> list[str]:
     """Close the plans a just-closed step belongs to, and their plans in turn.
 
     Returns the ids of the reports whose status moved, newest ancestor last, which is what the
@@ -111,7 +111,9 @@ def roll_up_plan_parents(*, team_id: int, report_id: str) -> list[str]:
     frontier = [
         edge.target_id for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
     ]
-    visited: set[str] = {str(report_id)}
+    if include_report:
+        frontier = [str(report_id)]
+    visited: set[str] = set() if include_report else {str(report_id)}
     closed: list[str] = []
     for _ in range(MAX_PLAN_ROLLUP_LEVELS):
         if not frontier:
