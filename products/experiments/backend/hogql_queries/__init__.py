@@ -1,4 +1,3 @@
-# The FF variant name for control
 CONTROL_VARIANT_KEY = "control"
 
 
@@ -16,15 +15,13 @@ def get_baseline_variant_key(stats_config: dict | None, variant_keys: list[str])
     return variant_keys[0]
 
 
-# The FF variant name for multiple variants
+# Variant key for an entity exposed to more than one variant
 MULTIPLE_VARIANT_KEY = "$multiple"
 
-# controls minimum number of people to be exposed to a variant
-# before the results are deemed significant
+# Minimum number of people exposed to a variant before the results can be significant
 FF_DISTRIBUTION_THRESHOLD = 100
 
-# If probability of a variant is below this threshold, it will be considered
-# insignificant
+# A variant with a win probability below this threshold is not significant
 MIN_PROBABILITY_FOR_SIGNIFICANCE = 0.9
 
 EXPECTED_LOSS_SIGNIFICANCE_LEVEL = 0.01
