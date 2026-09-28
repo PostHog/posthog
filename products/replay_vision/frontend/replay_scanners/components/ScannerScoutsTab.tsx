@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCalendar, IconPencil, IconPlus, IconTrends, IconWarning } from '@posthog/icons'
@@ -86,6 +86,7 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerName = scanner?.name || ''
     const logic = scannerScoutLogic({ scannerId, scannerName })
+    useMountedLogic(logic)
     const {
         scoutConfigs,
         scoutConfigsLoading,
