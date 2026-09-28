@@ -3066,13 +3066,13 @@ Note: Very small API. The full published reference is 8 endpoints: get forms, ge
 
 ## Finage — **thin**
 
-Today (9): `aggregates`, `balance_sheet_statements`, `cash_flow_statement`, `dividend_calendar`, `historical_dividends`, `historical_stock_splits`, `last_quote`, `last_trade`, `stock_split_calendar`
+Today (16): `aggregates`, `balance_sheet_statements`, `cash_flow_statement`, `crypto_aggregates`, `crypto_last_trade`, `dividend_calendar`, `forex_aggregates`, `forex_last_quote`, `historical_dividends`, `historical_stock_splits`, `income_statement`, `last_quote`, `last_trade`, `stock_details`, `stock_split_calendar`, `symbol_list`
 
 Diffed against: <https://finage.co.uk/docs/api>
 
-- [ ] `/symbol-list/{market} (Full Symbol List API)` — lookup table of tradeable symbols per market - resolves the symbol keys every other table is built on (high)
-- [ ] `/fnd/detail/stock/{symbol} (Stock Market Details)` — company profile: name, exchange, sector, industry - the dimension table for all price data (high)
-- [ ] `/fnd/income-statement/{symbol}` — core fundamentals; currently no financial statement data is exposed at all (high)
+- [x] `/symbol-list/{market} (Full Symbol List API)` — lookup table of tradeable symbols per market - resolves the symbol keys every other table is built on (high). Added as `symbol_list`, page-walked for the three markets this source syncs data for (us-stock, forex, crypto) and keyed on `[market, symbol]`.
+- [x] `/fnd/detail/stock/{symbol} (Stock Market Details)` — company profile: name, exchange, sector, industry - the dimension table for all price data (high). Added as `stock_details`, one current undated row per symbol.
+- [x] `/fnd/income-statement/{symbol}` — core fundamentals; currently no financial statement data is exposed at all (high). Added as `income_statement`, annual and quarterly. The rationale over-claims: balance sheet and cash flow statements were already synced.
 - [x] `/fnd/balance-sheet-statements/{symbol}` — core fundamentals alongside income statements (high)
 - [x] `/fnd/cash-flow-statement/{symbol}` — completes the three-statement set (high)
 - [x] `/fnd/historical-dividends/{symbol} and /fnd/dividend-calendar` — dividend events needed for total-return calculations on the aggregates already synced (high)
@@ -3081,9 +3081,9 @@ Diffed against: <https://finage.co.uk/docs/api>
 - [ ] `/agg/stock/prev-close/{symbol}` — previous close reference price for daily change calculations (medium)
 - [ ] `/snapshot/stock (also /snapshot/forex, /snapshot/crypto)` — whole-market snapshot in one call rather than per-symbol quote fetches (medium)
 - [ ] `/fnd/earning-calendar and /fnd/ipo-calendar` — scheduled corporate events to join against price moves (medium)
-- [ ] `/last/crypto, /last/forex, /agg/crypto, /agg/forex (non-equity asset classes)` — same quote/trade/aggregate shapes for FX, crypto, ETF and index, none of which are reachable today (medium)
+- [x] `/last/crypto, /last/forex, /agg/crypto, /agg/forex (non-equity asset classes)` — same quote/trade/aggregate shapes for FX, crypto, ETF and index, none of which are reachable today (medium). Added as `forex_last_quote`, `forex_aggregates`, `crypto_last_trade` and `crypto_aggregates`, each fanning out over its own optional symbol field. ETF and index are left out: they need their own symbol fields and were not part of the named endpoints.
 
-Note: The docs are a client-rendered playground, but the full endpoint catalog is embedded in the /docs/api HTML (126 distinct api.finage.co.uk paths, ~72 titled endpoints across US/UK/CA/IN/RU equities, forex, crypto, ETF, index, fundamentals, news and technical indicators). PostHog exposes 3 static endpoints. get_schemas uses a fixed FINAGE_ENDPOINTS map - no dynamic discovery.
+Note: The docs are a client-rendered playground, but the full endpoint catalog is embedded in the /docs/api HTML (126 distinct api.finage.co.uk paths, ~72 titled endpoints across US/UK/CA/IN/RU equities, forex, crypto, ETF, index, fundamentals, news and technical indicators). get_schemas uses a fixed FINAGE_ENDPOINTS map - no dynamic discovery. None of the endpoints above take a server-side `updated_after` filter, so they all sync full refresh like the rest of the source.
 
 ## FinancialModelling — **thin**
 
@@ -3206,15 +3206,15 @@ Diffed against: <https://api.flagsmith.com/api/v1/swagger.json>
 - [x] `/api/v1/environments/{environment_api_key}/identities/` — the end users flags are evaluated against; without them feature_states cannot be attributed to anyone (high)
 - [x] `/api/v1/environments/{environment_api_key}/identities/{identity_pk}/traits/` — identity traits, the attributes segments are defined on - the core targeting dimension (high)
 - [x] `/api/v1/features/feature-segments/` — lookup/join table linking already-synced features to already-synced segments (the segment overrides) (high)
-- [ ] `/api/v1/projects/{project_pk}/features/{id}/evaluation-data/` — flag evaluation counts over time, Flagsmith's headline usage metric (high)
-- [ ] `/api/v1/projects/{project_pk}/segments/{id}/members/` — segment membership rows resolving which identities fall into each synced segment (high)
+- [x] `/api/v1/projects/{project_pk}/features/{id}/evaluation-data/` — flag evaluation counts over time, Flagsmith's headline usage metric (high)
+- [x] `/api/v1/projects/{project_pk}/segments/{id}/members/` — segment membership rows resolving which identities fall into each synced segment (high)
 - [x] `/api/v1/projects/{project_pk}/tags/` — lookup resolving the tag IDs carried on synced feature rows (high)
 - [ ] `/api/v1/organisations/{organisation_pk}/usage-data/` — API request volume per organisation, needed for cost and adoption analysis (medium)
 - [ ] `/api/v1/projects/{project_pk}/features/{feature_pk}/mv-options/` — multivariate variant definitions and weights behind multivariate feature states (medium)
 - [ ] `/api/v1/environments/{environment_api_key}/identities/{identity_pk}/featurestates/` — per-identity flag overrides, distinct from the environment-level feature_states already synced (medium)
-- [ ] `/api/v1/environments/{environment_pk}/features/{feature_pk}/versions/` — environment feature version history - the state-change trail for a flag in an environment (medium)
+- [x] `/api/v1/environments/{environment_pk}/features/{feature_pk}/versions/` — environment feature version history - the state-change trail for a flag in an environment (medium)
 - [ ] `/api/v1/projects/{project_pk}/change-requests/ (and the environment list-change-requests)` — flag change approval workflow records, showing who requested and approved each change (medium)
-- [ ] `/api/v1/organisations/{organisation_pk}/groups/` — user group membership lookup resolving the groups referenced on feature owners and permissions (medium)
+- [x] `/api/v1/organisations/{organisation_pk}/groups/` — user group membership lookup resolving the groups referenced on feature owners and permissions (medium)
 
 Note: Spec is the live Flagsmith SaaS swagger (325 paths). Roles, permissions, SAML/SCIM, integrations and master API keys are excluded as access-control and plumbing config.
 
