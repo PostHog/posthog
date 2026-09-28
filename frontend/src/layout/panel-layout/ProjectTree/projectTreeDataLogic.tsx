@@ -40,11 +40,11 @@ import {
     formatUrlAsName,
     isGroupViewShortcut,
     isPathUnder,
-    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
     reparentPath,
+    shortcutFromEntry,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -1050,25 +1050,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
-                    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
-
-                    const shortcutItem =
-                        item.type === 'folder'
-                            ? {
-                                  path: shortcutPath,
-                                  type: 'folder',
-                                  ref: item.path,
-                              }
-                            : {
-                                  path: shortcutPath,
-                                  type: (item as FileSystemImport).iconType || item.type,
-                                  ref: item.ref,
-                                  href: item.href,
-                              }
+                    const shortcutItem = shortcutFromEntry(item)
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
                     posthog.capture('navbar starred item added', {
                         item_type: shortcutItem.type ?? 'unknown',
-                        item_name: shortcutPath,
+                        item_name: shortcutItem.path,
                     })
                     lemonToast.success('Added to starred')
                     return [...values.shortcutData, response]

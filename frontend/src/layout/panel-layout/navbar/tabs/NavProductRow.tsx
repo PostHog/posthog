@@ -13,13 +13,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
-import { getCustomIcon } from '../../ProjectTree/customIconRegistry'
-import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { findProductShortcut } from '../../ProjectTree/utils'
+import { NavProductIcon } from './NavProductIcon'
 import { NavProductMenu } from './NavProductMenu'
 import { navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
@@ -42,8 +41,6 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
         (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
         (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
     const disabledReason = getProductAccessDisabledReason(item)
-    const CustomIcon = getCustomIcon(item.type, item.href)
-    const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)
 
     const isHome = item.path === 'Home'
     const hasProductMenu = ['Product analytics', 'Dashboards', 'Session replay'].includes(item.path)
@@ -100,13 +97,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                     }}
                 >
                     <span className="size-4 shrink-0">
-                        {CustomIcon ? (
-                            <ProductIconWrapper type={iconType} colorOverride={item.iconColor}>
-                                <CustomIcon />
-                            </ProductIconWrapper>
-                        ) : (
-                            iconForType(iconType, item.iconColor)
-                        )}
+                        <NavProductIcon item={item} />
                     </span>
                     <span className="flex-1 truncate">{label}</span>
                     {item.tags?.[0] && <ProductTag tag={item.tags[0]} />}

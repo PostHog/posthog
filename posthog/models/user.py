@@ -226,6 +226,29 @@ def default_ui_configuration_for_new_users() -> dict[str, Any]:
     }
 
 
+def preserve_starred_products_setup(
+    user: Optional["User"], configuration: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Carry the completed starred products setup into a new configuration that omits it.
+
+    Writers send the whole configuration, so a client that does not know this key (an API call,
+    the MCP tool, an older frontend) would otherwise drop it and show the setup again.
+    Sending the key explicitly, even as false, still wins.
+    """
+    stored = user.ui_configuration if user else None
+    stored_sidebar = stored.get("sidebar") if isinstance(stored, dict) else None
+    if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
+        return configuration
+    if configuration is None:
+        return {"version": stored.get("version", 1), "sidebar": {"starred_products_setup_completed": True}}
+    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
+    if not isinstance(configuration, dict) or not isinstance(sidebar, dict | None):
+        return configuration
+    if sidebar is not None and "starred_products_setup_completed" in sidebar:
+        return configuration
+    return {**configuration, "sidebar": {**(sidebar or {}), "starred_products_setup_completed": True}}
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
