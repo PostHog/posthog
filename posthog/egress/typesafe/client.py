@@ -79,6 +79,7 @@ async def _send_system_one(
     # boffin: Bound headers and body together so a slow endpoint cannot hold a worker indefinitely.
     client_timeout = aiohttp.ClientTimeout(total=total, connect=connect, sock_read=read, ceil_threshold=total + 1)
     try:
+        # nosemgrep: aiohttp-missing-trust-env — a proxy would resolve the customer host outside its validated DNS pin.
         async with aiohttp.ClientSession(
             connector=connector, timeout=client_timeout, auto_decompress=False, trust_env=False
         ) as session:
