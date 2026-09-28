@@ -2,10 +2,13 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -13,6 +16,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
 import { examples } from '~/queries/examples'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -76,6 +81,26 @@ describe('insightSceneLogic', () => {
 
         expect(logic.values.breadcrumbs.at(-1)?.name).toContain('Returning users')
         expect(logic.values.breadcrumbs.at(-1)?.name).not.toContain('ID 987')
+    })
+
+    it('reports a view only for the scene insight when another unsaved insight mounts', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+        }
+        const previewProps = { dashboardItemId: 'new-AdHoc.preview' as InsightShortId, query, doNotLoad: true }
+        dataNodeLogic({ key: insightVizDataNodeKey(previewProps), query: query.source, doNotLoad: true }).mount()
+        insightDataLogic(previewProps).mount()
+        await expectLogic(insightUsageLogic(previewProps)).toFinishAllListeners()
+        await expectLogic(insightUsageLogic(logic.values.insightLogicRef!.logic.props)).toFinishAllListeners()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'insight viewed')).toHaveLength(1)
     })
 
     it('disables discussions for an unsaved insight so comments do not leak across the team', async () => {

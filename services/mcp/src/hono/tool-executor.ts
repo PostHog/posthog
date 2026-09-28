@@ -33,7 +33,7 @@ import {
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
-    rewrapFlattenedArguments,
+    repairArgumentNesting,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
@@ -344,7 +344,7 @@ export class ToolExecutor {
         const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
         const rewrapped = firstPass.success
             ? undefined
-            : rewrapFlattenedArguments(firstPass.error, rawToolArgs, tool.schema)
+            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
         const toolArgs = rewrapped ?? rawToolArgs
         const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
         if (!validation.success) {
