@@ -83,20 +83,40 @@ func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *tes
 	}
 }
 
-func TestEventPropertyRulesCoverOnlyFeatureFlagsMap(t *testing.T) {
-	if len(eventPropertyRules.children) != 1 {
-		t.Fatalf("event property rules = %v, want only $feature_flags", eventPropertyRules.children)
+func TestEventPropertyRulesCoverComplexSchemaPaths(t *testing.T) {
+	tests := map[normalizationKind][]string{
+		normalizationStringArray: {
+			"$exception_functions",
+			"$exception_sources",
+			"$exception_types",
+			"$exception_values",
+			"$mcp_listed_tool_names",
+		},
+		normalizationObjectArray: {
+			"$exception_list",
+		},
+		normalizationObject: {
+			"$feature_flags",
+		},
 	}
-	rule := eventPropertyRules.children["$feature_flags"]
-	if rule == nil || rule.normalization != normalizationObject {
-		t.Fatalf("normalization rule for $feature_flags = %v, want %v", rule, normalizationObject)
+
+	for want, paths := range tests {
+		for _, path := range paths {
+			rule := eventPropertyRules.children[path]
+			if rule == nil {
+				t.Errorf("missing normalization rule for %s", path)
+				continue
+			}
+			if rule.normalization != want {
+				t.Errorf("normalization rule for %s = %v, want %v", path, rule.normalization, want)
+			}
+		}
 	}
 }
 
-func TestProcessLinePreservesScalarAndArrayProperties(t *testing.T) {
-	// ClickHouse infers array and scalar types on dynamic paths, so the cleaner leaves them as sent.
-	input := []byte(`{"$agent_turn":"42.0","$ai_total_cost_usd":{"currency":"USD"},"$is_identified":"yes","created_by_system":"scheduler","$mcp_listed_tool_names":"search","$exception_types":["TypeError",7],"$exception_list":[{"type":"TypeError","value":null}]}`)
-	want := `{"$agent_turn":"42.0","$ai_total_cost_usd":{"currency":"USD"},"$is_identified":"yes","created_by_system":"scheduler","$mcp_listed_tool_names":"search","$exception_types":["TypeError",7],"$exception_list":[{"type":"TypeError"}]}`
+func TestProcessLinePreservesScalarPropertiesAndNormalizesComplexProperties(t *testing.T) {
+	input := []byte(`{"$agent_turn":"42.0","$ai_total_cost_usd":{"currency":"USD"},"$is_identified":"yes","created_by_system":"scheduler","$mcp_listed_tool_names":"search","$exception_list":"{\"type\":\"TypeError\",\"value\":null}"}`)
+	want := `{"$agent_turn":"42.0","$ai_total_cost_usd":{"currency":"USD"},"$is_identified":"yes","created_by_system":"scheduler","$mcp_listed_tool_names":["search"],"$exception_list":[{"type":"TypeError"}]}`
 
 	var got bytes.Buffer
 	if err := processLine(input, &got); err != nil {
@@ -114,7 +134,9 @@ func TestProcessLineQuarantinesInvalidComplexProperties(t *testing.T) {
 		`{"$feature_flags":true}`:                       `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":true}"}`,
 		`{"$feature_flags":42}`:                         `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":42}"}`,
 		`{"$feature_flags":null}`:                       `{}`,
-		`{"$unparseable_properties":"spoofed","$feature_flags":"x","kept":"value"}`: `{"$feature_flags":{},"kept":"value","$unparseable_properties":"{\"$feature_flags\":\"x\"}"}`,
+		`{"$unparseable_properties":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$unparseable_properties":"{\"$exception_list\":\"[redacted]\"}"}`,
+		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":[1]}"}`,
+		`{"$exception_list":true}`: `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":true}"}`,
 	}
 
 	for input, want := range tests {
@@ -201,6 +223,24 @@ func TestProcessLineDottedDepthBoundary(t *testing.T) {
 	}
 }
 
+func TestProcessLineChecksArrayDepthAfterNormalization(t *testing.T) {
+	for _, depth := range []int{7, 8} {
+		object := `{"x":` + strings.Repeat(`[`, depth) + `1` + strings.Repeat(`]`, depth) + `}`
+		input := fmt.Sprintf(`{"$exception_list":%q}`, object)
+		var got bytes.Buffer
+		if err := processLine([]byte(input), &got); err != nil {
+			t.Fatal(err)
+		}
+		want := `{"$exception_list":[` + object + `]}`
+		if depth == 8 {
+			want = fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
+		}
+		if got.String() != want {
+			t.Fatalf("processLine() = %s, want %s", got.String(), want)
+		}
+	}
+}
+
 func TestTemporaryPropertiesDoNotDuplicateQuarantinedDocuments(t *testing.T) {
 	for _, input := range []string{
 		`{"$set":` + strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth) + `}`,
@@ -214,6 +254,63 @@ func TestTemporaryPropertiesDoNotDuplicateQuarantinedDocuments(t *testing.T) {
 		if got.String() != "{}" {
 			t.Fatalf("temporary output must not retain raw quarantine: %s", got.String())
 		}
+	}
+}
+
+func TestProcessLineParsesStringifiedArrayPath(t *testing.T) {
+	input := []byte(`{"$exception_types":"[\"TypeError\",7,null,{\"x.y\":\"z\"}]"}`)
+	want := `{"$exception_types":["TypeError","7","","{\"x\":{\"y\":\"z\"}}"]}`
+
+	var got bytes.Buffer
+	if err := processLine(input, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want {
+		t.Fatalf("processLine() = %s, want %s", got.String(), want)
+	}
+}
+
+func TestProcessLineCoercesArrayPathScalars(t *testing.T) {
+	tests := map[string]string{
+		`{"$exception_sources":"undefined"}`:         `{"$exception_sources":[]}`,
+		`{"$exception_sources":"worker"}`:            `{"$exception_sources":["worker"]}`,
+		`{"$exception_sources":false}`:               `{"$exception_sources":["false"]}`,
+		`{"$exception_sources":{}}`:                  `{"$exception_sources":[]}`,
+		`{"$exception_sources":{"worker.id":3}}`:     `{"$exception_sources":["{\"worker\":{\"id\":3}}"]}`,
+		`{"nested":{"$exception_sources":"worker"}}`: `{"nested":{"$exception_sources":"worker"}}`,
+	}
+
+	for input, want := range tests {
+		var got bytes.Buffer
+		if err := processLine([]byte(input), &got); err != nil {
+			t.Fatalf("processLine(%s) returned error: %v", input, err)
+		}
+		if got.String() != want {
+			t.Fatalf("processLine(%s) = %s, want %s", input, got.String(), want)
+		}
+	}
+}
+
+func TestCleanNodeMatchesNestedArrayStringPath(t *testing.T) {
+	input := []byte(`{"outer":[{"$exception_sources":"undefined"},{"$exception_sources":"worker"}],"nested":{"$exception_sources":"worker"}}`)
+	want := `{"outer":[{"$exception_sources":[]},{"$exception_sources":["worker"]}],"nested":{"$exception_sources":"worker"}}`
+
+	var proc processor
+	proc.data = input
+	parsed, err := proc.parseValue(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaned, err := proc.cleanNode(makePathRules("outer.$exception_sources"), parsed, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.recycle(cleaned)
+
+	var got bytes.Buffer
+	proc.writeValue(&got, cleaned)
+	if got.String() != want {
+		t.Fatalf("cleanNode() = %s, want %s", got.String(), want)
 	}
 }
 

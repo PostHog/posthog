@@ -17,10 +17,12 @@ UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 
 # Every path not declared below is a dynamic subcolumn (up to the column's max_dynamic_paths per part, then
 # shared data) and keeps its JSON type. Declare only what ClickHouse cannot infer: LowCardinality
-# for genuinely low-cardinality strings, the feature-flags map, and the String join keys behind the
-# $session_id, $window_id, and $group_N columns.
+# for genuinely low-cardinality strings, the feature-flags map, the String join keys behind the
+# $session_id, $window_id, and $group_N columns, and the arrays the event cleaner coerces.
 EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 1024
 PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 256
+# Without these, ClickHouse infers Date/DateTime from date-like strings on some inserts and String on others.
+EVENTS_JSON_INSERT_SETTINGS = "input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0"
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser": "LowCardinality(String)",
@@ -28,6 +30,11 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser_version": "LowCardinality(String)",
     "$config_defaults": "LowCardinality(String)",
     "$device_type": "LowCardinality(String)",
+    "$exception_functions": "Array(String)",
+    "$exception_list": "Array(JSON(max_dynamic_paths = 0, type String, value String))",
+    "$exception_sources": "Array(String)",
+    "$exception_types": "Array(String)",
+    "$exception_values": "Array(String)",
     "$feature_flags": "Map(LowCardinality(String), LowCardinality(String))",
     "$geoip_city_name": "LowCardinality(String)",
     "$geoip_continent_code": "LowCardinality(String)",
@@ -43,6 +50,7 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$group_4": "String",
     "$lib": "LowCardinality(String)",
     "$lib_version": "LowCardinality(String)",
+    "$mcp_listed_tool_names": "Array(String)",
     "$os": "LowCardinality(String)",
     "$os_version": "LowCardinality(String)",
     "$session_id": "String",

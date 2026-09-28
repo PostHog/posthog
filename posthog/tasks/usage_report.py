@@ -794,13 +794,15 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        use_new = use_new_events_schema(None)
+        group_columns = [f"properties.`$group_{i}`" if use_new else f"$group_{i}" for i in range(5)]
         # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
         return sync_execute(
             f"""
             SELECT team_id, count(1) as count
-            FROM {events_read_table(use_new_events_schema(None))}
+            FROM {events_read_table(use_new)}
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+            AND ({" OR ".join(f"{column} != ''" for column in group_columns)})
             GROUP BY team_id
             """,
             {"begin": begin, "end": end},

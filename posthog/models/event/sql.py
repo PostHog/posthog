@@ -14,6 +14,7 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE_INDEXES,
     EVENTS_JSON_INDEXED_PROPERTY_NAMES,  # noqa: F401
+    EVENTS_JSON_INSERT_SETTINGS,
     EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -545,12 +546,14 @@ arrayMap(
 ) as consumer_breadcrumbs
 FROM {database}.{kafka_table} AS source
 )
+SETTINGS {insert_settings}
 """.format(
         mv_name=mv_name,
         kafka_table=kafka_table,
         target_table=target_table,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
+        insert_settings=EVENTS_JSON_INSERT_SETTINGS,
         properties_expr=_clean_properties(
             "source.properties", "JSONCleanPostHogEventProperties", EVENTS_PROPERTIES_JSON_TYPE()
         ),
@@ -771,7 +774,8 @@ def BULK_INSERT_EVENT_SQL(table_name: str | None = None, *, values: str = "") ->
     # Native fixtures need ingestion cleanup, and VALUES cannot execute an external UDF.
     source = (
         f"SELECT * REPLACE(JSONCleanPostHogEventProperties(source.c3) AS c3), "
-        f"JSONCleanPostHogTemporaryProperties(source.c3) FROM values({values}) AS source"
+        f"JSONCleanPostHogTemporaryProperties(source.c3) FROM values({values}) AS source "
+        f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
         if table_name == EVENTS_JSON_DATA_TABLE
         else f"VALUES{values}"
     )

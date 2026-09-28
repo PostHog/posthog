@@ -174,6 +174,7 @@ arrayMap(
 ) as consumer_breadcrumbs
 FROM posthog.kafka_events_json_native_json AS source
 )
+SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0
 SQL
 
     column "uuid" {
