@@ -10336,6 +10336,10 @@ snapshots:
         hash: v1.k794b7964.71ad45e65a5513ff7088e026d8ffb2bf891fb1effddb0e9dbd95ba78b597c3b1.0e6bNu95d2bH_NlZmGGW7oiHJ__aHNSxqzRcxMUA4xM
     scenes-app-marketing-analytics-freshness--fresh--light:
         hash: v1.k794b7964.b8d9453c270c310350d2bcf30cdb54cae4da19b8877e8d3206160478eb2dda94.dJpt6MIMxg7mOxiHC6PoqwTGwMfiGrln7SheHTKHTcU
+    scenes-app-marketing-analytics-source-status--source-issues--dark:
+        hash: v1.k794b7964.f387ac40dbf399676c91b2f6de86c2b169e9aaa86205af692abf51a141ead5d7.3PpHqWiSeMKvXuYLv4lU1yM_tqF38xD4NiUkUX6XW2U
+    scenes-app-marketing-analytics-source-status--source-issues--light:
+        hash: v1.k794b7964.9bc9c27858206a2c2ecee18b7e72a9b80c91488ab539e78955a62b0254176a8e.gYszI9sP1_uusVkRVzBFdMoACwSmYaBfgxSuUX_pZpQ
     scenes-app-max-ai-logs-query-tool--no-matches--dark:
         hash: v1.k794b7964.c231a64a00f6dfc8bf5b88c3dab624bad88d347b96be0b2e6b0cc14e1c10e1cc.ScE515QePrAYrJB-UWn5sakLt5cKxQKQQrx_n_uJERI
     scenes-app-max-ai-logs-query-tool--no-matches--light:
