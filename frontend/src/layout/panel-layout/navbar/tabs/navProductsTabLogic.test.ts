@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -166,6 +167,11 @@ describe('navProductsTabLogic', () => {
         expect(create).toHaveBeenCalledTimes(1)
         expect(projectTreeDataLogic.values.shortcutData).toEqual([...existing, app])
         expect(navProductsTabLogic.values.starredProductIds['Feature flags']).toBe('app-star')
+        expect(navProductsTabLogic.values.starSaveError).toBeNull()
+        expect(posthog.capture).toHaveBeenCalledWith('navbar starred item added', {
+            item_type: 'feature_flag',
+            item_name: 'Feature flags',
+        })
 
         await expectLogic(navProductsTabLogic, () => {
             navProductsTabLogic.actions.setProductStarred('Feature flags', false)
@@ -173,6 +179,11 @@ describe('navProductsTabLogic', () => {
         }).toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
         expect(remove).toHaveBeenCalledTimes(1)
         expect(projectTreeDataLogic.values.shortcutData).toEqual(existing)
+        expect(navProductsTabLogic.values.starSaveError).toBeNull()
+        expect(posthog.capture).toHaveBeenCalledWith('navbar starred item removed', {
+            item_type: 'feature_flag',
+            item_name: 'Feature flags',
+        })
     })
 
     it.each(['before', 'after'])(

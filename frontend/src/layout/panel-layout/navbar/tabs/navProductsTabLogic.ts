@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -7,7 +8,6 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -313,20 +313,20 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                                             href: entry.href ?? undefined,
                                         },
                                     ])
-                                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
-                                        item.iconType || item.type || 'unknown',
-                                        shortcutPath
-                                    )
+                                    posthog.capture('navbar starred item added', {
+                                        item_type: item.iconType || item.type || 'unknown',
+                                        item_name: shortcutPath,
+                                    })
                                 } else if (!starred && shortcutId) {
                                     await coreApi.fileSystemShortcutDestroy(String(teamId), shortcutId)
                                     breakpoint()
                                     actions.loadShortcutsSuccess(
                                         values.shortcutData.filter((entry) => entry.id !== shortcutId)
                                     )
-                                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
-                                        item.iconType || item.type || 'unknown',
-                                        shortcutPath
-                                    )
+                                    posthog.capture('navbar starred item removed', {
+                                        item_type: item.iconType || item.type || 'unknown',
+                                        item_name: shortcutPath,
+                                    })
                                 }
                             }
                         } catch {
