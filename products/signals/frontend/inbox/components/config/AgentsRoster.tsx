@@ -131,20 +131,26 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
+/** Names the switch in the product's own settings, not the row, whose label can be the same word. */
+function productOffReason(product: SourceProductStatus): string {
+    const reason = `${product.settingName} is off in project settings, so this source has nothing to read.`
+    return product.enableBlockedReason ? `${reason} ${product.enableBlockedReason}` : reason
+}
+
 /** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
 function StatusDot({
     status,
     product,
-    productOff,
+    productOffReason: offReason,
 }: {
     status: AgentRosterStatus
     product?: SourceProductStatus
-    productOff: boolean
+    productOffReason?: string
 }): JSX.Element {
     let className = 'bg-border-bold'
     let title = 'Standby'
-    if (productOff) {
-        title = `${product?.productName} is off, so this source has nothing to read`
+    if (offReason) {
+        title = offReason
     } else if (status === 'sync_failed') {
         className = 'bg-danger'
         title = 'Sync failed'
@@ -172,11 +178,12 @@ function StatusDot({
 function notableTag(
     status: AgentRosterStatus,
     armed: boolean,
-    productOff: boolean,
     product?: SourceProductStatus
 ): { label: string; type: LemonTagType } | null {
-    if (productOff) {
-        return { label: 'Product off', type: 'warning' }
+    if (product?.enabled === false) {
+        return product.enableBlockedReason
+            ? { label: 'Admin needed', type: 'warning' }
+            : { label: 'Off in settings', type: 'warning' }
     }
     if (status === 'sync_failed') {
         return { label: 'Sync failed', type: 'danger' }
@@ -357,13 +364,14 @@ function Expansion({
                         {productOff && product ? (
                             <div className="flex items-center gap-2">
                                 <span className="text-xs text-warning">
-                                    {product.productName} is off, so this source has nothing to read.
+                                    {productOffReason(product)}
                                 </span>
                                 {product.enablement && (
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"
                                         loading={enablingProduct}
+                                        disabledReason={product.enableBlockedReason ?? undefined}
                                         onClick={() => onEnableProduct(product)}
                                     >
                                         Turn it on
@@ -438,8 +446,8 @@ function Expansion({
                                 disabledReason={
                                     state.loading
                                         ? 'Saving'
-                                        : productOff && !entity.enabled
-                                          ? `Turn on ${product?.productName} first. This source reads its data.`
+                                        : productOff && product && !entity.enabled
+                                          ? productOffReason(product)
                                           : undefined
                                 }
                             />
@@ -517,7 +525,8 @@ const AgentRow = memo(function AgentRow({
     const productOff = product?.enabled === false
     // An off product blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = productOff && !armed
-    const tag = notableTag(status, armed, productOff, product)
+    const offReason = product && productOff ? productOffReason(product) : undefined
+    const tag = notableTag(status, armed, product)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
@@ -531,7 +540,7 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                {!redesign && <StatusDot status={status} product={product} productOff={productOff} />}
+                {!redesign && <StatusDot status={status} product={product} productOffReason={offReason} />}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -561,7 +570,7 @@ const AgentRow = memo(function AgentRow({
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
                 </span>
-                {(loading || requiresSetup || hasMasterSwitch) && (
+                {(loading || requiresSetup || hasMasterSwitch || (armingBlocked && product?.enablement)) && (
                     // eslint-disable-next-line react/no-unknown-property
                     <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
                         {loading ? (
@@ -570,15 +579,22 @@ const AgentRow = memo(function AgentRow({
                             <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
                                 Connect
                             </LemonButton>
+                        ) : armingBlocked && product?.enablement ? (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={enablingProduct}
+                                disabledReason={product.enableBlockedReason ?? undefined}
+                                tooltip={offReason}
+                                onClick={() => onEnableProduct(product)}
+                            >
+                                Turn on
+                            </LemonButton>
                         ) : (
                             <LemonSwitch
                                 checked={armed}
                                 onChange={() => onToggle(agent.source)}
-                                disabledReason={
-                                    armingBlocked
-                                        ? `Turn on ${product?.productName} first. This source reads its data.`
-                                        : undefined
-                                }
+                                disabledReason={armingBlocked ? offReason : undefined}
                                 aria-label={`Arm ${agent.label}`}
                             />
                         )}

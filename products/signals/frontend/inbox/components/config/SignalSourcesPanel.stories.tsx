@@ -5,7 +5,7 @@ import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -31,6 +31,8 @@ interface PanelState {
     exceptionAutocaptureOn: boolean
     sessionRecordingOn: boolean
     conversationsOn: boolean
+    /** Support is an admin-only setting, so a member cannot clear that block themselves. */
+    projectAdmin: boolean
     // Usage (event definitions present)
     hasExceptionEvents: boolean
     hasAiEvents: boolean
@@ -178,6 +180,9 @@ function PanelHarness(state: PanelState): JSX.Element {
                     autocapture_exceptions_opt_in: state.exceptionAutocaptureOn,
                     session_recording_opt_in: state.sessionRecordingOn,
                     conversations_enabled: state.conversationsOn,
+                    effective_membership_level: state.projectAdmin
+                        ? OrganizationMembershipLevel.Admin
+                        : OrganizationMembershipLevel.Member,
                 },
             ],
             '/api/projects/:team_id/signals/source_configs/': () =>
@@ -241,6 +246,7 @@ const meta: Meta<typeof PanelHarness> = {
         exceptionAutocaptureOn: true,
         sessionRecordingOn: true,
         conversationsOn: false,
+        projectAdmin: true,
         hasExceptionEvents: true,
         hasAiEvents: false,
         hasAnalyticsEvents: true,
@@ -271,7 +277,7 @@ export const ArmedButProductsOff: Story = {
     },
 }
 
-/** Nothing armed and every product off: switches are disabled with the turn-on-the-product reason. */
+/** Nothing armed and every product off: each blocked row offers the enable action in place of its switch. */
 export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
@@ -287,6 +293,14 @@ export const ArmingBlocked: Story = {
         hasExceptionEvents: false,
         hasAiEvents: false,
         hasAnalyticsEvents: false,
+    },
+}
+
+/** A plain member with Support off: the row says admin rights are needed before they click. */
+export const ArmingBlockedForMember: Story = {
+    args: {
+        ...(ArmingBlocked.args as PanelState),
+        projectAdmin: false,
     },
 }
 
