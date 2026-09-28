@@ -90,6 +90,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.ai_observability.backend.api.evaluations.EvaluationViewSet",
     "products.ai_observability.backend.api.instrumentation_checklist.AIObservabilityInstrumentationChecklistViewSet",
     "products.ai_observability.backend.api.models.LLMModelsViewSet",
+    "products.ai_observability.backend.api.offline_experiments.OfflineExperimentViewSet",
     "products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet",
     "products.ai_observability.backend.api.provider_keys.LLMProviderKeyViewSet",
     "products.ai_observability.backend.api.review_queues.ReviewQueueItemViewSet",
