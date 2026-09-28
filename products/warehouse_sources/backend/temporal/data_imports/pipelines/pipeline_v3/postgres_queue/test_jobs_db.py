@@ -1,6 +1,7 @@
 import re
 import time
 import asyncio
+from collections.abc import Coroutine
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -604,6 +605,80 @@ class TestBatchQueueLeaseRenewal:
             conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
         )
         assert renewed is (not deleted), "delete must fence the old owner without touching live leases"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLeaseLockOrder:
+    # Every multi-row lease statement must lock rows in ascending (team_id, schema_id).
+    # Pods claim and release overlapping group sets constantly, so two statements that
+    # disagree on the order deadlock as soon as their sets cross. Blocking one row in the
+    # middle of the set and asking which of the others are already locked pins the order
+    # without needing a deadlock to actually happen.
+
+    GROUPS = [(team_id, f"schema-{team_id}") for team_id in range(1, 6)]
+    BLOCKED_INDEX = 2  # the middle group, so both an earlier and a later row are observable
+
+    async def _await_lock_wait(self, probe: psycopg.AsyncConnection[Any], backend_pid: int) -> None:
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            row = await (
+                await probe.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", (backend_pid,))
+            ).fetchone()
+            if row is not None and row[0] == "Lock":
+                return
+            await asyncio.sleep(0.02)
+        raise AssertionError("the statement under test never blocked on the group we locked")
+
+    async def _is_locked(self, probe: psycopg.AsyncConnection[Any], team_id: int, schema_id: str) -> bool:
+        try:
+            await probe.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE NOWAIT",
+                (team_id, schema_id),
+            )
+        except psycopg.errors.LockNotAvailable:
+            return True
+        return False
+
+    @pytest.mark.parametrize("statement", ["claim", "unlock"])
+    @pytest.mark.asyncio
+    async def test_multi_group_statements_lock_in_ascending_key_order(self, conn, conn_b, _db_url, statement):
+        for team_id, schema_id in self.GROUPS:
+            await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, job_id=f"job-{team_id}", run_uuid=f"run-{team_id}"
+            )
+        batches = await _claim(conn, owner=OWNER_A, limit=50)
+        assert len(batches) == len(self.GROUPS)
+
+        run: Coroutine[Any, Any, object]
+        if statement == "claim":
+            # Re-claiming has to lock the existing rows, so expire them rather than delete.
+            await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+            run = _claim(conn_b, owner=OWNER_A, limit=50)
+        else:
+            run = BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A)
+
+        blocked_team_id, blocked_schema_id = self.GROUPS[self.BLOCKED_INDEX]
+        blocker = await psycopg.AsyncConnection.connect(_db_url)
+        probe = await psycopg.AsyncConnection.connect(_db_url, autocommit=True)
+        try:
+            await blocker.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE",
+                (blocked_team_id, blocked_schema_id),
+            )
+
+            task = asyncio.create_task(run)
+            await self._await_lock_wait(probe, conn_b.info.backend_pid)
+
+            locked = [await self._is_locked(probe, team_id, schema_id) for team_id, schema_id in self.GROUPS]
+            await blocker.rollback()
+            await asyncio.wait_for(task, timeout=10.0)
+        finally:
+            await blocker.close()
+            await probe.close()
+
+        # Everything below the blocked group is already locked; nothing above it has been
+        # touched. Plan order would leave an arbitrary subset locked instead.
+        assert locked == [index <= self.BLOCKED_INDEX for index in range(len(self.GROUPS))]
 
 
 @pytest.mark.django_db(transaction=True)
