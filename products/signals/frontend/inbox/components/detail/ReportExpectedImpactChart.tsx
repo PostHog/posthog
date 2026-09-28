@@ -11,6 +11,7 @@ import {
     asReportMetricSeriesQuery,
     formatReportMetricValue,
     reportMetricAggregate,
+    reportMetricChartType,
     reportMetricSeriesPoints,
 } from '../../utils/reportMetrics'
 import { ReportObservationChart } from './ReportObservationChart'
@@ -64,7 +65,7 @@ export function ReportExpectedImpactChart({
             <ReportObservationChart
                 metric={metric}
                 points={points}
-                type="line"
+                type={reportMetricChartType(metric)}
                 interval={query.interval}
                 goalValue={goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
             />
