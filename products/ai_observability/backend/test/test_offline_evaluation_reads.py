@@ -1,7 +1,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 from sys import float_info
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
@@ -221,21 +221,29 @@ class TestOfflineEvaluationReads(TestCase):
         self.assertEqual(summary.mean, 0.0)
 
     def test_experiment_cursor_covers_equal_execution_times_and_is_bound_to_filters(self) -> None:
-        experiments = [self._experiment(name=f"Run {index}") for index in range(5)]
-        expected = sorted(experiment.id for experiment in experiments)
-        seen: list[UUID] = []
+        experiments = [
+            self._experiment(name=f"Run {index}", started_at=self.now - timedelta(days=index // 3))
+            for index in range(5)
+        ]
+        expected = sorted(experiment.id for experiment in experiments[:3]) + sorted(
+            experiment.id for experiment in experiments[3:]
+        )
         query = OfflineReadQuery(limit=2)
-        while True:
+        for offset in range(0, len(expected), query.limit):
             page = self.service.list_experiments(query)
             self.assertEqual(page.count, 5)
-            seen.extend(experiment.id for experiment in page.results)
-            if page.next_cursor is None:
-                break
-            query = replace(query, cursor=page.next_cursor)
-        self.assertEqual(seen, expected)
+            self.assertEqual([experiment.id for experiment in page.results], expected[offset : offset + query.limit])
+            if offset + query.limit < len(expected):
+                self.assertIsNotNone(page.next_cursor)
+                query = replace(query, cursor=page.next_cursor)
+            else:
+                self.assertIsNone(page.next_cursor)
         with self.assertRaises(OfflineEvaluationValidationError):
             self.service.list_experiments(replace(query, search="Run"))
-        self.assertEqual(self.service.list_experiments(OfflineReadQuery(date_to=self.now)).count, 0)
+        older_page = self.service.list_experiments(OfflineReadQuery(limit=2, date_to=self.now))
+        self.assertEqual(older_page.count, 2)
+        self.assertEqual([experiment.id for experiment in older_page.results], expected[3:])
+        self.assertIsNone(older_page.next_cursor)
         self.assertEqual(self.service.get_experiment(expected[0]).id, expected[0])
 
     def test_history_pages_experiment_version_groups_by_execution_time(self) -> None:
