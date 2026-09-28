@@ -22,6 +22,8 @@ impl DatabasePools {
     /// Default value for max_connections when config value is invalid (matches PoolConfig::default)
     const DEFAULT_MAX_CONNECTIONS: u32 = 10;
 
+    const BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS: u64 = 1000;
+
     /// Helper to build a pool configuration, overriding specific fields from the base config.
     fn build_pool_config(
         base: &PoolConfig,
@@ -69,6 +71,10 @@ impl DatabasePools {
             ),
         ]
         .into_iter()
+        .chain(config.is_behavioral_cohorts_db_configured().then_some((
+            pool_names::BEHAVIORAL_COHORTS,
+            Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
+        )))
         .filter(|&(_, statement_timeout_ms)| {
             statement_timeout_ms == 0
                 || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms
@@ -315,8 +321,13 @@ impl DatabasePools {
         // Optional behavioral cohorts database pool for realtime cohort membership lookups.
         // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
         let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
-            let pool_config =
-                Self::build_pool_config(&base_pool_config, 1, Some(5), 1000, "behavioral_cohorts");
+            let pool_config = Self::build_pool_config(
+                &base_pool_config,
+                1,
+                Some(5),
+                Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
+                pool_names::BEHAVIORAL_COHORTS,
+            );
             info!("Creating behavioral cohorts reader pool");
             Some(Arc::new(
                 get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
@@ -386,6 +397,19 @@ mod tests {
             (pool_names::PERSONS_READER, 1000),
             (pool_names::PERSONS_WRITER, 1000),
             (pool_names::NON_PERSONS_WRITER, 1000),
+        ]
+    )]
+    #[case::behavioral_cohorts_configured(
+        &[
+            ("ACQUIRE_TIMEOUT_SECS", "4"),
+            ("BEHAVIORAL_COHORTS_READ_DATABASE_URL", "postgres://localhost:5432/behavioral_cohorts"),
+        ],
+        &[
+            (pool_names::NON_PERSONS_READER, 2000),
+            (pool_names::PERSONS_READER, 1000),
+            (pool_names::PERSONS_WRITER, 1000),
+            (pool_names::NON_PERSONS_WRITER, 1000),
+            (pool_names::BEHAVIORAL_COHORTS, 1000),
         ]
     )]
     #[case::sum_equals_request_timeout(
