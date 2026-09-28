@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType } from '~/types'
@@ -33,21 +34,30 @@ const dashboard = {
 describe('TextCardModal', () => {
     afterEach(cleanup)
 
-    it.each([
-        { approved: true, expected: true },
-        { approved: false, expected: false },
-    ])('shows the agent context field: $expected when AI approval is $approved', ({ approved, expected }) => {
+    it('keeps agent context collapsed until the user opens it', async () => {
         initKeaTests(true, undefined, undefined, {
             ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: approved,
+            is_ai_data_processing_approved: true,
         })
 
         render(<TextCardModal isOpen onClose={jest.fn()} dashboard={dashboard} textTileId={null} />)
 
-        if (expected) {
-            expect(screen.getByText('Agent context')).toBeInTheDocument()
-        } else {
-            expect(screen.queryByText('Agent context')).not.toBeInTheDocument()
-        }
+        expect(screen.getByText('Agent context')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Agent context')).not.toBeInTheDocument()
+
+        await userEvent.click(screen.getByText('Agent context'))
+
+        expect(screen.getByLabelText('Agent context')).toBeInTheDocument()
+    })
+
+    it('hides agent context without AI data processing approval', () => {
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+
+        render(<TextCardModal isOpen onClose={jest.fn()} dashboard={dashboard} textTileId={null} />)
+
+        expect(screen.queryByText('Agent context')).not.toBeInTheDocument()
     })
 })

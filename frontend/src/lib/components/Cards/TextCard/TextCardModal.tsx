@@ -7,6 +7,7 @@ import { TextCardModalBodyField } from 'lib/components/Cards/TextCard/TextCardMo
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import type { TextCardModalProps } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
@@ -82,24 +83,46 @@ export function TextCardModal({
                                 )}
                             </Field>
                             {dataProcessingAccepted && (
-                                <Field name="agent_context" label="Agent context">
-                                    {({ value, onChange }) => (
-                                        <div className="flex flex-col gap-2">
-                                            <p className="m-0 text-secondary">
-                                                Reference semantic layer metrics. Add data sources, caveats, or editing
-                                                guidance for AI agents.
-                                            </p>
-                                            <LemonTextArea
-                                                value={value}
-                                                onChange={onChange}
-                                                maxLength={10000}
-                                                minRows={6}
-                                                maxRows={36}
-                                                data-attr="text-card-agent-context-edit-area"
-                                            />
-                                        </div>
-                                    )}
-                                </Field>
+                                <LemonCollapse
+                                    className="bg-bg-light"
+                                    panels={[
+                                        {
+                                            key: 'agent-context',
+                                            dataAttr: 'text-card-agent-context-collapse',
+                                            header: {
+                                                children: (
+                                                    <div className="py-1 text-left">
+                                                        <div className="font-semibold">Agent context</div>
+                                                        <div className="text-secondary text-sm font-normal">
+                                                            Reference details that PostHog AI uses for this text card.
+                                                        </div>
+                                                    </div>
+                                                ),
+                                            },
+                                            content: (
+                                                <Field name="agent_context" label="">
+                                                    {({ value, onChange }) => (
+                                                        <div className="flex flex-col gap-2">
+                                                            <p className="m-0 text-secondary">
+                                                                Reference semantic layer metrics. Add data sources,
+                                                                caveats, or editing guidance for AI agents.
+                                                            </p>
+                                                            <LemonTextArea
+                                                                aria-label="Agent context"
+                                                                value={value}
+                                                                onChange={onChange}
+                                                                maxLength={10000}
+                                                                minRows={6}
+                                                                maxRows={36}
+                                                                data-attr="text-card-agent-context-edit-area"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </Field>
+                                            ),
+                                        },
+                                    ]}
+                                />
                             )}
                             <Field name="transparent_background" label="">
                                 {({ value, onChange }) => (

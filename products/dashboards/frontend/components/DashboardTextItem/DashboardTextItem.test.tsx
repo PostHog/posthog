@@ -6,7 +6,6 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 import { DashboardPlacement, DashboardTile } from '~/types'
@@ -50,7 +49,7 @@ describe('DashboardTextItem', () => {
         }).unmount()
     })
 
-    it('shows agent context from the tile menu', async () => {
+    it('does not include agent context in the tile menu', async () => {
         render(
             <DashboardTextItem
                 tile={tile}
@@ -64,30 +63,6 @@ describe('DashboardTextItem', () => {
 
         expect(screen.getByText('Human-readable summary')).toBeInTheDocument()
         expect(screen.queryByText('Agent context')).not.toBeInTheDocument()
-
-        await userEvent.click(screen.getByLabelText('more'))
-        await userEvent.click(screen.getByText('Agent context'))
-
-        expect(screen.getByText('Semantic layer metric: activation_rate')).toBeInTheDocument()
-        expect(screen.queryByText('Human-readable summary')).not.toBeInTheDocument()
-    })
-
-    it('hides agent context from the tile menu without AI data processing approval', async () => {
-        organizationLogic.actions.loadCurrentOrganizationSuccess({
-            ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: false,
-        })
-
-        render(
-            <DashboardTextItem
-                tile={tile}
-                placement={DashboardPlacement.Dashboard}
-                dashboardId={99}
-                onEdit={jest.fn()}
-                onDuplicate={jest.fn()}
-                showEditingControls
-            />
-        )
 
         await userEvent.click(screen.getByLabelText('more'))
 
