@@ -1881,6 +1881,60 @@ async fn test_etag_304_rate_limit_enforced() {
 }
 
 #[tokio::test]
+async fn test_stale_etag_200_spends_both_budgets() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
+    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    config.flag_definitions_conditional_rate_limits = one_per_minute.parse().unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let matching_etag = format!("W/\"{etag_value}\"");
+
+    let response = get_definitions(&client, &url, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        response.status(),
+        200,
+        "A stale ETag should get a full response"
+    );
+
+    let response = get_definitions(&client, &url, &secret_token, Some(&matching_etag)).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "The stale ETag should have spent the team's 1/minute conditional override"
+    );
+
+    let response = get_definitions(&client, &url, &secret_token, None).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "The stale ETag should have spent the team's 1/minute full-response override"
+    );
+}
+
+#[tokio::test]
 async fn test_etag_returns_304_when_matching() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;

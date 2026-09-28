@@ -52,7 +52,7 @@ static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_A
 /// data for another TTL cycle.
 async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
     if !state
-        .flag_definitions_limiter
+        .flag_definitions_full_limiter
         .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
     {
         return;
@@ -64,7 +64,7 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
                 .flag_definitions_conditional_limiter
                 .update_allowlist(new_allowlist.clone());
             state
-                .flag_definitions_limiter
+                .flag_definitions_full_limiter
                 .update_allowlist(new_allowlist);
         }
         Ok(None) => {
@@ -193,7 +193,9 @@ pub async fn flags_definitions(
             .flag_definitions_conditional_limiter
             .check_rate_limit(team.id)?;
     } else {
-        state.flag_definitions_limiter.check_rate_limit(team.id)?;
+        state
+            .flag_definitions_full_limiter
+            .check_rate_limit(team.id)?;
     }
 
     // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
@@ -254,7 +256,7 @@ pub async fn flags_definitions(
     // conditional limiter already counted this request.
     if client_etag.is_some() {
         state
-            .flag_definitions_limiter
+            .flag_definitions_full_limiter
             .check_rate_limit_without_request_count(team.id)?;
     }
 

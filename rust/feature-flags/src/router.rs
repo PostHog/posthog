@@ -93,7 +93,7 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
     /// Per-team limiter for flag definitions requests with an ETag in If-None-Match.
     /// Separate budget so ETag revalidation polls don't consume the full-response budget.
     pub(crate) flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
@@ -279,7 +279,7 @@ where
     C: clock::Clock + Clone + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
-    let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
+    let flag_definitions_full_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
         config.rate_limiting_allow_list_teams.0.clone(),
@@ -290,12 +290,10 @@ where
     .expect("Failed to initialize flag definitions rate limiter")
     .with_labels(&[("budget", "full")]);
 
-    // Conditional requests (those with an ETag in If-None-Match) get their own per-team budget.
-    // Per-team overrides (LOCAL_EVAL_RATE_LIMITS) apply only to full responses. Both limiters
-    // share metric names, so dashboards that sum the counters still see every request.
+    // Both limiters share metric names, so dashboards that sum the counters still see every request.
     let flag_definitions_conditional_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_conditional_rate_per_minute,
-        std::collections::HashMap::new(),
+        config.flag_definitions_conditional_rate_limits.0.clone(),
         config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
@@ -366,7 +364,7 @@ where
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
-        flag_definitions_limiter.clone(),
+        flag_definitions_full_limiter.clone(),
         flag_definitions_conditional_limiter.clone(),
         remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
@@ -419,7 +417,7 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
-        flag_definitions_limiter,
+        flag_definitions_full_limiter,
         flag_definitions_conditional_limiter,
         remote_config_limiter,
         config: config.clone(),
@@ -647,7 +645,7 @@ fn resolve_rate_limit_capacities(
 fn spawn_rate_limiter_cleanup_task<C>(
     flags_rate_limiter: FlagsRateLimiter<C>,
     ip_rate_limiter: IpRateLimiter<C>,
-    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
     flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
@@ -663,7 +661,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 // Remove stale entries and reclaim memory
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
-                flag_definitions_limiter.cleanup();
+                flag_definitions_full_limiter.cleanup();
                 flag_definitions_conditional_limiter.cleanup();
                 remote_config_limiter.cleanup();
 
@@ -671,7 +669,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_definitions_entries", "budget" => "full")
-                    .set(flag_definitions_limiter.len() as f64);
+                    .set(flag_definitions_full_limiter.len() as f64);
                 gauge!("flags_rate_limiter_definitions_entries", "budget" => "conditional")
                     .set(flag_definitions_conditional_limiter.len() as f64);
                 gauge!("flags_rate_limiter_remote_config_entries")
@@ -680,7 +678,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
-                    definitions_entries = flag_definitions_limiter.len(),
+                    definitions_full_entries = flag_definitions_full_limiter.len(),
                     definitions_conditional_entries = flag_definitions_conditional_limiter.len(),
                     remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
