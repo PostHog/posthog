@@ -76,6 +76,7 @@ An explicit `api_key` selects a caller-owned bearer token; an empty string selec
 The official endpoint always requires a key and raises `TypeSafeNotConfigured` without one.
 Customer connections use `TypeSafeSystemOneClient` with an explicit `api_key` and `base_url`.
 That client pins DNS for explicit credentials, including an empty token for a custom endpoint, and never selects the instance gateway.
+The System One request ignores environment proxies so the connection always uses the validated address.
 AI observability additionally validates customer URLs as public HTTPS URLs.
 Redirects are rejected without reading their response bodies.
 
@@ -85,7 +86,8 @@ Callers use `client.py` rather than `typesafe_request`.
 `system_one(state=..., questions=..., source=..., model=...)` sends one state with a map of `NoulQuestion` and `ChoiceQuestion` entries.
 It returns a `SystemOneResult` with one `NoulAnswer` or `ChoiceAnswer` per question id, the versioned model that answered, and available input and output token counts.
 It raises `TypeSafeRequestFailed` on an HTTP error, and on a body that lacks the answering model or a complete answer for any question.
-The client requests uncompressed responses, streams up to 1 MiB, and checks elapsed time while reading the body, including for a 422 error body. Requests' read timeout applies to each socket read, not the whole request.
+The client requests uncompressed responses and streams up to 1 MiB, including for a 422 error body.
+Its total timeout covers response headers and body, so a server cannot extend the request by sending a slow stream.
 A choice outside the options the caller sent, or a choice without a probability for every option, counts as incomplete.
 `model` defaults to the `jev-latest` alias. A caller that tunes thresholds against one version pins that version's id, such as `jev-1.13.0`.
 Only `POST /v1/systemone` is wired up, and score questions are not.

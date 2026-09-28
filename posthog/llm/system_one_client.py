@@ -8,7 +8,6 @@ its own, and the result says which model answered.
 """
 
 from collections.abc import Mapping
-from contextlib import nullcontext
 from dataclasses import field
 from urllib.parse import urlparse, urlunparse
 
@@ -32,7 +31,8 @@ from posthog.llm.system_one import (
     build_system_one_body,
     parse_system_one_response,
 )
-from posthog.security.pinned_requests import pinned_session
+from posthog.security.pinned_requests import SSRFBlockedError, select_pinned_ip
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 logger = structlog.get_logger(__name__)
 
@@ -98,20 +98,23 @@ class TypeSafeSystemOneClient:
     base_url: str = f"{TYPESAFE_API_BASE}/v1"
 
     def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
-        with (
-            pinned_session(f"{self.base_url.rstrip('/')}/systemone") if self.api_key is not None else nullcontext(None)
-        ) as session:
-            return system_one(
-                state=state,
-                questions=questions,
-                source=self.source,
-                model=self.model,
-                priority=self.priority,
-                timeout=self.timeout,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                session=session,
-            )
+        pinned_ip = None
+        if self.api_key is not None:
+            verdict = validate_url_and_pin_ips(f"{self.base_url.rstrip('/')}/systemone")
+            if not verdict.allowed:
+                raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
+            pinned_ip = select_pinned_ip(verdict.pinned_ips)
+        return system_one(
+            state=state,
+            questions=questions,
+            source=self.source,
+            model=self.model,
+            priority=self.priority,
+            timeout=self.timeout,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            pinned_ip=pinned_ip,
+        )
 
 
 type SystemOneClient = GatewaySystemOneClient | TypeSafeSystemOneClient

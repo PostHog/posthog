@@ -86,15 +86,15 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
             "usage": {"input_tokens": 12, "output_tokens": 0},
         },
     )
-    with patch("requests.Session.request", return_value=response) as request:
+    with patch("posthog.egress.typesafe.client._send_system_one", return_value=response) as request:
         state, message = Client.validate_key(
             "system_one", "example-token", base_url="https://decisions.example.com/v1", model="custom-model"
         )
 
     assert state == expected_state
     assert (message is None) == (expected_state == "ok")
-    assert request.call_args.args == ("POST", "https://decisions.example.com/v1/systemone")
-    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer example-token"
+    assert request.call_args.kwargs["url"] == "https://decisions.example.com/v1/systemone"
+    assert request.call_args.kwargs["api_key"] == "example-token"
     assert request.call_args.kwargs["timeout"] == 10
 
 
@@ -109,7 +109,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         },
     )
     with (
-        patch("requests.Session.request", return_value=response),
+        patch("posthog.egress.typesafe.client._send_system_one", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -125,7 +125,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
 def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = Mock(status_code=status, headers={"Retry-After": "15"})
     with (
-        patch("requests.Session.request", return_value=response),
+        patch("posthog.egress.typesafe.client._send_system_one", return_value=response),
         pytest.raises(SystemOneRateLimitError) as error,
     ):
         SystemOneClient.evaluate(
@@ -157,7 +157,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
             "usage": usage,
         },
     )
-    with patch("requests.Session.request", return_value=response):
+    with patch("posthog.egress.typesafe.client._send_system_one", return_value=response):
         result = SystemOneClient.evaluate(
             api_key="example-token",
             base_url="https://decisions.example.com/v1",
@@ -176,7 +176,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 )
 def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
-        patch("requests.Session.request") as request,
+        patch("posthog.egress.typesafe.client._send_system_one") as request,
         pytest.raises(SystemOneEndpointBlockedError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
@@ -200,7 +200,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
         },
     )
     with (
-        patch("requests.Session.request", return_value=response),
+        patch("posthog.egress.typesafe.client._send_system_one", return_value=response),
         pytest.raises(StructuredOutputParseError),
     ):
         SystemOneClient.evaluate(
@@ -229,7 +229,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
 def test_system_one_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
     response = _response(status, message)
     with (
-        patch("requests.Session.request", return_value=response),
+        patch("posthog.egress.typesafe.client._send_system_one", return_value=response),
         pytest.raises(error_type),
     ):
         SystemOneClient.evaluate(
@@ -257,7 +257,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
             "latency_ms": 42,
         },
     )
-    with patch("requests.Session.request", return_value=response) as request:
+    with patch("posthog.egress.typesafe.client._send_system_one", return_value=response) as request:
         result = SystemOneClient.evaluate(
             api_key=api_key,
             base_url="https://decisions.example.com/v1/",
@@ -268,10 +268,9 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
                 "applicable": NoulQuestion(instructions="Relevant?"),
             },
         )
-    assert request.call_args.args == ("POST", "https://decisions.example.com/v1/systemone")
-    assert request.call_args.kwargs["headers"].get("Authorization") == (f"Bearer {api_key}" if api_key else None)
-    assert request.call_args.kwargs["allow_redirects"] is False
-    assert request.call_args.kwargs["json"]["model"] == "custom-model"
+    assert request.call_args.kwargs["url"] == "https://decisions.example.com/v1/systemone"
+    assert request.call_args.kwargs["api_key"] == api_key
+    assert request.call_args.kwargs["body"]["model"] == "custom-model"
     assert result.model == "custom-model-revision"
     assert result.input_tokens == 15
     assert result.output_tokens is None
@@ -289,7 +288,7 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     ],
 )
 def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) -> None:
-    with patch("requests.Session.request") as request:
+    with patch("posthog.egress.typesafe.client._send_system_one") as request:
         state, _ = SystemOneClient.validate_key("example-token", base_url=base_url, model="custom-model")
     assert state == "error"
     request.assert_not_called()
@@ -299,7 +298,7 @@ def test_private_endpoint_is_blocked() -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
-        patch("requests.Session.request") as request,
+        patch("posthog.egress.typesafe.client._send_system_one") as request,
     ):
         state, _ = SystemOneClient.validate_key("example-token", base_url="https://127.0.0.1/v1", model="custom-model")
     assert state == "error"

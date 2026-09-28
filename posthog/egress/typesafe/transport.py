@@ -6,12 +6,17 @@ like the other incarnations, so the caller owns where the API key comes from:
 :mod:`posthog.egress.typesafe.client` reads it from settings.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import requests
 
+if TYPE_CHECKING:
+    import aiohttp
+
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import AsyncEgressClient, EgressBudgetExhausted, EgressClient
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID, consume_typesafe_sync
 from posthog.egress.typesafe.observability import typesafe_egress
 
@@ -37,7 +42,21 @@ class TypeSafeClient(EgressClient):
         return TypeSafeEgressBudgetExhausted("TypeSafe egress budget exhausted; degrading", scope=scope)
 
 
+class AsyncTypeSafeClient(AsyncEgressClient):
+    observability = typesafe_egress
+
+    def _standard_headers(self) -> dict[str, str]:
+        return {"Accept": "application/json", "Accept-Encoding": "identity", "Content-Type": "application/json"}
+
+    async def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
+        return consume_typesafe_sync(scope=scope, priority=priority, source=source)
+
+    def _budget_exhausted_error(self, scope: str) -> TypeSafeEgressBudgetExhausted:
+        return TypeSafeEgressBudgetExhausted("TypeSafe egress budget exhausted; degrading", scope=scope)
+
+
 _typesafe_client = TypeSafeClient()
+_async_typesafe_client = AsyncTypeSafeClient()
 
 # A connection that will not open is never worth waiting on. A caller where a person waits for the
 # answer passes a shorter read timeout.
@@ -73,5 +92,32 @@ def typesafe_request(
         priority=priority,
         endpoint=endpoint,
         timeout=timeout,
+        **kwargs,
+    )
+
+
+async def typesafe_request_async(
+    session: aiohttp.ClientSession,
+    method: str,
+    url: str,
+    *,
+    api_key: str,
+    source: str,
+    endpoint: str,
+    scope: str = ACCOUNT_SCOPE_ID,
+    priority: Priority = Priority.NORMAL,
+    **kwargs: Any,
+) -> aiohttp.ClientResponse:
+    if priority is Priority.CRITICAL:
+        raise ValueError("TypeSafe calls must be sheddable, so use NORMAL or BATCH")
+    return await _async_typesafe_client.request(
+        session,
+        method,
+        url,
+        source=source,
+        headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+        scope=scope,
+        priority=priority,
+        endpoint=endpoint,
         **kwargs,
     )

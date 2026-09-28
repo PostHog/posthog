@@ -1,8 +1,12 @@
 import json
-from io import BytesIO
+import time
+from collections.abc import AsyncIterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
+from threading import Thread
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -46,11 +50,32 @@ _COUNTER_LABELS = {
 }
 
 
-def _response(status: int, body: str) -> requests.Response:
-    response = requests.models.Response()
-    response.status_code = status
-    response.raw = BytesIO(body.encode())
-    return response
+class _ResponseContent:
+    def __init__(self, body: str) -> None:
+        self.body = body.encode()
+        self.read_count = 0
+
+    async def iter_chunked(self, size: int) -> AsyncIterator[bytes]:
+        for offset in range(0, len(self.body), size):
+            self.read_count += 1
+            yield self.body[offset : offset + size]
+
+
+class _Response:
+    def __init__(self, status: int, body: str) -> None:
+        self.status = status
+        self.headers: dict[str, str] = {}
+        self.content = _ResponseContent(body)
+
+    async def __aenter__(self) -> "_Response":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+
+def _response(status: int, body: str) -> _Response:
+    return _Response(status, body)
 
 
 def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
@@ -81,7 +106,11 @@ class TestTypeSafeEgress(SimpleTestCase):
         before = REGISTRY.get_sample_value("typesafe_api_requests_total", labels) or 0.0
         with (
             patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True) as consume,
-            patch("requests.request", return_value=_response(200, json.dumps(_ANSWERS))) as request,
+            patch(
+                "aiohttp.ClientSession.request",
+                new_callable=AsyncMock,
+                return_value=_response(200, json.dumps(_ANSWERS)),
+            ) as request,
         ):
             result = system_one(
                 state={"ticket": "Payouts fail"},
@@ -96,7 +125,6 @@ class TestTypeSafeEgress(SimpleTestCase):
         assert kwargs["headers"].get("Authorization") == (f"Bearer {resolved_key}" if resolved_key else None)
         assert kwargs["headers"]["Accept-Encoding"] == "identity"
         assert kwargs["allow_redirects"] is False
-        assert kwargs["stream"] is True
         assert kwargs["json"] == {
             "model": "jev-latest",
             "state": {"ticket": "Payouts fail"},
@@ -167,7 +195,7 @@ class TestTypeSafeEgress(SimpleTestCase):
     ) -> None:
         with (
             patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
-            patch("requests.request", return_value=_response(status, body)),
+            patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=_response(status, body)),
             self.assertRaises(TypeSafeRequestFailed) as raised,
         ):
             system_one(state="Payouts fail", questions=_QUESTIONS, source="test")
@@ -185,34 +213,56 @@ class TestTypeSafeEgress(SimpleTestCase):
         response.headers.update(headers)
         with (
             patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
-            patch("requests.request", return_value=response),
+            patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
             self.assertRaisesRegex(TypeSafeRequestFailed, "exceeded its limits"),
         ):
             system_one(state="hello", questions=_QUESTIONS, source="test")
 
-    def test_stops_reading_a_response_after_the_total_time_limit(self) -> None:
-        response = _response(200, json.dumps(_ANSWERS))
-        with (
-            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
-            patch("requests.request", return_value=response),
-            patch.object(response.raw, "read", wraps=response.raw.read) as read,
-            patch("posthog.egress.typesafe.client.monotonic", side_effect=[0, 0, 2]),
-            self.assertRaisesRegex(TypeSafeRequestFailed, "exceeded its limits"),
-        ):
-            system_one(state="hello", questions=_QUESTIONS, source="test", timeout=1)
-        assert response.raw.closed
-        assert read.call_count == 2
+    @parameterized.expand(["headers", "body"])
+    def test_slow_response_cannot_extend_the_total_time_limit(self, slow_part: str) -> None:
+        class SlowResponse(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.connection.sendall(b"HTTP/1.1 200 OK\r\n")
+                self.connection.sendall(b"X-Slow: " if slow_part == "headers" else b"Content-Length: 20\r\n\r\n")
+                for _ in range(20):
+                    time.sleep(0.1)
+                    try:
+                        self.connection.sendall(b"x")
+                    except OSError:
+                        return
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), SlowResponse)
+        server.daemon_threads = True
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            started_at = time.monotonic()
+            with (
+                patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
+                self.assertRaises(requests.RequestException),
+            ):
+                system_one(
+                    state="hello",
+                    questions=_QUESTIONS,
+                    source="test",
+                    base_url=f"http://127.0.0.1:{server.server_port}/v1",
+                    api_key="",
+                    timeout=0.25,
+                )
+            assert time.monotonic() - started_at < 0.8
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_redirect_body_is_not_read(self) -> None:
         response = _response(302, "redirect body")
         response.headers["Location"] = "https://elsewhere.example.com/systemone"
-        response.url = "https://decisions.example.com/v1/systemone"
-        response.request = requests.Request("POST", response.url).prepare()
         with (
             patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
-            patch("requests.adapters.HTTPAdapter.send", return_value=response),
-            patch.object(response.raw, "read", wraps=response.raw.read) as read,
-            requests.Session() as session,
+            patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response) as request,
             self.assertRaises(TypeSafeRequestFailed) as raised,
         ):
             system_one(
@@ -221,10 +271,44 @@ class TestTypeSafeEgress(SimpleTestCase):
                 source="test",
                 api_key="fake-customer-key",
                 base_url="https://decisions.example.com/v1",
-                session=session,
             )
         assert raised.exception.status_code == 302
-        read.assert_not_called()
+        assert request.call_args.kwargs["allow_redirects"] is False
+        assert response.content.read_count == 0
+
+    def test_custom_endpoint_connects_to_the_validated_ip(self) -> None:
+        hosts: list[str] = []
+
+        class PinnedEndpoint(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                hosts.append(self.headers["Host"])
+                body = json.dumps(_ANSWERS).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), PinnedEndpoint)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True):
+                result = system_one(
+                    state="hello",
+                    questions=_QUESTIONS,
+                    source="test",
+                    base_url=f"http://decisions.example.com:{server.server_port}/v1",
+                    api_key="",
+                    pinned_ip=ip_address("127.0.0.1"),
+                )
+            assert result.model == "jev-1.13.0"
+            assert hosts == [f"decisions.example.com:{server.server_port}"]
+        finally:
+            server.shutdown()
+            server.server_close()
 
     @parameterized.expand(
         [
@@ -250,7 +334,7 @@ class TestTypeSafeEgress(SimpleTestCase):
     ) -> None:
         with (
             override_settings(TYPESAFE_API_KEY=api_key),
-            patch("requests.request") as request,
+            patch("aiohttp.ClientSession.request", new_callable=AsyncMock) as request,
             self.assertRaises(error),
         ):
             system_one(state="hi", questions=_QUESTIONS, source="test", priority=priority, base_url=base_url)

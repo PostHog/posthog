@@ -58,6 +58,7 @@ An empty key selects no authentication.
 Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
 Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
 Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data, using a 10-second request timeout.
+The request timeout covers response headers and body; responses over 1 MiB are rejected.
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.

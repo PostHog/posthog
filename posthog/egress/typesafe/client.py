@@ -9,8 +9,10 @@ PostHog staff only, and send no customer data. A launch that sends customer data
 opt-in from each customer and sign-off from leadership first.
 """
 
+import asyncio
 from collections.abc import Mapping
-from time import monotonic
+from ipaddress import IPv4Address, IPv6Address
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
@@ -19,7 +21,7 @@ import requests
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID
-from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request
+from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request_async
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
     JsonValue,
@@ -54,10 +56,65 @@ class TypeSafeRequestFailed(SystemOneRequestFailed):
         self.response = response
 
 
-def _prevent_redirect_body_read(response: requests.Response, **_: object) -> None:
-    if response.is_redirect:
-        # boffin: Requests reads redirect bodies while preparing Response.next, even with redirects disabled.
-        response.headers.pop("Location", None)
+async def _send_system_one(
+    *,
+    url: str,
+    body: dict[str, JsonValue],
+    api_key: str,
+    scope: str,
+    source: str,
+    priority: Priority,
+    timeout: float | tuple[float, float],
+    pinned_ip: IPv4Address | IPv6Address | None,
+) -> requests.Response:
+    import aiohttp  # noqa: PLC0415 — keep aiohttp off the Django startup path
+
+    from posthog.security.pinned_aiohttp import PinnedResolver  # noqa: PLC0415 — keep aiohttp off startup
+
+    total = sum(timeout) if isinstance(timeout, tuple) else timeout
+    connect = timeout[0] if isinstance(timeout, tuple) else timeout
+    read = timeout[1] if isinstance(timeout, tuple) else timeout
+    hostname = urlsplit(url).hostname or ""
+    connector = aiohttp.TCPConnector(resolver=PinnedResolver(hostname, pinned_ip) if pinned_ip else None)
+    # boffin: Bound headers and body together so a slow endpoint cannot hold a worker indefinitely.
+    client_timeout = aiohttp.ClientTimeout(total=total, connect=connect, sock_read=read, ceil_threshold=total + 1)
+    try:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=client_timeout, auto_decompress=False, trust_env=False
+        ) as session:
+            response = await typesafe_request_async(
+                session,
+                "POST",
+                url,
+                api_key=api_key,
+                scope=scope,
+                source=source,
+                endpoint=SYSTEM_ONE_ENDPOINT,
+                priority=priority,
+                allow_redirects=False,
+                json=body,
+            )
+            async with response:
+                content = bytearray()
+                if response.status in (200, 422):
+                    length = response.headers.get("Content-Length")
+                    try:
+                        oversized = length is not None and int(length) > MAX_RESPONSE_BYTES
+                    except ValueError:
+                        oversized = False
+                    if oversized or response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                        raise TypeSafeRequestFailed("TypeSafe response exceeded its limits")
+                    async for chunk in response.content.iter_chunked(8192):
+                        if len(content) + len(chunk) > MAX_RESPONSE_BYTES:
+                            raise TypeSafeRequestFailed("TypeSafe response exceeded its limits")
+                        content.extend(chunk)
+                result = requests.Response()
+                result.status_code = response.status
+                result.headers.update(response.headers)
+                result._content = bytes(content)
+                return result
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        raise requests.RequestException("System One endpoint request failed") from exc
 
 
 def system_one(
@@ -70,7 +127,7 @@ def system_one(
     timeout: float | tuple[float, float] = DEFAULT_TIMEOUT,
     api_key: str | None = None,
     base_url: str = f"{TYPESAFE_API_BASE}/v1",
-    session: requests.Session | None = None,
+    pinned_ip: IPv4Address | IPv6Address | None = None,
 ) -> SystemOneResult:
     """Evaluate ``state`` against every question in one call. TypeSafe answers the questions in
     parallel, so a caller asks everything it needs in one request.
@@ -95,40 +152,18 @@ def system_one(
         else scope_fingerprint(base_url, resolved_api_key)
     )
 
-    deadline = monotonic() + (sum(timeout) if isinstance(timeout, tuple) else timeout)
-    response = typesafe_request(
-        "POST",
-        f"{base_url}/systemone",
-        api_key=resolved_api_key,
-        scope=scope,
-        source=source,
-        endpoint=SYSTEM_ONE_ENDPOINT,
-        priority=priority,
-        timeout=timeout,
-        allow_redirects=False,
-        stream=True,
-        hooks={"response": _prevent_redirect_body_read},
-        session=session,
-        json=build_system_one_body(state=state, questions=questions, model=model),
+    response = asyncio.run(
+        _send_system_one(
+            url=f"{base_url}/systemone",
+            body=build_system_one_body(state=state, questions=questions, model=model),
+            api_key=resolved_api_key,
+            scope=scope,
+            source=source,
+            priority=priority,
+            timeout=timeout,
+            pinned_ip=pinned_ip,
+        )
     )
-    try:
-        if response.status_code in (200, 422):
-            length = response.headers.get("Content-Length")
-            try:
-                oversized = length is not None and int(length) > MAX_RESPONSE_BYTES
-            except ValueError:
-                oversized = False
-            if oversized or response.headers.get("Content-Encoding", "identity").lower() != "identity":
-                raise TypeSafeRequestFailed("TypeSafe response exceeded its limits")
-            body = bytearray()
-            # boffin: Check each byte so a trickling endpoint cannot keep a larger read open indefinitely.
-            for chunk in response.iter_content(chunk_size=1):
-                if monotonic() >= deadline or len(body) + len(chunk) > MAX_RESPONSE_BYTES:
-                    raise TypeSafeRequestFailed("TypeSafe response exceeded its limits")
-                body.extend(chunk)
-            response._content = bytes(body)
-    finally:
-        response.close()
 
     if response.status_code != 200:
         # A 422 body can echo the state, so keep it out of the exception that gets logged.
