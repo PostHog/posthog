@@ -1,11 +1,25 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
+from posthog.caching.warming import (
+    InsightViewAge,
+    WarmingAdmissionReason,
+    WarmingCandidate,
+    insights_to_keep_fresh,
+    schedule_warming_for_teams_task,
+    view_age_bucket,
+    warm_insight_cache_task,
+)
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -64,7 +78,12 @@ class TestWarming(APIBaseTest):
         ]
         insights = list(insights_to_keep_fresh(self.team))
         exptected_results = [
-            (2345, None),
+            WarmingCandidate(
+                insight_id=2345,
+                dashboard_id=None,
+                admission_reason=WarmingAdmissionReason.SINGLE,
+                insight_view_age=InsightViewAge.D1_3,
+            ),
         ]
         self.assertEqual(insights, exptected_results)
 
@@ -76,7 +95,12 @@ class TestWarming(APIBaseTest):
         ]
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
-            (3456, 7890),
+            WarmingCandidate(
+                insight_id=3456,
+                dashboard_id=7890,
+                admission_reason=WarmingAdmissionReason.DASHBOARD,
+                insight_view_age=InsightViewAge.NEVER,
+            ),
         ]
         self.assertEqual(insights, expected_results)
 
@@ -90,7 +114,12 @@ class TestWarming(APIBaseTest):
         ]
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
-            (3456, 7890),
+            WarmingCandidate(
+                insight_id=3456,
+                dashboard_id=7890,
+                admission_reason=WarmingAdmissionReason.DASHBOARD,
+                insight_view_age=InsightViewAge.NEVER,
+            ),
         ]
         self.assertEqual(insights, expected_results)
 
@@ -116,10 +145,41 @@ class TestWarming(APIBaseTest):
         ]
         insights = list(insights_to_keep_fresh(self.team))
         expected_results = [
-            (2345, None),
-            (3456, 7890),
+            WarmingCandidate(
+                insight_id=2345,
+                dashboard_id=None,
+                admission_reason=WarmingAdmissionReason.SINGLE,
+                insight_view_age=InsightViewAge.D1_3,
+            ),
+            WarmingCandidate(
+                insight_id=3456,
+                dashboard_id=7890,
+                admission_reason=WarmingAdmissionReason.DASHBOARD,
+                insight_view_age=InsightViewAge.NEVER,
+            ),
         ]
         self.assertEqual(insights, expected_results)
+
+
+class TestViewAgeBucket(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (None, InsightViewAge.NEVER),
+            (timedelta(0), InsightViewAge.D0_1),
+            (timedelta(hours=23), InsightViewAge.D0_1),
+            (timedelta(days=1), InsightViewAge.D1_3),
+            (timedelta(days=3), InsightViewAge.D3_7),
+            (timedelta(days=7), InsightViewAge.D7_14),
+            (timedelta(days=14), InsightViewAge.D14_30),
+            (timedelta(days=30), InsightViewAge.D30_PLUS),
+            (timedelta(days=400), InsightViewAge.D30_PLUS),
+        ]
+    )
+    def test_buckets_age_since_last_view(self, age, expected):
+        now = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+        last_viewed_at = None if age is None else now - age
+
+        self.assertEqual(view_age_bucket(last_viewed_at, now=now), expected)
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
@@ -150,15 +210,34 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self, mock_warm_insight_cache_task_si, mock_insights_to_keep_fresh, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
-        mock_insights_to_keep_fresh.return_value = iter([("1234", "5678"), ("2345", None)])
+        mock_insights_to_keep_fresh.return_value = iter(
+            [
+                WarmingCandidate(
+                    insight_id=1234,
+                    dashboard_id=5678,
+                    admission_reason=WarmingAdmissionReason.DASHBOARD,
+                    insight_view_age=InsightViewAge.NEVER,
+                ),
+                WarmingCandidate(
+                    insight_id=2345,
+                    dashboard_id=None,
+                    admission_reason=WarmingAdmissionReason.SINGLE,
+                    insight_view_age=InsightViewAge.D0_1,
+                ),
+            ]
+        )
 
         schedule_warming_for_teams_task()
 
         mock_insights_to_keep_fresh.assert_called()
         self.assertEqual(mock_warm_insight_cache_task_si.call_count, 2)
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+        self.assertEqual(
+            mock_warm_insight_cache_task_si.call_args_list,
+            [
+                call(1234, 5678, admission_reason="dashboard", insight_view_age="never"),
+                call(2345, None, admission_reason="single", insight_view_age="0-1"),
+            ],
+        )
 
 
 class TestWarmInsightCacheTask(APIBaseTest):
@@ -193,6 +272,23 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["is_cached"] is True
         assert response.json()["result"] == [[5]]
+
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
+    def test_selection_context_is_tagged_onto_the_queries_it_runs(self, mock_calculate):
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
+        tags_during_calculation = {}
+
+        def capture_tags(*args, **kwargs):
+            tags_during_calculation.update(get_query_tags().model_dump(exclude_none=True))
+            return SimpleNamespace(is_cached=False)
+
+        mock_calculate.side_effect = capture_tags
+
+        warm_insight_cache_task(insight.pk, None, admission_reason="dashboard", insight_view_age="never")
+
+        assert tags_during_calculation["warming_admission_reason"] == "dashboard"
+        assert tags_during_calculation["warming_insight_view_age"] == "never"
+        assert tags_during_calculation["insight_id"] == insight.pk
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=ClickHouseAtCapacity())
