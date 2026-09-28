@@ -33,7 +33,17 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const [showPopover, setShowPopover] = useState(false)
+    const [showNoticeInMenu, setShowNoticeInMenu] = useState(false)
     const showNewSources = showNotice && !restrictedReason
+    const showNewSourcesInMenu = showNoticeInMenu && newSources.length > 0 && !restrictedReason
+
+    const handleVisibilityChange = (visible: boolean): void => {
+        setShowPopover(visible)
+        setShowNoticeInMenu(visible && showNewSources)
+        if (visible && showNewSources) {
+            dismissNotice()
+        }
+    }
 
     const handleIntegrateClick = (integrationId: string): void => {
         if (onIntegrationSelect) {
@@ -43,7 +53,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
             )
         }
-        setShowPopover(false)
+        handleVisibilityChange(false)
     }
 
     const groups = [
@@ -52,7 +62,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         { title: 'Self-managed sources', sources: VALID_SELF_MANAGED_MARKETING_SOURCES },
     ]
     const items: LemonMenuItems = [
-        showNewSources && {
+        showNewSourcesInMenu && {
             items: [
                 {
                     key: 'new-ad-sources',
@@ -62,14 +72,6 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                             <p className="m-0 text-muted text-sm">
                                 {`Connect ${newSources.map(nativeSourceDisplayLabel).join(', ')} to compare spend and conversions.`}
                             </p>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={dismissNotice}
-                                data-attr="marketing-new-ad-sources-dismiss"
-                            >
-                                Got it
-                            </LemonButton>
                         </div>
                     ),
                 },
@@ -84,7 +86,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                     label: nativeSourceDisplayLabel(integrationId),
                     icon: <SourceIcon type={integrationId} size="xsmall" disableTooltip />,
                     tag:
-                        showNewSources && newSources.some((source) => source === integrationId)
+                        showNewSourcesInMenu && newSources.some((source) => source === integrationId)
                             ? ('new' as const)
                             : undefined,
                     disabledReason: restrictedReason,
@@ -97,7 +99,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         <LemonMenu
             items={items}
             visible={showPopover}
-            onVisibilityChange={setShowPopover}
+            onVisibilityChange={handleVisibilityChange}
             closeOnClickInside={false}
             placement="bottom-end"
             maxContentWidth

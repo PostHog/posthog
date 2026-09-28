@@ -94,7 +94,10 @@ export const OpenMenu: Story = {
         const canvas = within(canvasElement)
         await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
         await userEvent.click(canvas.getAllByText('Add source')[0])
-        await within(canvasElement.ownerDocument.body).findByText('New ad sources')
+        const body = within(canvasElement.ownerDocument.body)
+        await body.findByText('New ad sources')
+        expect(body.queryByText('Got it')).not.toBeInTheDocument()
+        await waitFor(() => expect(canvas.queryAllByText('New')).toHaveLength(0))
     },
 }
 
@@ -102,11 +105,16 @@ export const DismissedEverywhere: Story = {
     parameters: { testOptions: { snapshotTargetSelector: '[data-attr="add-source-buttons"]' } },
     play: async (context) => {
         await OpenMenu.play!(context)
+        const canvas = within(context.canvasElement)
         const body = within(context.canvasElement.ownerDocument.body)
-        await userEvent.click(await body.findByText('Got it'))
+        await userEvent.click(canvas.getByText('Dashboard'))
         await waitFor(() => expect(body.queryByText('New ad sources')).not.toBeInTheDocument())
         await waitFor(() => expect(body.queryAllByText(/^new$/i)).toHaveLength(0))
-        await userEvent.click(within(context.canvasElement).getByText('Dashboard'))
+        await userEvent.click(canvas.getAllByText('Add source')[1])
+        await body.findByText('Native integrations')
+        expect(body.queryByText('New ad sources')).not.toBeInTheDocument()
+        expect(body.queryAllByText(/^new$/i)).toHaveLength(0)
+        await userEvent.click(canvas.getByText('Setup'))
         await waitFor(() => expect(body.queryByText('Native integrations')).not.toBeInTheDocument())
     },
 }
