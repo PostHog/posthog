@@ -144,6 +144,20 @@ describe('deriveChartPreview', () => {
         )
     })
 
+    it('caps formulas that share breakdown values as separate series', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        const browsers = Array.from({ length: PREVIEW_SERIES_LIMIT - 2 }, (_, index) => `browser ${index}`)
+        const rows = [0, 1].flatMap((order) =>
+            browsers.map((browser) => series({ action: null, order, breakdown_value: browser } as Partial<TrendResult>))
+        )
+
+        expect(results(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, response(rows)))).toHaveLength(
+            PREVIEW_SERIES_LIMIT
+        )
+    })
+
     it.each([ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap, ChartDisplayType.BoxPlot])(
         'shows sample data for %s instead of querying',
         (display) => {

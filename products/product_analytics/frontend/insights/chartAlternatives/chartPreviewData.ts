@@ -202,7 +202,7 @@ function candidateRows(
 }
 
 function seriesKey(result: TrendResult): string {
-    return JSON.stringify([result.action?.order, result.breakdown_value])
+    return JSON.stringify([result.order ?? result.action?.order, result.breakdown_value])
 }
 
 // Keeps whole series, so a comparison keeps the previous-period row of each series it shows.

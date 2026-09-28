@@ -1,8 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-
 import type { InsightLogicProps } from '~/types'
 
 import { chartAlternativesLogic } from './chartAlternativesLogic'
@@ -27,10 +25,7 @@ export function ChartGallery({
     const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
     const { selectionDisabledReason } = useValues(alternativesLogic)
     const { selectChart } = useActions(alternativesLogic)
-    const previewsLogic = chartPreviewsLogic(logicProps)
-    const { chartsShown, previews } = useValues(previewsLogic)
-    const { startChartPreviews } = useActions(previewsLogic)
-    useOnMountEffect(startChartPreviews)
+    const { chartsShown, previews } = useValues(chartPreviewsLogic(logicProps))
     const suggested = previews.filter((preview) => preview.suggested)
     const remaining = previews.filter((preview) => !preview.suggested)
 
