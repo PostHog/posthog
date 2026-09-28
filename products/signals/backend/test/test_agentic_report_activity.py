@@ -1199,13 +1199,13 @@ async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch
         "products.signals.backend.temporal.agentic.report.team_expected_impact_authoring_enabled",
         lambda team_id: True,
     )
-    research_kwargs = {}
+    research_kwargs: dict[str, object] = {}
 
     result = await _run_activity_with_output(
         monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
     )
 
-    assert research_kwargs["previous_measurement_plans"]["affected-users"] == (str(row.id), plan)
+    assert research_kwargs["previous_measurement_plans"] == {"affected-users": (str(row.id), plan)}
     assert result.previous_measurement_plan_ids == {"affected-users": str(row.id)}
 
 

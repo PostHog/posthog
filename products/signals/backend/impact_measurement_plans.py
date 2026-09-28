@@ -63,6 +63,8 @@ def persist_authored_measurement_plans(
         if metric.get("goal_value") is None or metric.get("goal_direction") is None:
             continue
         metric_id = metric.get("metric_id")
+        if not isinstance(metric_id, str):
+            continue
         if metric_id in ambiguous_ids:
             continue
         current = existing.get(metric_id)
