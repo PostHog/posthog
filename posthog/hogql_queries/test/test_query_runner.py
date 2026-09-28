@@ -41,8 +41,6 @@ from posthog.schema import (
     InlineCohortCalculation,
     InsightVizNode,
     IntervalType,
-    MarketingAnalyticsAggregatedQuery,
-    MarketingAnalyticsTableQuery,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
@@ -2053,31 +2051,6 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert member_key != admin_key
-
-    @parameterized.expand(
-        [
-            ("table", MarketingAnalyticsTableQuery(properties=[])),
-            ("aggregate", MarketingAnalyticsAggregatedQuery(properties=[])),
-        ]
-    )
-    def test_marketing_queries_partition_cache_on_stored_warehouse_sources(
-        self, _name: str, query: MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery
-    ) -> None:
-        table = DataWarehouseTable.objects.create(
-            team=self.team,
-            name="campaign_costs",
-            format="Parquet",
-            url_pattern="https://bucket.s3/data/*",
-            columns={},
-        )
-        key_granted = get_query_runner(query, self.team, user=self.user).get_cache_key()
-        self._ac(
-            resource="warehouse_table",
-            resource_id=str(table.id),
-            organization_member=self.organization_membership,
-        )
-        key_denied = get_query_runner(query, self.team, user=self.user).get_cache_key()
-        assert key_denied != key_granted
 
     @parameterized.expand(RUNNER_BASES)
     def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):

@@ -295,7 +295,7 @@ export interface personsModalLogicMeta {
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
-        selectFields: (arg: any) => string[]
+        selectFields: (arg: any, arg2: any) => string[]
         actorsQuery: (
             arg: any,
             arg2: any,
@@ -663,10 +663,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         selectFields: [
-            () => [(_, p) => p.additionalSelect],
-            (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
+            () => [(_, p) => p.additionalSelect, (_, p) => p.actorsQuery],
+            (
+                additionalSelect: PersonModalLogicProps['additionalSelect'],
+                directActorsQuery: ActorsQuery | null | undefined
+            ): string[] => {
                 const extra = Object.values(additionalSelect || {})
-                return ['actor', ...extra]
+                return [...new Set(['actor', ...extra, ...(directActorsQuery?.select || [])])]
             },
         ],
         actorsQuery: [

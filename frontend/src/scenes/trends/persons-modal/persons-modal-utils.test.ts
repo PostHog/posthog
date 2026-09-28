@@ -19,7 +19,7 @@ describe('persons modal helpers', () => {
     ])('exports an actors query with its filters and without recordings: %p', (source) => {
         const query: ActorsQuery = {
             kind: NodeKind.ActorsQuery,
-            select: ['actor', 'matched_recordings'],
+            select: ['actor', 'matched_recordings', 'id'],
             orderBy: ['id'],
             search: 'example',
             source,
@@ -27,7 +27,7 @@ describe('persons modal helpers', () => {
         expect(personsModalExportContext(query, '')).toEqual({
             source: {
                 ...query,
-                select: ['actor'],
+                select: ['actor', 'id'],
                 source: { ...source, ...('includeRecordings' in source ? { includeRecordings: false } : {}) },
             },
         })

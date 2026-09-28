@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 
@@ -7,12 +8,19 @@ from parameterized import parameterized
 
 from posthog.schema import (
     InfinityValue,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsItem,
+    MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     WebAnalyticsItemKind,
 )
 
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner import (
     COSTS_EMPTY_RESULT_MAX_AGE_SECONDS,
     COSTS_EMPTY_RESULT_TTL_SECONDS,
@@ -21,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
     costs_precompute_ttl_schedule,
     strip_infinity_sentinels,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _item(change_pct: float | None) -> MarketingAnalyticsItem:
@@ -32,6 +41,43 @@ def _item(change_pct: float | None) -> MarketingAnalyticsItem:
         changeFromPreviousPct=change_pct,
         hasComparison=True,
     )
+
+
+@pytest.mark.ee
+class TestMarketingQueryCachePermissions(BaseTest):
+    @parameterized.expand(
+        [
+            ("table", MarketingAnalyticsTableQuery(properties=[])),
+            ("aggregate", MarketingAnalyticsAggregatedQuery(properties=[])),
+        ]
+    )
+    def test_marketing_queries_partition_cache_on_stored_warehouse_sources(
+        self, _name: str, query: MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="campaign_costs",
+            format="Parquet",
+            url_pattern="https://bucket.s3/data/*",
+            columns={},
+        )
+        key_granted = get_query_runner(query, self.team, user=self.user).get_cache_key()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        key_denied = get_query_runner(query, self.team, user=self.user).get_cache_key()
+        assert key_denied != key_granted
 
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)

@@ -117,14 +117,20 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_source_readiness_is_not_an_empty_result(self) -> None:
         runner = self._create_runner(
-            ActorsQuery(source=InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")])))
+            ActorsQuery(
+                source=InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="2023-01-10")
+            )
         )
         assert runner.source_query_runner is not None
         with patch.object(runner.source_query_runner, "to_actors_query", side_effect=ActorsQueryNotReady):
-            response = runner.calculate()
+            response = runner.run(user=self.user)
         assert response.precomputeNotReady is True
         assert response.results == []
         assert response.hasMore is False
+
+        ready_response = self._create_runner(runner.query).run(user=self.user)
+        assert ready_response.is_cached is False
+        assert not ready_response.precomputeNotReady
 
     def test_source_access_checks_apply_to_actor_queries(self) -> None:
         runner = self._create_runner(

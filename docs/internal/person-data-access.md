@@ -58,6 +58,7 @@ Individual recording links still require matched recordings in the response.
 
 A source that is preparing its data can raise `ActorsQueryNotReady`.
 `ActorsQueryRunner` returns `precomputeNotReady: true`, and the modal shows a preparation message instead of an empty result.
+Query runners do not cache this unfinished response, so reopening the list can show the prepared data.
 
 ## Legacy paths
 

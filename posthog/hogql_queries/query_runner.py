@@ -2808,10 +2808,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     w.model_dump() for w in warnings_accumulator.values()
                 ] + other_warnings
 
-            # Don't cache debug queries with errors and export queries
+            # Don't cache debug queries with errors and export queries.
+            # Unfinished preparation must not keep serving an empty result after the source is ready.
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
-            cacheable = not has_error and self.limit_context != LimitContext.EXPORT
+            cacheable = (
+                not has_error
+                and self.limit_context != LimitContext.EXPORT
+                and not fresh_response_dict.get("precomputeNotReady", False)
+            )
 
             # Stored with the results, so a cache hit carries the numbers of the run that produced
             # them.

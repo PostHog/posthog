@@ -26,6 +26,7 @@ describe('personsModalLogic', () => {
         const actorsQuery: ActorsQuery = {
             kind: NodeKind.ActorsQuery,
             orderBy: ['id'],
+            select: ['id', 'actor'],
             search: 'example',
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -52,7 +53,12 @@ describe('personsModalLogic', () => {
                 recordingFilters: null,
             })
         expect(requests).toHaveLength(1)
-        expect(requests[0]).toMatchObject({ orderBy: ['id'], source: actorsQuery.source, search: 'example' })
+        expect(requests[0]).toMatchObject({
+            orderBy: ['id'],
+            select: ['actor', 'id'],
+            source: actorsQuery.source,
+            search: 'example',
+        })
     })
 
     it('keeps the direct source while paginating and resets pagination when searching', async () => {
