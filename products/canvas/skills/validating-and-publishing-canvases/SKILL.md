@@ -105,7 +105,7 @@ For an edit with `canvas-edit-create`:
 - A 400 lists each failed operation by index. `edit_no_match` shows the closest lines of the file and `edit_ambiguous_match` lists the lines that match.
   Fix those operations from the diagnostic and send the edit again. If one replacement fails twice, `write` that whole file instead.
 - The response returns the new `current_version_id`. Pass it to the next edit.
-  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when someone else changed it.
+  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when the canvas changed.
 
 For a whole-project publish with `canvas-publish-create`:
 
@@ -179,9 +179,20 @@ A 409 means the canvas moved past your base — a concurrent publish or a revert
 includes the live `current_version_id`. Never retry unguarded to force your version through:
 
 1. Re-read the source with `canvas-source-retrieve`.
-2. Re-apply your edits to the fresh source (the new head may contain someone else's changes —
+2. Re-apply your edits to the fresh source (the new head may contain other changes —
    preserve them).
 3. Publish again with the new `current_version_id`.
+
+### The person you work for is a co-editor
+
+The person who sends you requests can also edit the canvas in the desktop editor: they change text, move blocks, and add blocks.
+Each save in the editor publishes a new version.
+So a 409 on a new request usually means they saved their own edits since your last turn. It does not mean that a third party changed the canvas.
+
+- Keep their edits and re-apply yours as above. This is normal co-editing, so do not report it.
+- Do not tell them what they changed, and do not call them "someone" or "another editor". They know what they did.
+- Mention their edit only when it changed your work, for example when you had to rewrite or remove something they added, or when their edit and the request touch the same block.
+  Then say "your edit to …" in one sentence.
 
 ## Version history semantics
 
