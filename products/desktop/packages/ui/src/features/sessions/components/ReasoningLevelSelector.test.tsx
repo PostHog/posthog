@@ -970,6 +970,48 @@ describe("ReasoningLevelSelector", () => {
     expect(onModelChange).not.toHaveBeenCalled();
   }, 20000);
 
+  it.each(["own-subscription", "posthog-gateway"] as const)(
+    "blocks GPT-6 Sol on Codex with %s billing",
+    async (modelAccess) => {
+      const onModelChange = vi.fn();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <Theme>
+          <ReasoningLevelSelector
+            thoughtOption={thoughtOption()}
+            modelOption={
+              {
+                ...mixedModelOption("gpt-5.6-sol"),
+                options: [
+                  { value: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+                  { value: "gpt-6-sol", name: "GPT-6 Sol" },
+                ],
+              } as SessionConfigOption
+            }
+            adapter="codex"
+            modelAccess={modelAccess}
+            onModelChange={onModelChange}
+          />
+        </Theme>,
+      );
+
+      await openAdvanced(user, /^Model and reasoning/);
+      await openSub(user, /^Model/);
+      const blockedModel = await screen.findByRole("menuitemradio", {
+        name: /GPT-6 Sol/,
+      });
+      expect(within(blockedModel).getByText("GPT-6 Sol")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "GPT-6 Sol is not available with Codex. Choose another model.",
+        ),
+      ).toBeInTheDocument();
+      fireEvent.click(blockedModel);
+      expect(onModelChange).not.toHaveBeenCalled();
+    },
+    20000,
+  );
+
   it("lets every model through on PostHog credits", async () => {
     const onModelChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });

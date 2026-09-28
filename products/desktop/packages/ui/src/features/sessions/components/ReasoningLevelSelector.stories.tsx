@@ -192,7 +192,7 @@ export const Default: Story = {};
 
 export const Codex: Story = {
   render: function CodexStory(): ReactElement {
-    const [model, setModel] = useState("gpt-6-sol");
+    const [model, setModel] = useState("gpt-5.6-terra");
     const [effort, setEffort] = useState("medium");
     return (
       <div className="flex h-[520px] items-end p-2">

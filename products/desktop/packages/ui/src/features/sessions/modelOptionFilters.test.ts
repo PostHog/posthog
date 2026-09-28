@@ -33,6 +33,27 @@ describe("modelOptionFilters", () => {
   ];
   const noFlags: ModelRolloutFlags = {};
 
+  it("removes the Codex model before a saved pick can restore it", () => {
+    const option: SessionConfigOption = {
+      type: "select",
+      id: "model",
+      name: "Model",
+      currentValue: "gpt-6-sol",
+      options: [
+        { value: "gpt-6-sol", name: "GPT-6 Sol" },
+        { value: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      ],
+    };
+
+    expect(stripDisabledModelOption(option, noFlags)).toMatchObject({
+      currentValue: "gpt-5.6-sol",
+      options: [{ value: "gpt-5.6-sol" }],
+    });
+    expect(stripDisabledModels([{ id: "gpt-6-sol" }], noFlags)).toEqual([
+      { id: "gpt-6-sol" },
+    ]);
+  });
+
   it.each(openWeightsModels)(
     "offers $name, which the catalog does not gate",
     ({ id, name }) => {

@@ -42,6 +42,12 @@ export function normalizeModelId(modelId: string): string {
   return normalized;
 }
 
+// Codex can advertise this model even when the account used by the harness rejects it.
+// Keep the temporary picker guard separate from the catalog so Pi can still use it.
+export function isUnavailableCodexModel(modelId: string): boolean {
+  return normalizeModelId(modelId) === "gpt-6-sol";
+}
+
 /**
  * The efforts this model may run at, empty when it takes no effort at all.
  *

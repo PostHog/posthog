@@ -16,6 +16,7 @@ import {
   type AcpMessage,
   FAST_MODE_FLAG,
   isTerminalStatus,
+  isUnavailableCodexModel,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -184,6 +185,10 @@ export function SessionView({
   const adapter = useSessionSelector(taskId, (session) =>
     session ? (getCloudRuntimeOptions(session).adapter ?? "claude") : "claude",
   );
+  const blockedCodexModel =
+    adapter === "codex" &&
+    sessionModelOption?.type === "select" &&
+    isUnavailableCodexModel(sessionModelOption.currentValue);
   const isCloudRunTerminal = useSessionSelector(
     taskId,
     (session) => !!session?.isCloud && isTerminalStatus(session.cloudStatus),
@@ -428,7 +433,7 @@ export function SessionView({
   );
   const handleSubmit = useCallback(
     async (text: string): Promise<void> => {
-      if (!text.trim() || sendInFlightRef.current) return;
+      if (!text.trim() || sendInFlightRef.current || blockedCodexModel) return;
 
       sendInFlightRef.current = true;
       const submissionId = ++composerSubmissionRef.current;
@@ -463,7 +468,7 @@ export function SessionView({
         sendInFlightRef.current = false;
       }
     },
-    [onSendPrompt],
+    [blockedCodexModel, onSendPrompt],
   );
 
   const handleBeforeSubmit = useCallback(
@@ -812,6 +817,7 @@ export function SessionView({
                           !isOnline ||
                           attachmentsUploading ||
                           attachmentUploadFailed ||
+                          blockedCodexModel ||
                           spendStop !== null
                         }
                         clearOnSubmit={false}
@@ -822,9 +828,11 @@ export function SessionView({
                               ? "Uploading attachments…"
                               : attachmentUploadFailed
                                 ? "Attachment upload failed"
-                                : spendStop
-                                  ? spendStopMessage(spendStop)
-                                  : undefined
+                                : blockedCodexModel
+                                  ? "GPT-6 Sol is not available with Codex. Choose another model."
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                         }
                         isLoading={!!isPromptPending}
                         isActiveSession={isActiveSession}
