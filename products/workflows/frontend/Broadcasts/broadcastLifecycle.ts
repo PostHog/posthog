@@ -49,32 +49,65 @@ function errorDetail(error: any): string {
     return error?.detail || error?.message || 'unknown error'
 }
 
-export function confirmArchiveBroadcast(projectId: string, broadcast: ManagedBroadcast, onDone: () => void): void {
+export interface ManageBroadcastCallbacks {
+    onDone: () => void
+    /** Marks the broadcast busy while its request runs, so its controls can't send a second, overlapping request. */
+    setPending: (pending: boolean) => void
+}
+
+/** Wait text for the controls of a broadcast that has a request in flight. */
+export const PENDING_DISABLED_REASON = 'Wait for the current change to finish'
+
+async function runPending(
+    { onDone, setPending }: ManageBroadcastCallbacks,
+    request: () => Promise<boolean>
+): Promise<void> {
+    setPending(true)
+    let succeeded = false
+    try {
+        succeeded = await request()
+    } finally {
+        setPending(false)
+    }
+    // After the pending flag clears, as onDone can leave the page and unmount the logic.
+    if (succeeded) {
+        onDone()
+    }
+}
+
+export function confirmArchiveBroadcast(
+    projectId: string,
+    broadcast: ManagedBroadcast,
+    callbacks: ManageBroadcastCallbacks
+): void {
     LemonDialog.open({
         width: 500,
         title: 'Archive broadcast?',
         description: `"${label(broadcast)}" moves to the archived list and any schedule stops sending. You can restore it later as a draft.`,
+        shouldAwaitSubmit: true,
         primaryButton: {
             children: 'Archive',
             type: 'primary',
             status: 'danger',
             'data-attr': 'broadcast-archive-confirm',
-            onClick: async () => {
-                try {
-                    // A send can start between opening the menu and confirming, so the runs are checked again here.
-                    const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
-                    const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
-                    if (runningReason) {
-                        lemonToast.error(runningReason)
-                        return
+            onClick: () =>
+                runPending(callbacks, async () => {
+                    try {
+                        // A send can start between opening the menu and confirming, so the runs are checked again here.
+                        const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
+                        const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
+                        if (runningReason) {
+                            lemonToast.error(runningReason)
+                            return false
+                        }
+                        await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
+                        lemonToast.success(`Archived "${label(broadcast)}"`)
+                        return true
+                    } catch (error: any) {
+                        lemonToast.error(`Couldn't archive the broadcast: ${errorDetail(error)}`)
+                        return false
                     }
-                    await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
-                    lemonToast.success(`Archived "${label(broadcast)}"`)
-                    onDone()
-                } catch (error: any) {
-                    lemonToast.error(`Couldn't archive the broadcast: ${errorDetail(error)}`)
-                }
-            },
+                }),
         },
         secondaryButton: { children: 'Cancel' },
     })
@@ -83,36 +116,46 @@ export function confirmArchiveBroadcast(projectId: string, broadcast: ManagedBro
 export async function restoreBroadcast(
     projectId: string,
     broadcast: ManagedBroadcast,
-    onDone: () => void
+    callbacks: ManageBroadcastCallbacks
 ): Promise<void> {
-    try {
-        await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'draft' })
-        lemonToast.success(`Restored "${label(broadcast)}" as a draft`)
-        onDone()
-    } catch (error: any) {
-        lemonToast.error(`Couldn't restore the broadcast: ${errorDetail(error)}`)
-    }
+    await runPending(callbacks, async () => {
+        try {
+            await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'draft' })
+            lemonToast.success(`Restored "${label(broadcast)}" as a draft`)
+            return true
+        } catch (error: any) {
+            lemonToast.error(`Couldn't restore the broadcast: ${errorDetail(error)}`)
+            return false
+        }
+    })
 }
 
-export function confirmDeleteBroadcast(projectId: string, broadcast: ManagedBroadcast, onDone: () => void): void {
+export function confirmDeleteBroadcast(
+    projectId: string,
+    broadcast: ManagedBroadcast,
+    callbacks: ManageBroadcastCallbacks
+): void {
     LemonDialog.open({
         width: 500,
         title: 'Delete broadcast?',
         description: `"${label(broadcast)}" and its settings are deleted for good. This can't be undone.`,
+        shouldAwaitSubmit: true,
         primaryButton: {
             children: 'Delete',
             type: 'primary',
             status: 'danger',
             'data-attr': 'broadcast-delete-confirm',
-            onClick: async () => {
-                try {
-                    await hogFlowsDestroy(projectId, broadcast.id)
-                    lemonToast.success(`Deleted "${label(broadcast)}"`)
-                    onDone()
-                } catch (error: any) {
-                    lemonToast.error(`Couldn't delete the broadcast: ${errorDetail(error)}`)
-                }
-            },
+            onClick: () =>
+                runPending(callbacks, async () => {
+                    try {
+                        await hogFlowsDestroy(projectId, broadcast.id)
+                        lemonToast.success(`Deleted "${label(broadcast)}"`)
+                        return true
+                    } catch (error: any) {
+                        lemonToast.error(`Couldn't delete the broadcast: ${errorDetail(error)}`)
+                        return false
+                    }
+                }),
         },
         secondaryButton: { children: 'Cancel' },
     })

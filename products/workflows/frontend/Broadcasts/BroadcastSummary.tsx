@@ -27,7 +27,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { PENDING_DISABLED_REASON, archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -265,6 +265,7 @@ export function BroadcastSummary(): JSX.Element {
         hasLoadedBatchJobs,
         canMoveToDraft,
         movingToDraft,
+        managingBroadcast,
         canEditContent,
         duplicating,
         summaryStatus,
@@ -315,7 +316,8 @@ export function BroadcastSummary(): JSX.Element {
     ]
 
     const isArchived = broadcast?.status === 'archived'
-    const accessReason = manageDisabledReason(broadcast?.user_access_level)
+    const accessReason =
+        manageDisabledReason(broadcast?.user_access_level) ?? (managingBroadcast ? PENDING_DISABLED_REASON : undefined)
     const actionItems = [
         canMoveToDraft
             ? { label: 'Stop and edit', onClick: confirmMoveToDraft, 'data-attr': 'broadcast-move-to-draft' }
@@ -359,7 +361,7 @@ export function BroadcastSummary(): JSX.Element {
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronDown />}
-                loading={movingToDraft || duplicating}
+                loading={movingToDraft || duplicating || managingBroadcast}
                 data-attr="broadcast-actions"
             >
                 Actions

@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { PENDING_DISABLED_REASON, archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import {
     BROADCASTS_PAGE_SIZE,
     BroadcastsStatusFilter,
@@ -32,8 +32,16 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending, loadFailed } =
-        useValues(broadcastsLogic)
+    const {
+        broadcasts,
+        broadcastsLoading,
+        hasLoadedBroadcasts,
+        rowDetailsById,
+        pendingBroadcastIds,
+        filters,
+        filtersPending,
+        loadFailed,
+    } = useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
     const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
@@ -91,7 +99,9 @@ export function BroadcastsTable(): JSX.Element {
             width: 0,
             render: function Render(_, item) {
                 const isArchived = item.status === 'archived'
-                const accessReason = manageDisabledReason(item.user_access_level)
+                const accessReason =
+                    manageDisabledReason(item.user_access_level) ??
+                    (pendingBroadcastIds[item.id] ? PENDING_DISABLED_REASON : undefined)
                 return (
                     <More
                         overlay={
