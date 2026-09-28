@@ -589,9 +589,6 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert live_config["inputs"]["email"]["value"]["subject"] == "Edited after insert"
 
     def test_web_save_does_not_refill_a_cleared_linked_step_from_its_template(self):
-        # A web save sends the whole email, so an empty body is one the user cleared. The link is
-        # provenance only on this path: publish reports the missing body, even once the template is
-        # gone, instead of refilling it or failing on a template id the user never typed.
         flow_id, template = self._stage_linked_web_edit({"subject": "", "text": "", "html": "", "design": None})
 
         draft_value = _stored_email_value(HogFlow.objects.get(pk=flow_id), from_draft=True)
@@ -604,8 +601,6 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
 
     @parameterized.expand([("canvas_enable",), ("refresh_command",)])
     def test_internal_resave_does_not_refill_a_cleared_linked_step_from_its_template(self, resave: str):
-        # Internal re-saves carry no request source. Programmatic callers had their body filled
-        # in when they saved, so a re-save must keep the stored body, even when it is empty.
         template = self._create_library_template()
         cleared_step = _email_action()["config"]
         cleared_step["template_uuid"] = str(template.id)
@@ -633,8 +628,6 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         ]
 
     def test_web_save_stores_an_unresolvable_template_reference_as_provenance(self):
-        # Web saves never resolve the reference, so a dangling one does not block a draft save.
-        # Programmatic saves reject it (test_unresolvable_template_uuid_is_rejected_on_strict_save).
         response = self._post_flow(
             {"template_id": "template-email", "template_uuid": "0199aabb-ccdd-0000-1122-334455667788", "inputs": {}},
             mcp=False,

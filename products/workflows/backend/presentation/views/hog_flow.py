@@ -583,6 +583,10 @@ _TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
 MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
 
 
+def _is_programmatic_save(context: dict) -> bool:
+    return context.get("event_source") not in (None, EventSource.WEB)
+
+
 def _apply_email_template_content(config: dict, team: Team, context: dict) -> None:
     """Materialize a referenced saved template's email body into the step's inputs at save,
     mirroring what the web editor does when a template is picked (snapshot semantics: later
@@ -592,13 +596,7 @@ def _apply_email_template_content(config: dict, team: Team, context: dict) -> No
     template_uuid = config.get("template_uuid")
     if not template_uuid:
         return
-    # The web editor copies the template body in itself and saves the whole email, so an empty
-    # body there is one the user cleared. Internal re-saves (canvas enable, the refresh command)
-    # have no request source and re-persist bodies that were filled in when they were saved.
-    # Refilling on either path would undo a cleared email and could put template content live.
-    # Programmatic drafts always validate strictly, so every save that gets past this is strict.
-    source = context.get("event_source")
-    if source is None or source == EventSource.WEB:
+    if not _is_programmatic_save(context):
         return
     inputs = config.get("inputs")
     email_input = inputs.get("email") if isinstance(inputs, dict) else None

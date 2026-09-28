@@ -192,11 +192,9 @@ describe('emailTemplaterLogic', () => {
             { description: 'reports the template id to a host that tracks it', tracksLink: true },
             { description: 'still applies the content for a host that does not track it', tracksLink: false },
         ])('applying a template $description', async ({ tracksLink }) => {
-            // One log for both callbacks, so the assertion also checks that the host gets the
-            // content before the link it stores next to that content.
-            const calls: string[] = []
-            const onChange = (value: EmailTemplate): void => void calls.push(`content: ${value.subject}`)
-            const onTemplateApplied = (templateId: string): void => void calls.push(`link: ${templateId}`)
+            const callbackOrder: string[] = []
+            const onChange = (value: EmailTemplate): void => void callbackOrder.push(`content: ${value.subject}`)
+            const onTemplateApplied = (templateId: string): void => void callbackOrder.push(`link: ${templateId}`)
             logic = emailTemplaterLogic(makeProps({ onChange, ...(tracksLink ? { onTemplateApplied } : {}) }))
             logic.mount()
 
@@ -204,7 +202,9 @@ describe('emailTemplaterLogic', () => {
                 logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
             }).toFinishAllListeners()
 
-            expect(calls).toEqual(tracksLink ? ['content: Subject A', 'link: template-a'] : ['content: Subject A'])
+            expect(callbackOrder).toEqual(
+                tracksLink ? ['content: Subject A', 'link: template-a'] : ['content: Subject A']
+            )
         })
     })
 

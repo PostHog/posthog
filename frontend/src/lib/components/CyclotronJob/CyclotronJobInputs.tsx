@@ -130,8 +130,6 @@ export type CyclotronJobInputsProps = {
     // (the workflow builder's auto-save). Only the email input types read these.
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
-    // Called with the Library template's id when one is inserted into an email input, for a host
-    // that stores which template the email is based on. Only the email input types read this.
     onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void

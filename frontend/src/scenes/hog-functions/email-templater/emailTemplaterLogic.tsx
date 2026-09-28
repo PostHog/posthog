@@ -204,8 +204,6 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
-    // Called with the Library template's id after its content is inserted, for hosts that store
-    // which template the email is based on (the workflow email step's config.template_uuid).
     onTemplateApplied?: (templateId: string) => void
 }
 

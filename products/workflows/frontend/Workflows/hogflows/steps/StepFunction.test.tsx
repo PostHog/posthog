@@ -70,7 +70,6 @@ const emailStep = {
     },
 } as StepAction
 
-// A generic destination step whose template happens to have an email input, e.g. Mailgun.
 const destinationStep = {
     id: STEP_ID,
     type: 'function',
@@ -144,7 +143,6 @@ const makeWorkflow = (status: HogFlow['status'], step: StepAction): HogFlow => (
     updated_at: '2026-05-01T00:00:00.000Z',
 })
 
-// The editor panel hands the step its node from the live workflow, so edits flow back into it.
 function LiveStep(): JSX.Element {
     const { workflow } = useValues(workflowLogic)
     const action = workflow.actions.find((a) => a.id === STEP_ID) as StepAction
@@ -175,18 +173,15 @@ async function renderStep(
                     savedBodies.push(body)
                     return [200, { ...workflow, ...body }]
                 },
-                // The first save marks onboarding tasks complete on the team.
                 '/api/projects/:team_id/': MOCK_DEFAULT_TEAM,
             },
         })
     )
     initKeaTests()
-    // The email editor reads preflight on render, so let the common logics finish loading it first.
     await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
     const logic = workflowLogic(LOGIC_PROPS)
     logic.mount()
     await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
-    // The test triggers the one save it inspects, so auto-save can't race it.
     logic.actions.setAutoSaveEnabled(false)
 
     render(
@@ -194,14 +189,16 @@ async function renderStep(
             <LiveStep />
         </BindLogic>
     )
-    // The step's first read of the lazy-loaded hog function templates reloads them, and the step
-    // shows a spinner until they land, so wait for that before touching the email editor.
     await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
     return { logic, savedBodies }
 }
 
 async function pickLibraryTemplate(template: MessageTemplate): Promise<void> {
     fireEvent.click(await screen.findByText(template.name))
+}
+
+async function waitForTemplatePickerToClose(): Promise<void> {
+    await waitFor(() => expect(screen.queryByText('Choose a starting point')).not.toBeInTheDocument())
 }
 
 function stepConfig(logic: ReturnType<typeof workflowLogic.build>): Record<string, any> {
@@ -252,9 +249,7 @@ describe('StepFunctionConfiguration', () => {
         fireEvent.click(await screen.findByText('Start from template'))
         await pickLibraryTemplate(SPRING_TEMPLATE)
         await waitFor(() => expect(stepConfig(logic).template_uuid).toEqual(SPRING_TEMPLATE.id))
-        // The picker unmounts after its close transition. Reopening it earlier makes react-modal
-        // register the same instance twice.
-        await waitFor(() => expect(screen.queryByText('Choose a starting point')).not.toBeInTheDocument())
+        await waitForTemplatePickerToClose()
 
         emailTemplaterLogic.findMounted()!.actions.setIsTemplatePickerOpen(true)
         await pickLibraryTemplate(SUMMER_TEMPLATE)
