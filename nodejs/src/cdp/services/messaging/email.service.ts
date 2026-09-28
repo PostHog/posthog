@@ -31,7 +31,11 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
-import { RecipientTokensService } from './recipient-tokens.service'
+import {
+    PreferencesTokenSource,
+    RecipientTokensService,
+    preferencesTokenSourceForInvocation,
+} from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -1096,10 +1100,10 @@ export class EmailService {
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
             const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders({
-                      team_id: result.invocation.teamId,
-                      identifier: params.to.email,
-                  })
+                ? this.generateUnsubscribeHeaders(
+                      { team_id: result.invocation.teamId, identifier: params.to.email },
+                      preferencesTokenSourceForInvocation(result.invocation)
+                  )
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
         }
@@ -1134,12 +1138,13 @@ export class EmailService {
     }
 
     private generateUnsubscribeHeaders(
-        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
+        source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}>`,
+                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
             },
             {
                 Name: 'List-Unsubscribe-Post',
