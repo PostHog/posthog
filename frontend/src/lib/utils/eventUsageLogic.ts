@@ -1608,18 +1608,12 @@ export interface eventUsageLogicActions {
     reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
         survey: NewSurvey | Survey
     }
-    reportSurveyEdited: (survey: Survey) => {
-        survey: Survey
-    }
     reportSurveyTemplateClicked: (
         template: SurveyTemplateType,
         source?: string
     ) => {
         source: string | undefined
         template: SurveyTemplateType
-    }
-    reportSurveyViewed: (survey: Survey) => {
-        survey: Survey
     }
     reportTaxonomicFilterCategorySelected: (
         groupType: TaxonomicFilterGroupType,
@@ -2090,9 +2084,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        reportSurveyViewed: (survey: Survey) => ({
-            survey,
-        }),
         reportSurveyCreated: (
             survey: Survey,
             isDuplicate?: boolean,
@@ -2102,7 +2093,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source,
             meta,
         }),
-        reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType, source?: string) => ({ template, source }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportSurveyConsolidatedResultsQuery: (
@@ -2866,46 +2856,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_duplicate: isDuplicate ?? false,
                 creation_source: creationSource ?? 'full_editor',
                 linked_insight_id: survey.linked_insight_id,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
-            })
-        },
-        reportSurveyViewed: ({ survey }) => {
-            posthog.capture('survey viewed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyEdited: ({ survey }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey edited', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
