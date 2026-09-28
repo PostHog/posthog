@@ -47,8 +47,8 @@ export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length
 
 /** Prompt field with a Max entry point that drafts the prompt and fills it back into the form.
  *
- * The example shows as an "e.g." placeholder with a button that fills it in. A bare example
- * placeholder reads as pre-filled text, so users clicked Next on an empty prompt. */
+ * The example shows as an "e.g." placeholder with a button that fills it in, because a bare
+ * example placeholder looks like pre-filled text. */
 function ScannerPromptField({
     scannerId,
     example,
