@@ -839,6 +839,16 @@ CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
 )
 
+# Named for the same reason as the Codex message above, and worded for whoever is actually
+# listening. PostHog Desktop is no longer the only client that can answer a credential
+# request — an API caller relays the token itself — so telling everyone to "open Desktop"
+# leaves those callers with no way to act on the one error that ends their run.
+CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "The Claude token did not arrive. Whoever started this run has to answer its "
+    "credential_request within 120 seconds: PostHog Desktop answers from Settings > Harness, "
+    "and an API caller relays the token to the run's command endpoint. Then start the task again."
+)
+
 # The agent-server option each adapter's own-subscription runs need. The launcher greps the
 # binary for it before it starts a run, so both uses read the same name.
 SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
@@ -870,7 +880,7 @@ def wait_for_health_check(
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
         raise ProcessTaskFatalError(
-            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
             {"sandbox_id": sandbox_id},
             RuntimeError("Claude token unavailable"),
             capture=False,
