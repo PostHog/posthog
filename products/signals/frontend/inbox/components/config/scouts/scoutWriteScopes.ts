@@ -2,16 +2,14 @@
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision'
+    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision' | 'Feature flags'
     label: string
     description: string
 }
 
 /**
  * The scopes a person may grant one scout, mirroring `SCOUT_GRANTABLE_WRITE_SCOPES` in
- * `posthog/temporal/oauth.py`. A scope the backend drops from the allowlist may still be stored on
- * old configs: the picker shows nothing for it and drops it from the next save, since the API would
- * reject it. A scope added there needs a row added here to be offered. Descriptions say what the
+ * `posthog/temporal/oauth.py`. A scope added there needs a row added here to be offered. Descriptions say what the
  * scope reaches, because each one covers update and delete of every object of its kind in the
  * project, not only the ones the scout made.
  *
@@ -71,6 +69,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         description:
             'Create and update scanners, rate observations, and apply prompt suggestions. A scanner spends credits as it runs, so a scout has to give any it creates a credit limit. Scouts cannot delete scanners',
     },
+    {
+        scope: 'feature_flag:write',
+        group: 'Feature flags',
+        label: 'Feature flags',
+        description:
+            'Create, update, enable, disable, archive, and delete any flag in the project, not only stale ones. A flag change is a change to what your users see, including for the experiments, surveys, and early access features that run on flags',
+    },
 ]
 
 /** What every scout can write, whatever its grant. Shown so the picker is the whole picture. */
@@ -84,7 +89,6 @@ export function scoutWriteScopeLabels(scopes: readonly string[] | undefined): st
     return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes?.includes(row.scope)).map((row) => row.label)
 }
 
-/** The scopes the picker offers a row for, in row order. Anything else stored on a config is stale. */
-export function offeredScoutWriteScopes(scopes: readonly string[]): string[] {
-    return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes.includes(row.scope)).map((row) => row.scope)
+export function toggleScoutWriteScope(scopes: readonly string[], scope: string, granted: boolean): string[] {
+    return granted ? [...new Set([...scopes, scope])] : scopes.filter((held) => held !== scope)
 }

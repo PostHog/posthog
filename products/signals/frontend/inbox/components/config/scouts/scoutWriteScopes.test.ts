@@ -1,4 +1,4 @@
-import { offeredScoutWriteScopes, scoutWriteScopeLabels } from './scoutWriteScopes'
+import { scoutWriteScopeLabels, toggleScoutWriteScope } from './scoutWriteScopes'
 
 describe('scoutWriteScopes', () => {
     it('labels only the scopes the picker offers', () => {
@@ -10,13 +10,15 @@ describe('scoutWriteScopes', () => {
                 'llm_skill:write',
                 'dashboard:write',
                 'replay_scanner:write',
+                'feature_flag:write',
                 'cohort:write',
             ])
-        ).toEqual(['Dashboards', 'Insights', 'Skills', 'Replay vision scanners'])
+        ).toEqual(['Dashboards', 'Insights', 'Skills', 'Replay vision scanners', 'Feature flags'])
     })
 
-    it('drops a stored scope the picker has no row for', () => {
-        // Carrying it into a save would get the whole update rejected, with no switch to clear it.
-        expect(offeredScoutWriteScopes(['cohort:write', 'alert:write'])).toEqual(['alert:write'])
+    it('preserves unknown scopes when a known grant changes', () => {
+        expect(toggleScoutWriteScope(['future:write', 'alert:write'], 'alert:write', false)).toEqual(['future:write'])
+        expect(toggleScoutWriteScope(['future:write'], 'alert:write', true)).toEqual(['future:write', 'alert:write'])
+        expect(toggleScoutWriteScope(['alert:write'], 'alert:write', true)).toEqual(['alert:write'])
     })
 })

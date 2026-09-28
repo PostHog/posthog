@@ -50,6 +50,7 @@ export const EveryScopeInANarrowRow: Story = {
                     'warehouse_view:write',
                     'warehouse_table:write',
                     'replay_scanner:write',
+                    'feature_flag:write',
                 ]}
             />
         </div>
