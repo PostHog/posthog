@@ -695,7 +695,7 @@ export const ListPageWithSourceMapsBanner: Story = {
 // A narrow window wraps the banner buttons below the text instead of squeezing the text
 export const ListPageWithSourceMapsBannerNarrow: Story = {
     ...ListPageWithSourceMapsBanner,
-    parameters: { testOptions: { viewport: { width: 900, height: 1000 } } },
+    parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
 }
 
 // Autocapture must be on for the issue list to render instead of the full setup prompt,

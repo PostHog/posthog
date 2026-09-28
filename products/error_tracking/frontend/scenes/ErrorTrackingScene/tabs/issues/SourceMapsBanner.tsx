@@ -50,7 +50,6 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
         <>
             <div className="mb-2">
                 <div className="@container rounded-lg border border-border bg-bg-light pl-3 pr-4 py-3 mt-2">
-                    {/* The row wraps so a narrow scene moves the buttons below the text instead of squeezing it. */}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         {/* The hog is absolutely positioned so it doesn't drive the card height —
                             it overflows the card edges slightly by design. */}
@@ -60,7 +59,7 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
                                 <WizardHog className="relative w-20 h-20 -rotate-3" />
                             </div>
                         </div>
-                        <div className="flex-1 basis-60 min-w-0">
+                        <div className="flex-1 basis-80 min-w-0">
                             <div className="font-semibold">{percent}% of your stack traces aren't readable</div>
                             <div className="text-sm text-secondary">
                                 Let the wizard set up automatic uploads in your project.
