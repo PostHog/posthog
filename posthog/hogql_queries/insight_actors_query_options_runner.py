@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from posthog.schema import (
     CachedInsightActorsQueryOptionsResponse,
@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, query_node_modifiers
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.product_analytics.backend.facade.queries import (
@@ -21,6 +21,9 @@ from products.product_analytics.backend.facade.queries import (
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     cached_response: CachedInsightActorsQueryOptionsResponse
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, extract_modifiers=lambda query: query_node_modifiers(query.source.source), **kwargs)
 
     @cached_property
     def source_runner(self) -> QueryRunner:

@@ -1785,6 +1785,14 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
+def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
+    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
+    # so that the correlation reads the same events table and person data as that funnel.
+    if isinstance(query, FunnelCorrelationQuery):
+        return query.source.source.modifiers
+    return getattr(query, "modifiers", None)
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -1815,7 +1823,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
         workload: Workload = Workload.DEFAULT,
-        extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
+        extract_modifiers=query_node_modifiers,
         user: Optional[User] = None,
         ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ):

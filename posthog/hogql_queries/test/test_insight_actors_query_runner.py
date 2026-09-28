@@ -10,14 +10,21 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     DateRange,
     EventsNode,
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResultsType,
+    FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
     InsightActorsQuery,
+    InsightActorsQueryOptions,
     MathGroupTypeIndex,
     PersonPropertyFilter,
     PersonsArgMaxVersion,
@@ -28,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -341,3 +349,21 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = InsightActorsQueryRunner(query=query, team=self.team)
         self.assertEqual(runner.group_type_index, 0)
+
+    @parameterized.expand([("correlation",), ("correlation_actors",), ("actors_options",)])
+    def test_wrapper_queries_use_source_funnel_modifiers(self, wrapper):
+        funnel = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+        )
+        correlation = FunnelCorrelationQuery(
+            source=FunnelsActorsQuery(source=funnel), funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+        )
+        query = {
+            "correlation": correlation,
+            "correlation_actors": FunnelCorrelationActorsQuery(source=correlation),
+            "actors_options": InsightActorsQueryOptions(source=FunnelsActorsQuery(source=funnel)),
+        }[wrapper]
+
+        runner = get_query_runner(query, self.team)
+        self.assertTrue(runner.modifiers.useNewEventsSchema)
