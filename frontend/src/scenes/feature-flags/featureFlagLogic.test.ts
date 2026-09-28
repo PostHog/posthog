@@ -3917,9 +3917,16 @@ describe('a flag in config version 2', () => {
     })
 
     it('refreshes the flag when its row version was stale instead of retrying', async () => {
+        // The conflicting write replaced the document, so the refresh must show it, not only its version.
+        const changedElsewhere = {
+            ...V2_FLAG,
+            name: 'Renamed elsewhere',
+            version: 4,
+            filters: { ...V2_FLAG.filters, default_value: true, rules: [] },
+        }
         useMocks({
             get: {
-                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, { ...V2_FLAG, version: 4 }],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, changedElsewhere],
             },
         })
         const update = jest
@@ -3932,7 +3939,12 @@ describe('a flag in config version 2', () => {
             .toFinishAllListeners()
 
         expect(update).toHaveBeenCalledTimes(1)
-        expect(logic.values.featureFlag.version).toBe(4)
+        expect(logic.values.featureFlag).toMatchObject({
+            name: 'Renamed elsewhere',
+            version: 4,
+            filters: changedElsewhere.filters,
+        })
+        expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
     it('carries the row version when toggling active and when archiving', async () => {

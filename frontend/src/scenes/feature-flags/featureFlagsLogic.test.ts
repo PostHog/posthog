@@ -719,6 +719,14 @@ describe('rows in config version 2', () => {
     })
 
     it('refetches a v2 row whose version was stale instead of retrying', async () => {
+        // The conflicting write replaced the document, so the row must show it, not only its version.
+        const changedElsewhere = {
+            ...V2_ROW,
+            name: 'Renamed elsewhere',
+            version: 8,
+            filters: { ...V2_ROW.filters, default_value: true },
+        }
+        useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [200, changedElsewhere] } })
         logic.actions.loadFeatureFlags()
         await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         const update = jest
@@ -726,12 +734,10 @@ describe('rows in config version 2', () => {
             .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 7' } })
 
         logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
-        await expectLogic(logic)
-            .toDispatchActions(['updateFlagFromPartial', 'updateFeatureFlagFailure'])
-            .toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['updateFlag', 'updateFeatureFlagFailure']).toFinishAllListeners()
 
         expect(update).toHaveBeenCalledTimes(1)
-        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)?.version).toBe(8)
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)).toEqual(changedElsewhere)
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
     })
 })

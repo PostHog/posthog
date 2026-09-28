@@ -3999,7 +3999,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Replacing the whole flag would discard an edit made during the request and re-baseline
             // over it, leaving the guard clean. An agent change on a clean form is the one refresh
             // safe to take whole, and it has to be: it can have rewritten any field.
-            if (!baseline || (afterAgentChange && !values.isFormDirty)) {
+            // A row in another config version never has form edits to keep, so it always takes the whole refresh.
+            if (
+                !baseline ||
+                !isV1FeatureFlagConfig(values.featureFlag.filters) ||
+                (afterAgentChange && !values.isFormDirty)
+            ) {
                 actions.setFeatureFlag(featureFlagRefresh)
                 actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
             } else {

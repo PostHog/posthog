@@ -509,9 +509,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                   : 'update this feature flag'
                         handleFlagApprovalRequired(e, id, actionDescription)
                         if (versioned.version !== undefined && e?.status === 409 && !isApprovalRequiredError(e)) {
-                            // The row version we sent is stale: refresh the row so the next attempt carries the current one.
+                            // The row version we sent is stale: the conflicting write may have replaced the whole
+                            // document, so take the fresh row whole, not only its version.
                             const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
-                            actions.updateFlagFromPartial({ id, active: fresh.active, version: fresh.version })
+                            actions.updateFlag(fresh as unknown as FeatureFlagType)
                         }
                         throw e
                     }
