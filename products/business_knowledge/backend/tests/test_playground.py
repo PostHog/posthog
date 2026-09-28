@@ -82,6 +82,7 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert blocked.status_code == status.HTTP_409_CONFLICT
         assert PlaygroundTurn.objects.unscoped().filter(chat_id=second["id"]).count() == 0
         assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 1
+        assert [listed["id"] for listed in self.client.get(self.url).json()] == [first["id"]]
 
     def test_reload_reads_the_sandbox_run(self, _ff, _workflow) -> None:
         chat = self._create_chat()

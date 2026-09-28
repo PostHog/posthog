@@ -35,7 +35,7 @@ export function BusinessKnowledgePlaygroundScene(): JSX.Element {
             />
             <BusinessKnowledgeTabs activeTab="playground" />
             {/* 521px: a 520px scene stacks the list above the thread. */}
-            <div className="@container flex min-h-0 min-w-0 flex-1 flex-col gap-3 @min-[32.5625rem]:flex-row">
+            <div className="@container flex min-h-0 min-w-0 flex-1 flex-col @min-[32.5625rem]:flex-row">
                 <PlaygroundChatList />
                 <PlaygroundThread />
             </div>

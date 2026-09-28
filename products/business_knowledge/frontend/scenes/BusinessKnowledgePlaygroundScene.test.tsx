@@ -28,8 +28,16 @@ jest.mock('../components/BusinessKnowledgeTabs', () => ({
     BusinessKnowledgeTabs: (): null => null,
 }))
 
+const listedChat = {
+    id: 'chat-1',
+    title: 'Can I get a refund?',
+    created_at: '2026-09-25T00:00:00Z',
+    updated_at: '2026-09-25T00:00:00Z',
+}
+
 const playgroundValues = {
     question: '',
+    pendingQuestion: null,
     asking: false,
     askDisabled: true,
     askError: null,
@@ -37,15 +45,11 @@ const playgroundValues = {
     chatError: null,
     chatLoading: false,
     chatId: 'chat-1',
+    chatSearch: '',
     chatsLoading: false,
-    chats: [
-        {
-            id: 'chat-1',
-            title: 'Can I get a refund?',
-            created_at: '2026-09-25T00:00:00Z',
-            updated_at: '2026-09-25T00:00:00Z',
-        },
-    ],
+    chats: [listedChat],
+    chatGroups: [{ label: 'Today', chats: [listedChat] }],
+    deletingChatId: null,
     chat: {
         id: 'chat-1',
         title: 'Can I get a refund?',
@@ -62,11 +66,16 @@ const playgroundValues = {
                     task_id: 'task-1',
                     run_id: 'run-1',
                     status: 'completed',
-                    reply: 'Yes, within 30 days.',
+                    reply: '**Yes**, within 30 days.',
                     sources: [{ ref: 'Refunds', excerpt: 'Refunds need approval.' }],
-                    searches: [{ tool: 'business-knowledge-documents-search', input: 'refunds' }],
+                    searches: [
+                        {
+                            tool: 'business-knowledge-documents-search',
+                            input: 'call business-knowledge-documents-search {"query": "refund window"}',
+                        },
+                    ],
                     error: null,
-                    docs_search_called: false,
+                    docs_search_called: true,
                 },
             },
         ],
@@ -81,6 +90,7 @@ describe('BusinessKnowledgePlaygroundScene', () => {
             ask: jest.fn(),
             newChat: jest.fn(),
             deleteChat: jest.fn(),
+            setChatSearch: jest.fn(),
         })
     })
 
@@ -88,20 +98,26 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         cleanup()
     })
 
-    it.each([520, 900] as const)('renders the list and answer at %ipx', (width) => {
-        render(
-            <div className={width === 520 ? 'w-[520px]' : 'w-[900px]'}>
-                <BusinessKnowledgePlaygroundScene />
-            </div>
-        )
+    it('renders the chat with the shared message and composer primitives', () => {
+        render(<BusinessKnowledgePlaygroundScene />)
 
-        expect(screen.getByText('New chat')).toBeInTheDocument()
-        expect(screen.getAllByText('Can I get a refund?').length).toBeGreaterThanOrEqual(2)
-        expect(screen.getByText('Yes, within 30 days.')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="business-knowledge-playground-new-chat"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="business-knowledge-playground-open-chat"]')).toHaveTextContent(
+            'Can I get a refund?'
+        )
         expect(screen.getByText(/Refunds need approval/)).toBeInTheDocument()
-        expect(document.querySelector('[class*="@container"]')?.className).toContain('flex-col')
-        expect(document.querySelector('[class*="@container"]')?.className).toContain('@min-[32.5625rem]:flex-row')
-        expect(document.querySelector('form.max-w-180')).toBeTruthy()
-        expect(document.querySelector('form .border-primary')).toBeTruthy()
+        expect(document.querySelector('[data-message-type="human"]')).toHaveTextContent('Can I get a refund?')
+        expect(document.querySelector('[data-message-type="ai"] [data-testid="react-markdown"]')).toHaveTextContent(
+            '**Yes**, within 30 days.'
+        )
+        expect(screen.getByText('Searched business knowledge')).toBeInTheDocument()
+        expect(screen.getByText('refund window')).toBeInTheDocument()
+        expect(screen.queryByText(/call business-knowledge-documents-search/)).not.toBeInTheDocument()
+        expect(document.querySelectorAll('[data-message-type="ai"]')[1]).toHaveTextContent(
+            /searched PostHog documentation/
+        )
+        expect(document.querySelector('[data-slot="composer-root"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-slot="composer-frame"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="business-knowledge-playground-ask"]')).toBeInTheDocument()
     })
 })

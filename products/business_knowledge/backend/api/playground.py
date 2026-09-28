@@ -75,7 +75,11 @@ class BusinessKnowledgePlaygroundChatViewSet(
         description="Chats started by the current user in this project.",
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
-        chats = [serialize_playground_chat_list_item(chat) for chat in self.get_queryset()]
+        # A refused first question leaves an untitled chat behind.
+        chats = [
+            serialize_playground_chat_list_item(chat)
+            for chat in self.get_queryset().exclude(title="").order_by("-updated_at")
+        ]
         return Response(PlaygroundChatListSerializer(chats, many=True).data)
 
     @extend_schema(

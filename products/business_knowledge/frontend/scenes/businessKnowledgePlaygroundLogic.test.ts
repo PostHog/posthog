@@ -139,6 +139,8 @@ describe('businessKnowledgePlaygroundLogic', () => {
         await expectLogic(logic).toDispatchActions(['setAsking'])
         expect(logic.values.asking).toBe(true)
         expect(logic.values.askDisabled).toBe(true)
+        expect(logic.values.pendingQuestion).toBe('Can I get a refund?')
+        expect(logic.values.question).toBe('')
 
         logic.actions.ask()
         expect(mockedAsk).toHaveBeenCalledTimes(1)
@@ -147,8 +149,33 @@ describe('businessKnowledgePlaygroundLogic', () => {
         await expectLogic(logic).toMatchValues({ asking: true, askDisabled: true })
 
         await expectLogic(logic).toDispatchActions(['chatLoaded'])
+        expect(logic.values.pendingQuestion).toBeNull()
         expect(logic.values.asking).toBe(true)
         expect(logic.values.chatHasOpenTurn).toBe(true)
+    })
+
+    it('does not replace the selected chat when an earlier ask finishes', async () => {
+        let release: (value: Awaited<ReturnType<typeof askPlaygroundChat>>) => void = () => {}
+        mockedAsk.mockReturnValue(
+            new Promise((resolve) => {
+                release = resolve
+            })
+        )
+        const otherChat = chat('completed', { id: 'chat-2', title: 'Where is the policy?' })
+        mockedGet.mockResolvedValue(otherChat)
+
+        logic.actions.setChatId('chat-1')
+        logic.actions.setQuestion('Can I get a refund?')
+        void logic.actions.ask()
+        await expectLogic(logic).toDispatchActions(['setAsking'])
+
+        logic.actions.openChat('chat-2')
+        await expectLogic(logic).toDispatchActions(['chatLoaded'])
+        release(chat('completed'))
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.chatId).toBe('chat-2')
+        expect(logic.values.chat).toEqual(otherChat)
     })
 
     it.each([
@@ -182,6 +209,8 @@ describe('businessKnowledgePlaygroundLogic', () => {
         }).toDispatchActions(['setAskError'])
         expect(logic.values.asking).toBe(false)
         expect(logic.values.askError).toBe('Enable AI data processing before asking another question.')
+        expect(logic.values.pendingQuestion).toBeNull()
+        expect(logic.values.question).toBe('Can I get a refund?')
 
         mockedCreate.mockResolvedValue(emptyChat)
         mockedAsk.mockResolvedValue(chat('running'))
