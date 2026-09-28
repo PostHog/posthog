@@ -47,7 +47,12 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
-import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
+import {
+    archiveDisabledReason,
+    confirmArchiveBroadcast,
+    confirmDeleteBroadcast,
+    restoreBroadcast,
+} from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -1376,10 +1381,25 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             actions.moveToDraftFinished()
         },
-        archiveBroadcast: () => {
-            if (values.currentProjectId && values.broadcast) {
-                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+        archiveBroadcast: async () => {
+            if (!values.currentProjectId || !values.broadcast) {
+                return
             }
+            const projectId = String(values.currentProjectId)
+            const broadcast = values.broadcast
+            // A draft has no runs loaded, and a send can have started since the page loaded, so ask the server.
+            let runningReason: string | undefined
+            try {
+                const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
+                runningReason = archiveDisabledReason(jobs.map((job) => job.status))
+            } catch {
+                runningReason = "Couldn't check whether a send is running. Try again."
+            }
+            if (runningReason) {
+                lemonToast.error(runningReason)
+                return
+            }
+            confirmArchiveBroadcast(projectId, broadcast, actions.loadBroadcast)
         },
         restoreBroadcast: async () => {
             if (values.currentProjectId && values.broadcast) {
