@@ -15,7 +15,9 @@ use testcontainers::ImageExt;
 use testcontainers_modules::k3s::{K3s, KUBE_SECURE_PORT};
 use tokio_util::sync::CancellationToken;
 
-use k8s_awareness::{discover_controller, ControllerKind, DepartureReason, K8sAwareness};
+use k8s_awareness::{
+    discover_controller, ControllerKind, ControllerRef, DepartureReason, K8sAwareness,
+};
 
 const NAMESPACE: &str = "default";
 
@@ -229,6 +231,25 @@ async fn get_first_pod_name(client: &Client, label_selector: &str) -> String {
         .expect("no pods found")
 }
 
+/// Wait until the watcher reports the controller's initial intent.
+/// Pods that are `Running` do not prove that the watcher has listed the
+/// controller, and a spec change before that first report is never seen
+/// as a change.
+async fn wait_for_initial_intent(
+    awareness: &K8sAwareness,
+    controller: &ControllerRef,
+    expected_replicas: u32,
+) {
+    let intent = awareness
+        .cluster_intent_within(controller, Duration::from_secs(60))
+        .await
+        .unwrap_or_else(|| panic!("watcher did not report initial intent for {controller}"));
+    assert_eq!(
+        intent.desired_replicas, expected_replicas,
+        "initial intent should reflect the created replica count"
+    );
+}
+
 // ── Tests ────────────────────────────────────────────────
 
 #[tokio::test]
@@ -292,8 +313,7 @@ async fn watcher_detects_deployment_rollout() {
         .expect("discover failed");
     let old_generation = pod_info.generation.clone();
 
-    // Give the watcher time to receive the initial state
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    wait_for_initial_intent(&awareness, &pod_info.controller, 2).await;
 
     // Before rollout: departure should be Crash (steady state)
     let reason = awareness
@@ -353,15 +373,14 @@ async fn watcher_detects_deployment_downscale() {
     let cancel = CancellationToken::new();
     let awareness = K8sAwareness::new(client.clone(), NAMESPACE.to_string(), cancel.clone());
 
-    // Discover and let watcher initialize
+    // Discover the controller (starts a watcher)
     let pod_name = get_first_pod_name(&client, &format!("app={deploy_name}")).await;
     let pod_info = awareness
         .discover_controller(&pod_name)
         .await
         .expect("discover failed");
 
-    // Wait for initial state
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    wait_for_initial_intent(&awareness, &pod_info.controller, 3).await;
 
     // Scale down from 3 to 1
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), NAMESPACE);
@@ -408,8 +427,7 @@ async fn watcher_detects_statefulset_rollout() {
         .expect("discover failed");
     let old_generation = pod_info.generation.clone();
 
-    // Give the watcher time to receive the initial state
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    wait_for_initial_intent(&awareness, &pod_info.controller, 2).await;
 
     // Before rollout: departure should be Crash (steady state)
     let reason = awareness
@@ -472,15 +490,14 @@ async fn watcher_detects_statefulset_downscale() {
     let cancel = CancellationToken::new();
     let awareness = K8sAwareness::new(client.clone(), NAMESPACE.to_string(), cancel.clone());
 
-    // Discover and let watcher initialize
+    // Discover the controller (starts a watcher)
     let pod_name = get_first_pod_name(&client, &format!("app={ss_name}")).await;
     let pod_info = awareness
         .discover_controller(&pod_name)
         .await
         .expect("discover failed");
 
-    // Wait for initial state
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    wait_for_initial_intent(&awareness, &pod_info.controller, 3).await;
 
     // Scale down from 3 to 1
     let statefulsets: Api<StatefulSet> = Api::namespaced(client.clone(), NAMESPACE);
