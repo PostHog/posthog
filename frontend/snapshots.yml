@@ -10812,6 +10812,10 @@ snapshots:
         hash: v1.k794b7964.1a3c8015c3629b9bef09e106c60dacbe134e777ac0ad76fa2d87f5206d45a122.IeXmNgG1kSJpeuC2u8w4to4R_8RyCnZLd4IQ6T6EDbo
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-inline--light:
         hash: v1.k794b7964.6eabd2ce475eea83113a11275b335f7202f6da10fe2ebdfbc574f3b323daff8e.abHOQDCEtn7AWNmWKwPjeXqiMbY5UnWeefHV9iGBd3s
+    scenes-app-people-cohorts-add-person-to-cohort-modal--modal-query-failed--dark:
+        hash: v1.k794b7964.fc464d8369d84ebda855eaca59771c5034bf3940ee1a36d2404b31b7d66c9d66.Ux6EYrnrc0ZjifXVb4IcqQ7fOO98GAGIXoGnkVf-IKw
+    scenes-app-people-cohorts-add-person-to-cohort-modal--modal-query-failed--light:
+        hash: v1.k794b7964.5e791b8c302c4a2f42cfd7919e18b70c96639984f2e9984fb24299e7b5e90fac.DD88Bn4BP5_7K8iAHyNH6XaebSPNYLa0RDzOAh3vSvA
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-with-all-selected--dark:
         hash: v1.k794b7964.730f63a37031a8670713c04b565dee44eb0daf7ca1739d3ec65fb46cf1fb6022.P67NSd6TYkZMOWMhgH7gK0ia88hUc1NU3u0rPO5Gn08
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-with-all-selected--light:
