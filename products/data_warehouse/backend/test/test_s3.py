@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +9,11 @@ from django.test import override_settings
 from products.data_warehouse.backend import s3 as s3_module
 
 _S3 = "products.data_warehouse.backend.s3"
+
+
+class _ClientPair(NamedTuple):
+    first: Any
+    second: Any
 
 
 def _filesystem_factory() -> MagicMock:
@@ -35,9 +40,9 @@ class TestSharedAsyncClientPerLoop:
 
     @patch(f"{_S3}.boto_proxy_config_kwargs", return_value={})
     def test_calls_on_one_loop_share_a_client_and_calls_on_another_loop_do_not(self, _proxy: MagicMock) -> None:
-        async def two_uses() -> tuple[Any, Any]:
+        async def two_uses() -> _ClientPair:
             async with s3_module.aget_s3_client() as first, s3_module.aget_s3_client() as second:
-                return first, second
+                return _ClientPair(first, second)
 
         with patch(f"{_S3}.s3fs.S3FileSystem", _filesystem_factory()) as filesystem:
             first_loop = asyncio.run(two_uses())
@@ -54,12 +59,12 @@ class TestSharedAsyncClientPerLoop:
     @patch(f"{_S3}.boto_proxy_config_kwargs", return_value={})
     def test_each_endpoint_gets_its_own_shared_client(self, _proxy: MagicMock) -> None:
         # The proxy bypass keys on the endpoint, so a client for one must never serve another.
-        async def two_endpoints() -> tuple[Any, Any]:
+        async def two_endpoints() -> _ClientPair:
             async with (
                 s3_module.aget_s3_client() as default,
                 s3_module.aget_s3_client(endpoint_url="https://other.example.com") as other,
             ):
-                return default, other
+                return _ClientPair(default, other)
 
         with patch(f"{_S3}.s3fs.S3FileSystem", _filesystem_factory()):
             default, other = asyncio.run(two_endpoints())

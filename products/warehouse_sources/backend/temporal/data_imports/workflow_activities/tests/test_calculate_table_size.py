@@ -1,6 +1,6 @@
 import errno
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 import pytest
 from unittest.mock import patch
@@ -30,9 +30,15 @@ def _team() -> Team:
     return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 
 
+class _SchemaTableJob(NamedTuple):
+    schema: ExternalDataSchema
+    table: DataWarehouseTable
+    job: ExternalDataJob
+
+
 def _schema_table_job(
     team: Team, *, table_format: str = "Parquet", queryable_folder: str | None = None
-) -> tuple[ExternalDataSchema, DataWarehouseTable, ExternalDataJob]:
+) -> _SchemaTableJob:
     table = DataWarehouseTable(
         name="stripe_charge",
         format=table_format,
@@ -46,7 +52,7 @@ def _schema_table_job(
     job = ExternalDataJob.objects.create(
         team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED
     )
-    return schema, table, job
+    return _SchemaTableJob(schema, table, job)
 
 
 # transaction=True: the activity calls close_old_connections(), which breaks the atomic wrapper
