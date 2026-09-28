@@ -716,7 +716,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_session_id_match_plan(self, allow_combined_filters: bool = False) -> SessionIdMatchPlan:
         gathered_exprs, hybrid_query = self._gathered_exprs(union_entities=False)
         eligible = allow_combined_filters and self._can_combine_session_filters(len(gathered_exprs))
-        combined = eligible and self._combined_filters_enabled()
+        # Recording scope adds a GLOBAL JOIN on the per-recording bounds to every events subquery, and
+        # ClickHouse ships and builds that bounds set once per subquery. Separate queries would ship it
+        # once per filter, so eligible filters always take the single combined scan under this scope.
+        # The combined flag still A/B-tests the strategies where almost all traffic is: session scope.
+        combined = eligible and (
+            self._query.event_match_scope == EventMatchScope.RECORDING or self._combined_filters_enabled()
+        )
         queries = (
             [self._combined_session_query(gathered_exprs)]
             if combined

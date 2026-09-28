@@ -874,10 +874,12 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, {}, {}, True, "combined", True),
-            ("disabled", False, {}, {}, True, "separate", True),
-            ("unavailable", None, {}, {}, True, "separate", True),
-            ("session_scope", True, {"event_match_scope": "session"}, {}, True, "combined", True),
+            ("enabled", True, {"event_match_scope": "session"}, {}, True, "combined", True),
+            ("disabled", False, {"event_match_scope": "session"}, {}, True, "separate", True),
+            ("unavailable", None, {"event_match_scope": "session"}, {}, True, "separate", True),
+            # Recording scope pays a GLOBAL bounds join per subquery, so eligible filters combine
+            # into one scan without consulting the flag.
+            ("recording_scope_combines_without_the_flag", False, {}, {}, True, "combined", True),
             ("negative_property", True, {"category_operator": "is_not"}, {}, True, "separate", False),
             ("person_property", True, {"person_property": True}, {}, True, "separate", False),
             ("sampled", True, {}, {"sample_factor": 0.5}, True, "separate", False),
@@ -932,7 +934,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert (plan.strategy, plan.combined_eligible) == (expected_strategy, expected_eligible)
         if expected_strategy == "combined":
             assert len(plan.queries) == 1
-        if expected_eligible:
+        # Recording scope decides without the flag, so only eligible session-scope plans consult it.
+        if expected_eligible and query["event_match_scope"] == "session":
             assert evaluate.call_args.args[0] == "replay-combined-event-filters"
         else:
             evaluate.assert_not_called()
@@ -3015,8 +3018,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     after = page.next_cursor
                     assert after is not None
                 assert not pages[-1].has_more_recording
+                # Recording scope combines without the flag, to pay its GLOBAL bounds join only once.
+                expected_strategy = "combined" if enabled or scope == "recording" else "separate"
                 assert any(
-                    call.kwargs.get("replay_event_query_strategy") == ("combined" if enabled else "separate")
+                    call.kwargs.get("replay_event_query_strategy") == expected_strategy
                     and call.kwargs.get("replay_event_filter_count") == (3 if with_properties else 2)
                     and call.kwargs.get("replay_event_query_property_filter_count") == (2 if with_properties else 0)
                     and call.kwargs.get("replay_combined_event_query_eligible") is True
