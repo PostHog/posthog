@@ -3,8 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
+import { signalsReportsArtefactsActivateCreate } from 'products/signals/frontend/generated/api'
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -65,7 +64,7 @@ export function ReportExpectedImpact({
     const [saving, setSaving] = useState(false)
     const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set())
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { aiConsentDisabledReason, currentProjectId, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const newest = new Map<string, { artefact: SignalReportArtefact; plan: MeasurementPlan }>()
     for (const artefact of artefacts ?? []) {
         const plan = planFromArtefact(artefact)
@@ -125,7 +124,7 @@ export function ReportExpectedImpact({
     const pendingPlans = availablePlans.flatMap(({ artefact, activated }) => (artefact && !activated ? [artefact] : []))
 
     const keepAnEyeOnThis = async (): Promise<void> => {
-        if (saving) {
+        if (saving || currentProjectId == null) {
             return
         }
         if (!pendingPlans.length) {
@@ -135,7 +134,9 @@ export function ReportExpectedImpact({
         setSaving(true)
         try {
             const results = await Promise.allSettled(
-                pendingPlans.map((artefact) => api.signalReports.activateMeasurement(report.id, artefact.id))
+                pendingPlans.map((artefact) =>
+                    signalsReportsArtefactsActivateCreate(String(currentProjectId), report.id, artefact.id)
+                )
             )
             const successfulIds = pendingPlans
                 .filter((_, index) => results[index].status === 'fulfilled')
@@ -233,7 +234,9 @@ export function ReportExpectedImpact({
                             ? 'Loading proposed measurements…'
                             : availablePlans.length === 0
                               ? 'Add a proposed measurement first.'
-                              : undefined
+                              : currentProjectId == null
+                                ? 'Select a project to save measurements.'
+                                : undefined
                     }
                     onClick={keepAnEyeOnThis}
                 >

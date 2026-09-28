@@ -1,11 +1,14 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
+
+import { signalsReportsArtefactsActivateCreate } from 'products/signals/frontend/generated/api'
+import type { SignalReportArtefactWriteResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -13,6 +16,9 @@ import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../ty
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 
 jest.mock('./ReportExpectedImpactChart', () => ({ ReportExpectedImpactChart: () => <div>Chart</div> }))
+jest.mock('products/signals/frontend/generated/api', () => ({ signalsReportsArtefactsActivateCreate: jest.fn() }))
+
+const mockActivateMeasurement = jest.mocked(signalsReportsArtefactsActivateCreate)
 
 const report: SignalReport = {
     id: 'report-1',
@@ -25,6 +31,17 @@ const report: SignalReport = {
     is_suggested_reviewer: false,
     created_at: '2026-08-29T00:00:00Z',
     updated_at: '2026-08-29T00:00:00Z',
+}
+
+const activatedPlanResponse: SignalReportArtefactWriteResponseApi = {
+    id: 'saved-plan',
+    claim_id: null,
+    report_id: report.id,
+    type: 'impact_measurement_plan',
+    content: {},
+    created_at: '2026-08-29T00:00:00Z',
+    updated_at: '2026-08-29T00:00:00Z',
+    task_id: null,
 }
 
 function plan(id: string, metricId: string): SignalReportArtefact {
@@ -50,6 +67,7 @@ describe('ReportExpectedImpact', () => {
     beforeEach(() => {
         initKeaTests()
         inboxTaskKickoffLogic.mount()
+        mockActivateMeasurement.mockReset()
     })
 
     afterEach(() => {
@@ -58,7 +76,7 @@ describe('ReportExpectedImpact', () => {
     })
 
     it('saves all current proposals through Keep an eye without a separate approval button', async () => {
-        const activateMeasurement = jest.spyOn(api.signalReports, 'activateMeasurement').mockResolvedValue(undefined)
+        mockActivateMeasurement.mockResolvedValue(activatedPlanResponse)
         const onApprovalComplete = jest.fn()
         const user = userEvent.setup()
         render(
@@ -74,21 +92,20 @@ describe('ReportExpectedImpact', () => {
         await user.click(screen.getByText('Keep an eye on this for me'))
 
         await waitFor(() => expect(onApprovalComplete).toHaveBeenCalledTimes(1))
-        expect(activateMeasurement).toHaveBeenCalledTimes(2)
-        expect(activateMeasurement).toHaveBeenCalledWith(report.id, 'first')
-        expect(activateMeasurement).toHaveBeenCalledWith(report.id, 'second')
+        expect(mockActivateMeasurement).toHaveBeenCalledTimes(2)
+        expect(mockActivateMeasurement).toHaveBeenCalledWith(String(MOCK_TEAM_ID), report.id, 'first')
+        expect(mockActivateMeasurement).toHaveBeenCalledWith(String(MOCK_TEAM_ID), report.id, 'second')
         expect(screen.getAllByText(/Saved measurement/)).toHaveLength(2)
 
         await user.click(screen.getByText('Keep an eye on this for me'))
-        expect(activateMeasurement).toHaveBeenCalledTimes(2)
+        expect(mockActivateMeasurement).toHaveBeenCalledTimes(2)
     })
 
     it('keeps failed proposals available to retry without re-saving successful ones', async () => {
-        const activateMeasurement = jest
-            .spyOn(api.signalReports, 'activateMeasurement')
-            .mockImplementationOnce(async () => undefined)
+        mockActivateMeasurement
+            .mockResolvedValueOnce(activatedPlanResponse)
             .mockRejectedValueOnce(new Error('Try again'))
-            .mockResolvedValue(undefined)
+            .mockResolvedValue(activatedPlanResponse)
         const user = userEvent.setup()
         render(
             <ReportExpectedImpact
@@ -103,7 +120,7 @@ describe('ReportExpectedImpact', () => {
         await user.click(screen.getByText('Keep an eye on this for me'))
 
         await waitFor(() => expect(screen.getAllByText(/Saved measurement/)).toHaveLength(2))
-        expect(activateMeasurement.mock.calls.map(([, id]) => id)).toEqual(['first', 'second', 'second'])
+        expect(mockActivateMeasurement.mock.calls.map(([, , id]) => id)).toEqual(['first', 'second', 'second'])
     })
 
     it('does not offer follow-ups without a proposal', () => {
@@ -117,7 +134,7 @@ describe('ReportExpectedImpact', () => {
     })
 
     it('bounds the number of charts and approval requests for older oversized reports', async () => {
-        const activateMeasurement = jest.spyOn(api.signalReports, 'activateMeasurement').mockResolvedValue(undefined)
+        mockActivateMeasurement.mockResolvedValue(activatedPlanResponse)
         const user = userEvent.setup()
         const artefacts = Array.from({ length: 7 }, (_, index) => plan(`plan-${index}`, `outcome-${index}`))
         render(<ReportExpectedImpact report={report} reportUrl="https://example.test/report-1" artefacts={artefacts} />)
@@ -126,6 +143,6 @@ describe('ReportExpectedImpact', () => {
         expect(screen.queryByText(/Outcome outcome-6/)).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Keep an eye on this for me'))
-        await waitFor(() => expect(activateMeasurement).toHaveBeenCalledTimes(6))
+        await waitFor(() => expect(mockActivateMeasurement).toHaveBeenCalledTimes(6))
     })
 })
