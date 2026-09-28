@@ -21,6 +21,10 @@ class RecurlyEndpoint:
     # Endpoints that only accept `sort` (no time filter) stay full-refresh, since an
     # "incremental" sync would still read every page.
     supports_incremental: bool
+    # `gift_cards` is the one list endpoint the v2021-02-25 OpenAPI spec gives zero query
+    # parameters at all — no `limit`, `sort`, `order`, or `begin_time`. Recurly rejects the
+    # request with a 400 validation error if any are sent, so it can only ever be listed bare.
+    supports_list_params: bool = True
 
 
 RECURLY_ENDPOINTS: dict[str, RecurlyEndpoint] = {
@@ -31,7 +35,7 @@ RECURLY_ENDPOINTS: dict[str, RecurlyEndpoint] = {
     "credit_payments": RecurlyEndpoint("credit_payments", "/credit_payments", True),
     "dunning_campaigns": RecurlyEndpoint("dunning_campaigns", "/dunning_campaigns", False),
     "external_subscriptions": RecurlyEndpoint("external_subscriptions", "/external_subscriptions", False),
-    "gift_cards": RecurlyEndpoint("gift_cards", "/gift_cards", True),
+    "gift_cards": RecurlyEndpoint("gift_cards", "/gift_cards", False, supports_list_params=False),
     "invoices": RecurlyEndpoint("invoices", "/invoices", True),
     "items": RecurlyEndpoint("items", "/items", True),
     "line_items": RecurlyEndpoint("line_items", "/line_items", True),

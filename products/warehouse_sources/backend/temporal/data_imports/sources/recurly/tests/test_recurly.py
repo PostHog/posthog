@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.se
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 FULL_REFRESH_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_incremental]
+NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]
 
 
 def _list_body(data: list[dict[str, Any]], has_more: bool = False, next_path: str | None = None) -> dict[str, Any]:
@@ -209,7 +210,9 @@ class TestGetResource:
         )
         assert "begin_time" not in resource["endpoint"]["params"]
 
-    @pytest.mark.parametrize("endpoint", FULL_REFRESH_ENDPOINTS)
+    @pytest.mark.parametrize(
+        "endpoint", [e for e in FULL_REFRESH_ENDPOINTS if RECURLY_ENDPOINTS[e].supports_list_params]
+    )
     def test_full_refresh_endpoint_ignores_incremental_request(self, endpoint):
         # Even if the pipeline asks for incremental, an endpoint without a server-side
         # time filter must stay full-refresh.
@@ -222,6 +225,21 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
         assert resource["endpoint"]["params"]["sort"] == "created_at"
         assert "begin_time" not in resource["endpoint"]["params"]
+
+    @pytest.mark.parametrize("endpoint", NO_LIST_PARAMS_ENDPOINTS)
+    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
+    def test_endpoint_without_list_params_sends_no_query_params(self, endpoint, should_use_incremental_field):
+        # gift_cards' list endpoint 400s on any query parameter at all (confirmed against
+        # the v2021-02-25 OpenAPI spec, which declares none for it), so limit/sort/order
+        # must never be sent even when the pipeline asks for incremental.
+        resource = _resource(
+            endpoint,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        assert resource["endpoint"]["params"] == {}
+        assert resource["write_disposition"] == "replace"
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
