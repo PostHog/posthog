@@ -263,26 +263,29 @@ class DiskSource:
 
     def path_kind(self, path: str) -> PathKind | None:
         target = self.repo_root / path
+        # Git stores a symlink as a file, so a symlink to a directory is a leaf of the tree. Checking
+        # it first also catches a dangling link, which exists() reports as missing.
+        if target.is_symlink():
+            return "file"
         if target.is_dir():
             return "dir"
-        # is_symlink also catches a dangling link, which exists() reports as missing.
-        if target.exists() or target.is_symlink():
-            return "file"
-        return None
+        return "file" if target.exists() else None
 
 
 def first_new_path(path: str, path_kind: Callable[[str], PathKind | None]) -> str | None:
     """The part of ``path`` nearest the root that the tree does not hold, or None when the tree
     holds ``path``. An ancestor counts as new unless the tree holds it as a directory, so a change
-    that replaces the file ``products/new`` with a directory of that name adds ``products/new``."""
-    if not path or path_kind(path) is not None:
+    that replaces the file or symlink ``products/new`` with a directory adds ``products/new``. The
+    walk checks the ancestors before the path, because a filesystem check of the full path follows
+    a symlinked ancestor and would find a file that the tree does not hold."""
+    if not path:
         return None
     parts = path.split(SEP)
     for depth in range(1, len(parts)):
         prefix = SEP.join(parts[:depth])
         if path_kind(prefix) != "dir":
             return prefix
-    return path
+    return None if path_kind(path) is not None else path
 
 
 # Names a sourceless resolver's files, so a Resolution still reports the path that decided ownership.

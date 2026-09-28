@@ -200,7 +200,7 @@ flowchart TD
     reset --> merge[Merge owners, status, and additions as in 4.1]
     merge --> more{More directories?}
     more -- yes --> walk
-    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions])
+    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions, added])
 ```
 
 ### 4.3 Conformance
@@ -331,7 +331,7 @@ This section describes the reference implementation. It is not part of the forma
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
-- It reports `added` when it reads a worktree or a directory on disk. A resolver built on another `OwnershipSource` reports none, because it reads only the ownership files.
+- It reports `added` when its source can tell whether the repository holds a path, as its disk source does (`TreeSource`). A source that reads only the ownership files reports none. It treats a symbolic link as a file, as git does.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |
@@ -478,4 +478,4 @@ rules:
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
 - **1**, amended (2026-09): Section 7.1 adds the producer to the resolver request, so a consumer can reach a team's per-producer `notifications` mapping through an entrypoint. No ownership file changes meaning.
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.
-- **1**, amended (unreleased): Section 4, step 6 adds `added`, the part of a path that the repository does not hold, with its owners of additions. Section 7.2 adds the `added` member, and a consumer treats a missing member as `null` (section 7.4). No ownership file changes meaning.
+- **1**, amended (unreleased): Section 4, step 6 adds `added`: for a path that the repository does not hold, the first part of it that the repository does not hold as a directory, with its owners of additions. Section 7.2 adds the `added` member, and a consumer treats a missing member as `null` (section 7.4). No ownership file changes meaning.

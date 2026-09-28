@@ -143,6 +143,7 @@ async function getChangedFiles() {
                 // Binary files and pure renames report null counts; treat as 0.
                 additions: file.additions || 0,
                 deletions: file.deletions || 0,
+                status: file.status,
             })
         }
 
@@ -254,16 +255,22 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
     }))
 }
 
+// GitHub reports a moved file as `renamed`, and a move into a new directory adds
+// that directory as much as a new file does.
+const ADDED_FILE_STATUSES = new Set(['added', 'renamed', 'copied'])
+
 // The resolver reads the master checkout, which does not hold the files a PR
 // adds. For such a file it reports `added`: the new directory above it (or the
-// file itself in an existing directory) and the owners of additions there.
+// file itself in an existing directory) and the owners of additions there. The
+// change status filter matters on a PR that is behind master: a file it edits
+// that master deleted since is also missing from the checkout.
 // Returns one entry per owner with the new paths that pulled it in.
 function computeAdditionOwners(resolutionByPath, changedFiles, config = CONFIG) {
     const owners = new Map()
     for (const file of changedFiles) {
         const resolution = resolutionByPath[file.filename]
         const added = resolution && resolution.added
-        if (!added || isExcludedFile(file.filename, config.excludedPatterns)) {
+        if (!added || !ADDED_FILE_STATUSES.has(file.status) || isExcludedFile(file.filename, config.excludedPatterns)) {
             continue
         }
         if (isGeneratedOrVendored(file.filename, resolution)) {
@@ -344,15 +351,16 @@ function classifyOwners(footprints, config = CONFIG) {
 }
 
 // Owners of additions decide whether a new directory belongs where the PR puts it,
-// whatever the size of the change. So each is requested, outside the team cap, and
-// leaves the demoted list if the footprint rules put it there.
-function requestAdditionOwners({ requested, demoted }, additionOwners) {
+// whatever the size of the change. So they are always requested, and the footprint
+// rules and the team cap apply only to the other owners. An owner of additions that
+// also owns changed files must not take one of the capped places.
+function classifyOwnersWithAdditions(footprints, additionOwners, config = CONFIG) {
     const additionOwnerSet = new Set(additionOwners.map((entry) => entry.owner))
-    const requestedSet = new Set(requested.map((footprint) => footprint.owner))
-    return {
-        requested: [...requested, ...additionOwners.filter((entry) => !requestedSet.has(entry.owner))],
-        demoted: demoted.filter((footprint) => !additionOwnerSet.has(footprint.owner)),
-    }
+    const { requested, demoted } = classifyOwners(
+        footprints.filter((footprint) => !additionOwnerSet.has(footprint.owner)),
+        config
+    )
+    return { requested: [...requested, ...additionOwners], demoted }
 }
 
 function formatPatterns(patterns, max = 3) {
@@ -644,7 +652,7 @@ async function main() {
 
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
-        const { requested, demoted } = requestAdditionOwners(classifyOwners(footprints), additionOwners)
+        const { requested, demoted } = classifyOwnersWithAdditions(footprints, additionOwners)
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -691,7 +699,7 @@ module.exports = {
     computeAdditionOwners,
     isSubstantive,
     classifyOwners,
-    requestAdditionOwners,
+    classifyOwnersWithAdditions,
     buildReviewerComment,
     fileMatchesPattern,
 }

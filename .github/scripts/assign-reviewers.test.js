@@ -13,7 +13,7 @@ const {
     computeAdditionOwners,
     isSubstantive,
     classifyOwners,
-    requestAdditionOwners,
+    classifyOwnersWithAdditions,
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
@@ -293,7 +293,7 @@ test('classifyOwners: never caps explicit users even when teams overflow the cap
     )
 })
 
-test('computeAdditionOwners: collects owners of additions per new path, skipping excluded, generated and vendored files', () => {
+test('computeAdditionOwners: collects owners of additions per new path, skipping edits and excluded, generated or vendored files', () => {
     const added = (path, additions) => ({ ...resolved([], null), added: { path, additions } })
     const resolution = {
         'products/new/a.py': added('products/new', ['team-devex']),
@@ -303,7 +303,12 @@ test('computeAdditionOwners: collects owners of additions per new path, skipping
         'products/new/frontend/generated/api.ts': added('products/new', ['team-generated']),
         'vendor/new/lib.js': { ...added('vendor/new', ['team-vendored']), status: 'vendored' },
     }
-    const files = Object.keys(resolution).map((filename) => file(filename))
+    // A PR behind master edits a file that master deleted since, so the checkout lacks it too.
+    resolution['products/gone/old.py'] = added('products/gone', ['team-stale'])
+    const files = Object.keys(resolution).map((filename) => ({
+        ...file(filename),
+        status: filename === 'products/gone/old.py' ? 'modified' : 'added',
+    }))
 
     const owners = computeAdditionOwners(resolution, files)
 
@@ -316,29 +321,27 @@ test('computeAdditionOwners: collects owners of additions per new path, skipping
     assertMatchObject(owners[1], { owner: '@someone', type: 'user', additionPaths: ['tools/new.py'] })
 })
 
-test('requestAdditionOwners: requests owners of additions past the team cap and takes them off the demoted list', () => {
+test('classifyOwnersWithAdditions: requests owners of additions on top of a full team cap', () => {
     const teams = Array.from({ length: CONFIG.maxTeamsRequested }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
-    const classified = classifyOwners([...teams, fp('@PostHog/team-devex', 1)])
+    const footprints = [...teams, fp('@PostHog/team-devex', 200), fp('@PostHog/team-small', 1)]
     const additionOwners = computeAdditionOwners(
         {
-            'products/new/a.py': {
-                ...resolved([], null),
-                added: { path: 'products/new', additions: ['team-devex', 'team-0'] },
-            },
-            'tools/new/b.py': { ...resolved([], null), added: { path: 'tools/new', additions: ['team-devex'] } },
+            'products/new/a.py': { ...resolved([], null), added: { path: 'products/new', additions: ['team-devex'] } },
         },
-        [file('products/new/a.py'), file('tools/new/b.py')]
+        [{ ...file('products/new/a.py'), status: 'added' }]
     )
 
-    const { requested, demoted } = requestAdditionOwners(classified, additionOwners)
+    const { requested, demoted } = classifyOwnersWithAdditions(footprints, additionOwners)
 
     assert.equal(requested.length, CONFIG.maxTeamsRequested + 1)
-    assert.equal(requested.filter((f) => f.owner === '@PostHog/team-0').length, 1)
-    assertMatchObject(
-        requested.find((f) => f.owner === '@PostHog/team-devex'),
-        { type: 'team', name: 'team-devex', additionPaths: ['products/new', 'tools/new'] }
+    assert.equal(requested.filter((f) => f.owner === '@PostHog/team-devex').length, 1)
+    for (const team of teams) {
+        assert.ok(requested.some((f) => f.owner === team.owner))
+    }
+    assert.deepEqual(
+        demoted.map((f) => f.owner),
+        ['@PostHog/team-small']
     )
-    assert.deepEqual(demoted, [])
 })
 
 const requested = [
