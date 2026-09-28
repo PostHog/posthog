@@ -875,7 +875,7 @@ class FeatureRequestViewSet(
 class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountViewSerializer
-    lookup_value_regex = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     queryset = None
     pagination_class = None
     permission_classes = [PostHogFeatureFlagPermission]
