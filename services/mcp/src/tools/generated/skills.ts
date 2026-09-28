@@ -306,6 +306,31 @@ const skillRename = (): ToolBase<ReturnType<typeof SkillRenameSchema>, Schemas.L
     },
 })
 
+const SkillSearchSchema = () => {
+    const LlmSkillsSearchRetrieveQueryParams = orvalSchemas.LlmSkillsSearchRetrieveQueryParams()
+    return LlmSkillsSearchRetrieveQueryParams.extend({
+        query: LlmSkillsSearchRetrieveQueryParams.shape['query'].describe(
+            'Keywords that describe the task or the skill you need, for example `feature flag cleanup`. Up to 200 characters. Leading and trailing whitespace is removed.'
+        ),
+    })
+}
+
+const skillSearch = (): ToolBase<ReturnType<typeof SkillSearchSchema>, Schemas.LLMSkillSearchResponse> => ({
+    name: 'skill-search',
+    schema: SkillSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SkillSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMSkillSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/search/`,
+            query: {
+                query: params.query,
+            },
+        })
+        return result
+    },
+})
+
 const SkillStoreInstallCommandSchema = () => {
     const LlmSkillsMarketplaceInstallCommandCreateBody = orvalSchemas.LlmSkillsMarketplaceInstallCommandCreateBody()
     return LlmSkillsMarketplaceInstallCommandCreateBody.extend({
@@ -404,6 +429,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'skill-get': skillGet,
     'skill-list': skillList,
     'skill-rename': skillRename,
+    'skill-search': skillSearch,
     'skill-store-install-command': skillStoreInstallCommand,
     'skill-update': skillUpdate,
 }

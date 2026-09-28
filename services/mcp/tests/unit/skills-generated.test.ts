@@ -42,6 +42,30 @@ describe('Generated skill-* tools', () => {
         expect(result).toBeUndefined()
     })
 
+    it('wires skill-search to GET /search/ with the query as a query param', async () => {
+        const { context, requestMock } = createContext({ count: 0, results: [] })
+        const tool = getToolByName(GENERATED_TOOLS, 'skill-search')
+
+        const result = await tool.handler(context, tool.schema.parse({ query: 'feature flag cleanup' }))
+
+        expect(requestMock).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/17/llm_skills/search/',
+            query: { query: 'feature flag cleanup' },
+        })
+        expect(result).toEqual({ count: 0, results: [] })
+    })
+
+    it.each([
+        ['a missing query', {}],
+        ['an empty query', { query: '' }],
+        ['a query over 200 characters', { query: 'a'.repeat(201) }],
+    ])('rejects skill-search with %s', (_label, args) => {
+        const tool = getToolByName(GENERATED_TOOLS, 'skill-search')
+
+        expect(() => tool.schema.parse(args)).toThrow()
+    })
+
     // The file manifest from `skill-get` names a bundled file's path `path`, but the two tools that
     // address a file by URL take `file_path`. Production traces show agents carrying the manifest key
     // over and being rejected at the schema, so both tools accept `path` and normalize it.

@@ -42,9 +42,6 @@ tools:
     llm-skills-name-skill-md-retrieve:
         operation: llm_skills_name_skill_md_retrieve
         enabled: false
-    llm-skills-search-retrieve:
-        operation: llm_skills_search_retrieve
-        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true
@@ -184,8 +181,9 @@ tools:
             idempotent: true
         title: Get skill
         description: >
-            Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
-            the Agent Skills specification (agentskills.io). This store holds only the skills your team published.
+            Get a specific agent skill by name, including its full body content, metadata, and file manifest. If you do
+            not know the exact name, use skill-search or skill-list first. Follows the Agent Skills specification
+            (agentskills.io). This store holds only the skills your team published.
             Built-in PostHog skills (for example `querying-posthog-data`) are not in it. Load a built-in skill with
             `learn posthog:<skill>` when the `learn` command is available, or read it from your installed PostHog skills
             (`.agents/skills/`). The response always includes body_total_length (the full body length in characters) —
@@ -205,8 +203,9 @@ tools:
         title: List skills
         description: >
             List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
-            descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
-            skill-get to fetch full content). This store holds only the skills your team published. Built-in PostHog
+            descriptions to determine which skill to fetch for a given task. To find a skill by keywords, use
+            skill-search, which ranks the best matches first. Does not return skill body content (use skill-get to fetch
+            full content). This store holds only the skills your team published. Built-in PostHog
             skills (for example `querying-posthog-data`) are not in it. Load a built-in skill with `learn
             posthog:<skill>` when the `learn` command is available, or read it from your installed PostHog skills
             (`.agents/skills/`). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not
@@ -233,6 +232,29 @@ tools:
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
+    skill-search:
+        operation: llm_skills_search_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search skills
+        description: >
+            Search this team's agent skills and get the best matches first. Matches the query against skill names,
+            descriptions, bodies, bundled file paths, and Markdown file contents, then ranks the results by relevance.
+            Returns up to 10 skills, each with a score and up to two excerpts that show where it matched. Use this
+            instead of skill-list when you know what the task is about but not the skill name. Pass a result's `name` as
+            `skill_name` to skill-get to load the full skill. An empty result does not prove that no relevant skill
+            exists: try other keywords, or use skill-list to see all skills. This store holds only the skills your team
+            published. Built-in PostHog skills (for example `querying-posthog-data`) are not in it.
+        param_overrides:
+            query:
+                description: >
+                    Keywords that describe the task or the skill you need, for example `feature flag cleanup`. Up to 200
+                    characters. Leading and trailing whitespace is removed.
     skill-store-install-command:
         operation: llm_skills_marketplace_install_command_create
         enabled: true

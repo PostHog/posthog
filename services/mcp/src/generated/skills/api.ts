@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -467,5 +467,25 @@ export const LlmSkillsNameRenameCreateBody = () => zod.object({
         .max(llmSkillsNameRenameCreateBodyNewNameMax)
         .describe(
             "New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'."
+        ),
+})
+
+export const LlmSkillsSearchRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmSkillsSearchRetrieveQueryQueryMax = 200
+
+export const LlmSkillsSearchRetrieveQueryParams = () => zod.object({
+    query: zod
+        .string()
+        .min(1)
+        .max(llmSkillsSearchRetrieveQueryQueryMax)
+        .describe(
+            'Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.'
         ),
 })
