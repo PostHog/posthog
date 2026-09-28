@@ -168,6 +168,29 @@ def _window_params(
     return {"from": from_date.isoformat(), "to": today.isoformat()}
 
 
+def _recent_quarters(count: int, today: date) -> list[tuple[int, int]]:
+    """The `count` most recently completed calendar quarters, newest first."""
+    year, quarter = today.year, (today.month - 1) // 3 + 1
+    quarters: list[tuple[int, int]] = []
+    for _ in range(count):
+        quarter -= 1
+        if quarter == 0:
+            year, quarter = year - 1, 4
+        quarters.append((year, quarter))
+    return quarters
+
+
+def _period_params(config: FinancialModellingEndpointConfig) -> list[dict[str, str]]:
+    """One params overlay per request a symbol needs — a single empty overlay unless the endpoint
+    only answers for one quarter at a time."""
+    if not config.quarters_lookback:
+        return [{}]
+    return [
+        {"year": str(year), "quarter": str(quarter)}
+        for year, quarter in _recent_quarters(config.quarters_lookback, datetime.now(UTC).date())
+    ]
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -188,15 +211,18 @@ def get_rows(
         if start_index:
             logger.debug(f"Financial Modeling Prep: resuming {endpoint} from symbol index {start_index}")
 
+        periods = _period_params(config)
+
         for offset, symbol in enumerate(symbols[start_index:]):
             index = start_index + offset
-            params: dict[str, Any] = {"symbol": symbol, **config.extra_params, **window}
-            data = _fetch_page(session, config.path, params, api_key, logger)
-            for row in _extract_rows(data, config.response_key):
-                row.setdefault("symbol", symbol)
-                batcher.batch(row)
-                if batcher.should_yield():
-                    yield batcher.get_table()
+            for period in periods:
+                params: dict[str, Any] = {"symbol": symbol, **config.extra_params, **window, **period}
+                data = _fetch_page(session, config.path, params, api_key, logger)
+                for row in _extract_rows(data, config.response_key):
+                    row.setdefault("symbol", symbol)
+                    batcher.batch(row)
+                    if batcher.should_yield():
+                        yield batcher.get_table()
 
             # Flush this symbol's rows before advancing the bookmark, so a crash re-fetches only from
             # the next symbol (whose rows are not yet persisted) rather than dropping buffered rows.
