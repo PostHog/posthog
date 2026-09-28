@@ -1502,12 +1502,20 @@ class TestScoutCheckTools(APIBaseTest):
     def test_cancelling_stops_the_check_and_refuses_a_second_cancel(self) -> None:
         written = self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read the issue."})
         SignalReportCheck.objects.for_team(self.team.id).filter(id=written.check_id).update(
-            status=SignalReportCheck.Status.ACTIVE, dispatched_at=timezone.now()
+            status=SignalReportCheck.Status.ACTIVE, dispatched_at=timezone.now() - timedelta(days=30)
         )
+        self.scout_run.metadata = {"check_id": written.check_id}
+        self.scout_run.save(update_fields=["metadata"])
 
         cancelled = cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
         assert (cancelled.status, cancelled.waiting_on_run) == (SignalReportCheck.Status.CANCELLED, False)
+        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (listed.run_state, listed.waiting_on_run, listed.dispatched_run_id) == (
+            SignalReportCheck.Status.CANCELLED,
+            False,
+            None,
+        )
         with self.assertRaises(InvalidCheckWriteError):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 

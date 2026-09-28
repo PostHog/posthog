@@ -247,12 +247,17 @@ def _summarize(
 
 
 def _dispatched_run_ids(team_id: int, checks: list[SignalReportCheck]) -> dict[str, str]:
-    """The newest run each dispatched check was stamped on, keyed by check id.
+    """The newest run each active dispatched check was stamped on, keyed by check id.
 
     Bounded to runs created after the oldest dispatch, because the run row carries the check only
-    in its metadata and the table grows with every scout run.
+    in its metadata and the table grows with every scout run. Terminal checks keep their dispatch
+    timestamps, so exclude them to prevent old checks from extending the scan into old run history.
     """
-    dispatched = {str(check.id): check.dispatched_at for check in checks if check.dispatched_at is not None}
+    dispatched = {
+        str(check.id): check.dispatched_at
+        for check in checks
+        if check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None
+    }
     if not dispatched:
         return {}
     runs = (
