@@ -7569,6 +7569,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("not_a_string", {"summary": {"state": "halfway"}}),
             ("tag_not_a_slug", {"summary": "Reading", "tags": ["Feature Flags"]}),
             ("tag_with_padding", {"summary": "Reading", "tags": [" bug-fix "]}),
+            ("tag_with_trailing_newline", {"summary": "Reading", "tags": ["bug-fix\n"]}),
             ("tag_over_the_cap", {"summary": "Reading", "tags": ["x" * (tasks_facade.TASK_RUN_TAG_MAX_CHARS + 1)]}),
             (
                 "too_many_tags",

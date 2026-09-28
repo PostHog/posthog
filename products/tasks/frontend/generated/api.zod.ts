@@ -3416,7 +3416,7 @@ export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
 
 export const tasksRunsSetSummaryPartialUpdateBodyTagsItemMax = 50
 
-export const tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')
+export const tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$(?!\\n)')
 export const tasksRunsSetSummaryPartialUpdateBodyTagsMax = 10
 
 export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({

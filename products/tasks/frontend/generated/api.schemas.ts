@@ -4375,7 +4375,7 @@ export interface PatchedTaskRunSetSummaryRequestApi {
      * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
      * @maxItems 10
      * @items.maxLength 50
-     * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
      */
     tags?: string[]
 }
