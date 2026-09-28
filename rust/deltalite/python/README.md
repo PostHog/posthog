@@ -177,17 +177,20 @@ budgets:
 checkpoint Parquet file whole in one GET and serves the Parquet reader's many
 small range reads from memory, instead of one round trip per footer, metadata
 block and column chunk. `DELTALITE_CHECKPOINT_PREFETCH_MAX_BYTES` (128 MiB)
-bounds the size of a checkpoint file fetched this way; larger files fall back
-to range reads, and `0` disables the prefetch. The bytes are released as soon as
-the load finishes.
+bounds the total checkpoint bytes cached by one table load; larger files or
+multipart checkpoints that exhaust the budget fall back to range reads, and `0`
+disables the prefetch. Cached bytes also reserve space from
+`DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, so concurrent table opens share the
+process-wide budget. The bytes are released as soon as the load finishes.
 
 ## Metrics
 
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static
 labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
 `error_kind`), `deltalite_upsert_duration_seconds`,
-`deltalite_files_{added,removed,carried_over,probed}_total`, and
-`deltalite_rows_{updated,inserted,copied}_total`.
+`deltalite_files_{added,removed,carried_over,probed}_total`,
+`deltalite_rows_{updated,inserted,copied}_total`, and
+`deltalite_checkpoint_prefetch_total` (`outcome`).
 
 ## Compatibility & status
 

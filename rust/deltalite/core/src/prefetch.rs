@@ -11,10 +11,10 @@
 //! their range reads: the probe reads only the PK columns of a file and the rewrite
 //! streams row groups, so buffering a whole data file would defeat the memory bound.
 //!
-//! Objects above [`CheckpointCache::max_bytes`] fall through to plain range reads, and the
-//! cache is meant to live for one load: [`crate::handle::TableHandle`] clears it after
-//! every open and refresh so a long-lived handle does not pin checkpoint bytes between
-//! upserts.
+//! Objects above [`CheckpointCache::max_bytes`] fall through to plain range reads. That
+//! limit also bounds the aggregate cache for one load, while the process-wide byte budget
+//! bounds concurrent loads. [`crate::handle::TableHandle`] clears the cache after every
+//! open and refresh so a long-lived handle does not pin checkpoint bytes between upserts.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -32,9 +32,11 @@ use object_store::{
     ObjectMeta, ObjectStore, ObjectStoreExt, PutMultipartOptions, PutOptions, PutPayload,
     PutResult,
 };
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, OwnedSemaphorePermit, Semaphore};
 use tracing::debug;
 use uuid::Uuid;
+
+use crate::limits::ProcessLimits;
 
 /// Largest checkpoint object fetched whole by default. A checkpoint this size describes
 /// a table with hundreds of thousands of live files, whose snapshot the kernel holds in
@@ -59,6 +61,8 @@ enum Fetched {
     Cached {
         meta: ObjectMeta,
         bytes: Bytes,
+        _cache_permit: Arc<OwnedSemaphorePermit>,
+        _process_permit: Arc<OwnedSemaphorePermit>,
     },
     /// The object is larger than the cache allows; its reads pass through untouched.
     TooLarge,
@@ -67,18 +71,31 @@ enum Fetched {
 /// Per-load memory of whole checkpoint objects, shared by every store view of one table.
 ///
 /// Concurrent readers of the same object wait on one fetch (`OnceCell`) instead of each
-/// issuing their own whole-object GET.
+/// issuing their own whole-object GET. Admission never waits for byte-budget permits;
+/// an occupied budget falls back to range reads so multipart loads cannot deadlock.
 #[derive(Debug)]
 pub struct CheckpointCache {
     max_bytes: u64,
+    budget: Arc<Semaphore>,
+    budget_kb: u32,
+    process_limits: Arc<ProcessLimits>,
     entries: Mutex<HashMap<Path, Arc<OnceCell<Fetched>>>>,
 }
 
 impl CheckpointCache {
-    /// A cache that fetches objects up to `max_bytes` whole; `0` disables prefetching.
+    /// A cache that fetches checkpoint objects up to `max_bytes` in aggregate; `0`
+    /// disables prefetching.
     pub fn new(max_bytes: u64) -> Self {
+        Self::with_process_limits(max_bytes, ProcessLimits::global().clone())
+    }
+
+    fn with_process_limits(max_bytes: u64, process_limits: Arc<ProcessLimits>) -> Self {
+        let budget_kb = max_bytes.div_ceil(1024).clamp(1, u32::MAX as u64) as u32;
         Self {
             max_bytes,
+            budget: Arc::new(Semaphore::new(budget_kb as usize)),
+            budget_kb,
+            process_limits,
             entries: Mutex::new(HashMap::new()),
         }
     }
@@ -145,6 +162,19 @@ impl CheckpointCache {
         ranges.iter().any(|r| r.end > self.max_bytes)
     }
 
+    fn try_reserve(
+        &self,
+        bytes: u64,
+    ) -> Option<(Arc<OwnedSemaphorePermit>, Arc<OwnedSemaphorePermit>)> {
+        let kb = bytes.div_ceil(1024).clamp(1, u32::MAX as u64) as u32;
+        if kb > self.budget_kb || kb > self.process_limits.buffer_cap_kb() {
+            return None;
+        }
+        let cache = self.budget.clone().try_acquire_many_owned(kb).ok()?;
+        let process = self.process_limits.try_acquire_buffer_kb(kb)?;
+        Some((Arc::new(cache), Arc::new(process)))
+    }
+
     async fn get_or_fetch(
         &self,
         inner: &Arc<dyn ObjectStore>,
@@ -165,12 +195,28 @@ impl CheckpointCache {
                         .increment(1);
                     return Ok::<_, object_store::Error>(Fetched::TooLarge);
                 }
+                let Some((_cache_permit, _process_permit)) = self.try_reserve(result.meta.size)
+                else {
+                    debug!(
+                        path = %location,
+                        size = result.meta.size,
+                        "checkpoint prefetch budget is occupied; reading it by range"
+                    );
+                    counter!("deltalite_checkpoint_prefetch_total", "outcome" => "budget_exhausted")
+                        .increment(1);
+                    return Ok(Fetched::TooLarge);
+                };
                 let meta = result.meta.clone();
                 let bytes = result.bytes().await?;
                 debug!(path = %location, size = bytes.len(), "prefetched checkpoint");
                 counter!("deltalite_checkpoint_prefetch_total", "outcome" => "fetched")
                     .increment(1);
-                Ok(Fetched::Cached { meta, bytes })
+                Ok(Fetched::Cached {
+                    meta,
+                    bytes,
+                    _cache_permit,
+                    _process_permit,
+                })
             })
             .await?;
         Ok(fetched.clone())
@@ -262,7 +308,7 @@ impl ObjectStore for CheckpointPrefetchStore {
         }
         match self.cache.get_or_fetch(&self.inner, location).await? {
             Fetched::TooLarge => self.inner.get_opts(location, options).await,
-            Fetched::Cached { meta, bytes } => {
+            Fetched::Cached { meta, bytes, .. } => {
                 let range = Self::resolve(options.range.as_ref(), bytes.len() as u64);
                 let slice = Self::slice(&bytes, &range);
                 Ok(GetResult {
@@ -529,6 +575,7 @@ mod tests {
     }
 
     const CHECKPOINT: &str = "bucket/table/_delta_log/00000000000000000010.checkpoint.parquet";
+    const CHECKPOINT_2: &str = "bucket/table/_delta_log/00000000000000000011.checkpoint.parquet";
 
     fn body(len: usize) -> Bytes {
         Bytes::from((0..len).map(|i| (i % 251) as u8).collect::<Vec<u8>>())
@@ -540,7 +587,7 @@ mod tests {
             gets: AtomicUsize::new(0),
         });
         let data = body(10_000);
-        for path in [CHECKPOINT, "bucket/table/p=1/part-0.parquet"] {
+        for path in [CHECKPOINT, CHECKPOINT_2, "bucket/table/p=1/part-0.parquet"] {
             counting
                 .put(&Path::from(path), PutPayload::from_bytes(data.clone()))
                 .await
@@ -681,6 +728,71 @@ mod tests {
             "one abandoned whole fetch, then a passthrough per range"
         );
         assert_eq!(store.cache.cached_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_per_load_budget_bounds_multipart_checkpoints_in_aggregate() {
+        let (counting, store, data) = fixture(15_000).await;
+
+        store
+            .get_range(&Path::from(CHECKPOINT), 0..10)
+            .await
+            .unwrap();
+        let second = store
+            .get_range(&Path::from(CHECKPOINT_2), 0..10)
+            .await
+            .unwrap();
+
+        assert_eq!(second, data.slice(0..10));
+        assert_eq!(store.cache.cached_bytes(), 10_000);
+        assert_eq!(
+            gets(&counting),
+            3,
+            "the second checkpoint falls back after its whole-object probe"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_process_budget_bounds_concurrent_table_caches() {
+        let limits = Arc::new(ProcessLimits::new(1, 1, 15_000));
+        let counting = Arc::new(Counting {
+            inner: InMemory::new(),
+            gets: AtomicUsize::new(0),
+        });
+        let data = body(10_000);
+        counting
+            .put(
+                &Path::from(CHECKPOINT),
+                PutPayload::from_bytes(data.clone()),
+            )
+            .await
+            .unwrap();
+        let first = CheckpointPrefetchStore::new(
+            counting.clone(),
+            Arc::new(CheckpointCache::with_process_limits(15_000, limits.clone())),
+        );
+        let second = CheckpointPrefetchStore::new(
+            counting.clone(),
+            Arc::new(CheckpointCache::with_process_limits(15_000, limits)),
+        );
+
+        first
+            .get_range(&Path::from(CHECKPOINT), 0..10)
+            .await
+            .unwrap();
+        let range = second
+            .get_range(&Path::from(CHECKPOINT), 0..10)
+            .await
+            .unwrap();
+
+        assert_eq!(range, data.slice(0..10));
+        assert_eq!(first.cache.cached_bytes(), 10_000);
+        assert_eq!(second.cache.cached_bytes(), 0);
+        assert_eq!(
+            gets(&counting),
+            3,
+            "the second cache falls back after its whole-object probe"
+        );
     }
 
     #[tokio::test]

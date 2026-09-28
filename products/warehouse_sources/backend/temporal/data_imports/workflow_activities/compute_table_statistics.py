@@ -213,7 +213,7 @@ def _most_recent_computed_version(
 
 def _most_recent_full_scan_at(
     existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]
-) -> Any | None:
+) -> datetime | None:
     """Oldest full-scan time among currently-registered columns, not the newest.
 
     `computed_at` is bumped on every write, fold included, so it cannot answer "how long has it been
@@ -223,11 +223,11 @@ def _most_recent_full_scan_at(
     Oldest-of and scoped to `current_columns` for the same partial-write and dropped-column hazards as
     `_most_recent_computed_at`.
     """
-    times = [
-        (s.full_scan_at or s.computed_at)
-        for name, s in existing.items()
-        if name in current_columns and (s.full_scan_at or s.computed_at) is not None
-    ]
+    times: list[datetime] = []
+    for name, stored in existing.items():
+        full_scan_at = stored.full_scan_at or stored.computed_at
+        if name in current_columns and full_scan_at is not None:
+            times.append(full_scan_at)
     return min(times) if times else None
 
 
