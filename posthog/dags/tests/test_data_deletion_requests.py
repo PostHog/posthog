@@ -523,7 +523,6 @@ CHROME_PERSON_ID = UUID("0199a7c1-0000-7000-8000-000000000001")
     "hogql_predicate",
     [
         "properties.$browser = 'Chrome'",
-        # The form the validation error suggests for matching a person's events.
         f"distinct_id IN (SELECT distinct_id FROM person_distinct_ids WHERE person_id = '{CHROME_PERSON_ID}')",
     ],
 )

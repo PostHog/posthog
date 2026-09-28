@@ -963,12 +963,9 @@ class MutationRunner(abc.ABC):
         # `formatQuerySingleLine` + collapse-whitespace + trim on both sides of the join so
         # cosmetic spacing differences between our formatting and what
         # `system.mutations.command` stored don't break the byte-equality match.
-        # ClickHouse qualifies a bare table reference with the connection database when it stores
-        # the mutation, so both sides drop the `db.` prefix after FROM and JOIN before the join. A
-        # command can then name a table either way, including inside a subquery such as a compiled
-        # HogQL predicate. Only FROM and JOIN are rewritten, so a string value such as 'posthog.com'
-        # stays intact and two different commands never compare equal. Dictionary names are string
-        # arguments that ClickHouse does not qualify, so callers still pass them as `db.dictionary`.
+        # ClickHouse stores a table after FROM or JOIN qualified with the database, so both sides drop
+        # that prefix; string values such as 'posthog.com' stay intact. Dictionary names are strings
+        # ClickHouse does not qualify, so callers pass them as `db.dictionary`.
         alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
         # Render each command's parameters here and bind the finished text as an ordinary parameter,
         # rather than interpolating the template into a $__sql$ heredoc and letting the driver

@@ -86,10 +86,8 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
     # ``person.properties`` must read the on-events ``person_properties`` column — a joined
     # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
-    # not exist in either splice site. ``forbid_joins`` rejects any predicate that still needs a
-    # join, such as ``person_id``, which joins person_distinct_id_overrides. Reading the stored
-    # ``person_id`` instead would miss rows that keep a merged person's old id until the overrides
-    # squash rewrites them, and the request would still complete.
+    # not exist in either splice site. ``forbid_joins`` rejects ``person_id``, which joins the overrides;
+    # the stored column would miss rows that keep a merged person's old id until the squash.
     try:
         team = Team.objects.get(id=obj.team_id)
     except Team.DoesNotExist as exc:
