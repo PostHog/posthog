@@ -1,1 +1,1 @@
-0007_platformalertconfiguration_platformalert_and_more
+0008_alertconfiguration_alert_cfg_due_idx
