@@ -282,7 +282,7 @@ export interface navProductsTabLogicMeta {
         allProductsCollapsible: (shortcutDataHasLoaded: boolean, starredProductIds: Record<string, string>) => boolean
         allProductsVisible: (
             allProductsOpen: boolean,
-            allProductsRevealedByFind: any,
+            allProductsRevealedByFind: boolean,
             allProductsCollapsible: boolean,
             search: string,
             shortcutDataHasLoaded: boolean
@@ -726,6 +726,9 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                 actions.completeStarredProductsSetup()
             },
             confirmCleanSlate: () => {
+                if (!values.shortcutDataHasLoaded || values.starredProductsSaving) {
+                    return
+                }
                 LemonDialog.open({
                     title: 'Start with a clean slate?',
                     description:
@@ -759,33 +762,56 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                 }
             },
             saveStarredProducts: async () => {
+                // The footer buttons are disabled in these states, but the intro link and repeated
+                // dispatches reach this listener directly.
+                if (cache.starredSaveInFlight) {
+                    return
+                }
                 const teamId = values.currentTeamId
-                if (teamId === null) {
+                if (teamId === null || !values.shortcutDataHasLoaded) {
                     actions.saveStarredProductsFailure()
                     return
                 }
-                const { draftStarredPaths, starredProductIds, customizeSidebarMode } = values
+                const { draftStarredPaths, starredProductIds, customizeSidebarMode, draftStartsEmpty } = values
                 // New stars follow the order the dialog lists them in.
                 const orderedProducts = groupProducts(values.configurableProducts, '').flatMap((group) => group.items)
+                const configurablePaths = new Set(orderedProducts.map((item) => item.path))
                 const add = orderedProducts
                     .filter((item) => draftStarredPaths.has(item.path) && !starredProductIds[item.path])
                     .map(shortcutFromEntry)
-                const removeIds = orderedProducts
-                    .filter((item) => !draftStarredPaths.has(item.path) && starredProductIds[item.path])
-                    .map((item) => starredProductIds[item.path])
+                const removeIds = [
+                    ...orderedProducts
+                        .filter((item) => !draftStarredPaths.has(item.path) && starredProductIds[item.path])
+                        .map((item) => starredProductIds[item.path]),
+                    // "Unselect all" and the clean slate also clear stars the dialog cannot list,
+                    // such as a product the user has since lost access to.
+                    ...(draftStartsEmpty
+                        ? Object.entries(starredProductIds)
+                              .filter(([path]) => !configurablePaths.has(path))
+                              .map(([, id]) => id)
+                        : []),
+                ]
 
                 if (add.length > 0 || removeIds.length > 0) {
+                    cache.starredSaveInFlight = true
                     try {
                         const shortcuts = await fileSystemShortcutBulkUpdateCreate(String(teamId), {
                             add,
                             remove_ids: removeIds,
                         })
+                        // A response for a project the user already left would overwrite the new project's stars.
+                        if (values.currentTeamId !== teamId) {
+                            actions.saveStarredProductsFailure()
+                            return
+                        }
                         actions.loadShortcutsSuccess((shortcuts as FileSystemEntry[]).map(withProductShortcutHref))
                     } catch (error) {
                         console.error('Failed to save starred products:', error)
                         lemonToast.error('Could not save your starred products. Try again.')
                         actions.saveStarredProductsFailure()
                         return
+                    } finally {
+                        cache.starredSaveInFlight = false
                     }
                 }
                 if (customizeSidebarMode === 'starred-setup') {

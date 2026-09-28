@@ -274,6 +274,8 @@ describe('navProductsTabLogic', () => {
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
             { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            // Listed in the sidebar but not in the dialog, like a product the user lost access to.
+            { id: 'activity', path: 'Activity', type: 'activity', href: urls.activity(ActivityTab.ExploreEvents) },
         ])
         customProductsLogic.actions.loadCustomProductsSuccess([
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
@@ -284,7 +286,7 @@ describe('navProductsTabLogic', () => {
             .toDispatchActions(['saveStarredProductsSuccess'])
             .toFinishAllListeners()
             .toMatchValues({ customizeSidebarOpen: false })
-        expect(bulkUpdate.body).toEqual({ add: [], remove_ids: ['analytics'] })
+        expect(bulkUpdate.body).toEqual({ add: [], remove_ids: ['analytics', 'activity'] })
         expect(updateUser).toHaveBeenCalledTimes(1)
     })
 
@@ -328,6 +330,39 @@ describe('navProductsTabLogic', () => {
             shortcutScope === 'files' ? [] : ['Product analytics']
         )
     })
+    it('ignores a save response that arrives after the project changed', async () => {
+        let release!: () => void
+        const held = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/bulk_update/': async () => {
+                    await held
+                    return [200, [{ id: 'old-project-star', path: 'Logs', type: 'logs', href: '/logs' }]]
+                },
+            },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([])
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        navProductsTabLogic.actions.setDraftStarred('Logs', true)
+        navProductsTabLogic.actions.saveStarredProducts()
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            id: teamLogic.values.currentTeamId! + 1,
+        })
+        const newProjectStars = [{ id: 'new-project-star', path: 'Dashboards', type: 'dashboard', href: '/dashboard' }]
+        projectTreeDataLogic.actions.loadShortcutsSuccess(newProjectStars)
+        release()
+
+        await expectLogic(navProductsTabLogic)
+            .toDispatchActions(['saveStarredProductsFailure'])
+            .toMatchValues({ starredProductsSaving: false })
+        expect(projectTreeDataLogic.values.shortcutData).toEqual(newProjectStars)
+    })
+
     it('closes the dialog and drops the unsaved draft when the project changes', () => {
         navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
         navProductsTabLogic.actions.setDraftStarred('Feature flags', true)

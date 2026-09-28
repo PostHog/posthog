@@ -12,6 +12,7 @@ from posthog.models.file_system.user_product_list import (
     add_default_products_for_user,
 )
 from posthog.products import Products
+from posthog.schema_enums import ProductKey
 
 
 class TestUserProductList(BaseTest):
@@ -104,7 +105,7 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
         user.refresh_from_db()
         assert starred_products_setup_completed(user) is expected_completed
         if setup_completed:
-            assert user.ui_configuration["sidebar"]["density"] == "compact"
+            assert (user.ui_configuration or {})["sidebar"]["density"] == "compact"
 
     def test_product_intent_stars_only_new_products_without_duplicates(self) -> None:
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
@@ -119,5 +120,18 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
 
         assert FileSystemShortcut.objects.filter(user=user, team=self.team, path="Session replay").count() == 1
         assert set(self._starred(user)) == {
-            product.path for product in Products.get_products_by_intent("session_replay")
+            product.path for product in Products.get_products_by_intent(ProductKey.SESSION_REPLAY)
         }
+
+    def test_enable_all_keeps_the_star_choice_of_already_enabled_products(self) -> None:
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
+        user.ui_configuration = {"version": 1, "sidebar": {"starred_products_setup_completed": True}}
+        user.save()
+        UserProductList.objects.create(user=user, team=self.team, product_path="Session replay", enabled=True)
+
+        with patch("posthog.models.file_system.starred_products.posthoganalytics.feature_enabled", return_value=True):
+            UserProductList.enable_all_for_user(user, self.team)
+
+        starred = set(self._starred(user))
+        assert "Session replay" not in starred
+        assert "Product analytics" in starred

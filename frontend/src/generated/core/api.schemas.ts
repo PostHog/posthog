@@ -4171,7 +4171,10 @@ export interface PatchedFileSystemShortcutApi {
 export interface FileSystemShortcutBulkItemApi {
     /** Display path of the shortcut in the sidebar. */
     path: string
-    /** Type of the linked item (e.g. 'folder', 'insight'), or blank. */
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.

@@ -134,6 +134,11 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # disabled. `unique_together` on (team, user, product_path) makes this idempotent.
         # `auto_now` doesn't fire on bulk update, so set updated_at explicitly.
         had_custom_products = user_has_custom_products(user)
+        already_enabled = set(
+            UserProductList.objects.filter(
+                user=user, team=team, product_path__in=target_paths, enabled=True
+            ).values_list("product_path", flat=True)
+        )
         UserProductList.objects.bulk_create(
             [UserProductList(user=user, team=team, product_path=path, enabled=True) for path in target_paths],
             ignore_conflicts=True,
@@ -141,7 +146,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths, enabled=False).update(
             enabled=True, updated_at=timezone.now()
         )
-        star_custom_products(user, team, target_paths, had_custom_products=had_custom_products)
+        # Products that were already enabled keep whatever star choice the user made for them.
+        newly_enabled = [path for path in target_paths if path not in already_enabled]
+        star_custom_products(user, team, newly_enabled, had_custom_products=had_custom_products)
         return list(UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths))
 
     @staticmethod

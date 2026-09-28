@@ -947,6 +947,8 @@ export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
  */
 export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault = ``
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax = 100
+
 export const fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax = 4000
 
 export const fileSystemShortcutBulkUpdateCreateBodyAddMax = 500
@@ -960,6 +962,7 @@ export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object
                 path: zod.string().describe('Display path of the shortcut in the sidebar.'),
                 type: zod
                     .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax)
                     .default(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault)
                     .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
                 ref: zod

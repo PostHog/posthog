@@ -164,13 +164,14 @@ class TestFileSystemShortcutAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/{url_path}/",
-            {ids_field: [str(foreign.id)]},
+            {ids_field: [str(foreign.id)], "add": [{"path": "Logs", "type": "logs", "href": "/logs"}]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn(str(foreign.id), response.json()["unknown_ids"])
         foreign.refresh_from_db()
         self.assertEqual(foreign.order, 0)
+        self.assertFalse(FileSystemShortcut.objects.filter(user=self.user).exists())
 
     def test_bulk_update_adds_removes_and_skips_duplicates(self):
         kept = FileSystemShortcut.objects.create(
