@@ -6,6 +6,7 @@ import datetime
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 import numpy as np
 import pandas as pd
@@ -40,7 +41,12 @@ from products.signals.backend.ranking.features import (
     feature_set_by_name,
     feature_vector,
 )
-from products.signals.backend.ranking.model_contract import model_mismatch, readable_head_names, trained_head_files
+from products.signals.backend.ranking.model_contract import (
+    classification_thresholds,
+    model_mismatch,
+    readable_head_names,
+    trained_head_files,
+)
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
@@ -52,6 +58,7 @@ from products.signals.backend.ranking.serving_manifest import (
     serving_manifest_key,
     serving_model_prefix,
 )
+from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
@@ -73,7 +80,6 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _train_candidate,
     candidate_metadata,
     champion_object_key,
-    classification_thresholds,
     embeddings_extras,
     examples_object_key,
     grade_metadata,
@@ -100,6 +106,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
+from products.signals.dags.inbox_ranking.training.served import served_events, served_metadata, served_score_rows
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     DISTINCT_ID,
@@ -125,6 +132,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     POOL_NAME,
     REPORT_EMBEDDINGS_MODEL_NAME,
     SCORE_COLUMNS,
+    SERVED_SCORES_TABLE,
     TABULAR_MODEL_NAME,
     TITLE_EMBEDDINGS_MODEL_NAME,
     UNSEEN_SCORES_TABLE,
@@ -2584,3 +2592,148 @@ def test_the_serving_prefix_layout_is_stable():
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
         == "inbox_ranking/serving/models/report_embeddings@2026-08-19"
     )
+
+
+def _served_event(report_id: str, at: str, **properties: Any) -> tuple[pd.Timestamp, dict[str, Any]]:
+    return (
+        pd.Timestamp(at),
+        {"report_id": report_id, "team_id": 2, "status": "scored", "roles": [SERVED_ROLE], **properties},
+    )
+
+
+def _served_events(*events: tuple[pd.Timestamp, dict[str, Any]]) -> pd.DataFrame:
+    return pd.DataFrame(list(events), columns=["scored_at", "properties"])
+
+
+V1, V2 = "2026-08-08", "2026-08-09"
+_V1_EVENT = {"model_name": REPORT_EMBEDDINGS_MODEL_NAME, "model_version": V1, "readable_heads": ["open"]}
+_V2_EVENT = {"model_name": REPORT_EMBEDDINGS_MODEL_NAME, "model_version": V2}
+_SERVED_POOL = ["tie", "low", "legacy_low", "legacy_high", "challenger_only", "late"]
+
+
+def _served_rows() -> pd.DataFrame:
+    events = _served_events(
+        # The promotion lands part of the way through D, so the day's cohort splits across V1 and V2.
+        _served_event("tie", "2026-08-10T13:00:00Z", p_open=0.4, threshold_open=0.4, **_V1_EVENT),
+        _served_event("tie", "2026-08-10T20:00:00Z", p_open=0.9, **_V2_EVENT),
+        _served_event("low", "2026-08-10T13:00:00Z", p_open=0.1, threshold_open=0.4, **_V1_EVENT),
+        # V2 predates thresholds, so its events carry no threshold and no readable heads.
+        _served_event("legacy_low", "2026-08-10T21:00:00Z", p_open=0.2, **_V2_EVENT),
+        _served_event("legacy_high", "2026-08-10T21:00:00Z", p_open=0.6, **_V2_EVENT),
+        _served_event("challenger_only", "2026-08-10T13:00:00Z", p_open=0.5, roles=[CROSS_FAMILY_ROLE], **_V1_EVENT),
+        _served_event("challenger_only", "2026-08-10T14:00:00Z", p_open=0.5, status="skipped", **_V1_EVENT),
+        # Born before D, so not a newborn of the pool.
+        _served_event("older", "2026-08-10T13:00:00Z", p_open=0.5, **_V1_EVENT),
+    )
+    # "late" has no event inside D: its first score came after D ended, so it stays uncovered.
+    pool = _state(_SERVED_POOL)
+    return served_score_rows(events, pool, _labels(_SERVED_POOL), snapshot_date=D0)
+
+
+def test_served_score_rows_keep_the_earliest_served_score_of_each_newborn():
+    rows = _served_rows().set_index("report_id")
+
+    assert sorted(rows.index) == ["legacy_high", "legacy_low", "low", "tie"]
+    assert rows.loc["tie", "model_version"] == V1
+    assert rows.loc["tie", "score"] == 0.4
+    assert rows.loc["tie", "age_hours"] == 1.0
+    assert set(rows["model_role"]) == {SERVED_ROLE}
+    assert rows["classification_threshold"].to_dict() == pytest.approx(
+        {"tie": 0.4, "low": 0.4, "legacy_low": np.nan, "legacy_high": np.nan}, nan_ok=True
+    )
+    # An event without `readable_heads` is unknown, which the grader reads as readable.
+    assert {
+        report_id: None if pd.isna(value) else bool(value) for report_id, value in rows["head_readable"].items()
+    } == {
+        "tie": True,
+        "low": True,
+        "legacy_low": None,
+        "legacy_high": None,
+    }
+    assert served_metadata(_state(_SERVED_POOL), rows.reset_index())["served_pool_coverage"] == (
+        dagster.MetadataValue.float(4 / 6)
+    )
+
+
+def test_served_scores_grade_per_version_at_the_threshold_that_was_served(monkeypatch):
+    graded_day = D0 + datetime.timedelta(days=HEADS_BY_NAME["open"].horizon_days)
+    ids = _SERVED_POOL
+    labels = _labels(ids, open_count=[1, 0, 0, 1, 0, 0])
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    served_table = scores_table(_served_rows())
+    buffer = io.BytesIO()
+    pq.write_table(served_table, buffer)
+    # No unseen object and no older served object: both are skips, never a failure.
+    storage = _ParquetS3(
+        {
+            partition_object_key(prefix, STATE_TABLE, graded_day.isoformat()): _parquet(_state(ids)),
+            partition_object_key(prefix, LABELS_TABLE, graded_day.isoformat()): _parquet(labels),
+            partition_object_key(prefix, SERVED_SCORES_TABLE, D0.isoformat()): buffer.getvalue(),
+        }
+    )
+    monkeypatch.setattr(settings, "INBOX_RANKING_DATASET_S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: storage)
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
+
+    with dagster.build_asset_context(partition_key=graded_day.isoformat()) as context:
+        inbox_ranking_unseen_graded(context)
+
+    graded = {
+        call["properties"]["model_version"]: call["properties"]
+        for call in client.calls
+        if call["event"] == "inbox_ranking_unseen_head_graded" and call["properties"]["head"] == "open"
+    }
+    assert set(graded) == {V1, V2}
+    assert {row["model_role"] for row in graded.values()} == {SERVED_ROLE}
+    # The tie is a positive, at the threshold V1 saved at birth.
+    assert {
+        "rows": 2,
+        "auc": 1.0,
+        "classification_threshold": 0.4,
+        "true_positives": 1,
+        "true_negatives": 1,
+        "false_positives": 0,
+    }.items() <= graded[V1].items()
+    # V2 saved no threshold: its classification fields are null, and AUC and calibration stay.
+    assert graded[V2]["auc"] == 1.0
+    assert graded[V2]["expected_calibration_error"] is not None
+    assert (graded[V2]["classification_threshold"], graded[V2]["true_positives"]) == (None, None)
+
+
+class TestServedEventsQuery(ClickhouseTestMixin, BaseTest):
+    def _scored(self, report_id: str, at: datetime.datetime, **properties: Any) -> None:
+        _create_event(
+            team=self.team,
+            event=REPORT_SCORED_EVENT,
+            distinct_id="inbox_ranking_scoring",
+            timestamp=at,
+            properties={
+                "environment": "US",
+                "report_id": report_id,
+                "status": "scored",
+                "roles": [SERVED_ROLE],
+                "p_open": 0.5,
+                **properties,
+            },
+        )
+
+    def test_reads_only_this_deployments_scores_of_the_pool_inside_the_day(self) -> None:
+        start = datetime.datetime(2026, 8, 10, tzinfo=datetime.UTC)
+        end = start + datetime.timedelta(days=1)
+        self._scored("in_day", start + datetime.timedelta(hours=3), threshold_open=0.4)
+        self._scored("late", end + datetime.timedelta(hours=1))
+        self._scored("other_region", start + datetime.timedelta(hours=3), environment="EU")
+        self._scored("skipped", start + datetime.timedelta(hours=3), status="skipped")
+        self._scored("not_in_pool", start + datetime.timedelta(hours=3))
+
+        events = served_events(
+            self.team,
+            ["in_day", "late", "other_region", "skipped"],
+            window_start=start,
+            window_end=end,
+            environment="US",
+        )
+
+        assert [properties["report_id"] for properties in events["properties"]] == ["in_day"]
+        (properties,) = events["properties"]
+        assert (properties["roles"], properties["threshold_open"]) == ([SERVED_ROLE], 0.4)
