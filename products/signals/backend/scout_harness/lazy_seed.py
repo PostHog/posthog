@@ -67,6 +67,11 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # (or vice versa). The agentskills.io spec also defines `assets/`; if we ever want to
 # support binary attachments, add to both consumers in the same change.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+# Python writes bytecode next to a bundled script when a process imports or runs it, so a
+# deployed image can hold these files even though the source tree does not. They are not
+# skill content, and their bytes are not UTF-8.
+_BUNDLE_BUILD_ARTIFACT_DIRS = frozenset({"__pycache__"})
+_BUNDLE_BUILD_ARTIFACT_SUFFIXES = frozenset({".pyc", ".pyo"})
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/skills/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
 # bypasses the service layer (no "create from scratch with files" helper exists), so
@@ -348,6 +353,12 @@ def _parse_structured_output_schema(
         ) from error
 
 
+def _is_bundle_build_artifact(rel_path: Path) -> bool:
+    return rel_path.suffix in _BUNDLE_BUILD_ARTIFACT_SUFFIXES or any(
+        part in _BUNDLE_BUILD_ARTIFACT_DIRS for part in rel_path.parts
+    )
+
+
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
@@ -432,7 +443,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         if not subdir.is_dir():
             continue
         for file_path in sorted(subdir.rglob("*")):
-            if not file_path.is_file():
+            if not file_path.is_file() or _is_bundle_build_artifact(file_path.relative_to(subdir)):
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
             if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:

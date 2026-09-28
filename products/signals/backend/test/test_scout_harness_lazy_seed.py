@@ -477,6 +477,48 @@ class TestDiscoverCanonicalSkills:
         assert "assets/template.txt" not in files_by_path
         assert "extras/notes.txt" not in files_by_path
 
+    def test_skips_python_bytecode_in_bundled_subdirs(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                ---
+            """,
+            body="# Bar\n",
+            bundled_files={"scripts/check.py": "print('hi')\n"},
+        )
+        scripts_dir = tmp_path / "signals-scout-bar" / "scripts"
+        (scripts_dir / "__pycache__").mkdir()
+        bytecode = b"\xcb\r\r\n\x00\x00\x00\x00\xff\xfe"
+        (scripts_dir / "__pycache__" / "check.cpython-313.pyc").write_bytes(bytecode)
+        (scripts_dir / "legacy.pyc").write_bytes(bytecode)
+
+        skills = discover_canonical_skills(tmp_path)
+
+        assert [f.path for f in skills[0].files] == ["scripts/check.py"]
+
+    def test_non_utf8_bundled_file_raises(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                ---
+            """,
+            body="# Bar\n",
+        )
+        references_dir = tmp_path / "signals-scout-bar" / "references"
+        references_dir.mkdir()
+        (references_dir / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+
+        with pytest.raises(CanonicalSkillParseError, match="not UTF-8 text"):
+            discover_canonical_skills(tmp_path)
+
     def test_missing_frontmatter_raises(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "signals-scout-foo"
         skill_dir.mkdir()
