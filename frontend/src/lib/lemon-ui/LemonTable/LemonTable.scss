@@ -396,18 +396,75 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
     @container main-content (min-width: 42rem) {
         overflow: clip;
 
+        // Let the header paint over the table's 1px border, so that the pinned header can draw its own
+        // top border and rounded corners. The table's top edge is scrolled away at that point.
+        overflow-clip-margin: 1px;
+
         > .ScrollableShadows,
         > .ScrollableShadows > .ScrollableShadows__inner {
             overflow: clip !important; // Override the inline overflow style of the scroll viewport
+            overflow-clip-margin: 1px;
         }
 
         .LemonTable__content > table > thead {
             position: sticky;
-            top: var(--lemon-table-sticky-header-top, 0);
+
+            // The header draws its own top border, so it moves up 1px to lie over the table's top border.
+            // The sticky offset adds the 1px back, so the pinned header still starts at the given top.
+            top: calc(var(--lemon-table-sticky-header-top, 0px) + 1px);
             z-index: 7; // Above sticky and pinned cells (6), below the scrollable shadows (8)
+            translate: 0 -1px;
 
             > tr > th {
-                background: var(--lemon-table-background-color);
+                // A background line, because Chrome does not paint an outer box-shadow of a cell in a
+                // collapsed table.
+                background:
+                    linear-gradient(var(--color-border-primary), var(--color-border-primary)) top / 100% 1px no-repeat,
+                    var(--lemon-table-background-color);
+            }
+
+            // The top border and the corners draw exactly over the table's own border and corners,
+            // so they only show once the header pins below the table's top edge.
+            > tr:first-child > th:first-child,
+            > tr:first-child > th:last-child {
+                // Header cells clip their content, and the corner extends 1px over the table's border.
+                overflow: clip;
+                overflow-clip-margin: 1px;
+
+                &:not(.LemonTable__header--sticky, .LemonTable__header--pinned) {
+                    position: relative;
+                }
+
+                &::after {
+                    position: absolute;
+                    top: 0;
+                    width: var(--radius);
+                    height: var(--radius);
+                    pointer-events: none;
+                    content: '';
+
+                    // Match the table's outer corner: header background inside the curve, border on it,
+                    // and the scene background outside it, which hides the rows that scroll behind the header.
+                    background: radial-gradient(
+                        circle at var(--lemon-table-corner-origin),
+                        var(--lemon-table-background-color) calc(var(--radius) - 1.5px),
+                        var(--color-border-primary) calc(var(--radius) - 1px),
+                        var(--color-border-primary) calc(var(--radius) - 0.5px),
+                        var(--color-bg-primary) var(--radius)
+                    );
+                }
+            }
+
+            > tr:first-child > th:first-child::after {
+                --lemon-table-corner-origin: 100% 100%;
+
+                left: -1px;
+            }
+
+            > tr:first-child > th:last-child::after {
+                --lemon-table-corner-origin: 0 100%;
+
+                right: -1px;
             }
         }
 
