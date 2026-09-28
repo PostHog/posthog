@@ -508,12 +508,12 @@ tools:
         title: Start evaluation backfill
         description: >
             Run an evaluation over past data: every generation, trace, or session in a time window that matches its
-            conditions. Every unit evaluated is one evaluation run and counts as an AI observability event, plus a
-            model call for an llm_judge, so never call this first. Call llma-evaluation-backfill-estimate with the same window_start, window_end, conditions, and
-            rerun_existing, show the user the unit count and the clamped window, and start only after they confirm. Use
-            the same inputs so the run matches what they approved. One backfill runs per evaluation at a time. The
-            evaluation must be enabled. Returns the backfill; track it with llma-evaluation-backfill-get. Results are
-            '$ai_evaluation' events.
+            conditions. Every unit evaluated is one evaluation run and counts as an AI observability event, plus a model
+            call for an llm_judge, so never call this first. Call llma-evaluation-backfill-estimate with the same
+            window_start, window_end, conditions, and rerun_existing, show the user the unit count and the clamped
+            window, and start only after they confirm. Use the same inputs so the run matches what they approved. One
+            backfill runs per evaluation at a time. The evaluation must be enabled. Returns the backfill; track it with
+            llma-evaluation-backfill-get. Results are '$ai_evaluation' events.
         param_overrides:
             evaluation_id:
                 aliases:
