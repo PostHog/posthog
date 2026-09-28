@@ -52,6 +52,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_AI_EVENTS_PER_TRACE,
     MAX_IDS_PER_LOOKUP,
     annotate_self_time,
     count_session_exceptions,
@@ -859,7 +860,13 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
 
 
 class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
-    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest start first.")
+    results = _TracingTraceAiEventSerializer(
+        many=True, help_text="AI events in the trace, earliest start first, up to `limit` of them."
+    )
+    limit = serializers.IntegerField(help_text="The most AI events the lookup returns for one trace.")
+    has_more = serializers.BooleanField(
+        help_text="Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`."
+    )
 
 
 class _TracingSparklineRowSerializer(serializers.Serializer):
@@ -1941,11 +1948,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ValueError:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
+        ai_events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
 
-        self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})
+        self._report_usage(
+            request,
+            "tracing trace ai events fetched",
+            {"ai_events_count": len(ai_events.events), "ai_events_has_more": ai_events.has_more},
+        )
 
-        response = _TracingTraceAiEventsResponseSerializer(instance={"results": events})
+        response = _TracingTraceAiEventsResponseSerializer(
+            instance={"results": ai_events.events, "has_more": ai_events.has_more, "limit": MAX_AI_EVENTS_PER_TRACE}
+        )
         return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(

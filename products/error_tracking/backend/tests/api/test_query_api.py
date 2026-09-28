@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -21,10 +22,13 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    MAX_STACK_FRAMES,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
+    dedupe_repeated_stacktraces,
+    normalize_stacktrace,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -70,6 +74,51 @@ def test_release_filter_adds_substring_prefilter() -> None:
 
 def test_build_sparkline_accepts_float_values() -> None:
     assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
+
+
+def test_normalize_stacktrace_keeps_the_frames_closest_to_the_error() -> None:
+    frames = [{"mangled_name": f"frame_{index}", "in_app": True} for index in range(MAX_STACK_FRAMES + 20)]
+
+    stacktrace = normalize_stacktrace({"frames": frames}, only_app_frames=True)
+
+    assert stacktrace is not None
+    kept = cast(list[dict[str, object]], stacktrace["frames"])
+    assert len(kept) == MAX_STACK_FRAMES
+    assert kept[0]["mangled_name"] == "frame_20"
+    assert kept[-1]["mangled_name"] == f"frame_{MAX_STACK_FRAMES + 19}"
+    assert stacktrace["frames_omitted"] == 20
+
+
+def test_normalize_stacktrace_does_not_mark_a_short_stack() -> None:
+    stacktrace = normalize_stacktrace({"frames": [{"mangled_name": "main", "in_app": True}]}, only_app_frames=True)
+
+    assert stacktrace is not None
+    assert "frames_omitted" not in stacktrace
+
+
+def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() -> None:
+    def exception(line: int) -> dict[str, object]:
+        frame = {"mangled_name": "submitOrder", "line": line, "in_app": True}
+        return {"type": "TypeError", "stacktrace": {"frames": [frame]}}
+
+    def event(uuid: str, *lines: int) -> dict[str, object]:
+        return {"uuid": uuid, "properties": {"$exception_list": [exception(line) for line in lines]}}
+
+    events = dedupe_repeated_stacktraces(
+        [
+            # Two exceptions with different stacks, then an exception that repeats the first stack in the same event.
+            event("event-1", 42, 43, 42),
+            event("event-2", 43),
+            event("event-3", 44),
+        ]
+    )
+
+    stacks = [[exception["stacktrace"] for exception in cast(Any, e["properties"])["$exception_list"]] for e in events]
+    assert stacks[0][0]["frames"][0]["line"] == 42
+    assert stacks[0][1]["frames"][0]["line"] == 43
+    assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
+    assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
+    assert stacks[2][0]["frames"][0]["line"] == 44
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -661,6 +710,39 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_values"][0]
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
         assert summary_event["properties"]["$session_id"] == "session-id-1"
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_returns_a_repeated_stack_trace_once(self) -> None:
+        self.create_issue()
+        exception_list = [
+            {
+                "type": "TypeError",
+                "value": "Cannot read properties of undefined",
+                "stacktrace": {"frames": [{"mangled_name": "submitOrder", "line": 42, "in_app": True}]},
+            }
+        ]
+        for _ in range(2):
+            self.create_exception_event(properties={"$exception_list": exception_list})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["stacktrace"],
+                "limit": 2,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        first, second = response.json()["results"]
+        assert first["properties"]["$exception_list"][0]["stacktrace"]["frames"][0]["line"] == 42
+        assert second["properties"]["$exception_list"][0]["stacktrace"] == {
+            "same_as_event": first["uuid"],
+            "same_as_exception": 0,
+        }
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_only_requested_context_groups(self) -> None:
