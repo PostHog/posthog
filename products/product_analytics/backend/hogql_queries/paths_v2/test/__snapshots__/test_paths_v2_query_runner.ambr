@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.1
+  '''
   SELECT kind AS kind,
          step_index AS step_index,
          multiIf(ifNull(equals(kind, 'dropoff'), 0), item, equals(source_is_top, 1), item, tuple('$$__posthog_other__$$', '')) AS source_item,
@@ -85,7 +97,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.1
+# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.3
   '''
   SELECT pair.1 AS source_item,
          pair.2 AS target_item,

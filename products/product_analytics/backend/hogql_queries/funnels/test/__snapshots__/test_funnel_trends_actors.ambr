@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.1
+  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -54,7 +66,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.1
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.3
   '''
   SELECT source.id,
          source.id AS id
@@ -109,7 +133,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.2
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_filters_by_breakdown.5
   '''
   SELECT source.id,
          source.id AS id
@@ -166,6 +202,18 @@
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id.1
+  '''
   SELECT source.id,
          source.id AS id,
          source.matching_events AS matching_events
@@ -225,7 +273,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id.1
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id.2
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -251,6 +299,18 @@
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings.1
+  '''
   SELECT source.id,
          source.id AS id,
          source.matching_events AS matching_events
@@ -310,7 +370,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings.1
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_returns_recordings.2
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -335,6 +395,18 @@
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off.1
   '''
   SELECT source.id,
          source.id AS id,
@@ -395,7 +467,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off.1
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_drop_off.2
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -420,6 +492,18 @@
   '''
 # ---
 # name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2021-04-18'
+    AND date < '2021-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step.1
   '''
   SELECT source.id,
          source.id AS id,
@@ -480,7 +564,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step.1
+# name: TestFunnelTrendsActors.test_funnel_trend_persons_with_no_to_step.2
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,

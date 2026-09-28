@@ -1,6 +1,15 @@
 # serializer version: 1
 # name: TestSessionAttributionQueryRunner.test_filters
   '''
+  SELECT count()
+  FROM posthog_test.raw_sessions
+  WHERE team_id = 99999
+    AND min_timestamp >= '2026-09-21'
+    AND min_timestamp < '2026-09-28'
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_filters.1
+  '''
   SELECT count() AS `context.columns.count`,
          sessions.`$channel_type` AS `context.columns.channel_type`,
          topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
@@ -57,6 +66,15 @@
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_by_initial_url
   '''
+  SELECT count()
+  FROM posthog_test.raw_sessions
+  WHERE team_id = 99999
+    AND min_timestamp >= '2026-09-21'
+    AND min_timestamp < '2026-09-28'
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_by_initial_url.1
+  '''
   SELECT count() AS `context.columns.count`,
          topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,
          topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
@@ -111,6 +129,15 @@
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_by_nothing
   '''
+  SELECT count()
+  FROM posthog_test.raw_sessions
+  WHERE team_id = 99999
+    AND min_timestamp >= '2026-09-21'
+    AND min_timestamp < '2026-09-28'
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_by_nothing.1
+  '''
   SELECT count() AS `context.columns.count`,
          topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,
          topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
@@ -163,6 +190,15 @@
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_channel_medium_source
+  '''
+  SELECT count()
+  FROM posthog_test.raw_sessions
+  WHERE team_id = 99999
+    AND min_timestamp >= '2026-09-21'
+    AND min_timestamp < '2026-09-28'
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_channel_medium_source.1
   '''
   SELECT count() AS `context.columns.count`,
          sessions.`$channel_type` AS `context.columns.channel_type`,
@@ -219,6 +255,15 @@
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_no_crash_when_no_data
+  '''
+  SELECT count()
+  FROM posthog_test.raw_sessions
+  WHERE team_id = 99999
+    AND min_timestamp >= '2026-09-21'
+    AND min_timestamp < '2026-09-28'
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_no_crash_when_no_data.1
   '''
   SELECT count() AS `context.columns.count`,
          topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,

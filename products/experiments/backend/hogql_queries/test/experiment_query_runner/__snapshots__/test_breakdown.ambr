@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestExperimentBreakdown.test_funnel_metric_with_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown.1
+  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -51,6 +63,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_person_property_breakdown
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_funnel_metric_with_person_property_breakdown.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -103,6 +127,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -158,6 +194,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -227,6 +275,18 @@
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -294,6 +354,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -363,6 +435,18 @@
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_person_property_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_null_person_property_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -430,6 +514,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_type_defaults_to_event_breakdown
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_null_type_defaults_to_event_breakdown.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -505,6 +601,18 @@
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_person_property_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_person_property_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -572,6 +680,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -646,6 +766,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -728,6 +860,18 @@
 # ---
 # name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -802,6 +946,18 @@
 # ---
 # name: TestExperimentBreakdown.test_person_property_breakdown_attribution_at_exposure
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_person_property_breakdown_attribution_at_exposure.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -869,6 +1025,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_breakdown
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_ratio_metric_with_breakdown.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -967,6 +1135,18 @@
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_person_property_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_ratio_metric_with_person_property_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1063,6 +1243,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1166,6 +1358,18 @@
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_retention_metric_with_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1251,6 +1455,18 @@
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_person_property_breakdown
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_retention_metric_with_person_property_breakdown.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1335,6 +1551,18 @@
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-19'
+    AND date < '2020-01-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

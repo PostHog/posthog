@@ -379,6 +379,18 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.1
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2022-12-25'
+    AND date < '2023-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.2
+  '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -397,7 +409,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.2
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -429,7 +441,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.3
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2022-12-25'
+    AND date < '2023-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.5
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -462,6 +486,18 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2022-12-25'
+    AND date < '2023-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.1
+  '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -480,7 +516,19 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.1
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2022-12-25'
+    AND date < '2023-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)

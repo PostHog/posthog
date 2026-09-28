@@ -2,6 +2,18 @@
 # name: TestResponsesCount.test_responses_count
   '''
   /* user_id:0 request:_snapshot_ */
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-04-18'
+    AND date < '2024-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count.1
+  '''
+  /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_id'), ''), 'null'), '^"|"$', '') AS survey_id,
          count() AS `count()`
   FROM events
@@ -28,6 +40,18 @@
 # name: TestResponsesCount.test_responses_count_only_after_first_survey_started
   '''
   /* user_id:0 request:_snapshot_ */
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-04-18'
+    AND date < '2024-05-01'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count_only_after_first_survey_started.1
+  '''
+  /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_id'), ''), 'null'), '^"|"$', '') AS survey_id,
          count() AS `count()`
   FROM events
@@ -52,6 +76,18 @@
   '''
 # ---
 # name: TestResponsesCount.test_responses_count_with_partial_responses
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-05-29'
+    AND date < '2024-06-11'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count_with_partial_responses.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_id'), ''), 'null'), '^"|"$', '') AS survey_id,
