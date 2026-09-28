@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -149,12 +150,15 @@ export interface PersonModalLogicProps {
         | ExperimentActorsQuery
         | PathsV2ActorsQuery
         | null
+    actorsQuery?: ActorsQuery | null
+    recordingFilters?: Partial<RecordingUniversalFilters> | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
 }
 
 export interface ListActorsResponse {
+    precomputeNotReady?: boolean
     results: {
         count: number
         people: ActorType[]
@@ -184,7 +188,7 @@ export interface personsModalLogicValues {
     missingActorsCount: number
     propertiesTimelineFilterFromUrl: PropertiesTimelineFilterType
     query: FunnelsActorsQuery | InsightActorsQuery | null
-    recordingFilters: Partial<RecordingUniversalFilters>
+    recordingFilters: Partial<RecordingUniversalFilters> | null
     searchTerm: string
     selectFields: string[]
     sessionIdsFromLoadedActors: string[]
@@ -287,13 +291,14 @@ export interface personsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         actorLabel: (
             actors: ActorType[],
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
         selectFields: (arg: any) => string[]
         actorsQuery: (
             arg: any,
+            arg2: any,
             query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode> | null,
             searchTerm: string,
             selectFields: string[]
@@ -302,10 +307,12 @@ export interface personsModalLogicMeta {
         insightEventsQueryUrl: (actorsQuery: ActorsQuery | null) => string | null
         sessionIdsFromLoadedActors: (actors: ActorType[]) => string[]
         recordingFilters: (
+            arg: any,
+            arg2: any,
             actorsQuery: ActorsQuery | null,
             propertiesTimelineFilterFromUrl: PropertiesTimelineFilterType,
             sessionIdsFromLoadedActors: string[]
-        ) => Partial<RecordingUniversalFilters>
+        ) => Partial<RecordingUniversalFilters> | null
     }
 }
 
@@ -381,6 +388,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
                         const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
+                            precomputeNotReady: response.precomputeNotReady,
                             results: [
                                 {
                                     count: response.results.length,
@@ -505,7 +513,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         searchTerm: [
-            '',
+            props.actorsQuery?.search ?? '',
             {
                 setSearchTerm: (_, { search }) => search,
             },
@@ -526,6 +534,31 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        loadActorsSuccess: ({ actorsResponse }) => {
+            if (!actorsResponse) {
+                return
+            }
+            posthog.capture('insight person modal results loaded', {
+                source_kind: values.actorsQuery?.source?.kind ?? 'legacy',
+                outcome: actorsResponse.precomputeNotReady
+                    ? 'preparing'
+                    : actorsResponse.results[0]?.people.length
+                      ? 'results'
+                      : 'empty',
+                result_count: actorsResponse.results[0]?.people.length ?? 0,
+            })
+        },
+        loadActorsFailure: () => {
+            posthog.capture('insight person modal results failed', {
+                source_kind: values.actorsQuery?.source?.kind ?? 'legacy',
+            })
+        },
+        closeModal: () => {
+            posthog.capture('insight person modal closed', {
+                source_kind: values.actorsQuery?.source?.kind ?? 'legacy',
+                abandoned: values.actorsResponseLoading,
+            })
+        },
         setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
@@ -607,7 +640,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             () => [(_, p) => p.url],
             (url): PropertiesTimelineFilterType => {
                 // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
-                const params = new URLSearchParams(url.split('?')[1])
+                const params = new URLSearchParams(url?.split('?')[1])
                 const eventsString = params.get('events')
                 const actionsString = params.get('actions')
                 const propertiesString = params.get('properties')
@@ -637,31 +670,42 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
+            (s) => [(_, p) => p.orderBy, (_, p) => p.actorsQuery, s.query, s.searchTerm, s.selectFields],
             (
                 orderBy,
+                directActorsQuery: ActorsQuery | null | undefined,
                 query: FunnelsActorsQuery | InsightActorsQuery | null,
                 searchTerm: string,
                 selectFields: string[]
             ): ActorsQuery | null => {
-                if (!query) {
+                if (!query && !directActorsQuery) {
                     return null
                 }
-                const sourceTags = { ...query.source?.tags, ...query.tags }
                 const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+                const sourceTags = directActorsQuery
+                    ? { ...directActorsQuery.source?.tags, ...directActorsQuery.tags }
+                    : { ...query?.source?.tags, ...query?.tags }
                 const tags = {
                     ...sourceTags,
                     ...(activeScene && !sourceTags.scene ? { scene: activeScene } : {}),
                 }
                 return setLatestVersionsOnQuery(
-                    {
-                        kind: NodeKind.ActorsQuery,
-                        source: query,
-                        select: selectFields,
-                        orderBy: orderBy || [],
-                        search: searchTerm,
-                        ...(Object.keys(tags).length > 0 ? { tags } : {}),
-                    },
+                    directActorsQuery
+                        ? {
+                              ...directActorsQuery,
+                              select: selectFields,
+                              orderBy: orderBy || directActorsQuery.orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          }
+                        : {
+                              kind: NodeKind.ActorsQuery,
+                              source: query!,
+                              select: selectFields,
+                              orderBy: orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          },
                     { recursion: false }
                 )
             },
@@ -742,12 +786,27 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         recordingFilters: [
-            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (s) => [
+                (_, p) => p.actorsQuery,
+                (_, p) => p.recordingFilters,
+                s.actorsQuery,
+                s.propertiesTimelineFilterFromUrl,
+                s.sessionIdsFromLoadedActors,
+            ],
             (
+                directActorsQuery: ActorsQuery | null | undefined,
+                explicitFilters: Partial<RecordingUniversalFilters> | null | undefined,
                 actorsQuery: ActorsQuery | null,
                 propertiesTimelineFilter: PropertiesTimelineFilterType,
                 sessionIds: string[]
-            ): Partial<RecordingUniversalFilters> => {
+            ): Partial<RecordingUniversalFilters> | null => {
+                if (explicitFilters !== undefined) {
+                    return explicitFilters
+                }
+                // Arbitrary actor sources do not necessarily describe their matching recordings.
+                if (directActorsQuery) {
+                    return null
+                }
                 if (!actorsQuery || !actorsQuery.source) {
                     return {}
                 }
@@ -882,6 +941,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions.reportPersonsModalViewed({
             url: props.url,
             query: props.query,
+            source_kind: props.actorsQuery?.source?.kind ?? props.query?.kind ?? 'legacy',
         })
     }),
 

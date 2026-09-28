@@ -9,6 +9,10 @@ Hidden tables whose predicates read scoped parents contribute those parents thro
 This includes the account tag and notebook junctions, ticket tag and assignment junctions, and ticket assignee roles.
 The cache fingerprint includes resource denials, object denials, object grants, and the caller identity needed for creator exemptions.
 
+Structured marketing queries resolve ad sources and conversion goals from stored team configuration, not just the submitted query.
+Their cache scope therefore includes warehouse tables, views, and external sources even when the request has no `DataWarehouseNode`.
+Nested actor queries must retain these scopes and delegate source access checks before serving cached results.
+
 Keep row filtering on the parent when a junction already uses a predicate such as `account_id IN (SELECT id FROM system.accounts)`.
 That predicate applies the parent's team and object permissions, including its creator exemption.
 Adding a separate object-ID filter to the junction can hide child rows that the parent permits its creator to read.

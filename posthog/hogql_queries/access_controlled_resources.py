@@ -9,6 +9,8 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsTableQuery,
     RetentionEntity,
 )
 
@@ -305,6 +307,9 @@ def _references_data_warehouse(value) -> bool:
     """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
     data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
+        return True
+    # Marketing queries resolve ad sources and conversion goals from stored team configuration.
+    if isinstance(value, (MarketingAnalyticsTableQuery, MarketingAnalyticsAggregatedQuery)):
         return True
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True

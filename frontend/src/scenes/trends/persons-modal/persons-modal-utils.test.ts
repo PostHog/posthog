@@ -1,10 +1,39 @@
 import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
 
-import { BreakdownItem, FunnelsActorsQuery } from '~/queries/schema/schema-general'
+import { ActorsQuery, BreakdownItem, FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
-import { funnelBreakdownSelectValue, funnelStepBreakdownFromSelectValue } from './persons-modal-utils'
+import {
+    funnelBreakdownSelectValue,
+    funnelStepBreakdownFromSelectValue,
+    personsModalExportContext,
+} from './persons-modal-utils'
 
-describe('persons modal funnel breakdown helpers', () => {
+describe('persons modal helpers', () => {
+    it.each<NonNullable<ActorsQuery['source']>>([
+        { kind: NodeKind.HogQLQuery, query: "select id as actor_id from persons where properties.plan = 'paid'" },
+        {
+            kind: NodeKind.InsightActorsQuery,
+            source: { kind: NodeKind.TrendsQuery, series: [] },
+            includeRecordings: true,
+        },
+    ])('exports an actors query with its filters and without recordings: %p', (source) => {
+        const query: ActorsQuery = {
+            kind: NodeKind.ActorsQuery,
+            select: ['actor', 'matched_recordings'],
+            orderBy: ['id'],
+            search: 'example',
+            source,
+        }
+        expect(personsModalExportContext(query, '')).toEqual({
+            source: {
+                ...query,
+                select: ['actor'],
+                source: { ...source, ...('includeRecordings' in source ? { includeRecordings: false } : {}) },
+            },
+        })
+        expect(personsModalExportContext(null, '/api/projects/1/persons')).toEqual({ path: '/api/projects/1/persons' })
+    })
+
     const options: BreakdownItem[] = [
         { label: 'Baseline', value: BREAKDOWN_BASELINE_STRING_LABEL },
         { label: 'Chrome', value: 'Chrome' },

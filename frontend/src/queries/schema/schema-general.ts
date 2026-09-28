@@ -2952,6 +2952,7 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
     limit: integer
     offset: integer
     missing_actors_count?: integer
+    precomputeNotReady?: boolean
 }
 
 export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>

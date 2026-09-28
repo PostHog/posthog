@@ -17,6 +17,8 @@ from posthog.schema import (
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsTableQuery,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -182,8 +184,16 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
         assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
-    def test_structured_query_with_data_warehouse_series(self):
-        query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
+    @parameterized.expand(
+        [
+            ("trends", TrendsQuery(series=[EventsNode(event="$pageview"), _dw_node()])),
+            ("marketing_table", MarketingAnalyticsTableQuery(properties=[])),
+            ("marketing_aggregate", MarketingAnalyticsAggregatedQuery(properties=[])),
+        ]
+    )
+    def test_structured_query_with_data_warehouse_series(
+        self, _name: str, query: TrendsQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery
+    ) -> None:
         assert queried_access_controlled_resources(query, self.team) == {
             "external_data_source",
             "warehouse_table",
@@ -229,6 +239,8 @@ class TestQueriedAccessControlledResources(BaseTest):
             LifecycleDataWarehouseNode(
                 id="t", aggregation_target_field="x", created_at_field="c", table_name="t", timestamp_field="ts"
             ),
+            MarketingAnalyticsTableQuery(properties=[]),
+            MarketingAnalyticsAggregatedQuery(properties=[]),
         ]
         for node in variants:
             assert _references_data_warehouse(node) is True

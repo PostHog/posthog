@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -21,6 +21,106 @@ describe('personsModalLogic', () => {
         })
         initKeaTests()
     })
+
+    it('preserves direct query ordering and shows precompute readiness instead of an empty result', async () => {
+        const actorsQuery: ActorsQuery = {
+            kind: NodeKind.ActorsQuery,
+            orderBy: ['id'],
+            search: 'example',
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select id as actor_id from persons',
+            },
+        }
+        const requests: ActorsQuery[] = []
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query: ActorsQuery }
+                    requests.push(body.query)
+                    return [200, { results: [], columns: ['actor'], precomputeNotReady: true, hasMore: false }]
+                },
+            },
+        })
+        logic = personsModalLogic({ actorsQuery })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                actorsResponseLoading: false,
+                actorsResponse: { precomputeNotReady: true, results: [{ count: 0, people: [] }] },
+                recordingFilters: null,
+            })
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).toMatchObject({ orderBy: ['id'], source: actorsQuery.source, search: 'example' })
+    })
+
+    it('keeps the direct source while paginating and resets pagination when searching', async () => {
+        const source: ActorsQuery['source'] = { kind: NodeKind.HogQLQuery, query: 'select id as actor_id from persons' }
+        const requests: ActorsQuery[] = []
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: ActorsQuery }
+                    requests.push(query)
+                    return [
+                        200,
+                        {
+                            results: [
+                                [
+                                    {
+                                        id: query.search ? 'search-person' : `person-${query.offset ?? 0}`,
+                                        distinct_ids: ['example-id'],
+                                        properties: {},
+                                    },
+                                ],
+                            ],
+                            columns: ['actor'],
+                            hasMore: !query.search && !query.offset,
+                            offset: query.offset ?? 0,
+                            limit: query.limit,
+                        },
+                    ]
+                },
+            },
+        })
+        logic = personsModalLogic({ actorsQuery: { kind: NodeKind.ActorsQuery, source, orderBy: ['id'] } })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadNextActors()).toFinishAllListeners()
+        expect(logic.values.actors.map(({ id }) => id)).toEqual(['person-0', 'person-100'])
+        await expectLogic(logic, () => logic.actions.setSearchTerm('example')).toFinishAllListeners()
+        expect(logic.values.actors.map(({ id }) => id)).toEqual(['search-person'])
+        expect(requests.map(({ offset, search }) => ({ offset, search }))).toEqual([
+            { offset: undefined, search: '' },
+            { offset: 100, search: '' },
+            { offset: undefined, search: 'example' },
+        ])
+        for (const request of requests) {
+            expect(request).toMatchObject({ source, orderBy: ['id'] })
+        }
+    })
+
+    it.each([null, { date_from: '-7d', session_ids: ['matching-session'] }])(
+        'uses explicit replay filters %p for direct actor sources',
+        async (recordingFilters) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind/': { results: [], columns: ['actor'], hasMore: false },
+                },
+            })
+            logic = personsModalLogic({
+                actorsQuery: {
+                    kind: NodeKind.ActorsQuery,
+                    source: { kind: NodeKind.HogQLQuery, query: 'select id as actor_id from persons' },
+                },
+                recordingFilters,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.recordingFilters).toEqual(recordingFilters)
+        }
+    )
 
     describe('sessionIdsFromLoadedActors', () => {
         it('extracts session IDs from loaded actors with matched_recordings', () => {
@@ -395,7 +495,7 @@ describe('personsModalLogic', () => {
                     funnelStepBreakdown: 'NL',
                     matchedRecordings: [],
                 })
-                const outerGroup = logic.values.recordingFilters.filter_group
+                const outerGroup = logic.values.recordingFilters?.filter_group
                 const innerGroup = outerGroup?.values?.[0]
                 const innerValues = innerGroup && 'values' in innerGroup ? innerGroup.values : []
                 expect(innerValues).toEqual(
@@ -476,7 +576,7 @@ describe('personsModalLogic', () => {
             }
 
             const getInnerFilterValues = (): any[] => {
-                const outerGroup = logic.values.recordingFilters.filter_group
+                const outerGroup = logic.values.recordingFilters?.filter_group
                 const innerGroup = outerGroup?.values?.[0]
                 return innerGroup && 'values' in innerGroup ? (innerGroup.values as any[]) : []
             }
@@ -508,8 +608,8 @@ describe('personsModalLogic', () => {
                     expect.objectContaining({ id: 'step two', type: 'events' }),
                 ])
                 expect(innerValues).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'step three' })]))
-                expect(logic.values.recordingFilters.date_from).toEqual('-7d')
-                expect(logic.values.recordingFilters.date_to).toEqual('2024-05-01')
+                expect(logic.values.recordingFilters?.date_from).toEqual('-7d')
+                expect(logic.values.recordingFilters?.date_to).toEqual('2024-05-01')
             })
 
             it.each([
@@ -586,12 +686,12 @@ describe('personsModalLogic', () => {
             })
 
             const filters = logic.values.recordingFilters
-            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+            const innerValues = (filters?.filter_group as any)?.values?.[0]?.values
             expect(innerValues).toEqual([
                 expect.objectContaining({ id: '$pageview', type: 'events' }),
                 expect.objectContaining({ id: 'sign_up', type: 'events' }),
             ])
-            expect(filters.date_from).toEqual('-14d')
+            expect(filters?.date_from).toEqual('-14d')
         })
 
         it('falls back to event filters when no session IDs are available', () => {
@@ -634,7 +734,7 @@ describe('personsModalLogic', () => {
             })
 
             const filters = logic.values.recordingFilters
-            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+            const innerValues = (filters?.filter_group as any)?.values?.[0]?.values
             expect(innerValues).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({ id: '$pageview', type: 'events' }),

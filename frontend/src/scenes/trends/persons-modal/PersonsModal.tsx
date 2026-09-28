@@ -58,6 +58,7 @@ import {
     cleanedInsightActorsQueryOptions,
     funnelBreakdownSelectValue,
     funnelStepBreakdownFromSelectValue,
+    personsModalExportContext,
 } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
@@ -78,6 +79,8 @@ export function PersonsModal({
     urlsIndex,
     urls,
     query: _query,
+    actorsQuery: _actorsQuery,
+    recordingFilters: _recordingFilters,
     title,
     onAfterClose,
     inline,
@@ -90,6 +93,8 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
+        actorsQuery: _actorsQuery,
+        recordingFilters: _recordingFilters,
         additionalSelect,
         orderBy,
     })
@@ -274,13 +279,15 @@ export function PersonsModal({
                                   )
                         })}
 
-                    <div className="flex items-center justify-between gap-2 text-secondary">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-secondary">
                         <div className="flex items-center gap-2">
                             {actorsResponseLoading ? (
                                 <>
                                     <Spinner />
                                     <span>Loading {actorLabel.plural}...</span>
                                 </>
+                            ) : actorsResponse?.precomputeNotReady ? (
+                                <span>Preparing details...</span>
                             ) : (
                                 <span>
                                     {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
@@ -291,17 +298,19 @@ export function PersonsModal({
                                 </span>
                             )}
                         </div>
-                        <ViewRecordingsPlaylistButton
-                            filters={recordingFilters}
-                            size="small"
-                            type="secondary"
-                            tooltip={
-                                <>
-                                    View all recordings for <strong>{getTitle()}</strong>
-                                </>
-                            }
-                            onClick={() => {}}
-                        />
+                        {recordingFilters !== null && !actorsResponse?.precomputeNotReady && (
+                            <ViewRecordingsPlaylistButton
+                                filters={recordingFilters}
+                                size="small"
+                                type="secondary"
+                                tooltip={
+                                    <>
+                                        View all recordings for <strong>{getTitle()}</strong>
+                                    </>
+                                }
+                                onClick={() => {}}
+                            />
+                        )}
                     </div>
                 </div>
                 <div className="px-4 overflow-hidden flex flex-col">
@@ -316,6 +325,10 @@ export function PersonsModal({
                             ) : (
                                 <InsightErrorState query={query} />
                             )
+                        ) : actorsResponse?.precomputeNotReady ? (
+                            <LemonBanner type="info">
+                                Details are being prepared. Close this list and try again in a few minutes.
+                            </LemonBanner>
                         ) : actors && actors.length > 0 ? (
                             <>
                                 {actors.map((actor) => (
@@ -364,17 +377,7 @@ export function PersonsModal({
                                     onClick={() => {
                                         startExport({
                                             export_format: ExporterFormat.CSV,
-                                            export_context: query
-                                                ? {
-                                                      source: {
-                                                          ...actorsQuery,
-                                                          select: actorsQuery!.select?.filter(
-                                                              (c) => c !== 'matched_recordings'
-                                                          ),
-                                                          source: { ...actorsQuery!.source, includeRecordings: false },
-                                                      },
-                                                  }
-                                                : { path: originalUrl },
+                                            export_context: personsModalExportContext(actorsQuery, originalUrl),
                                         })
                                     }}
                                     tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}

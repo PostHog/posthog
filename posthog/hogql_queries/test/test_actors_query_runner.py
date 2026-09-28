@@ -42,7 +42,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryNotReady, ActorsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -114,6 +114,25 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
         assert len(response.results[0][0].get("distinct_ids")) > 0
+
+    def test_source_readiness_is_not_an_empty_result(self) -> None:
+        runner = self._create_runner(
+            ActorsQuery(source=InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")])))
+        )
+        assert runner.source_query_runner is not None
+        with patch.object(runner.source_query_runner, "to_actors_query", side_effect=ActorsQueryNotReady):
+            response = runner.calculate()
+        assert response.precomputeNotReady is True
+        assert response.results == []
+        assert response.hasMore is False
+
+    def test_source_access_checks_apply_to_actor_queries(self) -> None:
+        runner = self._create_runner(
+            ActorsQuery(source=InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")])))
+        )
+        assert runner.source_query_runner is not None
+        with patch.object(runner.source_query_runner, "validate_query_runner_access", return_value=False):
+            assert runner.validate_query_runner_access(self.user) is False
 
     def test_persons_query_properties(self):
         self.random_uuid = self._create_random_persons()

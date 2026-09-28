@@ -49,6 +49,16 @@ So the split follows the shape of the question:
 | Give me these 500 persons with their properties    | ClickHouse |
 | Delete/split this person, change cohort membership | personhog  |
 
+## Displaying actor query results
+
+`PersonsModal` accepts a complete `ActorsQuery` through its `actorsQuery` prop.
+The modal keeps its source and ordering when searching, paginating, exporting, or opening an insight.
+Direct actor sources must supply `recordingFilters` to enable the recordings playlist action; without them, the action stays hidden.
+Individual recording links still require matched recordings in the response.
+
+A source that is preparing its data can raise `ActorsQueryNotReady`.
+`ActorsQueryRunner` returns `precomputeNotReady: true`, and the modal shows a preparation message instead of an empty result.
+
 ## Legacy paths
 
 Some code still hydrates person properties through personhog and is migrating toward ClickHouse:

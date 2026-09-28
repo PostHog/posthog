@@ -4,6 +4,7 @@ import { delay, HttpResponse } from 'msw'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -16,6 +17,51 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+
+const directActorsQuery: ActorsQuery = {
+    kind: NodeKind.ActorsQuery,
+    orderBy: ['id'],
+    source: { kind: NodeKind.HogQLQuery, query: 'select id as actor_id from persons' },
+}
+
+export const DirectQueryWithResults: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': {
+                    results: ['alex', 'sam', 'taylor', 'robin'].map((name, index) => [
+                        {
+                            id: `00000000-0000-4000-8000-00000000000${index + 1}`,
+                            distinct_ids: [`${name}@example.com`],
+                            is_identified: true,
+                            created_at: '2023-01-01T12:00:00Z',
+                            properties: { email: `${name}@example.com` },
+                        },
+                    ]),
+                    columns: ['actor'],
+                    hasMore: false,
+                },
+            },
+        })
+        return <PersonsModalComponent title="People matching this query" actorsQuery={directActorsQuery} inline />
+    },
+}
+
+export const DirectQueryPreparing: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': {
+                    results: [],
+                    columns: ['actor'],
+                    precomputeNotReady: true,
+                    hasMore: false,
+                },
+            },
+        })
+        return <PersonsModalComponent title="People matching this query" actorsQuery={directActorsQuery} inline />
+    },
+}
 
 export const WithResults: Story = {
     render: () => {
