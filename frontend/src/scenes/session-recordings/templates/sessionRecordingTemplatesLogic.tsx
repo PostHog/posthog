@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { RecordingOrder } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     PropertyFilterType,
@@ -64,6 +65,7 @@ export interface sessionReplayTemplatesLogicValues {
     canApplyFilters: boolean
     editableVariables: ReplayTemplateVariableType[]
     filterGroup: Partial<RecordingUniversalFilters>
+    filtersToApply: Partial<RecordingUniversalFilters>
     hasTemplateFilters: boolean
     matchCount: TemplateMatchCount | null
     matchCountError: boolean
@@ -131,6 +133,11 @@ export interface sessionReplayTemplatesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filterGroup: (variables: ReplayTemplateVariableType[]) => Partial<RecordingUniversalFilters>
         previewFilters: (filterGroup: Partial<RecordingUniversalFilters>) => UniversalFilterValue[]
+        filtersToApply: (
+            filterGroup: Partial<RecordingUniversalFilters>,
+            variables: ReplayTemplateVariableType[],
+            arg: any
+        ) => Partial<RecordingUniversalFilters>
         hasTemplateFilters: (previewFilters: UniversalFilterValue[], variables: ReplayTemplateVariableType[]) => boolean
         canApplyFilters: (variables: ReplayTemplateVariableType[], areAnyVariablesTouched: boolean) => boolean
         areAnyVariablesTouched: (variables: ReplayTemplateVariableType[]) => boolean
@@ -273,6 +280,18 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return leaves(filterGroup.filter_group?.values ?? [])
             },
         ],
+        filtersToApply: [
+            (s) => [s.filterGroup, s.variables, (_, props) => props.template.order],
+            (
+                filterGroup: Partial<RecordingUniversalFilters>,
+                variables: ReplayTemplateVariableType[],
+                order: RecordingOrder | undefined
+            ): Partial<RecordingUniversalFilters> => ({
+                ...(variables.length > 0 ? filterGroup : {}),
+                ...(order ? { order } : {}),
+                ...TEMPLATE_BASE_FILTERS,
+            }),
+        ],
         hasTemplateFilters: [
             (s) => [s.previewFilters, s.variables],
             (previewFilters: UniversalFilterValue[], variables: ReplayTemplateVariableType[]) =>
@@ -293,9 +312,11 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
             (variables: ReplayTemplateVariableType[]) => variables.filter((v) => !v.noTouch),
         ],
     }),
-    listeners(({ actions, props, values }) => ({
-        showVariables: () => {
-            actions.loadMatchCount()
+    listeners(({ actions, props, selectors, values }) => ({
+        showVariables: (_, __, ___, previousState) => {
+            if (!selectors.variablesVisible(previousState)) {
+                actions.loadMatchCount()
+            }
         },
         setVariable: () => {
             if (values.variablesVisible) {

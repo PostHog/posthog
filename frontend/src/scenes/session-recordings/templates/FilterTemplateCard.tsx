@@ -6,11 +6,7 @@ import { UniversalFilterButton } from 'lib/components/UniversalFilters/Universal
 
 import { RecordingUniversalFilters, ReplayTemplateCategory, ReplayTemplateType } from '~/types'
 
-import {
-    ReplayTemplateUsedSource,
-    TEMPLATE_BASE_FILTERS,
-    sessionReplayTemplatesLogic,
-} from './sessionRecordingTemplatesLogic'
+import { ReplayTemplateUsedSource, sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 import { SingleTemplateVariable } from './SingleTemplateVariable'
 
 export function FilterTemplateCard({
@@ -26,9 +22,8 @@ export function FilterTemplateCard({
 }): JSX.Element {
     const logicProps = { template, category }
     const {
-        variables,
         editableVariables,
-        filterGroup,
+        filtersToApply,
         previewFilters,
         hasTemplateFilters,
         canApplyFilters,
@@ -41,11 +36,7 @@ export function FilterTemplateCard({
 
     const applyTemplate = (): void => {
         reportTemplateUsed(source)
-        onApply({
-            ...(variables.length > 0 ? filterGroup : {}),
-            ...(template.order ? { order: template.order } : {}),
-            ...TEMPLATE_BASE_FILTERS,
-        })
+        onApply(filtersToApply)
     }
 
     return (
@@ -101,9 +92,9 @@ export function FilterTemplateCard({
                                 'Could not count recordings. You can still apply the filters.'
                             ) : matchCount && hasTemplateFilters ? (
                                 matchCount.count === 0 ? (
-                                    'No recordings in the last 7 days. Check the URL or event.'
+                                    'No recordings in the last 7 days. Change the filters.'
                                 ) : (
-                                    `${matchCount.count}${matchCount.hasMore ? '+' : ''} recordings in the last 7 days`
+                                    `${matchCount.count}${matchCount.hasMore ? '+' : ''} ${matchCount.count === 1 && !matchCount.hasMore ? 'recording' : 'recordings'} in the last 7 days`
                                 )
                             ) : null}
                         </span>

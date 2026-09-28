@@ -4,7 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ReplayTemplateType } from '~/types'
 
-import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
+import { TEMPLATE_BASE_FILTERS, sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
 const template: ReplayTemplateType = {
     key: 'signup-flow',
@@ -48,7 +48,32 @@ describe('sessionReplayTemplatesLogic', () => {
 
         expect(recordingsRequests).toHaveLength(1)
         expect(recordingsRequests[0]).toContain('sign-up')
+        expect(recordingsRequests[0]).toContain('filter_test_accounts=false')
         expect(logic.values.matchCount).toEqual({ count: resultCount, hasMore: hasNext })
+    })
+
+    it('applies the template with the same base filters the count uses', () => {
+        logic.actions.setVariable({ ...template.variables![0], value: '/sign-up' })
+
+        expect(logic.values.filtersToApply).toMatchObject(TEMPLATE_BASE_FILTERS)
+        expect(logic.values.filtersToApply.filter_group).toBeTruthy()
+    })
+
+    it('counts once when a card opens, not on every click inside it', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    recordingsRequests.push(new URL(request.url).search)
+                    return [200, { results: [], has_next: false }]
+                },
+            },
+        })
+        logic.actions.setVariable({ ...template.variables![0], value: '/sign-up' })
+        logic.actions.showVariables()
+        logic.actions.showVariables()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(recordingsRequests).toHaveLength(1)
     })
 
     it('marks the count as failed instead of throwing when the request errors', async () => {
