@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
@@ -75,6 +75,13 @@ interface SaveTargetCyclerProps {
 export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetCyclerProps): JSX.Element | null {
     const [index, setIndex] = useState(candidates.initialIndex)
 
+    // Callers pass a fresh onChange every render (an inline closure in a LemonField render prop).
+    // Held in a ref so the effect below fires on the selected value changing, not on that identity
+    // churning: when onChange writes form state, the re-render must not re-run the effect, or the
+    // effect and the write feed each other into an infinite render loop that freezes the dialog.
+    const onChangeRef = useRef(onChange)
+    onChangeRef.current = onChange
+
     // Clamp the active index whenever the candidate set shrinks so we never read past the end.
     useEffect(() => {
         if (candidates.queries.length > 0 && index >= candidates.queries.length) {
@@ -85,9 +92,9 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
     useEffect(() => {
         const safeIndex = Math.min(index, candidates.queries.length - 1)
         if (safeIndex >= 0) {
-            onChange(candidates.queries[safeIndex], safeIndex)
+            onChangeRef.current(candidates.queries[safeIndex], safeIndex)
         }
-    }, [index, candidates, onChange])
+    }, [index, candidates])
 
     if (candidates.queries.length === 0) {
         return null
