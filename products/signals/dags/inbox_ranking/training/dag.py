@@ -950,6 +950,16 @@ _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
 )
 
 
+def classification_thresholds(metadata: Mapping[str, Any]) -> dict[str, float]:
+    """The saved refit threshold per head. A model saved before thresholds existed has none, and its
+    grades then report null classification fields rather than a threshold read from the graded rows."""
+    return {
+        entry["head"]: float(entry["refit_classification_threshold"])
+        for entry in metadata.get("heads", [])
+        if entry.get("refit_classification_threshold") is not None
+    }
+
+
 def load_family_models(
     context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str, model_name: str
 ) -> list[UnseenModel]:
@@ -992,6 +1002,7 @@ def load_family_models(
                 feature_set=feature_set,
                 boosters=boosters,
                 readable_heads=readable_head_names(metadata),
+                classification_thresholds=classification_thresholds(metadata),
             )
         )
     return models

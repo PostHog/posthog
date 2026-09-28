@@ -1,5 +1,12 @@
 # posthog-cli
 
+## 0.18.8 — 2026-09-28
+
+### Patch changes
+
+- [09644fddca4](https://github.com/PostHog/posthog/commit/09644fddca4814ae7e95b67353c9c1a13f29bfbc) Read the remote URL from the `[remote "..."]` sections of the Git config only, and prefer `origin`. A repository that records another URL in its config, such as a superproject that records the URL of a submodule, no longer gets the wrong remote URL and repository name in its release metadata. — Thanks @hpouillot!
+- [69a47659037](https://github.com/PostHog/posthog/commit/69a4765903776a5e70d4633590673395b1eaec2f) In event release mode, `sourcemap upload` no longer uploads unchanged chunks again when the bundler names chunks by content, as Vite does by default. Every chunk carries the release id, so every release renamed every chunk, and the content hash covered those names: the map's `file`, the `sourceMappingURL` comment and imports of other chunks. The hash now leaves out script file paths (ending in `.js`, `.mjs` or `.cjs`). Hashes stored by earlier versions include the paths, so the first upload after updating sends each chunk once more. — Thanks @ablaszkiewicz!
+
 ## 0.18.7 — 2026-09-24
 
 ### Patch changes

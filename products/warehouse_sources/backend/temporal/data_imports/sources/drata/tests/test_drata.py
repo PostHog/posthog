@@ -382,6 +382,59 @@ class TestWorkspaceFanOut:
         assert rows == [{"id": 1, parent_column: 5}]
 
 
+class TestControlJunctionFanOut:
+    """Control junctions hang two fan-out levels deep: workspaces -> controls -> junction."""
+
+    def _route(self, child_segment: str) -> Route:
+        def route(url: str, params: dict[str, Any]) -> Response:
+            if url.endswith("/workspaces"):
+                return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
+            if url.endswith("/workspaces/10/controls"):
+                return _resp({"data": [{"id": 88}], "pagination": {"cursor": None}})
+            if url.endswith(f"/workspaces/10/controls/88/{child_segment}"):
+                return _resp({"data": [{"id": 4}], "pagination": {"cursor": None}})
+            raise AssertionError(f"unexpected url {url}")
+
+        return route
+
+    @parameterized.expand(
+        [
+            ("requirements", "control_requirements", "requirements"),
+            ("owners", "control_owners", "owners"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_binds_control_id_and_carries_both_ancestor_ids(
+        self, _name: str, endpoint: str, segment: str, mock_session: mock.MagicMock
+    ) -> None:
+        rows, calls = _run(mock_session, self._route(segment), endpoint, _FakeManager())
+        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/controls/88/{segment}"
+        # Both junctions repeat their `id` across controls — a requirement is mapped by many
+        # controls, an owner owns many — so the control id has to be part of the key.
+        assert rows == [{"id": 4, "controlId": 88, "workspaceId": 10}]
+
+
+class TestAuditRequestFanOut:
+    """Audit requests hang two fan-out levels deep: workspaces -> audits -> requests."""
+
+    def _route(self, url: str, params: dict[str, Any]) -> Response:
+        if url.endswith("/workspaces"):
+            return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
+        if url.endswith("/workspaces/10/audits"):
+            return _resp({"data": [{"id": "aud-1"}], "pagination": {"cursor": None}})
+        if url.endswith("/workspaces/10/audits/aud-1/requests"):
+            return _resp({"data": [{"id": 7, "auditId": "aud-1"}], "pagination": {"cursor": None}})
+        raise AssertionError(f"unexpected url {url}")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_binds_string_audit_id_and_carries_workspace_id(self, mock_session: mock.MagicMock) -> None:
+        rows, calls = _run(mock_session, self._route, "audit_requests", _FakeManager())
+        # Audit ids are strings, unlike every other Drata parent id.
+        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/audits/aud-1/requests"
+        # Request ids are numbered within their audit, so both ancestor ids ride along.
+        assert rows == [{"id": 7, "auditId": "aud-1", "workspaceId": 10}]
+
+
 class TestMonitoringTestFailureFanOut:
     """Failures hang two fan-out levels deep: workspaces -> monitoring tests -> failures."""
 
@@ -542,6 +595,7 @@ class TestDrataSourceResponse:
             ("frameworks",),
             ("framework_requirements",),
             ("tasks",),
+            ("audits",),
         ]
     )
     def test_workspace_children_use_composite_primary_key(self, endpoint: str) -> None:

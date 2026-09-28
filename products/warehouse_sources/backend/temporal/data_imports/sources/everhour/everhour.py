@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -23,9 +23,9 @@ MAX_RETRIES = 5
 # Defensive cap so a buggy/ignored offset param can't loop forever. 50k pages * 50 rows is far more
 # than any real account holds; reaching it is logged as a warning.
 MAX_PAGES_PER_URL = 50_000
-# First sync lower bound for the /time-records date window. Everhour launched in 2015, so this
+# First sync lower bound for every date-windowed endpoint. Everhour launched in 2015, so this
 # captures effectively all history while still giving the API a concrete `from` (it otherwise
-# defaults to returning only today's records).
+# defaults to a narrow recent window).
 EARLIEST_FROM_DATE = "2015-01-01"
 
 # Matches the parent project id in a fan-out tasks URL: /projects/{project_id}/tasks
@@ -84,11 +84,12 @@ def _format_date(value: Any) -> str:
     return str(value)
 
 
-def _time_records_window(
+def _date_window(
+    config: EverhourEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, str]:
-    """Build the from/to date window for /time-records.
+    """Build the from/to date window for an endpoint that accepts one.
 
     On the first sync (or full refresh) we span all history; on an incremental sync we floor `from`
     to the watermark's day. Re-querying the whole watermark day each sync is intentional — the boundary
@@ -98,7 +99,12 @@ def _time_records_window(
         from_date = _format_date(db_incremental_field_last_value)
     else:
         from_date = EARLIEST_FROM_DATE
-    return {"from": from_date, "to": datetime.now(UTC).date().isoformat()}
+    to_date = datetime.now(UTC).date() + timedelta(days=config.window_days_ahead)
+    return {"from": from_date, "to": to_date.isoformat()}
+
+
+def _row_key(item: dict[str, Any], dedupe_keys: list[str]) -> tuple[Any, ...]:
+    return tuple(item.get(key) for key in dedupe_keys)
 
 
 @retry(
@@ -205,7 +211,7 @@ def get_rows(
     session = _make_session(api_key)
 
     window = (
-        _time_records_window(should_use_incremental_field, db_incremental_field_last_value)
+        _date_window(config, should_use_incremental_field, db_incremental_field_last_value)
         if config.supports_date_window
         else None
     )
@@ -221,17 +227,17 @@ def get_rows(
         current = remaining.pop(0) if remaining else None
         offset = 0
 
-    # The same id only repeats within a base URL when the API ignores `offset`; tracking ids per
-    # URL lets us stop instead of looping forever on the first page.
-    seen_ids: set[Any] = set()
+    # The same row only repeats within a base URL when the API ignores `offset`; tracking the keys
+    # seen per URL lets us stop instead of looping forever on the first page.
+    seen_keys: set[tuple[Any, ...]] = set()
     pages_on_current = 0
 
     while current is not None:
         items = _fetch_page(_with_query(current, {"offset": offset}), headers, logger, session)
         pages_on_current += 1
 
-        new_items = [item for item in items if item["id"] not in seen_ids]
-        seen_ids.update(item["id"] for item in new_items)
+        new_items = [item for item in items if _row_key(item, config.dedupe_keys) not in seen_keys]
+        seen_keys.update(_row_key(item, config.dedupe_keys) for item in new_items)
 
         if config.include_parent_id_as:
             parent_id = _parent_project_id(current)
@@ -239,7 +245,7 @@ def get_rows(
                 item[config.include_parent_id_as] = parent_id
 
         # A full page of genuinely new rows means there may be more; a short page (or one that
-        # surfaced no new ids, i.e. offset was ignored) ends this URL.
+        # surfaced no new rows, i.e. offset was ignored) ends this URL.
         would_continue = len(items) >= config.page_size and len(new_items) > 0
         if would_continue and pages_on_current >= MAX_PAGES_PER_URL:
             logger.warning(f"Everhour: hit max page cap while paginating {current}")
@@ -259,7 +265,7 @@ def get_rows(
             new_offset = 0
 
         if new_current != current:
-            seen_ids = set()
+            seen_keys = set()
             pages_on_current = 0
 
         if new_items:
@@ -303,7 +309,7 @@ def everhour_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format=config.partition_format if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # /time-records is returned in ascending date order; the reference endpoints are full refresh
+        # /time-records is returned in ascending date order; every other endpoint is full refresh
         # so ordering is immaterial for them.
         sort_mode="asc",
     )
