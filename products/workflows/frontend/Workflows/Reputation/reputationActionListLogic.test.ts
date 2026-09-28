@@ -47,14 +47,14 @@ describe('reputationActionListLogic', () => {
                 cta: partial({ to: `${urls.workflow('wf-import', 'workflow')}?node=trigger_node` }),
             }),
             partial({
+                key: 'workflow-bounce:wf-onboarding',
+                severity: 'medium',
+                cta: partial({ to: `${urls.workflow('wf-onboarding', 'workflow')}?node=trigger_node` }),
+            }),
+            partial({
                 key: 'finding:DMARC',
                 severity: 'medium',
                 cta: partial({ to: urls.workflows('channels') }),
-            }),
-            partial({
-                key: 'workflow-bounce:wf-onboarding',
-                severity: 'low',
-                cta: partial({ to: `${urls.workflow('wf-onboarding', 'workflow')}?node=trigger_node` }),
             }),
             partial({
                 key: 'provider-bounce:Yahoo',

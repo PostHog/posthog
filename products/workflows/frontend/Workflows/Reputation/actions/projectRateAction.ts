@@ -1,6 +1,14 @@
-import { RATE_KINDS, RATE_KIND_LIST, RATE_THRESHOLDS, RateKind, formatRate } from '../reputationUtils'
+import {
+    ExceededLevel,
+    RATE_KINDS,
+    RATE_KIND_LIST,
+    RATE_THRESHOLDS,
+    RateKind,
+    exceededLevel,
+    formatRate,
+    rateOf,
+} from '../reputationUtils'
 import { defineReputationAction } from './defineReputationAction'
-import { ExceededLevel, exceededLevel, rateOf } from './reputationActionContext'
 import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts } from './reputationActionCtas'
 
 interface ProjectRate {
@@ -15,8 +23,9 @@ interface ProjectRate {
  */
 export const projectRateAction = defineReputationAction<ProjectRate>({
     kind: 'project-rate',
-    detect: ({ rates, hasRateFinding, workflowsOverLine }) =>
+    detect: ({ response, hasRateFinding, workflowsOverLine }) =>
         RATE_KIND_LIST.flatMap((kind) => {
+            const rates = response.reputation
             if (!rates || hasRateFinding(kind) || workflowsOverLine(kind).length > 0) {
                 return []
             }
@@ -26,10 +35,12 @@ export const projectRateAction = defineReputationAction<ProjectRate>({
         }),
     content: ({ kind, rate, level }) => ({
         key: `project-${kind}`,
-        severity: level === 'high' ? 'high' : 'medium',
-        slot: 'projectRate',
-        rateKind: kind,
-        magnitude: rate / RATE_THRESHOLDS[kind].elevated,
+        rank: {
+            severity: level === 'high' ? 'high' : 'medium',
+            slot: 'projectRate',
+            rateKind: kind,
+            magnitude: rate / RATE_THRESHOLDS[kind].elevated,
+        },
         title: `Your project has a ${formatRate(rate)} ${RATE_KINDS[kind].event} rate`,
         description:
             kind === 'bounce'

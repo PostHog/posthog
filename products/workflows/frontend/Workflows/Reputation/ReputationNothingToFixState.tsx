@@ -6,11 +6,12 @@ import { LemonCard } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import { reputationResponseLogic } from './reputationResponseLogic'
+import { WORKFLOW_LIMIT } from './reputationUtils'
 
 const HedgehogLifeguard = pngHoggie(lifeguardPng)
 
 export function ReputationNothingToFixState(): JSX.Element {
-    const { awsReputation, hasJudgedProviders } = useValues(reputationResponseLogic)
+    const { awsReputation, hasJudgedProviders, workflowSnapshots } = useValues(reputationResponseLogic)
     return (
         <LemonCard
             hoverEffect={false}
@@ -25,6 +26,9 @@ export function ReputationNothingToFixState(): JSX.Element {
                     ? 'Your email provider has not flagged anything, and no workflow with enough email to judge is over the bounce or spam complaint lines.'
                     : 'No workflow with enough email to judge is over the bounce or spam complaint lines.'}
                 {hasJudgedProviders && ' Every mailbox provider with enough data is under the bounce line too.'}
+                {/* The endpoint returns only the workflows with the highest complaint rates. */}
+                {workflowSnapshots.length >= WORKFLOW_LIMIT &&
+                    ` This checks the ${WORKFLOW_LIMIT} workflows with the highest spam complaint rates.`}
             </p>
             <p className="text-secondary text-xs mb-0">
                 The lifeguard stays on duty. If a workflow's email gets paused, we email your project admins.

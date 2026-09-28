@@ -1,13 +1,16 @@
-import type { AwsTenantFindingApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { FindingTypeEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { RATE_KINDS, RateKind, workflowName } from '../reputationUtils'
+import { RATE_KINDS, RATE_KIND_LIST, RateKind, workflowName } from '../reputationUtils'
 import { defineReputationAction } from './defineReputationAction'
 import type { Offender } from './reputationActionContext'
 import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts, openWorkflow } from './reputationActionCtas'
-import { RATE_FINDING_TYPES, findingsOfType, isHighImpact } from './reputationFindings'
+import { IndexedFinding, findingsOfType, isHighImpact } from './reputationFindings'
 
-interface RateFinding {
-    finding: AwsTenantFindingApi
+export const RATE_FINDING_TYPES: readonly FindingTypeEnumApi[] = RATE_KIND_LIST.map(
+    (kind) => RATE_KINDS[kind].findingType
+)
+
+interface RateFinding extends IndexedFinding {
     kind: RateKind
     offender: Offender | null
 }
@@ -35,17 +38,23 @@ function rateFindingDescription({ kind, offender }: RateFinding): string {
  * the row names it and opens it.
  */
 export const rateFindingAction = defineReputationAction<RateFinding>({
-    kind: 'finding',
+    kind: 'rate-finding',
     detect: (context) =>
-        findingsOfType(context.findings, RATE_FINDING_TYPES).map((finding) => {
-            const kind: RateKind = finding.finding_type === RATE_KINDS.bounce.findingType ? 'bounce' : 'complaint'
-            return { finding, kind, offender: context.offender(kind) }
-        }),
+        RATE_KIND_LIST.flatMap((kind) =>
+            findingsOfType(context.findings, [RATE_KINDS[kind].findingType]).map((indexed) => ({
+                ...indexed,
+                kind,
+                offender: context.offender(kind),
+            }))
+        ),
     content: (match) => ({
         key: `finding:${match.finding.finding_type}`,
-        severity: isHighImpact(match.finding) ? 'high' : 'medium',
-        slot: isHighImpact(match.finding) ? 'highFinding' : 'lowFinding',
-        rateKind: match.kind,
+        rank: {
+            severity: isHighImpact(match.finding) ? 'high' : 'medium',
+            slot: isHighImpact(match.finding) ? 'highFinding' : 'lowFinding',
+            rateKind: match.kind,
+            order: match.index,
+        },
         title: match.kind === 'bounce' ? 'Too many of your emails bounce' : 'Recipients mark your email as spam',
         description: rateFindingDescription(match),
         docsLink: LOWER_RATES_DOCS,

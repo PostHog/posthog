@@ -47,7 +47,8 @@ function AllowanceUsage({ label, used, cap }: { label: string; used: number; cap
 }
 
 export function ReputationStatusStrip(): JSX.Element {
-    const { awsReputation, teamReputation, sendingAllowance, ispSendingHealth } = useValues(reputationResponseLogic)
+    const { awsReputation, teamReputation, sendingAllowance, ispSendingHealth, emailSendingSuspended } =
+        useValues(reputationResponseLogic)
 
     return (
         <LemonCard
@@ -55,6 +56,15 @@ export function ReputationStatusStrip(): JSX.Element {
             className="px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-2"
             data-attr="workflows-reputation-status"
         >
+            {emailSendingSuspended && (
+                <Tooltip title="PostHog suspended email sending for this project. No workflow email goes out until the suspension ends.">
+                    <span tabIndex={0} className="inline-flex">
+                        <LemonTag type="danger" data-attr="workflows-reputation-suspended-tag">
+                            Suspended by PostHog
+                        </LemonTag>
+                    </span>
+                </Tooltip>
+            )}
             {awsReputation && (
                 <Tooltip title="Your email provider's verdict for this project, based on real mailbox feedback.">
                     <span tabIndex={0} className="inline-flex">

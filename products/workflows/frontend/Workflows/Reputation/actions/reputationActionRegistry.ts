@@ -8,7 +8,7 @@ import { projectSuspendedAction } from './projectSuspendedAction'
 import { providerRateAction } from './providerRateAction'
 import { providerStatusAction } from './providerStatusAction'
 import { rateFindingAction } from './rateFindingAction'
-import { ReputationActionInputs, buildReputationActionContext } from './reputationActionContext'
+import type { ReputationActionContext } from './reputationActionContext'
 import { compareReputationActionRanks } from './reputationActionRanking'
 import type { ReputationAction } from './reputationActionTypes'
 import { workflowRateAction } from './workflowRateAction'
@@ -17,7 +17,7 @@ import { workflowRateAction } from './workflowRateAction'
  * Every item the action list can show. To add one, write a `defineReputationAction` file and list
  * it here. Rows sort by their rank, so this order only settles exact ties.
  */
-export const REPUTATION_ACTIONS: readonly RegisteredReputationAction[] = [
+const REPUTATION_ACTIONS: readonly RegisteredReputationAction[] = [
     projectSuspendedAction,
     providerStatusAction,
     pausedWorkflowAction,
@@ -31,8 +31,7 @@ export const REPUTATION_ACTIONS: readonly RegisteredReputationAction[] = [
 ]
 
 /** Everything the Reputation tab knows, turned into a list of fixes, worst first. */
-export function buildReputationActions(inputs: ReputationActionInputs): ReputationAction[] {
-    const context = buildReputationActionContext(inputs)
+export function buildReputationActions(context: ReputationActionContext): ReputationAction[] {
     const seenKeys = new Map<string, number>()
     return REPUTATION_ACTIONS.flatMap((action) => action.build(context))
         .map((row) => {

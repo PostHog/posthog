@@ -14,8 +14,10 @@ import type {
     TeamEmailReputationResponseApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { reputationActionListLogic } from './reputationActionListLogic'
 import { workflowRates } from './reputationFixtures'
 import { ReputationTab } from './ReputationTab'
+import { reputationWorkflowSearchLogic } from './reputationWorkflowSearchLogic'
 
 const RESPONSE: TeamEmailReputationResponseApi = {
     aws: {
@@ -112,5 +114,28 @@ describe('ReputationTab', () => {
         expect(!!screen.queryByText('By mailbox provider')).toBe(tab)
         // pluralize joins the count with a non-breaking space.
         expect(screen.queryByText(/bounce warning/)?.textContent?.replace(/\s/g, ' ') ?? null).toEqual(marker)
+    })
+
+    it('keeps the workflow search when the breakdown tabs switch', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/hog_flows/reputation': { ...RESPONSE, isps: [provider('Gmail', 0.004)] } },
+        })
+        setActionListFlag(true)
+        render(
+            <Provider>
+                <ReputationTab />
+            </Provider>
+        )
+        expect(await screen.findByText('By mailbox provider')).toBeInTheDocument()
+
+        act(() => {
+            reputationWorkflowSearchLogic.actions.setSearch('Digest')
+            reputationActionListLogic.actions.setActiveBreakdownTab('providers')
+        })
+        act(() => {
+            reputationActionListLogic.actions.setActiveBreakdownTab('workflows')
+        })
+
+        expect(reputationWorkflowSearchLogic.findMounted()?.values.search).toEqual('Digest')
     })
 })

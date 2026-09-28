@@ -11,11 +11,10 @@ import { LOWER_RATES_DOCS, openWorkflow } from './reputationActionCtas'
  */
 export const pausedWorkflowAction = defineReputationAction<WorkflowEmailSendingRatesApi>({
     kind: 'paused-workflow',
-    detect: ({ workflows }) => workflows.filter((workflow) => workflow.email_sending_paused),
+    detect: ({ response }) => response.workflows.filter((workflow) => workflow.email_sending_paused),
     content: (workflow) => ({
         key: `paused:${workflow.hog_flow_id}`,
-        severity: 'high',
-        slot: 'pausedWorkflow',
+        rank: { severity: 'high', slot: 'pausedWorkflow' },
         blocksSending: true,
         title: `${workflowName(workflow)} is paused`,
         description: `${workflow.email_sending_paused_reason || 'Its email is paused.'} Check where its audience comes from, then resume sending from the workflow page. If only support can resume it, contact support from there.`,

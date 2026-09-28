@@ -29,6 +29,32 @@ describe('reputationResponseLogic', () => {
             false,
         ],
         [
+            // A suspension with no email in 30 days still has to reach the page, or its row never shows.
+            'the project is only suspended',
+            {
+                ...HEALTHY,
+                aws: null,
+                reputation: null,
+                workflows: [],
+                isps: [],
+                email_sending_suspended: true,
+            } as TeamEmailReputationResponseApi,
+            true,
+            false,
+        ],
+        [
+            'the project only has withheld domains',
+            {
+                ...HEALTHY,
+                reputation: null,
+                workflows: [],
+                isps: [],
+                isp_withheld_domains: ['mail.example.com'],
+            } as TeamEmailReputationResponseApi,
+            true,
+            false,
+        ],
+        [
             'there is no email at all',
             { ...HEALTHY, reputation: null, workflows: [], isps: [] } as TeamEmailReputationResponseApi,
             false,

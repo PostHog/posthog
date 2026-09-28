@@ -1,24 +1,24 @@
 import type {
     AwsTenantFindingApi,
-    AwsTenantReputationApi,
-    EmailSendingRatesApi,
     IspSendingHealthApi,
+    TeamEmailReputationResponseApi,
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { RATE_KINDS, RateKind, RateLevel, classifyRate, minimumVolumeToClassify } from '../reputationUtils'
+import {
+    ExceededLevel,
+    RATE_KINDS,
+    RateKind,
+    exceededLevel,
+    isSendingStopped,
+    minimumVolumeToClassify,
+    rateOf,
+} from '../reputationUtils'
 import type { ReputationSetupTab } from './reputationActionTypes'
 
-export type ExceededLevel = Exclude<RateLevel, 'healthy'>
-
 export interface ReputationActionInputs {
-    aws: AwsTenantReputationApi | null
-    rates: EmailSendingRatesApi | null
-    /** The unsearched workflow rows, so a table search never changes what the list asks for. */
-    workflows: readonly WorkflowEmailSendingRatesApi[]
-    isps: readonly IspSendingHealthApi[]
-    sharedDomains: readonly string[]
-    suspended: boolean
+    /** The unsearched response, so a table search never changes what the list asks for. */
+    response: TeamEmailReputationResponseApi
     tabUrl: (tab: ReputationSetupTab) => string
 }
 
@@ -28,35 +28,32 @@ export interface Offender {
     eventShare: number
 }
 
-/**
- * What every action reads to decide whether it shows. Facts that more than one action depends on
- * are worked out here once, so no action has to read another action's rows.
- */
-export interface ReputationActionContext extends ReputationActionInputs {
-    findings: readonly AwsTenantFindingApi[]
-    hasRateFinding: (kind: RateKind) => boolean
-    offender: (kind: RateKind) => Offender | null
-    /** Active workflows with enough volume that are over the elevated line for this kind. */
-    workflowsOverLine: (kind: RateKind) => readonly WorkflowOverLine[]
-}
-
 export interface WorkflowOverLine {
     workflow: WorkflowEmailSendingRatesApi
     rate: number
     level: ExceededLevel
 }
 
-export function rateOf(rates: { bounce_rate: number; complaint_rate: number }, kind: RateKind): number {
-    return kind === 'bounce' ? rates.bounce_rate : rates.complaint_rate
+export interface ProviderOverLine {
+    isp: IspSendingHealthApi
+    bounceRate: number
+    level: ExceededLevel
 }
 
-/** The line a rate is over, or null when it is healthy or has too little volume to judge. */
-export function exceededLevel(rate: number, kind: RateKind, volume: number): ExceededLevel | null {
-    if (volume < minimumVolumeToClassify(kind)) {
-        return null
-    }
-    const level = classifyRate(rate, kind)
-    return level === 'healthy' ? null : level
+/**
+ * What every action reads to decide whether it shows. Facts that more than one action or the page
+ * depends on are worked out here once, so no action has to read another action's rows.
+ */
+export interface ReputationActionContext extends ReputationActionInputs {
+    findings: readonly AwsTenantFindingApi[]
+    sendingStopped: boolean
+    hasRateFinding: (kind: RateKind) => boolean
+    /** The workflow a bounce or complaint finding blames, if one clearly stands out. */
+    offender: (kind: RateKind) => Offender | null
+    /** Active workflows with enough volume that are over the elevated line for this kind. */
+    workflowsOverLine: (kind: RateKind) => readonly WorkflowOverLine[]
+    /** Mailbox providers with enough volume that are over the elevated bounce line. */
+    providersOverLine: readonly ProviderOverLine[]
 }
 
 // A named culprit has to account for a real part of the problem, and clearly more than its
@@ -71,19 +68,20 @@ const MIN_OFFENDER_OVER_SEND_SHARE = 1.25
  * in a handful of sends cannot take the blame. Paused workflows are left out because they have
  * their own item.
  */
-function worstOffender(inputs: ReputationActionInputs, kind: RateKind): Offender | null {
-    const listedSends = inputs.workflows.reduce((total, w) => total + w.emails_sent, 0)
-    const listedEvents = inputs.workflows.reduce((total, w) => total + rateOf(w, kind) * w.emails_sent, 0)
+function worstOffender(response: TeamEmailReputationResponseApi, kind: RateKind): Offender | null {
+    const { workflows, reputation } = response
+    const listedSends = workflows.reduce((total, w) => total + w.emails_sent, 0)
+    const listedEvents = workflows.reduce((total, w) => total + rateOf(w, kind) * w.emails_sent, 0)
     // The project totals cover every workflow, and the list is capped, so prefer them for shares.
-    const totalSends = inputs.rates?.emails_sent ?? listedSends
-    const projectRate = inputs.rates ? rateOf(inputs.rates, kind) : listedSends > 0 ? listedEvents / listedSends : 0
+    const totalSends = reputation?.emails_sent ?? listedSends
+    const projectRate = reputation ? rateOf(reputation, kind) : listedSends > 0 ? listedEvents / listedSends : 0
     const totalEvents = projectRate * totalSends
     if (totalSends === 0 || totalEvents === 0) {
         return null
     }
 
     let worst: { workflow: WorkflowEmailSendingRatesApi; excess: number } | null = null
-    for (const workflow of inputs.workflows) {
+    for (const workflow of workflows) {
         if (workflow.email_sending_paused || workflow.emails_sent < minimumVolumeToClassify(kind)) {
             continue
         }
@@ -103,32 +101,45 @@ function worstOffender(inputs: ReputationActionInputs, kind: RateKind): Offender
     return { workflow: worst.workflow, sendShare, eventShare }
 }
 
-function workflowsOverLine(inputs: ReputationActionInputs, kind: RateKind): WorkflowOverLine[] {
-    return inputs.workflows.flatMap((workflow) => {
+function workflowsOverLine(response: TeamEmailReputationResponseApi, kind: RateKind): WorkflowOverLine[] {
+    return response.workflows.flatMap((workflow) => {
         const rate = rateOf(workflow, kind)
         const level = exceededLevel(rate, kind, workflow.emails_sent)
         return level && !workflow.email_sending_paused ? [{ workflow, rate, level }] : []
     })
 }
 
+function providersOverLine(response: TeamEmailReputationResponseApi): ProviderOverLine[] {
+    return response.isps.flatMap((isp) => {
+        if (isp.bounce_rate === null) {
+            return []
+        }
+        const level = exceededLevel(isp.bounce_rate, 'bounce', isp.emails_sent)
+        return level ? [{ isp, bounceRate: isp.bounce_rate, level }] : []
+    })
+}
+
 export function buildReputationActionContext(inputs: ReputationActionInputs): ReputationActionContext {
-    const findings = inputs.aws?.findings ?? []
+    const { response } = inputs
+    const findings = response.aws?.findings ?? []
     const findingTypes = new Set(findings.map((finding) => finding.finding_type))
     const hasRateFinding = (kind: RateKind): boolean => findingTypes.has(RATE_KINDS[kind].findingType)
     // Only a finding blames a workflow, so there is no offender to look for without one.
     const offenders: Record<RateKind, Offender | null> = {
-        bounce: hasRateFinding('bounce') ? worstOffender(inputs, 'bounce') : null,
-        complaint: hasRateFinding('complaint') ? worstOffender(inputs, 'complaint') : null,
+        bounce: hasRateFinding('bounce') ? worstOffender(response, 'bounce') : null,
+        complaint: hasRateFinding('complaint') ? worstOffender(response, 'complaint') : null,
     }
     const overLine: Record<RateKind, WorkflowOverLine[]> = {
-        bounce: workflowsOverLine(inputs, 'bounce'),
-        complaint: workflowsOverLine(inputs, 'complaint'),
+        bounce: workflowsOverLine(response, 'bounce'),
+        complaint: workflowsOverLine(response, 'complaint'),
     }
     return {
         ...inputs,
         findings,
+        sendingStopped: isSendingStopped(response.aws),
         hasRateFinding,
         offender: (kind) => offenders[kind],
         workflowsOverLine: (kind) => overLine[kind],
+        providersOverLine: providersOverLine(response),
     }
 }

@@ -2,7 +2,10 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    AwsTenantReputationApi,
+    WorkflowEmailSendingRatesApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReputationAction, ReputationActionSeverity } from './actions/reputationActionTypes'
 
@@ -29,8 +32,8 @@ export const RATE_KINDS: Record<RateKind, { event: string; events: string; findi
     complaint: { event: 'spam complaint', events: 'spam complaints', findingType: 'COMPLAINT' },
 }
 
-// Complaints come first wherever the list walks both kinds: their lines are far lower than the
-// bounce lines.
+// Complaints come first: their lines are far lower than the bounce lines, and the endpoint ranks
+// workflows by complaint rate for the same reason.
 export const RATE_KIND_LIST: readonly RateKind[] = ['complaint', 'bounce']
 
 type ReputationActionTone = 'blocking' | ReputationActionSeverity
@@ -61,16 +64,17 @@ export function workflowName(workflow: WorkflowEmailSendingRatesApi): string {
 // tenant-level AWS verdict. These coarser buckets are a triage aid for spotting which workflows
 // pull the project's numbers in the wrong direction.
 //
-// Thresholds mirror SES's account-level reputation dashboard warning lines (bounce: 5% review /
-// 10% pause; complaint: 0.1% review / 0.5% pause), deliberately conservative early warnings.
-// Actual tenant enforcement (the Standard reputation policy) pauses much higher, with high-severity
-// findings at >15% bounce / >1% complaint, so a "high" rate here means "fix this now", not
-// "sending is about to stop". Sources:
+// The "high" lines match the day-long rates at which PostHog pauses a workflow's email
+// (WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H and WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_24H), so
+// the list never tells someone they have room above a rate that already pauses a workflow. The
+// "elevated" lines sit below them as early warnings. SES's own lines are higher: its dashboard
+// reviews at 5% bounce / 0.1% complaint, and tenant enforcement (the Standard reputation policy)
+// raises high-severity findings at >15% bounce / >1% complaint. Sources:
 // https://docs.aws.amazon.com/ses/latest/dg/reputationdashboardmessages.html (dashboard lines)
 // https://aws.amazon.com/blogs/messaging-and-targeting/implement-tenants-in-your-amazon-ses-environment-part-3-implementation-guide/ (tenant policy lines)
 export const RATE_THRESHOLDS = {
     bounce: { elevated: 0.03, high: 0.05 },
-    complaint: { elevated: 0.001, high: 0.005 },
+    complaint: { elevated: 0.001, high: 0.003 },
 } as const
 
 export type RateLevel = 'healthy' | 'elevated' | 'high'
@@ -90,6 +94,26 @@ export function classifyRate(rate: number, kind: RateKind): RateLevel {
         return 'elevated'
     }
     return 'healthy'
+}
+
+export type ExceededLevel = Exclude<RateLevel, 'healthy'>
+
+export function rateOf(rates: { bounce_rate: number; complaint_rate: number }, kind: RateKind): number {
+    return kind === 'bounce' ? rates.bounce_rate : rates.complaint_rate
+}
+
+/** The line a rate is over, or null when it is healthy or has too little volume to judge. */
+export function exceededLevel(rate: number, kind: RateKind, volume: number): ExceededLevel | null {
+    if (volume < minimumVolumeToClassify(kind)) {
+        return null
+    }
+    const level = classifyRate(rate, kind)
+    return level === 'healthy' ? null : level
+}
+
+/** True when the email provider stopped all of the project's sending, whatever its findings say. */
+export function isSendingStopped(aws: AwsTenantReputationApi | null): boolean {
+    return !!aws && (aws.sending_status === 'DISABLED' || aws.health === 'suspended')
 }
 
 // SES names providers as one capitalized word, which is not how people write most of them. Only

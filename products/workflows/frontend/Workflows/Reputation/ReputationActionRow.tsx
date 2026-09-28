@@ -53,8 +53,8 @@ export function ReputationActionRow({ action, position }: { action: ReputationAc
                         size="small"
                         center
                         className="w-36"
-                        to={'to' in cta ? cta.to : undefined}
-                        onClick={'onClick' in cta ? () => runActionCta(action.key) : undefined}
+                        to={cta.to}
+                        onClick={cta.onClick ? () => runActionCta(action.key) : undefined}
                         data-attr={dataAttr}
                     >
                         {cta.label}

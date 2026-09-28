@@ -4,33 +4,43 @@ import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, contactSupport } from './reputationAc
 interface ProviderStatus {
     stopped: boolean
     critical: boolean
+    hasFindings: boolean
 }
 
 /**
- * The provider's verdict on the project when it names no finding. Findings explain a bad verdict
- * on their own. Without any, the verdict is the only signal, and leaving it out would show
- * "nothing to fix" under the sending-paused banner.
+ * The provider's verdict on the project. A pause always shows, because only support can lift it.
+ * A warning shows only when the provider names no finding: findings explain a bad verdict on their
+ * own, and without them the verdict is the only signal.
  */
 export const providerStatusAction = defineReputationAction<ProviderStatus>({
     kind: 'provider-status',
-    detect: ({ aws }) => {
-        if (!aws || aws.findings.length > 0) {
-            return []
-        }
-        const stopped = aws.sending_status === 'DISABLED' || aws.health === 'suspended'
-        return stopped || aws.health !== 'healthy' ? [{ stopped, critical: aws.health === 'critical' }] : []
+    detect: ({ response, findings, sendingStopped }) => {
+        const flagged = !!response.aws && response.aws.health !== 'healthy' && findings.length === 0
+        return sendingStopped || flagged
+            ? [
+                  {
+                      stopped: sendingStopped,
+                      critical: response.aws?.health === 'critical',
+                      hasFindings: findings.length > 0,
+                  },
+              ]
+            : []
     },
-    content: ({ stopped, critical }) => ({
+    content: ({ stopped, critical, hasFindings }) => ({
         key: 'provider-status',
-        severity: stopped || critical ? 'high' : 'medium',
-        slot: stopped ? 'sendingStopped' : 'providerVerdict',
+        rank: {
+            severity: stopped || critical ? 'high' : 'medium',
+            slot: stopped ? 'sendingStopped' : 'providerVerdict',
+        },
         blocksSending: stopped,
         title: stopped
             ? 'Your email provider paused sending for this project'
             : 'Your email provider flagged this project',
-        description: stopped
-            ? 'Lower your bounce and spam complaint rates, then contact support to get sending re-enabled.'
-            : 'It has not named a cause yet. Check your workflows for high bounce or spam complaint rates.',
+        description: !stopped
+            ? 'It has not named a cause yet. Check your workflows for high bounce or spam complaint rates.'
+            : hasFindings
+              ? 'Fix the findings below, then contact support to get sending re-enabled.'
+              : 'Lower your bounce and spam complaint rates, then contact support to get sending re-enabled.',
         docsLink: LOWER_RATES_DOCS,
     }),
     cta: ({ stopped }) =>

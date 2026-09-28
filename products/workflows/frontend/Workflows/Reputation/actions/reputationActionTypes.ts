@@ -5,7 +5,10 @@ export type ReputationActionKind =
     | 'project-suspended'
     | 'provider-status'
     | 'paused-workflow'
-    | 'finding'
+    | 'rate-finding'
+    | 'dns-finding'
+    | 'bimi-finding'
+    | 'other-finding'
     | 'project-rate'
     | 'workflow-rate'
     | 'provider-rate'
@@ -19,9 +22,10 @@ export interface ReputationPageControls {
     showBreakdown: (tab: ReputationBreakdownTab) => void
 }
 
+// The `never` members stop a button from declaring both a link and a click handler.
 export type ReputationActionCta =
-    | { label: string; to: string }
-    | { label: string; onClick: (page: ReputationPageControls) => void }
+    | { label: string; to: string; onClick?: never }
+    | { label: string; onClick: (page: ReputationPageControls) => void; to?: never }
 
 export interface ReputationDocsLink {
     label: string
