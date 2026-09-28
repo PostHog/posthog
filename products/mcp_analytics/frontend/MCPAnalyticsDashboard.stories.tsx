@@ -163,6 +163,18 @@ const TOOL_CALL_LIST = {
 // p50, p95, p99, users, sessions, first_seen, last_seen.
 type ToolQualityStoryRow = [string, number, number, number, number, number, number, number, number, string, string]
 
+// Previous-period calls for the Trend column: a surge, a new tool, and a decline; the rest stay near flat.
+const PREVIOUS_CALLS: Record<string, number> = {
+    'read-data-schema': 120,
+    'query-trends': 600,
+    'cohort-create': 0,
+}
+const TOTAL_SESSIONS = 720
+const PREVIOUS_TOTAL_SESSIONS = 680
+// Previous-period values that trigger the regression markers: an error-rate jump and a p95 slowdown.
+const PREVIOUS_ERRORS: Record<string, number> = { 'execute-sql': 40 }
+const PREVIOUS_P95_MS: Record<string, number> = { 'insight-create': 400 }
+
 const TOOL_QUALITY_ROWS: ToolQualityStoryRow[] = [
     ['execute-sql', 1480, 144, 9.7, 820, 3525, 9800, 210, 540, '2026-05-08T09:00:00Z', '2026-06-07T10:04:00Z'],
     ['read-data-schema', 760, 3, 0.4, 180, 1298, 2600, 160, 410, '2026-05-08T08:00:00Z', '2026-06-07T10:00:00Z'],
@@ -712,19 +724,27 @@ const meta: Meta = {
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
-                        const rows = TOOL_QUALITY_ROWS.map((r) => ({
-                            tool: r[0],
-                            total_calls: r[1],
-                            errors: r[2],
-                            error_rate_pct: r[3],
-                            p50_duration_ms: r[4],
-                            p95_duration_ms: r[5],
-                            p99_duration_ms: r[6],
-                            users: r[7],
-                            sessions: r[8],
-                            first_seen: r[9],
-                            last_seen: r[10],
-                        }))
+                        const rows = TOOL_QUALITY_ROWS.map((r) => {
+                            const previousCalls = PREVIOUS_CALLS[r[0]] ?? Math.round(r[1] * 0.95)
+                            return {
+                                tool: r[0],
+                                total_calls: r[1],
+                                previous_calls: previousCalls,
+                                trend_score: (r[1] - previousCalls) / (previousCalls + 10),
+                                previous_errors: PREVIOUS_ERRORS[r[0]] ?? Math.round((r[2] * previousCalls) / r[1]),
+                                previous_p95_duration_ms: previousCalls ? (PREVIOUS_P95_MS[r[0]] ?? r[5]) : null,
+                                previous_sessions: Math.round(r[8] * 0.9),
+                                errors: r[2],
+                                error_rate_pct: r[3],
+                                p50_duration_ms: r[4],
+                                p95_duration_ms: r[5],
+                                p99_duration_ms: r[6],
+                                users: r[7],
+                                sessions: r[8],
+                                first_seen: r[9],
+                                last_seen: r[10],
+                            }
+                        })
                         const search = String(body.query.search ?? '')
                             .trim()
                             .toLowerCase()
@@ -750,6 +770,8 @@ const meta: Meta = {
                             {
                                 results: page,
                                 totalCount: filteredRows.length,
+                                totalSessions: TOTAL_SESSIONS,
+                                previousTotalSessions: PREVIOUS_TOTAL_SESSIONS,
                             },
                         ]
                     }

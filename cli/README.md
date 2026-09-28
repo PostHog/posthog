@@ -16,10 +16,28 @@ If you'd rather not use our wizard, you can install the CLI by running:
 npm install -g @posthog/cli@latest
 ```
 
+Or with the install script on macOS and Linux:
+
+```bash
+curl -LsSf https://releases.posthog.com/posthog-cli/install.sh | sh
+```
+
+Or with the install script on Windows (PowerShell):
+
+```powershell
+irm https://releases.posthog.com/posthog-cli/install.ps1 | iex
+```
+
 Or with Homebrew:
 
 ```bash
 brew install posthog/tap/posthog-cli
+```
+
+Or with Cargo:
+
+```bash
+cargo install posthog-cli
 ```
 
 To update, run:
@@ -28,7 +46,7 @@ To update, run:
 posthog-cli update
 ```
 
-It updates in place when you installed with the script above. If you used npm, Homebrew or cargo, it prints the command your package manager expects instead.
+If you installed with the macOS or Linux script, it updates in place. If you installed with the Windows script, it prints a command to rerun the installer. If you used npm, Homebrew or cargo, it prints the command your package manager expects instead.
 
 Note: if you are installing the CLI for use with a coding agent, you should follow our [setup for agents](https://posthog.com/docs/cli#setup-for-agents) instructions.
 

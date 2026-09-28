@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.db import OperationalError
 
 import pyarrow as pa
-import deltalake.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -69,8 +68,8 @@ async def _run_post_load(
     helper: MagicMock,
     *,
     cdc_write_mode: str | None = None,
-    compact_error: Exception | None = None,
-) -> tuple[AsyncMock, AsyncMock, AsyncMock]:
+    resource: Optional[MagicMock] = None,
+) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
     job.team_id = schema.team_id
@@ -78,7 +77,6 @@ async def _run_post_load(
 
     prepare_s3 = AsyncMock(return_value="orders__query_1")
     run_scheduled = AsyncMock()
-    compact_table = AsyncMock(side_effect=compact_error)
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
@@ -86,7 +84,6 @@ async def _run_post_load(
         patch(f"{_LOAD_MODULE}.DataWarehouseTable", MagicMock()),
         patch(f"{_LOAD_MODULE}.set_initial_sync_complete", AsyncMock()),
         patch.object(DeltaMaintenance, "run_scheduled", run_scheduled),
-        patch.object(DeltaMaintenance, "compact_table", compact_table),
         patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()),
         patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", AsyncMock()),
         patch(f"{_PIPELINE_SYNC_MODULE}.register_cdc_companion_table", AsyncMock()),
@@ -101,34 +98,39 @@ async def _run_post_load(
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
+            resource=resource,
             cdc_write_mode=cdc_write_mode,
         )
-    return run_scheduled, compact_table, prepare_s3
+    return run_scheduled, prepare_s3
 
 
 class TestRunPostLoadDeltaMaintenance:
-    """Post-load picks the right maintenance flavor per schema kind; the threshold/watermark
+    """Post-load routes every schema kind through threshold maintenance; the threshold/watermark
     mechanics themselves are covered in core/delta/test/test_maintenance.py."""
 
+    @parameterized.expand([("cdc", True, "incremental"), ("non_cdc", False, None)])
     @pytest.mark.asyncio
-    async def test_cdc_schema_uses_threshold_maintenance_not_unconditional_compact(self):
-        # The incident behavior this guards: CDC finals land every tick, so an unconditional
-        # compact_table here means hundreds of compact+vacuum cycles per hour on a busy source.
-        schema = _make_schema(is_cdc=True, sync_type_config={"last_vacuum_version": 41})
+    async def test_uses_threshold_maintenance_not_unconditional_compact(
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None
+    ) -> None:
+        # CDC finals land every tick, and a non-CDC final batch usually leaves nothing to compact,
+        # so an unconditional compact+vacuum here paid a full file listing and rewrite plan per sync.
+        schema = _make_schema(is_cdc=is_cdc, sync_type_config={"last_vacuum_version": 41})
 
-        run_scheduled, compact_table, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="incremental")
+        run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
-        compact_table.assert_not_awaited()
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False)
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=None)
 
     @pytest.mark.asyncio
-    async def test_non_cdc_schema_keeps_unconditional_compact(self):
-        schema = _make_schema(is_cdc=False)
+    async def test_forwards_resource_partition_count_as_fallback(self) -> None:
+        # A first sync has no schema.partition_count persisted yet; the fallback comes from the
+        # synced resource instead, so this must actually reach run_scheduled and not silently drop.
+        schema = _make_schema(is_cdc=False, sync_type_config={"last_vacuum_version": 41}, partition_count=None)
+        resource = MagicMock(partition_count=12)
 
-        run_scheduled, compact_table, _ = await _run_post_load(schema, _make_helper())
+        run_scheduled, _ = await _run_post_load(schema, _make_helper(), resource=resource)
 
-        compact_table.assert_awaited_once()
-        run_scheduled.assert_not_awaited()
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=12)
 
     @pytest.mark.asyncio
     async def test_cdc_companion_write_runs_companion_maintenance(self):
@@ -137,9 +139,9 @@ class TestRunPostLoadDeltaMaintenance:
         # watermark key and layout instead of the snapshot's (see test_maintenance.TestRunScheduled).
         schema = _make_schema(is_cdc=True, sync_type_config={"last_vacuum_version": 41, "last_vacuum_version_cdc": 7})
 
-        run_scheduled, _, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="scd2_append")
+        run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="scd2_append")
 
-        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True)
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True, partition_count_fallback=None)
 
     @parameterized.expand([("non_cdc", False), ("cdc", True)])
     @pytest.mark.asyncio
@@ -151,42 +153,11 @@ class TestRunPostLoadDeltaMaintenance:
         post_maintenance_uris = ["s3://bucket/orders/compacted.parquet"]
         helper = _make_helper(file_uris=post_maintenance_uris)
 
-        _, _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental" if is_cdc else None)
+        _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental" if is_cdc else None)
 
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
-
-    @parameterized.expand(
-        [
-            # A genuine compaction bug must still be captured for visibility.
-            ("genuine_bug", RuntimeError("compaction blew up"), True),
-            # A transient S3 rate-limit/connectivity blip is already non-fatal here (the next
-            # sync's maintenance retries the same idempotent cleanup) and must not be promoted
-            # into a fresh error-tracking issue — the regression this guards.
-            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
-            # Likewise for a concurrent-maintenance race: a full_refresh `reset_table` purging
-            # `_delta_log` out from under this same compact/vacuum pass is self-healing, not a defect.
-            (
-                "transient_delta_maintenance_race",
-                deltalake.exceptions.DeltaError(
-                    "Generic error: Kernel error: File not found: table/_delta_log/00000000000000000001.json"
-                ),
-                False,
-            ),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_compact_failure_handling(self, _name: str, error: Exception, expect_capture: bool):
-        # A compaction hiccup must not fail the final batch — the rest of post-load
-        # (queryable folder prep, table registration) still has to run or the job wedges.
-        schema = _make_schema(is_cdc=False)
-
-        with patch(f"{_LOAD_MODULE}.capture_exception") as mock_capture:
-            _, _, prepare_s3 = await _run_post_load(schema, _make_helper(), compact_error=error)
-
-        assert mock_capture.called is expect_capture
-        prepare_s3.assert_awaited_once()
 
 
 class TestZeroRowSkip:

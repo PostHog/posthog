@@ -850,6 +850,23 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # A Neon-style proxy refuses the connection because the compute endpoint has been
+            # disabled (distinct from the quota entries above, which describe a still-enabled
+            # database). Host/IP and port are volatile and excluded from the match.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  '
+            "The endpoint has been disabled. Enable it using the API and retry.",
+            "OperationalError: The endpoint has been disabled. Enable it using the API and retry.",
+        ],
+    )
+    def test_endpoint_disabled_is_non_retryable_with_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, f"Disabled-endpoint error should surface an actionable message: {error_msg}"
+        assert "endpoint" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)). The leading
             # "pg_readonly:" prefix and trailing docs URL are volatile; "cluster is read-only" is stable.
             "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
@@ -4899,6 +4916,21 @@ class TestValidateCredentialsErrorMapping:
                 'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
                 "only tries an unencrypted connection after an encrypted one fails, so check that the host "
                 "is the hostname your database provider gave you rather than an IP address, then try again.",
+            ),
+            # libpq's own DNS wording, which reaches validation without the socket-level suffix the
+            # entries above match on.
+            (
+                'could not translate host name "db.example.com" to address: Unknown host',
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+                "from the public internet.",
+            ),
+            # A firewall that drops our packets shows up as a connect timeout carrying libpq's
+            # "Is the server running..." hint, so that entry has to name the firewall as a cause.
+            (
+                'connection to server at "203.0.113.10", port 5432 failed: Connection timed out\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
+                "Could not connect to the database on the host and port given. Check the host and port are "
+                "correct, and that PostHog's IP addresses are allowed through your firewall.",
             ),
             # Unmapped errors fall back to the generic message.
             (
