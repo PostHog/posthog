@@ -1,6 +1,6 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig } from './types'
+import type { EvaluationConfig, EvaluationOutputConfig } from './types'
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250
@@ -21,6 +21,38 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
+export function numericOutputConfigError(config: EvaluationOutputConfig): string | null {
+    const { min, max, step, passing_rule } = config
+    if ([min, max, step, passing_rule?.threshold].some((value) => value != null && !Number.isFinite(value))) {
+        return 'Enter finite numbers for the score bounds, step, and threshold.'
+    }
+    if (min != null && max != null && min > max) {
+        return 'Minimum must be less than or equal to maximum.'
+    }
+    if (step != null && step <= 0) {
+        return 'Step must be greater than zero.'
+    }
+    if (
+        passing_rule &&
+        ((min != null && passing_rule.threshold < min) || (max != null && passing_rule.threshold > max))
+    ) {
+        return 'Set the passing threshold within the score bounds.'
+    }
+    return null
+}
+
+export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_numeric_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
+
+export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
+    const rule = evaluation.output_config.passing_rule
+    if (!rule || !Number.isFinite(rule.threshold)) {
+        return 'false'
+    }
+    return `toFloat(properties.$ai_evaluation_numeric_result) ${rule.operator === 'gte' ? '>=' : '<='} ${rule.threshold}`
+}
+
 /** A detector looks for a problem, so its true result is the undesirable one. */
 export function evaluationIsDetector(evaluation: Pick<EvaluationConfig, 'output_config'>): boolean {
     return evaluation.output_config.true_is_failure === true
@@ -35,9 +67,11 @@ export function evaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output
  * The HogQL for a pass rate, as a percentage of the graded runs. Skipped runs leave both sides of
  * the ratio, so a detector never reads the false a skip stores as a pass.
  */
-export function evaluationPassRateHogQL(passedExpression: string): string {
-    const graded = `countIf(properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL})`
-    return `if(${graded} > 0, countIf((${passedExpression}) AND ${EVALUATION_NOT_SKIPPED_HOGQL}) / ${graded} * 100, 0)`
+export function evaluationPassRateHogQL(
+    passedExpression: string,
+    gradedExpression = EVALUATION_BOOLEAN_GRADED_HOGQL
+): string {
+    return `countIf((${passedExpression}) AND (${gradedExpression})) / nullIf(countIf(${gradedExpression}), 0) * 100`
 }
 
 /** The HogQL that counts a pass across many evaluations at once, for a grouped or broken-down query. */
@@ -47,4 +81,18 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
     }
     const ids = detectorEvaluationIds.map((id) => escapeHogQLString(id)).join(', ')
     return `if(properties.$ai_evaluation_id IN (${ids}), ${EVALUATION_RESULT_FALSE_HOGQL}, ${EVALUATION_RESULT_TRUE_HOGQL})`
+}
+
+export function formatNumericEvaluationScore(score: number): string {
+    return Number(Math.abs(score) >= 1 ? score.toFixed(6) : score.toPrecision(6)).toString()
+}
+
+export function numericScorePasses(
+    score: number | null | undefined,
+    rule: EvaluationOutputConfig['passing_rule']
+): boolean | null {
+    if (score == null || !Number.isFinite(score) || !rule || !Number.isFinite(rule.threshold)) {
+        return null
+    }
+    return rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
 }

@@ -49,6 +49,7 @@ import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
+import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -107,7 +108,12 @@ export function NewSourceScene(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return (
+            <SceneContent>
+                <SceneTitleSection name="New data warehouse source" resourceType={{ type: 'data_pipeline' }} />
+                <SourceCatalogSkeleton />
+            </SceneContent>
+        )
     }
 
     if (availableSources === null) {
@@ -202,7 +208,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return <SourceCatalogSkeleton />
     }
 
     if (availableSources === null) {
@@ -238,6 +244,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         source,
         sourceConnectionDetails,
         isWebhookFieldInputsSubmitting,
+        connectError,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
@@ -374,6 +381,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {selectedConnector && selectedAccessMethod !== 'direct' && (
                     <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
+
+                {connectError && currentStep !== 1 && (
+                    <LemonBanner type="error" className="mb-4">
+                        {connectError}
+                    </LemonBanner>
                 )}
 
                 {currentStep === 1 ? (

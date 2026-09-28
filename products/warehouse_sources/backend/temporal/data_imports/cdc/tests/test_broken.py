@@ -2,7 +2,7 @@ import uuid
 from contextlib import contextmanager
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -39,18 +39,21 @@ def _mocked_boundaries():
     # their source modules, since broken.py imports the schedule/notification helpers lazily.
     with (
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
+        patch(
+            "products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"
+        ) as mock_table_pause,
         patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
         patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
         patch("posthoganalytics.capture") as mock_capture,
     ):
-        yield mock_pause, mock_digest, mock_notify, mock_capture
+        yield mock_pause, mock_digest, mock_notify, mock_capture, mock_table_pause
 
 
 def test_persists_broken_state_on_source_and_schemas(team):
     source = _source(team)
     schema = _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (mock_pause, mock_digest, mock_notify, mock_capture):
+    with _mocked_boundaries() as (mock_pause, mock_digest, mock_notify, mock_capture, _table_pause):
         mark_cdc_broken(source, "auto_dropped_critical_lag", "lag too high", lag_mb=4096.0)
 
     source.refresh_from_db()
@@ -94,7 +97,7 @@ def test_re_marking_reports_once_per_reason(team, second_reason, expects_new_evi
     source = _source(team)
     schema = _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture, _table_pause):
         mark_cdc_broken(source, "critical_lag_self_managed", "lag too high", pause=False)
         mark_cdc_broken(source, second_reason, "still broken", pause=False)
 
@@ -109,7 +112,7 @@ def test_visibility_jobs_can_be_disabled_for_in_run_callers(team):
     source = _source(team)
     schema = _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture, _table_pause):
         mark_cdc_broken(source, "slot_missing", "slot gone", create_visibility_jobs=False)
 
     assert not ExternalDataJob.objects.filter(schema=schema).exists()
@@ -119,12 +122,14 @@ def test_visibility_jobs_can_be_disabled_for_in_run_callers(team):
 @pytest.mark.parametrize("pause", [True, False])
 def test_pause_flag_controls_schedule_pause(team, pause):
     source = _source(team)
-    _cdc_schema(team, source)
+    active = _cdc_schema(team, source)
+    _cdc_schema(team, source, name="sync_off", should_sync=False)
 
-    with _mocked_boundaries() as (mock_pause, _digest, _notify, _capture):
+    with _mocked_boundaries() as (mock_pause, _digest, _notify, _capture, mock_table_pause):
         mark_cdc_broken(source, "critical_lag_self_managed", "msg", pause=pause)
 
     assert mock_pause.called is pause
+    assert mock_table_pause.call_args_list == ([call(str(active.id))] if pause else [])
 
 
 def test_only_active_cdc_schemas_are_marked(team):

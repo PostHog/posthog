@@ -58,7 +58,7 @@ class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusR
             name=ExternalDataSourceType.EMAILOCTOPUS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="EmailOctopus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your EmailOctopus API key to automatically pull your EmailOctopus data into the PostHog Data warehouse.
 
 You can create an API key in your [EmailOctopus account settings](https://emailoctopus.com/api-documentation). The key grants account-wide read access.""",

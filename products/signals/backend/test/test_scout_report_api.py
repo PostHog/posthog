@@ -2233,18 +2233,17 @@ class TestScoutReportAPI(APIBaseTest):
             assert captured is not None
             return captured.event_uuid
 
-        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
-            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+        def observation(source_id: str, description: str = "Checkout errors doubled"):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=1.0)
 
         checkout = forward([observation("checkout-errors")])
         assert checkout == forward([observation("checkout-errors")])
         # The rail carries a row per source id, so the same prose recorded twice is two observations.
         assert checkout != forward([observation("checkout-errors-eu")])
         assert checkout != forward([observation("checkout-errors", description="Signups fell")])
-        assert checkout != forward([observation("checkout-errors", weight=2.0)])
         # A description is scout-authored free text, so on a pipe-joined key a note carrying the
         # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
-        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors"]]')
 
     @parameterized.expand(
         [
@@ -2740,17 +2739,29 @@ class TestScoutReportCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert not SignalReportCheck.objects.for_team(other_team.id).exists()
 
-    def test_listing_a_reports_checks_returns_what_the_run_wrote(self) -> None:
+    @parameterized.expand([("report_level", False), ("per_run", True)])
+    def test_listing_a_reports_checks_returns_what_the_run_wrote(self, _name: str, via_run: bool) -> None:
         self._opt_in(REPORT_TOOLS)
         created = self.client.post(self._create_url(), self._payload(), format="json").json()
+        run_segment = f"{self.scout_run.id}/" if via_run else ""
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-checks/",
+            f"/api/projects/{self.team.id}/signals/scout/runs/{run_segment}report-checks/",
             {"report_id": str(self.report.id)},
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [row["check_id"] for row in response.json()] == [created["check_id"]]
+
+    def test_report_level_listing_needs_no_run_and_stays_in_the_canonical_team(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        child_report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY, title="Checkout")
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Other")
+        other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Other")
+        url = f"/api/projects/{self.team.id}/signals/scout/runs/report-checks/"
+
+        assert self.client.get(url, {"report_id": str(child_report.id)}).status_code == status.HTTP_200_OK
+        assert self.client.get(url, {"report_id": str(other_report.id)}).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cancelling_stops_the_check(self) -> None:
         self._opt_in(REPORT_TOOLS)

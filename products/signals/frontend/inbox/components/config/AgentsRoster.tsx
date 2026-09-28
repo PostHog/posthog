@@ -22,10 +22,11 @@ import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/
 
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
+import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
+import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -61,6 +62,14 @@ function entityKindLabel(kind: string): string {
 /** Above this many entities the list gets a filter box. */
 const ENTITY_FILTER_THRESHOLD = 8
 
+function linearTeamsSummary(config: SignalSourceConfig): string {
+    const count = linearTeamIdsFromConfig(config.config).length
+    if (count === 0) {
+        return 'Reads issues from all Linear teams.'
+    }
+    return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
+}
+
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
 const ENTITY_VISIBLE_LIMIT = 8
 
@@ -87,6 +96,13 @@ interface RosterEntity {
     detail?: string
     kind?: string
     enabled: boolean
+}
+
+interface SourceFilters {
+    summary: string
+    changeLabel: string
+    onChange: () => void
+    disabledReason?: string
 }
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
@@ -118,17 +134,17 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
 /** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
 function StatusDot({
     status,
-    tool,
-    toolOff,
+    product,
+    productOff,
 }: {
     status: AgentRosterStatus
-    tool?: SourceToolStatus
-    toolOff: boolean
+    product?: SourceProductStatus
+    productOff: boolean
 }): JSX.Element {
     let className = 'bg-border-bold'
     let title = 'Standby'
-    if (toolOff) {
-        title = `${tool?.toolName} is off, so this source has nothing to read`
+    if (productOff) {
+        title = `${product?.productName} is off, so this source has nothing to read`
     } else if (status === 'sync_failed') {
         className = 'bg-danger'
         title = 'Sync failed'
@@ -137,11 +153,11 @@ function StatusDot({
         title = 'Syncing'
     } else if (status === 'watching') {
         // A hollow dot means watching but nothing has arrived, so the two read apart at a glance.
-        className = tool?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
+        className = product?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
         title =
-            tool?.dataStatus === 'none'
+            product?.dataStatus === 'none'
                 ? 'Watching, no data in the last 30 days'
-                : tool?.dataStatus === 'recent'
+                : product?.dataStatus === 'recent'
                   ? 'Watching, receiving data'
                   : 'Watching'
     }
@@ -156,11 +172,11 @@ function StatusDot({
 function notableTag(
     status: AgentRosterStatus,
     armed: boolean,
-    toolOff: boolean,
-    tool?: SourceToolStatus
+    productOff: boolean,
+    product?: SourceProductStatus
 ): { label: string; type: LemonTagType } | null {
-    if (toolOff) {
-        return { label: 'Tool off', type: 'warning' }
+    if (productOff) {
+        return { label: 'Product off', type: 'warning' }
     }
     if (status === 'sync_failed') {
         return { label: 'Sync failed', type: 'danger' }
@@ -168,7 +184,7 @@ function notableTag(
     if (status === 'syncing') {
         return { label: 'Syncing', type: 'primary' }
     }
-    if (armed && tool?.dataStatus === 'none') {
+    if (armed && product?.dataStatus === 'none') {
         return { label: 'No recent data', type: 'muted' }
     }
     return null
@@ -220,23 +236,23 @@ function EntityRow({
 interface ExpansionProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
-    tool?: SourceToolStatus
-    enablingTool: boolean
-    onEnableTool: (tool: SourceToolStatus) => void
+    product?: SourceProductStatus
+    enablingProduct: boolean
+    onEnableProduct: (product: SourceProductStatus) => void
     onToggleEntity: (entityId: string) => void
-    onConfigureFilters?: () => void
+    filters?: SourceFilters
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
 }
 
-function ToolDataStatus({
+function ProductDataStatus({
     agent,
     status,
     onRetry,
 }: {
     agent: AgentRosterDefinition
-    status: SourceToolDataStatus
+    status: SourceProductDataStatus
     onRetry: () => void
 }): JSX.Element | null {
     if (status === 'unavailable') {
@@ -289,11 +305,11 @@ function ToolDataStatus({
 function Expansion({
     agent,
     state,
-    tool,
-    enablingTool,
-    onEnableTool,
+    product,
+    enablingProduct,
+    onEnableProduct,
     onToggleEntity,
-    onConfigureFilters,
+    filters,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -308,11 +324,11 @@ function Expansion({
     const visible = capped ? matching.slice(0, ENTITY_VISIBLE_LIMIT) : matching
     const hiddenCount = matching.length - visible.length
     const expandedPastCap = !query && showAll && matching.length > ENTITY_VISIBLE_LIMIT
-    const toolOff = tool?.enabled === false
+    const productOff = product?.enabled === false
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
-    // `ToolDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
-    const hasToolLine = !!tool && (toolOff || tool.dataStatus !== 'unavailable')
-    const hasMetaLine = hasToolLine || !!onSteer || !!onConfigureFilters
+    // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
+    const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
+    const hasMetaLine = hasProductLine || !!onSteer
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -338,24 +354,24 @@ function Expansion({
 
                 {hasMetaLine && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                        {toolOff && tool ? (
+                        {productOff && product ? (
                             <div className="flex items-center gap-2">
                                 <span className="text-xs text-warning">
-                                    {tool.toolName} is off, so this source has nothing to read.
+                                    {product.productName} is off, so this source has nothing to read.
                                 </span>
-                                {tool.enablement && (
+                                {product.enablement && (
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"
-                                        loading={enablingTool}
-                                        onClick={() => onEnableTool(tool)}
+                                        loading={enablingProduct}
+                                        onClick={() => onEnableProduct(product)}
                                     >
                                         Turn it on
                                     </LemonButton>
                                 )}
                             </div>
-                        ) : tool ? (
-                            <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
+                        ) : product ? (
+                            <ProductDataStatus agent={agent} status={product.dataStatus} onRetry={onRetryData} />
                         ) : (
                             <span />
                         )}
@@ -372,12 +388,21 @@ function Expansion({
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
                                 </LemonButton>
                             )}
-                            {onConfigureFilters && (
-                                <LemonButton type="secondary" size="xsmall" onClick={onConfigureFilters}>
-                                    Configure filters
-                                </LemonButton>
-                            )}
                         </div>
+                    </div>
+                )}
+                {filters && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">{filters.summary}</span>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            onClick={filters.onChange}
+                            disabledReason={filters.disabledReason}
+                            data-attr="signal-source-change-filters"
+                        >
+                            {filters.changeLabel}
+                        </LemonButton>
                     </div>
                 )}
             </div>
@@ -413,8 +438,8 @@ function Expansion({
                                 disabledReason={
                                     state.loading
                                         ? 'Saving'
-                                        : toolOff && !entity.enabled
-                                          ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                        : productOff && !entity.enabled
+                                          ? `Turn on ${product?.productName} first. This source reads its data.`
                                           : undefined
                                 }
                             />
@@ -460,14 +485,14 @@ function Expansion({
 interface AgentRowProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
-    tool?: SourceToolStatus
+    product?: SourceProductStatus
     expanded: boolean
-    enablingTool: boolean
+    enablingProduct: boolean
     onExpand: () => void
     onToggle: (source: AgentRosterSource) => void
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
-    onEnableTool: (tool: SourceToolStatus) => void
-    onConfigureFilters?: () => void
+    onEnableProduct: (product: SourceProductStatus) => void
+    filters?: SourceFilters
     onSteer?: () => void
     onRetryData: () => void
 }
@@ -475,24 +500,24 @@ interface AgentRowProps {
 const AgentRow = memo(function AgentRow({
     agent,
     state,
-    tool,
+    product,
     expanded,
-    enablingTool,
+    enablingProduct,
     onExpand,
     onToggle,
     onToggleEntity,
-    onEnableTool,
-    onConfigureFilters,
+    onEnableProduct,
+    filters,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
-    const toolOff = tool?.enabled === false
-    // An off tool blocks arming (the source would watch nothing), never disarming.
-    const armingBlocked = toolOff && !armed
-    const tag = notableTag(status, armed, toolOff, tool)
+    const productOff = product?.enabled === false
+    // An off product blocks arming (the source would watch nothing), never disarming.
+    const armingBlocked = productOff && !armed
+    const tag = notableTag(status, armed, productOff, product)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
@@ -506,7 +531,7 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                {!redesign && <StatusDot status={status} tool={tool} toolOff={toolOff} />}
+                {!redesign && <StatusDot status={status} product={product} productOff={productOff} />}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -551,7 +576,7 @@ const AgentRow = memo(function AgentRow({
                                 onChange={() => onToggle(agent.source)}
                                 disabledReason={
                                     armingBlocked
-                                        ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                        ? `Turn on ${product?.productName} first. This source reads its data.`
                                         : undefined
                                 }
                                 aria-label={`Arm ${agent.label}`}
@@ -580,11 +605,11 @@ const AgentRow = memo(function AgentRow({
                 <Expansion
                     agent={agent}
                     state={state}
-                    tool={tool}
-                    enablingTool={enablingTool}
-                    onEnableTool={onEnableTool}
+                    product={product}
+                    enablingProduct={enablingProduct}
+                    onEnableProduct={onEnableProduct}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
-                    onConfigureFilters={onConfigureFilters}
+                    filters={filters}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -643,12 +668,15 @@ export function AgentsRoster(): JSX.Element {
         isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
         isCiSignalsToggling,
-        toolStatusBySource,
-        enablingTool,
+        productStatusBySource,
+        enablingProduct,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
+        linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
+        openLinearTeamsPicker,
+        closeLinearTeamsPicker,
         toggleConversations,
         toggleErrorTracking,
         toggleErrorTrackingType,
@@ -658,8 +686,8 @@ export function AgentsRoster(): JSX.Element {
         toggleHealthChecks,
         toggleScannerSignals,
         initiateDataWarehouseSourceToggle,
-        enableSourceTool,
-        loadToolDataEvents,
+        enableSourceProduct,
+        loadProductDataEvents,
         loadSourceConfigs,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -918,35 +946,64 @@ export function AgentsRoster(): JSX.Element {
                                 state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
                                     ? state.steeringConfigs
                                     : null
+                            const filters =
+                                agent.source === 'linear' &&
+                                linearIssuesConfig &&
+                                !linearIssuesConfig.id.startsWith('new_')
+                                    ? {
+                                          summary: linearTeamsSummary(linearIssuesConfig),
+                                          changeLabel: 'Change teams',
+                                          onChange: () =>
+                                              openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                                          // A save or reload can replace the row, and the picker reads it on open.
+                                          disabledReason: isLinearIssuesToggling
+                                              ? 'Saving'
+                                              : sourceConfigsLoading
+                                                ? 'Refreshing'
+                                                : undefined,
+                                      }
+                                    : undefined
                             return (
                                 <AgentRow
                                     key={agent.source}
                                     agent={agent}
                                     state={state}
-                                    tool={toolStatusBySource[agent.source]}
+                                    product={productStatusBySource[agent.source]}
                                     expanded={expandedSource === agent.source}
-                                    enablingTool={
-                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
+                                    enablingProduct={
+                                        !!enablingProduct &&
+                                        enablingProduct === productStatusBySource[agent.source]?.enablement
                                     }
                                     onExpand={() =>
                                         setExpandedSource((current) => (current === agent.source ? null : agent.source))
                                     }
                                     onToggle={handleToggle}
                                     onToggleEntity={handleToggleEntity}
-                                    onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
-                                    onConfigureFilters={undefined}
+                                    onEnableProduct={(product) =>
+                                        product.enablement && enableSourceProduct(product.enablement)
+                                    }
+                                    filters={filters}
                                     onSteer={
                                         steeringConfigs
                                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
                                             : undefined
                                     }
-                                    onRetryData={loadToolDataEvents}
+                                    onRetryData={loadProductDataEvents}
                                 />
                             )
                         })}
                     </div>
                 </div>
             ))}
+
+            {linearTeamsPicker && (
+                <LinearTeamsModal
+                    config={linearIssuesConfig}
+                    enableOnSave={linearTeamsPicker.enableOnSave}
+                    viaSetupWizard={linearTeamsPicker.viaSetupWizard}
+                    onClose={closeLinearTeamsPicker}
+                />
+            )}
 
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
             {steeringTarget && (

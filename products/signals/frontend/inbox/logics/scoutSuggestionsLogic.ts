@@ -32,7 +32,7 @@ import {
 import type { ScoutChatType, ScoutSuggestionClickVia, ScoutSuggestionsRefreshSource } from '../inboxAnalytics'
 import type { ExistingScoutForSuggestion } from '../utils/scoutSuggestions'
 import { scoutFleetLogic } from './scoutFleetLogic'
-import type { SignalScoutConfig } from './scoutFleetLogic'
+import type { ScoutChatRequest, SignalScoutConfig } from './scoutFleetLogic'
 
 /** How often the list is re-read while a refresh scan runs. The scan takes minutes, not seconds. */
 const REFRESH_POLL_INTERVAL_MS = 15_000
@@ -111,9 +111,11 @@ export interface scoutSuggestionsLogicActions {
     startScoutChatTask: (
         chatType: ScoutChatType,
         taskLabel: string,
-        suggestionId?: string | undefined
+        suggestionId?: string | undefined,
+        request?: ScoutChatRequest | undefined
     ) => {
         chatType: ScoutChatType
+        request: ScoutChatRequest | undefined
         suggestionId: string | undefined
         taskLabel: string
     } // scoutFleetLogic

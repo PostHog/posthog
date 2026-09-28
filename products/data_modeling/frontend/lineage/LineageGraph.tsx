@@ -116,6 +116,9 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={false}
             nodesConnectable={false}
+            // The card inside each node is the focus target and carries the key handler. A focusable
+            // wrapper would add a second tab stop per node that only selects and never navigates.
+            nodesFocusable={false}
             fitView
             fitViewOptions={props.fitViewOptions}
             minZoom={0.1}

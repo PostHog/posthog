@@ -21,6 +21,8 @@ const SESSION_ROW_MAX_LIFETIME_MS = 300_000
 const TEAM_ROW_LIFETIME_MS = 3_600_000
 // Neither caller passes a deadline, and max.poll.interval.ms is 300s, so the retry loop needs a bound of its own.
 const READ_BUDGET_MS = 30_000
+// A purge visits every cached row, so a purge on every read makes the cost of a read grow with the size of the cache.
+const STALE_ROW_PURGE_INTERVAL_MS = 60_000
 
 export type DynamoItem = Record<string, AttributeValue>
 
@@ -58,6 +60,7 @@ export class MlKeyDynamoDB {
     private readonly writeConcurrency = pLimit(32)
     private readonly rows: LRUCache<string, DynamoItem>
     private readonly sessionRowLifetimeMs: number
+    private lastStaleRowPurgeMs = 0
 
     constructor(
         private readonly client: Pick<DynamoDBClient, 'send'>,
@@ -175,9 +178,18 @@ export class MlKeyDynamoDB {
                 })
             )
         )
-        this.rows.purgeStale()
+        this.purgeStaleRowsAtMostOncePerInterval()
         MlMirrorMetrics.setMlKeyRowCacheEntries(this.rows.size)
         return result
+    }
+
+    private purgeStaleRowsAtMostOncePerInterval(): void {
+        const nowMs = Date.now()
+        if (nowMs - this.lastStaleRowPurgeMs < STALE_ROW_PURGE_INTERVAL_MS) {
+            return
+        }
+        this.lastStaleRowPurgeMs = nowMs
+        this.rows.purgeStale()
     }
 
     public clear(): void {

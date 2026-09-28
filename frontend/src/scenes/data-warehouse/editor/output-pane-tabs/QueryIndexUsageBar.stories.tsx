@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import {
+    PredicateFixAction,
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
@@ -31,7 +32,8 @@ const PREDICATES: PredicateIndexUsage[] = [
         physical_type: 'String',
         usable_indexes: ['bloom_filter'],
         verdict: PredicateIndexVerdict.Indexed,
-        message: "Event property '$browser' uses its bloom filter index, so this filter skips rows that cannot match.",
+        message:
+            "Event property '$browser' has a bloom filter index that covers this comparison. How much data it skips depends on how the values are spread across the table.",
     },
     {
         property_name: 'duration',
@@ -45,7 +47,27 @@ const PREDICATES: PredicateIndexUsage[] = [
         verdict: PredicateIndexVerdict.Blocked,
         message:
             "Event property 'duration' is stored as String but compared as Float, so every row is converted before the filter runs and the index on 'duration' cannot skip any data.",
-        fix: "If 'duration' is not really Float, correct its type in data management. Otherwise add a filter that can skip data, such as a date range on timestamp.",
+        fix: "If 'duration' does not really hold a number, correct its type in data management.",
+        fix_action: PredicateFixAction.EditPropertyType,
+    },
+    {
+        property_name: '$browser_version',
+        scope: PredicateScope.Event,
+        operator: '==',
+        source_label: 'materialized column',
+        column_name: 'mat_$browser_version',
+        semantic_type: 'String',
+        physical_type: 'String',
+        usable_indexes: [],
+        verdict: PredicateIndexVerdict.Blocked,
+        message:
+            "Event property '$browser_version' is compared against a value of another type, so every row has to be converted and the index on '$browser_version' goes unused.",
+        fix: "Write the value as text: '120'.",
+        fix_action: PredicateFixAction.EditQuery,
+        ai_fix_prompt: "Rewrite this filter so '$browser_version' is compared against a String value.",
+        quickfix: { start: 58, end: 61, text: "'120'" },
+        start: 33,
+        end: 61,
     },
     {
         property_name: 'plan_tier',
@@ -60,6 +82,7 @@ const PREDICATES: PredicateIndexUsage[] = [
         message:
             "Person property 'plan_tier' is read out of the properties JSON on every row, with no index to skip data.",
         fix: "Materialize 'plan_tier' so this filter reads a dedicated column instead of parsing the JSON.",
+        fix_action: PredicateFixAction.Materialize,
     },
     {
         property_name: '$current_url',
@@ -79,7 +102,7 @@ const PREDICATES: PredicateIndexUsage[] = [
 export const SomeFiltersScan: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={PREDICATES} />
+            <QueryIndexUsageBar predicates={PREDICATES} onApplyQuickfix={() => {}} onFixWithAI={() => {}} />
         </div>
     ),
 }

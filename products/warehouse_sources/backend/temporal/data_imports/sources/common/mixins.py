@@ -5,7 +5,7 @@ import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Sequence
 from contextlib import _GeneratorContextManager, contextmanager
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from django.conf import settings
 from django.db import OperationalError, close_old_connections
@@ -26,6 +26,7 @@ from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -659,10 +660,20 @@ class SSHTunnelMixin:
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-            if config.ssh_tunnel.host:
-                is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
-                if not is_host_valid:
-                    return False, f"SSH tunnel host not allowed: {host_errors}"
+            # `SSHTunnel.from_config` asserts on host, port and auth type. A bare `AssertionError`
+            # has no message, so the caller can only show generic invalid-credentials copy.
+            if not config.ssh_tunnel.host:
+                return False, "SSH tunnel host is required"
+
+            is_host_valid, host_errors = _is_host_safe(config.ssh_tunnel.host, team_id)
+            if not is_host_valid:
+                return False, f"SSH tunnel host not allowed: {host_errors}"
+
+            if not config.ssh_tunnel.port:
+                return False, "SSH tunnel port is required"
+
+            if not config.ssh_tunnel.auth.type:
+                return False, "SSH tunnel authentication type is required"
 
             ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
             is_auth_valid, auth_errors = ssh_tunnel.is_auth_valid()
@@ -672,6 +683,10 @@ class SSHTunnelMixin:
             is_port_valid, port_errors = ssh_tunnel.has_valid_port()
             if not is_port_valid:
                 return is_port_valid, port_errors
+
+            is_host_key_valid, host_key_errors = ssh_tunnel.is_host_key_valid()
+            if not is_host_key_valid:
+                return is_host_key_valid, host_key_errors
 
         return True, None
 
@@ -724,6 +739,29 @@ class OAuthMixin:
         # query for sources whose account/resource list is large enough to filter server-side (e.g. GitHub
         # repositories); small-list sources may ignore it and let the endpoint filter the result.
         raise NotImplementedError(f"{type(self).__name__} does not support listing OAuth accounts")
+
+
+# Contravariant because the config only ever appears as a parameter: a source narrows it to its
+# own generated config class, which a plain `Config` annotation would reject as unsubstitutable.
+_CredentialConfig = TypeVar("_CredentialConfig", bound=Config, contravariant=True)
+
+
+class CredentialAccountsMixin(Generic[_CredentialConfig]):
+    """Account listing for a source whose credentials are typed into the connect form.
+
+    The OAuth twin above reads its credentials from an `Integration` row, so the caller passes an id
+    and the token never leaves the server. Here the credentials are still in the form — the user has
+    not submitted them yet, which is the point: the account id they need is only discoverable by
+    calling the provider with the rest of what they typed.
+
+    Implementations take an already-parsed source config, so a half-filled form fails the same way it
+    would on connect rather than somewhere inside provider code.
+    """
+
+    def get_credential_accounts(
+        self, config: _CredentialConfig, team_id: int, api_version: str | None = None
+    ) -> list[IntegrationAccount]:
+        raise NotImplementedError(f"{type(self).__name__} does not support listing accounts from credentials")
 
 
 class ValidateDatabaseHostMixin:

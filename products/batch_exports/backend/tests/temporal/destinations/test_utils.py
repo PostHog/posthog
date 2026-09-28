@@ -2,8 +2,12 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs
-from products.batch_exports.backend.temporal.destinations.utils import get_object_key, get_query_timeout
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs, get_s3_key_from_inputs
+from products.batch_exports.backend.temporal.destinations.utils import (
+    get_manifest_key,
+    get_object_key,
+    get_query_timeout,
+)
 
 
 @pytest.mark.parametrize(
@@ -248,3 +252,40 @@ def test_get_object_key(inputs, expected):
         include_file_number=inputs.max_file_size_mb is not None,
     )
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "data_interval_start,data_interval_end,expected_name",
+    [
+        (None, None, "export-2023-01-01T00-00-00Z"),
+        ("2023-01-01T00:00:00+00:00", None, "export-2023-01-01T00-00-00Z"),
+        (None, "2023-01-01T01:00:00+00:00", "export-2023-01-01T00-00-00Z"),
+        (
+            "2023-01-01T00:00:00+00:00",
+            "2023-01-01T01:00:00+00:00",
+            "2023-01-01T00:00:00+00:00-2023-01-01T01:00:00+00:00",
+        ),
+    ],
+)
+def test_run_scoped_keys(data_interval_start: str | None, data_interval_end: str | None, expected_name: str) -> None:
+    inputs = S3InsertInputs(
+        bucket_name="test",
+        region="test",
+        team_id=1,
+        prefix="batch-exports/export-123/run-123",
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        file_format="Parquet",
+        compression="gzip",
+        max_file_size_mb=1,
+    )
+    file_name_prefix = "export-2023-01-01T00-00-00Z"
+    assert get_s3_key_from_inputs(inputs, file_number=0, file_name_prefix=file_name_prefix) == (
+        f"{inputs.prefix}/{expected_name}-0.parquet.gz"
+    )
+    assert get_s3_key_from_inputs(inputs, file_number=1, file_name_prefix=file_name_prefix) == (
+        f"{inputs.prefix}/{expected_name}-1.parquet.gz"
+    )
+    assert get_manifest_key(
+        inputs.prefix, data_interval_start, data_interval_end, None, file_name_prefix=file_name_prefix
+    ) == (f"{inputs.prefix}/{expected_name}_manifest.json")

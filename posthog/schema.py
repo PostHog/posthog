@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pydantic
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint, constr
 
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
@@ -29,7 +29,9 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AmazonAdsDefaultSources as AmazonAdsDefaultSources,
     AnnotationScope as AnnotationScope,
+    AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -153,6 +155,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    Kind2 as Kind2,
     LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
@@ -205,6 +208,7 @@ from posthog.schema_enums import (
     NativeMarketingSource as NativeMarketingSource,
     NeighborDirection as NeighborDirection,
     NodeKind as NodeKind,
+    OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
@@ -221,6 +225,7 @@ from posthog.schema_enums import (
     PlanningStepStatus as PlanningStepStatus,
     Position as Position,
     PrecomputationMode as PrecomputationMode,
+    PredicateFixAction as PredicateFixAction,
     PredicateIndexVerdict as PredicateIndexVerdict,
     PredicateScope as PredicateScope,
     ProductIntentContext as ProductIntentContext,
@@ -1761,6 +1766,25 @@ class IntegrationFilter(BaseModel):
     )
 
 
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: constr(max_length=2000) | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    threshold: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
+    )
+    type: Literal["llm"] = "llm"
+    window: conint(ge=5, le=400) | None = Field(
+        default=None,
+        description="How many recent points the model is shown (default: 90)",
+    )
+
+
 class LLMSentimentMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2087,6 +2111,47 @@ class MarketingIntegrationConfig8(BaseModel):
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
 
 
+class MarketingIntegrationConfig9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["ad_group_report"] = "ad_group_report"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["apple"] = "apple"
+    sourceType: Literal["AppleSearchAds"] = "AppleSearchAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+
+
+class MarketingIntegrationConfig10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=3, min_length=3)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["openai"] = "openai"
+    sourceType: Literal["OpenAIAds"] = "OpenAIAds"
+    statsTableName: Literal["campaign_insights"] = "campaign_insights"
+
+
+class MarketingIntegrationConfig11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["sp_campaigns"] = "sp_campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["amazon"] = "amazon"
+    sourceType: Literal["AmazonAds"] = "AmazonAds"
+    statsTableName: Literal["sp_campaign_reports"] = "sp_campaign_reports"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2097,6 +2162,9 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     ]
 ):
     root: (
@@ -2108,6 +2176,9 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     )
 
 
@@ -3433,7 +3504,17 @@ class AggregatedSpanRow(BaseModel):
     p999_duration_nano: float
     p99_duration_nano: float
     service_name: str
+    sessions: int | None = Field(
+        default=None,
+        description=(
+            "Set only when the query asked for `includeImpact`. `sessions` and `users`"
+            " are uniq() estimates; the two span counts are exact."
+        ),
+    )
+    spans_with_distinct_id: int | None = None
+    spans_with_session_id: int | None = None
     total_duration_nano: float
+    users: int | None = None
 
 
 class AlertCondition(BaseModel):
@@ -5235,103 +5316,52 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
-class ExperimentApiMetric(BaseModel):
+class ExperimentApiRetentionStart(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    completion_event: ExperimentApiEventSource | None = Field(
-        default=None, description="For retention metrics: completion event."
-    )
-    conversion_window: int | None = Field(
+    event: str | None = Field(
         default=None,
+        description="Event name, e.g. '$pageview'. Required for EventsNode.",
+    )
+    id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
+    kind: Kind2 = Field(
+        ...,
         description=(
-            "Only count metric events within this many units after the user's first"
-            " exposure. Requires conversion_window_unit: a window without a unit is"
-            " ignored and the metric counts events until the experiment ends. Omit both"
-            " to count until the experiment ends."
+            "Pass 'ExperimentExposureNode' to start retention from the experiment's own"
+            " exposure event; the other fields then stay unset."
         ),
     )
-    conversion_window_unit: FunnelConversionWindowTimeUnit | None = Field(
+    math: ExperimentMetricMathType | None = Field(
         default=None,
         description=(
-            "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or"
-            " 'month'. Required when conversion_window is set."
+            "How to aggregate this source. Defaults to 'total' (event count). Use 'sum'"
+            " together with math_property to aggregate a numeric property — e.g. a"
+            " ratio numerator of revenue per order. Other options: 'avg', 'min', 'max',"
+            " 'unique_session', 'dau', 'unique_group', 'hogql'."
         ),
     )
-    denominator: ExperimentApiEventSource | None = Field(
-        default=None, description="For ratio metrics: denominator source."
+    math_group_type_index: MathGroupTypeIndex | None = Field(
+        default=None,
+        description=("Group type index to aggregate over. Required when math is 'unique_group'."),
     )
-    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+    math_hogql: str | None = Field(
         default=None,
         description=(
-            "For ratio metrics: winsorization applied to the denominator aggregate."
-            " Leave unset for a binomial-style denominator, which is never clamped."
+            "HogQL aggregation expression. Required when math is 'hogql' — without it"
+            " the metric silently falls back to a plain count/sum."
         ),
     )
-    funnel_order_type: StepOrderValue | None = Field(
+    math_property: str | None = Field(
         default=None,
         description=(
-            "For funnel metrics: how the steps must occur. 'ordered' (default) or"
-            " 'unordered'. Do not use 'strict': experiment funnels give wrong counts"
-            " with it."
+            "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
         ),
     )
-    goal: ExperimentMetricGoal | None = Field(
-        default=None, description="Whether higher or lower values indicate success."
-    )
-    ignore_zeros: bool | None = Field(
+    properties: list[EventPropertyFilter] | None = Field(
         default=None,
-        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
+        description="Event property filters to narrow which events are counted.",
     )
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
-        default=None,
-        description=(
-            "For mean metrics: winsorization lower percentile bound, as a fraction in"
-            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
-            " percentile are clamped to it before aggregation."
-        ),
-    )
-    metric_type: ExperimentMetricType
-    name: str | None = Field(default=None, description="Human-readable metric name.")
-    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
-    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
-        default=None,
-        description=(
-            "For ratio metrics: winsorization applied to the numerator aggregate,"
-            " independently of the denominator and each with its own percentile"
-            " thresholds."
-        ),
-    )
-    retention_window_end: int | None = None
-    retention_window_start: int | None = None
-    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
-    series: list[ExperimentApiEventSource] | None = Field(
-        default=None,
-        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
-    )
-    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
-    start_event: ExperimentApiEventSource | None = Field(
-        default=None, description="For retention metrics: start event."
-    )
-    start_handling: StartHandling | None = None
-    threshold: float | None = Field(
-        default=None,
-        description=(
-            "For mean metrics: when set, reports the percentage of users whose per-user"
-            " summed/counted value reaches or exceeds this threshold. Only meaningful"
-            " for sum/count math types."
-        ),
-    )
-    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
-        default=None,
-        description=(
-            "For mean metrics: winsorization upper percentile bound, as a fraction in"
-            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
-            " percentile are clamped to it before aggregation."
-        ),
-    )
-    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
 class ExperimentExposureQueryResponse(BaseModel):
@@ -5944,6 +5974,14 @@ class MCPHarnessBreakdownItem(BaseModel):
         ...,
         description=('Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other".'),
     )
+    harness_sessions: int | None = Field(
+        default=None,
+        description=(
+            "Distinct sessions in this harness across all tools, in the same window and"
+            " filters. The denominator for the tool's session share within the harness."
+            " Set only when the query has toolName."
+        ),
+    )
     sessions: int
     total_calls: int
 
@@ -6070,9 +6108,34 @@ class MCPToolQualityRowItem(BaseModel):
     p50_duration_ms: float
     p95_duration_ms: float
     p99_duration_ms: float
+    previous_calls: int = Field(
+        ...,
+        description=(
+            "Calls in the previous period: the same length of time right before the"
+            ' window, or for a to-date range ("This month") the same part of the'
+            " previous unit."
+        ),
+    )
+    previous_errors: int = Field(..., description="Errored calls in the previous period.")
+    previous_p95_duration_ms: float | None = Field(
+        ...,
+        description=("p95 duration in the previous period, or null when no previous call carried a duration."),
+    )
+    previous_sessions: int = Field(
+        ...,
+        description="Distinct sessions that called the tool in the previous period.",
+    )
     sessions: int
     tool: str
     total_calls: int
+    trend_score: float = Field(
+        ...,
+        description=(
+            "Sort key ranking growth relative to volume, so a small tool's spike"
+            " doesn't outrank a large tool's surge. Not a percentage; only meaningful"
+            " for ordering."
+        ),
+    )
     users: int
 
 
@@ -6085,6 +6148,17 @@ class MCPToolStatsItem(BaseModel):
     errors: int
     p50_ms: float | None = None
     p95_ms: float | None = None
+    total_calls: int = Field(
+        ...,
+        description=("Calls to any tool in the same window and filters. The denominator for the tool's call share."),
+    )
+    total_conversations: int = Field(
+        ...,
+        description=(
+            "Conversations with a call to any tool in the same window and filters. The"
+            " denominator for the tool's session share."
+        ),
+    )
     users: int
     with_intent: int = Field(
         ...,
@@ -6214,14 +6288,21 @@ class MarketingAnalyticsRetentionSummaryRow(BaseModel):
     eligible7d: int
     medianReturnDays: float | None = Field(
         ...,
-        description=("Median elapsed days to a second session within 30 days, among observed returners."),
+        description=(
+            "Estimated median calendar days from the first session to the first return"
+            " on a later day, using the project's timezone. Includes observed returns"
+            " within 30 days. Same-day visits do not count."
+        ),
     )
     previous: bool
     returned30d: int
     returned7d: int
     returners: int = Field(
         ...,
-        description=("People with an observed second session within 30 days, including incomplete windows."),
+        description=(
+            "People who returned on a later calendar day in the project's timezone"
+            " within 30 days of their first session, including incomplete windows."
+        ),
     )
 
 
@@ -6709,26 +6790,16 @@ class PlanningStep(BaseModel):
     status: PlanningStepStatus
 
 
-class PredicateIndexUsage(BaseModel):
+class PredicateQuickfix(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    column_name: str | None = None
-    end: int | None = None
-    fix: str | None = None
-    message: str
-    operator: str = Field(..., description="HogQL comparison operator, e.g. `==`, `in`, `ilike`.")
-    physical_type: str = Field(..., description="Type the value is physically stored as.")
-    property_name: str
-    scope: PredicateScope
-    semantic_type: str = Field(..., description="Type the property definition declares.")
-    source_label: str = Field(
+    end: int = Field(..., description="Character offset in the query where the replaced range ends.")
+    start: int = Field(
         ...,
-        description=("Where the value is physically read from, e.g. `materialized column` or `JSON blob`."),
+        description="Character offset in the query where the replaced range starts.",
     )
-    start: int | None = None
-    usable_indexes: list[str] = Field(..., description="Skip indexes this predicate can actually use.")
-    verdict: PredicateIndexVerdict
+    text: str = Field(..., description="Replacement text, substituted for the range verbatim.")
 
 
 class PreprocessingConfig(BaseModel):
@@ -7533,7 +7604,9 @@ class SidebarItemsConfiguration(BaseModel):
     starred: UIVisibilityConfig | None = Field(
         default=None, description='"Starred" panel trigger in the Project section.'
     )
-    tools: UIVisibilityConfig | None = Field(default=None, description='"Tools" panel trigger in the Project section.')
+    tools: UIVisibilityConfig | None = Field(
+        default=None, description='"Products" panel trigger in the Project section.'
+    )
 
 
 class SidebarSectionsConfiguration(BaseModel):
@@ -7542,12 +7615,12 @@ class SidebarSectionsConfiguration(BaseModel):
     )
     my_tools: UIVisibilityConfig | None = Field(
         default=None,
-        description='The "My tools" section, listing the user\'s selected tools.',
+        description='The "My products" section, listing the user\'s selected products.',
     )
     project: UIVisibilityConfig | None = Field(
         default=None,
         description=(
-            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            'The "Project" section (Home and the Data/Files/Products/Starred panel'
             " triggers). Activity stays visible even when this section is hidden."
         ),
     )
@@ -13166,6 +13239,10 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -13191,6 +13268,13 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -13410,6 +13494,10 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -13421,6 +13509,14 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -13723,6 +13819,10 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -13737,6 +13837,14 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16715,6 +16823,10 @@ class Response12(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -16726,6 +16838,14 @@ class Response12(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16767,6 +16887,10 @@ class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -16775,6 +16899,14 @@ class Response13(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17734,6 +17866,111 @@ class EventsQueryResponse(BaseModel):
             " access."
         ),
     )
+
+
+class ExperimentApiMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: completion event."
+    )
+    conversion_window: int | None = Field(
+        default=None,
+        description=(
+            "Only count metric events within this many units after the user's first"
+            " exposure. Requires conversion_window_unit: a window without a unit is"
+            " ignored and the metric counts events until the experiment ends. Omit both"
+            " to count until the experiment ends."
+        ),
+    )
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = Field(
+        default=None,
+        description=(
+            "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or"
+            " 'month'. Required when conversion_window is set."
+        ),
+    )
+    denominator: ExperimentApiEventSource | None = Field(
+        default=None, description="For ratio metrics: denominator source."
+    )
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the denominator aggregate."
+            " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
+    funnel_order_type: StepOrderValue | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics: how the steps must occur. 'ordered' (default) or"
+            " 'unordered'. Do not use 'strict': experiment funnels give wrong counts"
+            " with it."
+        ),
+    )
+    goal: ExperimentMetricGoal | None = Field(
+        default=None, description="Whether higher or lower values indicate success."
+    )
+    ignore_zeros: bool | None = Field(
+        default=None,
+        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization lower percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
+    metric_type: ExperimentMetricType
+    name: str | None = Field(default=None, description="Human-readable metric name.")
+    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the numerator aggregate,"
+            " independently of the denominator and each with its own percentile"
+            " thresholds."
+        ),
+    )
+    retention_window_end: int | None = None
+    retention_window_start: int | None = None
+    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
+    series: list[ExperimentApiEventSource] | None = Field(
+        default=None,
+        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
+    )
+    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
+    start_event: ExperimentApiRetentionStart | None = Field(
+        default=None,
+        description=(
+            'For retention metrics: start event. Pass {"kind":'
+            ' "ExperimentExposureNode"} to start retention from the experiment\'s'
+            " exposure event; a conversion window or 'last_seen' start_handling is"
+            " rejected then, because the start is always the user's first exposure."
+        ),
+    )
+    start_handling: StartHandling | None = None
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: when set, reports the percentage of users whose per-user"
+            " summed/counted value reaches or exceeds this threshold. Only meaningful"
+            " for sum/count math types."
+        ),
+    )
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization upper percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
+    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
 class ExperimentBreakdownResult(BaseModel):
@@ -18940,6 +19177,10 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18959,6 +19200,13 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -19127,6 +19375,10 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19135,6 +19387,14 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19380,6 +19640,10 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19391,6 +19655,14 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19696,6 +19968,36 @@ class PlanningMessage(BaseModel):
     parent_tool_call_id: str | None = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
+
+
+class PredicateIndexUsage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ai_fix_prompt: str | None = Field(
+        default=None,
+        description=("Instruction for an AI rewrite of the query, set when a query edit would help."),
+    )
+    column_name: str | None = None
+    end: int | None = None
+    fix: str | None = Field(default=None, description="Prose advice for a reader.")
+    fix_action: PredicateFixAction | None = None
+    message: str
+    operator: str = Field(..., description="HogQL comparison operator, e.g. `==`, `in`, `ilike`.")
+    physical_type: str = Field(..., description="Type the value is physically stored as.")
+    property_name: str
+    quickfix: PredicateQuickfix | None = Field(
+        default=None, description="A deterministic query edit that unblocks the index."
+    )
+    scope: PredicateScope
+    semantic_type: str = Field(..., description="Type the property definition declares.")
+    source_label: str = Field(
+        ...,
+        description=("Where the value is physically read from, e.g. `materialized column` or `JSON blob`."),
+    )
+    start: int | None = None
+    usable_indexes: list[str] = Field(..., description="Skip indexes this predicate can actually use.")
+    verdict: PredicateIndexVerdict
 
 
 class PropertyValuesQueryResponse(BaseModel):
@@ -20844,6 +21146,10 @@ class QueryResponseAlternative33(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20855,6 +21161,14 @@ class QueryResponseAlternative33(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20896,6 +21210,10 @@ class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20904,6 +21222,14 @@ class QueryResponseAlternative34(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21759,6 +22085,10 @@ class QueryResponseAlternative50(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21770,6 +22100,14 @@ class QueryResponseAlternative50(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21811,6 +22149,10 @@ class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21819,6 +22161,14 @@ class QueryResponseAlternative51(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23959,6 +24309,10 @@ class QueryResponseAlternative104(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23978,6 +24332,13 @@ class QueryResponseAlternative104(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -26519,31 +26880,6 @@ class EndpointsUsageTrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EnsembleDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    detectors: list[
-        Annotated[
-            ZScoreDetectorConfig
-            | MADDetectorConfig
-            | IQRDetectorConfig
-            | ThresholdDetectorConfig
-            | ECODDetectorConfig
-            | COPODDetectorConfig
-            | IsolationForestDetectorConfig
-            | KNNDetectorConfig
-            | HBOSDetectorConfig
-            | LOFDetectorConfig
-            | OCSVMDetectorConfig
-            | PCADetectorConfig,
-            Field(discriminator="type"),
-        ]
-    ] = Field(..., description="Sub-detector configurations (minimum 2)")
-    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
-    type: Literal["ensemble"] = "ensemble"
-
-
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27345,6 +27681,7 @@ class MCPToolDailyStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=(
@@ -27355,6 +27692,7 @@ class MCPToolDailyStatsQuery(BaseModel):
     )
     kind: Literal["MCPToolDailyStatsQuery"] = "MCPToolDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27369,8 +27707,10 @@ class MCPToolDescriptionsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolDescriptionsQuery"] = "MCPToolDescriptionsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolDescriptionsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27395,8 +27735,10 @@ class MCPToolFailureOccurrencesQuery(BaseModel):
         ...,
         description=('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
     )
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolFailureOccurrencesQuery"] = "MCPToolFailureOccurrencesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolFailureOccurrencesQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27411,8 +27753,10 @@ class MCPToolFailuresQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolFailuresQuery"] = "MCPToolFailuresQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolFailuresQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27427,12 +27771,14 @@ class MCPToolNeighborsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolNeighborsQuery"] = "MCPToolNeighborsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     neighborDirection: NeighborDirection = Field(
         ...,
         description=("Whether to count tools called immediately before or after the target tool."),
     )
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolNeighborsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27507,8 +27853,10 @@ class MCPToolSampleIntentsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolSampleIntentsQuery"] = "MCPToolSampleIntentsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolSampleIntentsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27523,8 +27871,10 @@ class MCPToolStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolStatsQuery"] = "MCPToolStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27539,8 +27889,10 @@ class MCPToolTopUsersQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolTopUsersQuery"] = "MCPToolTopUsersQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolTopUsersQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -29212,38 +29564,29 @@ class Response15(BaseModel):
     )
 
 
-class DetectorConfig(
-    RootModel[
-        EnsembleDetectorConfig
-        | ZScoreDetectorConfig
-        | MADDetectorConfig
-        | IQRDetectorConfig
-        | ThresholdDetectorConfig
-        | ECODDetectorConfig
-        | COPODDetectorConfig
-        | IsolationForestDetectorConfig
-        | KNNDetectorConfig
-        | HBOSDetectorConfig
-        | LOFDetectorConfig
-        | OCSVMDetectorConfig
-        | PCADetectorConfig
-    ]
-):
-    root: (
-        EnsembleDetectorConfig
-        | ZScoreDetectorConfig
-        | MADDetectorConfig
-        | IQRDetectorConfig
-        | ThresholdDetectorConfig
-        | ECODDetectorConfig
-        | COPODDetectorConfig
-        | IsolationForestDetectorConfig
-        | KNNDetectorConfig
-        | HBOSDetectorConfig
-        | LOFDetectorConfig
-        | OCSVMDetectorConfig
-        | PCADetectorConfig
-    ) = Field(..., description="Detector configuration types", discriminator="type")
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[
+        Annotated[
+            ZScoreDetectorConfig
+            | MADDetectorConfig
+            | IQRDetectorConfig
+            | ThresholdDetectorConfig
+            | ECODDetectorConfig
+            | COPODDetectorConfig
+            | IsolationForestDetectorConfig
+            | KNNDetectorConfig
+            | HBOSDetectorConfig
+            | LOFDetectorConfig
+            | OCSVMDetectorConfig
+            | PCADetectorConfig,
+            Field(discriminator="type"),
+        ]
+    ] = Field(..., description="Sub-detector configurations (minimum 2)")
+    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
+    type: Literal["ensemble"] = "ensemble"
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):
@@ -29480,6 +29823,10 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    includeImpact: bool | None = Field(
+        default=None,
+        description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),
+    )
     kind: Literal["TraceSpansAggregationQuery"] = "TraceSpansAggregationQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansAggregationQueryResponse | None = None
@@ -29547,7 +29894,7 @@ class TraceSpansQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
+    dateRange: DateRange | None = None
     excludeAttributes: bool | None = Field(
         default=None,
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
@@ -29704,6 +30051,42 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: float | None = None
     type: Literal["view"] = "view"
+
+
+class DetectorConfig(
+    RootModel[
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+        | LLMDetectorConfig
+    ]
+):
+    root: (
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+        | LLMDetectorConfig
+    ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
 class ErrorTrackingBreakdownsQuery(BaseModel):
@@ -30043,6 +30426,10 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
 class LogAttributesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    attributeKeys: list[str] | None = Field(
+        default=None,
+        description=("Return only attribute keys that exactly match an entry in this list."),
     )
     attributeType: str
     dateRange: DateRange | None = None

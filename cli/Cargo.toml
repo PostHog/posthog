@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.18.3"
+version = "0.18.7"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -16,6 +16,16 @@ license = "MIT"
 edition = "2021"
 repository = "https://github.com/PostHog/posthog"
 readme = "README.md"
+# An explicit include replaces cargo's "every tracked file" default, so every
+# path the build needs has to be listed. lib/posthog-api-cli.mjs is gitignored
+# and written by the release workflow, which is why it is named here and why
+# publishing uses --allow-dirty.
+include = [
+    "src/**/*",
+    "build.rs",
+    "lib/posthog-api-cli.mjs",
+    "README.md",
+]
 
 [[bin]]
 name = "posthog-cli"

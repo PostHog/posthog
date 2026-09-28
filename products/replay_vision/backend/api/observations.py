@@ -12,6 +12,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import requests
 import structlog
@@ -40,7 +41,9 @@ from posthog.models.user import User
 from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.exports.backend.facade.api import get_export_asset_content_response
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -57,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.observation_formatting import summarize_observation
@@ -77,6 +81,7 @@ from products.replay_vision.backend.search import (
     parse_date_bound,
     query_vector_for,
     search_observations,
+    warm_query_vectors,
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
@@ -186,6 +191,35 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
             "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
             "right or wrong, or what it should have concluded."
         ),
+    )
+
+
+class ReplayObservationMediaSerializer(serializers.Serializer):
+    """One thumbnail or clip illustrating an observation."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of this media entry.")
+    kind = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Kind.choices,
+        read_only=True,
+        help_text="`thumbnail` for the single frame that illustrates the observation, `clip` for a short video.",
+    )
+    asset_id = serializers.IntegerField(
+        read_only=True,
+        help_text="Export asset holding the bytes; fetch it from the export content endpoint.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="One sentence saying what the clip shows. Null for thumbnails.",
+    )
+    video_start_ms = serializers.IntegerField(
+        read_only=True,
+        help_text="Where this media starts in the analysis video, in milliseconds.",
+    )
+    video_end_ms = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
     )
 
 
@@ -303,6 +337,26 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
+    media = serializers.SerializerMethodField(
+        help_text="Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes.",
+    )
+
+    @extend_schema_field(ReplayObservationMediaSerializer(many=True))
+    def get_media(self, obj: ReplayObservation) -> list[dict]:
+        return [
+            {
+                "id": media.id,
+                "kind": media.kind,
+                "asset_id": media.asset_id,
+                "description": media.description,
+                "video_start_ms": media.video_start_ms,
+                "video_end_ms": media.video_end_ms,
+            }
+            for media in obj.media.all()
+            # No content location means the render has not landed yet, so there is nothing to fetch.
+            if media.asset.content_location
+        ]
+
     summary_line = serializers.SerializerMethodField(
         help_text=(
             "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
@@ -337,6 +391,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "next_observation_id",
             "label",
             "viewed",
+            "media",
             "summary_line",
             "started_at",
             "completed_at",
@@ -1082,6 +1137,57 @@ class ReplayObservationViewSet(
     @extend_schema(
         request=None,
         responses={
+            302: OpenApiResponse(description="Redirect to the image."),
+            404: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The observation has no thumbnail, or its render has not landed yet.",
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="thumbnail",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
+        """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
+        observation = self.get_object()
+        # `get_object` already prefetched the observation's media with their assets, so this reads no rows.
+        media = next(
+            (
+                entry
+                for entry in observation.media.all()
+                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
+                and entry.asset.content_location
+                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+                # and an expired frame would serve until the sweep deletes it.
+                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+            ),
+            None,
+        )
+        if media is None:
+            raise NotFound("This observation has no thumbnail.")
+        # Object-level access to the recording itself, which the export content endpoint used to apply to
+        # these bytes before they moved here. A missing row falls back to the resource-level check
+        # `_scanner_for_url` already ran.
+        recording = SessionRecording.objects.filter(
+            team_id=observation.team_id, session_id=observation.session_id
+        ).first()
+        if recording is not None and not self.user_access_control.check_access_level_for_object(
+            recording, required_level="viewer"
+        ):
+            raise NotFound()
+        # Served from here, not through the export content endpoint: that one authorizes a recording
+        # export by the recording alone, which would let a reader denied this scanner fetch its frames.
+        response = get_export_asset_content_response(asset=media.asset, download=False)
+        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @extend_schema(
+        request=None,
+        responses={
             202: RetryResponseSerializer,
             409: OpenApiResponse(
                 response=ReplayVisionErrorSerializer, description="The previous run is still finishing."
@@ -1344,6 +1450,10 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
         help_text="True when more matches may exist beyond `results`, so the response is a top slice "
         "rather than everything that matched."
     )
+    reranked = serializers.BooleanField(
+        help_text="True when a relevance model reordered the top results after the embedding match. False when "
+        "the results are in embedding distance order, for example because the model did not answer in time."
+    )
 
 
 class SearchSuggestionsQuerySerializer(serializers.Serializer):
@@ -1443,15 +1553,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 "to search Replay Vision observations.",
                 code=AI_CONSENT_REQUIRED_CODE,
             )
-        try:
-            query_vector = query_vector_for(self.team, validated["q"])
-        except requests.RequestException as error:
-            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
-            # request is a bug on our side, not retryable, and should surface as a 500.
-            if not is_transient_embedding_error(error):
-                raise
-            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
-            raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(
             verdict=_csv_values(validated.get("verdict")),
             tags=_csv_values(validated.get("tags")),
@@ -1461,16 +1562,25 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             date_to=validated.get("date_to"),
             timezone_info=self.team.timezone_info,
         )
-        response = search_observations(
-            self.team,
-            cast(User, request.user),
-            self.user_access_control,
-            scanner_ids,
-            query_vector,
-            validated["limit"],
-            filters,
-        )
-        return self._search_response(response.results, truncated=response.truncated)
+        team, query = self.team, validated["q"]
+        try:
+            response = search_observations(
+                self.team,
+                self.user_access_control,
+                scanner_ids,
+                lambda: query_vector_for(team, query),
+                validated["limit"],
+                filters,
+                rerank_query=validated["q"],
+            )
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
+            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
+            raise EmbeddingUnavailableError()
+        return self._search_response(response.results, truncated=response.truncated, reranked=response.reranked)
 
     @extend_schema(
         parameters=[SearchSuggestionsQuerySerializer],
@@ -1504,13 +1614,20 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
         scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        sources = scope_sources(self.team_id, scanner_ids)
         # The same rows that a view shows are the ones it marks as wanted.
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in scope_sources(self.team_id, scanner_ids)])
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
+        # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
+        # derive from recordings, so they reach the embedding service only with AI data processing on.
+        if is_ai_data_processing_approved(self.team.id):
+            warm_query_vectors(self.team, merge_suggestions([stored for _, stored in sources]))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
+    def _search_response(
+        self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False
+    ) -> Response:
         serializer = ObservationSearchResponseSerializer(
-            {"results": results, "truncated": truncated}, context=self.get_serializer_context()
+            {"results": results, "truncated": truncated, "reranked": reranked}, context=self.get_serializer_context()
         )
         return Response(serializer.data)
 

@@ -83,6 +83,13 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         customer/upstream connection failures as error-tracking noise."""
         ...
 
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        """A user-facing explanation when the exception reports something the customer can fix on
+        their own database (PG: ownership of a published table, a missing replication grant, a
+        connection that points at a read replica), or None for anything else. Callers surface the
+        message as a 400 without capturing it, because the fix is not a code change."""
+        ...
+
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         """Interpret a single engine-specific exception as a CDC error category, or None
         when unrecognized (the caller falls back to the engine-agnostic default). Mirrors
@@ -157,19 +164,32 @@ def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]
     }
 
 
+class CDCUnsupportedSourceTypeError(ValueError):
+    """The source's type has no entry in the adapter registry, so it has no change stream to read.
+
+    Non-retryable: the type is a property of the source, so every retry fails the same way. A
+    scheduled caller that hits this must stop being scheduled, because the alternative is one
+    report of the same failure per interval for as long as the source lives.
+
+    Subclasses ``ValueError`` because the API handlers that answer an unsupported type with a 400
+    catch that, while the name lets a caller tell this apart from any other bad value.
+    """
+
+
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.
 
-    Raises ValueError if the source type doesn't support CDC.
+    Raises ``CDCUnsupportedSourceTypeError`` if the source type doesn't support CDC. Use
+    ``source_type_supports_cdc`` to ask the same question without an exception.
     """
     try:
         source_type = ExternalDataSourceType(source.source_type)
     except ValueError as e:
-        raise ValueError(f"CDC is not supported for source type: {source.source_type}") from e
+        raise CDCUnsupportedSourceTypeError(f"CDC is not supported for source type: {source.source_type}") from e
 
     adapter = _cdc_adapters().get(source_type)
     if adapter is None:
-        raise ValueError(f"CDC is not supported for source type: {source.source_type}")
+        raise CDCUnsupportedSourceTypeError(f"CDC is not supported for source type: {source.source_type}")
     return adapter
 
 

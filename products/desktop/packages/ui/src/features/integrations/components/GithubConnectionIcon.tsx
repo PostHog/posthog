@@ -1,4 +1,8 @@
-import { GithubLogoIcon, HeartIcon } from "@phosphor-icons/react";
+import {
+  ArrowsLeftRightIcon,
+  GithubLogoIcon,
+  HeartIcon,
+} from "@phosphor-icons/react";
 import Logo from "@posthog/ui/primitives/Logo";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "framer-motion";
@@ -6,11 +10,13 @@ import { domAnimation, LazyMotion, m, useReducedMotion } from "framer-motion";
 interface GithubConnectionIconProps {
   connected: boolean;
   loading?: boolean;
+  paired?: boolean;
 }
 
 export function GithubConnectionIcon({
   connected,
   loading = false,
+  paired = false,
 }: GithubConnectionIconProps) {
   const shouldReduceMotion = useReducedMotion() === true;
   const movementTransition = {
@@ -23,8 +29,7 @@ export function GithubConnectionIcon({
     delay: shouldReduceMotion ? 0 : 0.8,
     ease: [0.215, 0.61, 0.355, 1] as const,
   };
-  const tileClassName =
-    "absolute top-1/2 left-1/2 flex size-8 items-center justify-center rounded-md border border-border bg-muted";
+  const tileClassName = `absolute top-1/2 left-1/2 flex size-8 items-center justify-center rounded-md bg-muted ${paired ? "" : "border border-border"}`;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -96,6 +101,31 @@ export function GithubConnectionIcon({
           >
             <GithubLogoIcon size={17} weight="fill" />
           </m.span>
+        </div>
+      ) : paired && !loading ? (
+        <div
+          className="flex h-8 w-28 items-center justify-center gap-2"
+          aria-label="Connect PostHog to GitHub"
+          role="img"
+        >
+          <span
+            aria-hidden="true"
+            className="flex size-8 items-center justify-center rounded-md bg-muted"
+          >
+            <span className="[&>svg]:h-3.5 [&>svg]:w-auto">
+              <Logo wordmark={false} />
+            </span>
+          </span>
+          <ArrowsLeftRightIcon
+            aria-hidden="true"
+            className="size-4 text-muted-foreground"
+          />
+          <span
+            aria-hidden="true"
+            className="flex size-8 items-center justify-center rounded-md bg-muted"
+          >
+            <GithubLogoIcon className="size-4" weight="fill" />
+          </span>
         </div>
       ) : (
         <div className="relative h-8 w-28" aria-label="GitHub" role="img">

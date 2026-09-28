@@ -1,42 +1,35 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
-import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { type AffectedCohortQualifier, type ObservationVerdictValue, replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
-import { scannerSelfDrivingStatsLogic } from '../scannerSelfDrivingStatsLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
+import { ScannerScoutCard } from './ScannerScoutCard'
+import { ScannerSelfDrivingCard } from './ScannerSelfDrivingCard'
+import { ScannerSetupCard } from './ScannerSetupCard'
+import { ScannerStatusStrip } from './ScannerStatusStrip'
 
-function OverviewPanel({
+function FindingsSection({
     title,
     subtitle,
-    disabled,
-    fill,
     children,
 }: {
     title: string
     subtitle?: React.ReactNode
-    disabled?: boolean
-    fill?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <div
-            className={`border rounded p-4 space-y-3 ${fill ? 'h-full flex flex-col' : ''} ${
-                disabled ? 'bg-surface-secondary opacity-60' : 'bg-surface-primary'
-            }`}
-        >
+        <div className="min-w-0 flex flex-col gap-3">
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">{title}</span>
                 {subtitle && <span className="text-xs text-muted tabular-nums">{subtitle}</span>}
@@ -106,202 +99,118 @@ function RankedTermList({
     )
 }
 
-function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, overviewImpact, overviewImpactLoading } = useValues(scannerOverviewLogic({ scannerId }))
-    // Cohort creation is a scanner-level action, independent of the overview's filter set.
-    const { affectedCohortLoading } = useValues(replayScannerLogic({ id: scannerId }))
-    const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
+const VERDICT_ROWS: { verdict: ObservationVerdictValue; label: string; tagType: LemonTagType }[] = [
+    { verdict: 'yes', label: 'Yes', tagType: 'highlight' },
+    { verdict: 'no', label: 'No', tagType: 'default' },
+    { verdict: 'inconclusive', label: 'Inconclusive', tagType: 'muted' },
+]
 
-    // Impact needs a per-type predicate; only the monitor one (verdict-yes) exists without a qualifier.
-    if (scanner?.scanner_type !== 'monitor') {
-        return null
-    }
-    if (!overviewImpact || overviewImpact.affected_sessions === 0) {
-        return (
-            <OverviewPanel title="Impact" fill>
-                <PanelEmpty
-                    loading={overviewImpactLoading}
-                    message={
-                        overviewImpact
-                            ? `No affected sessions in the last ${overviewImpact.window_days} days.`
-                            : "Couldn't load impact counts."
-                    }
-                />
-            </OverviewPanel>
-        )
-    }
+function SaveCohortButton({
+    scannerId,
+    qualifier,
+    cohortKey,
+    tooltip,
+    ariaLabel,
+    emptyReason,
+    dataAttr,
+    children,
+}: {
+    scannerId: string
+    qualifier: AffectedCohortQualifier
+    cohortKey: string
+    tooltip: string
+    ariaLabel?: string
+    emptyReason?: string
+    dataAttr: string
+    children?: React.ReactNode
+}): JSX.Element {
+    const { cohortDisabledReason } = useValues(scannerOverviewLogic({ scannerId }))
+    const { saveCohort } = useActions(scannerOverviewLogic({ scannerId }))
+    const { affectedCohortLoading, savingCohortKey } = useValues(replayScannerLogic({ id: scannerId }))
     return (
-        <OverviewPanel title="Impact" subtitle={`last ${overviewImpact.window_days} days`} fill>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="text-sm">
-                    Matched{' '}
-                    <strong className="tabular-nums">{overviewImpact.affected_sessions.toLocaleString()}</strong>{' '}
-                    session{overviewImpact.affected_sessions === 1 ? '' : 's'} from{' '}
-                    <strong className="tabular-nums">{overviewImpact.affected_users.toLocaleString()}</strong> user
-                    {overviewImpact.affected_users === 1 ? '' : 's'}
-                    {overviewImpact.sessions_without_user > 0 && (
-                        <span className="text-muted"> ({overviewImpact.sessions_without_user} without a user)</span>
-                    )}
-                </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPeople />}
-                    onClick={() => saveAffectedCohort()}
-                    loading={affectedCohortLoading}
-                    disabledReason={overviewImpact.affected_users === 0 ? 'No users to save' : undefined}
-                    data-attr="vision-save-affected-cohort"
-                    className="shrink-0"
-                >
-                    Save as cohort
-                </LemonButton>
-            </div>
-        </OverviewPanel>
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            icon={<IconPeople />}
+            tooltip={tooltip}
+            aria-label={ariaLabel}
+            onClick={() => saveCohort(qualifier)}
+            loading={affectedCohortLoading && savingCohortKey === cohortKey}
+            disabledReason={
+                emptyReason ??
+                cohortDisabledReason ??
+                (affectedCohortLoading && savingCohortKey !== cohortKey ? 'Another cohort is being created' : undefined)
+            }
+            data-attr={dataAttr}
+        >
+            {children}
+        </LemonButton>
     )
 }
 
-// One stage of the self-driving funnel: a big count over a muted label, matching the panel grid density.
-function SelfDrivingStage({ count, label }: { count: number; label: string }): JSX.Element {
-    return (
-        <div className="flex flex-col">
-            <span className="text-lg font-semibold tabular-nums">{count.toLocaleString()}</span>
-            <span className="text-xs text-muted">{label}</span>
-        </div>
-    )
-}
-
-function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { selfDrivingStats, selfDrivingStatsLoading } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
-
-    // Unresolved data renders as loading, never as the off-state nudge or the empty state.
-    if (!scanner || (selfDrivingStatsLoading && !selfDrivingStats)) {
-        return (
-            <OverviewPanel title="Self-driving" fill>
-                <PanelEmpty loading message="" />
-            </OverviewPanel>
-        )
-    }
-    // Historical signals from before the toggle was turned off still count, so the off-state
-    // nudge only replaces the funnel when there is nothing to show.
-    if (!scanner.emits_signals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
-        return (
-            <OverviewPanel title="Self-driving" disabled fill>
-                <div className="text-muted text-sm">
-                    This scanner doesn't emit signals. Turn on self-driving in the{' '}
-                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to feed its
-                    findings into Signals, where agents investigate and draft pull requests.
-                </div>
-            </OverviewPanel>
-        )
-    }
-    if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
-        return (
-            <OverviewPanel title="Self-driving" fill>
-                <PanelEmpty
-                    loading={selfDrivingStatsLoading}
-                    message={
-                        selfDrivingStats
-                            ? 'No signals emitted yet. Findings flow into Signals as sessions are scanned.'
-                            : "Couldn't load self-driving stats."
-                    }
-                />
-            </OverviewPanel>
-        )
-    }
-    return (
-        <OverviewPanel title="Self-driving" subtitle="all time" fill>
-            {/* Two up in a narrow panel, four across once there is room. */}
-            <div
-                className="@container/funnel grid grid-cols-2 @sm/funnel:grid-cols-4 gap-4"
-                data-attr="vision-self-driving-funnel"
-            >
-                <SelfDrivingStage
-                    count={selfDrivingStats.signals_emitted}
-                    label={pluralize(selfDrivingStats.signals_emitted, 'signal emitted', 'signals emitted', false)}
-                />
-                <SelfDrivingStage
-                    count={selfDrivingStats.reports_contributed}
-                    label={pluralize(
-                        selfDrivingStats.reports_contributed,
-                        'report contributed to',
-                        'reports contributed to',
-                        false
-                    )}
-                />
-                <SelfDrivingStage
-                    count={selfDrivingStats.prs_opened}
-                    label={pluralize(selfDrivingStats.prs_opened, 'PR opened', 'PRs opened', false)}
-                />
-                <SelfDrivingStage
-                    count={selfDrivingStats.prs_merged}
-                    label={pluralize(selfDrivingStats.prs_merged, 'PR merged', 'PRs merged', false)}
-                />
-            </div>
-            <div className="text-xs text-muted">
-                A report can combine signals from several scanners and other sources, so these are contributions, not
-                sole causes.
-            </div>
-        </OverviewPanel>
-    )
-}
-
-function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { monitorStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
+function VerdictMixOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { monitorStats, hasActiveOverviewFilters, overviewStatsApiLoading, cohortWindowDays } = useValues(
         scannerOverviewLogic({ scannerId })
     )
-    const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
-    const total = yesTotal + noTotal + inconclusiveTotal
+    const counts: Record<ObservationVerdictValue, number> = {
+        yes: monitorStats.yesTotal,
+        no: monitorStats.noTotal,
+        inconclusive: monitorStats.inconclusiveTotal,
+    }
+    const total = counts.yes + counts.no + counts.inconclusive
     if (total === 0) {
         return (
-            <OverviewPanel title="Verdict mix" fill>
+            <FindingsSection title="Verdict mix">
                 <PanelEmpty
                     loading={overviewStatsApiLoading}
                     message={hasActiveOverviewFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
                 />
-            </OverviewPanel>
+            </FindingsSection>
         )
     }
-    const yesPct = Math.round((yesTotal / total) * 100)
-    const noPct = Math.round((noTotal / total) * 100)
-    const inconclusivePct = Math.max(0, 100 - yesPct - noPct)
+    const rows = VERDICT_ROWS.filter(({ verdict }) => verdict !== 'inconclusive' || counts.inconclusive > 0)
 
     return (
-        <OverviewPanel title="Verdict mix" subtitle={`${total} verdict${total === 1 ? '' : 's'}`} fill>
-            <LemonProgress percent={yesPct} />
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-                <span className="flex items-center gap-2">
-                    <LemonTag type="highlight">Yes</LemonTag>
-                    <span className="tabular-nums">
-                        {yesTotal} ({yesPct}%)
-                    </span>
-                </span>
-                <span className="flex items-center gap-2">
-                    <LemonTag type="default">No</LemonTag>
-                    <span className="tabular-nums">
-                        {noTotal} ({noPct}%)
-                    </span>
-                </span>
-                {inconclusiveTotal > 0 && (
-                    <span className="flex items-center gap-2">
-                        <LemonTag type="muted">Inconclusive</LemonTag>
-                        <span className="tabular-nums">
-                            {inconclusiveTotal} ({inconclusivePct}%)
-                        </span>
-                    </span>
-                )}
+        <FindingsSection title="Verdict mix" subtitle={pluralize(total, 'verdict')}>
+            <div className="space-y-1.5">
+                {rows.map(({ verdict, label, tagType }) => {
+                    const count = counts[verdict]
+                    const percent = Math.round((count / total) * 100)
+                    return (
+                        <div key={verdict} className="flex items-center gap-2">
+                            <div className="w-24 shrink-0">
+                                <LemonTag type={tagType}>{label}</LemonTag>
+                            </div>
+                            <LemonProgress percent={percent} className="flex-1" />
+                            <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-20">
+                                {count.toLocaleString()} ({percent}%)
+                            </span>
+                            <SaveCohortButton
+                                scannerId={scannerId}
+                                qualifier={{ verdict }}
+                                cohortKey={verdict}
+                                tooltip={`Save users with a ${label.toLowerCase()} verdict from the last ${pluralize(cohortWindowDays, 'day')} as a cohort`}
+                                emptyReason={count === 0 ? 'No sessions with this verdict' : undefined}
+                                // pinned: the yes row keeps the data-attr the single cohort button shipped with.
+                                dataAttr={
+                                    verdict === 'yes'
+                                        ? 'vision-save-affected-cohort'
+                                        : `vision-save-verdict-cohort-${verdict}`
+                                }
+                            >
+                                Save as cohort
+                            </SaveCohortButton>
+                        </div>
+                    )
+                })}
             </div>
-        </OverviewPanel>
+        </FindingsSection>
     )
 }
 
 function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, classifierTagStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
-        scannerOverviewLogic({ scannerId })
-    )
-    // Cohort creation is a scanner-level action, independent of the overview's filter set.
-    const { affectedCohortLoading, savingCohortTag } = useValues(replayScannerLogic({ id: scannerId }))
-    const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
+    const { scanner, classifierTagStats, hasActiveOverviewFilters, overviewStatsApiLoading, cohortWindowDays } =
+        useValues(scannerOverviewLogic({ scannerId }))
     const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
     // "disabled" copy while the config is still loading.
@@ -317,38 +226,30 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         : 'No freeform categories emitted yet.'
 
     const cohortAction = (tag: string): JSX.Element => (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            icon={<IconPeople />}
-            tooltip={`Save users in category "${tag}" from the last 30 days as a cohort`}
-            onClick={() => saveAffectedCohort(tag)}
-            loading={affectedCohortLoading && savingCohortTag === tag}
-            disabledReason={
-                affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
-            }
-            data-attr="vision-save-tag-cohort"
-        >
-            Save as cohort
-        </LemonButton>
+        <SaveCohortButton
+            scannerId={scannerId}
+            qualifier={{ tag }}
+            cohortKey={tag}
+            tooltip="Save as cohort"
+            ariaLabel={`Save users in category "${tag}" from the last ${pluralize(cohortWindowDays, 'day')} as a cohort`}
+            dataAttr="vision-save-tag-cohort"
+        />
     )
 
     return (
-        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
-            <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
+        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-x-8 gap-y-6">
+            <FindingsSection title="Top configured categories" subtitle="from the categories you defined">
                 <RankedTermList
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
                     emptyMessage={fixedEmpty}
                     renderAction={cohortAction}
                 />
-            </OverviewPanel>
+            </FindingsSection>
 
-            <OverviewPanel
+            <FindingsSection
                 title="Top freeform categories"
                 subtitle={freeformAllowed ? 'outside the categories you defined' : 'disabled'}
-                disabled={!freeformAllowed}
-                fill
             >
                 {freeformAllowed ? (
                     <RankedTermList
@@ -364,53 +265,8 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         propose new ones.
                     </div>
                 )}
-            </OverviewPanel>
+            </FindingsSection>
         </div>
-    )
-}
-
-function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
-    // An unloaded scanner is not a scanner without a limit, so it waits rather than claiming one way.
-    if (!scanner) {
-        return (
-            <OverviewPanel title="Spend against limit" fill>
-                <PanelEmpty loading message="" />
-            </OverviewPanel>
-        )
-    }
-    if (!creditLimitStats) {
-        return (
-            <OverviewPanel title="Spend against limit" disabled fill>
-                <div className="text-muted text-sm">
-                    This scanner has no spending limit. Set one in the{' '}
-                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to cap what
-                    it can spend each billing period.
-                </div>
-            </OverviewPanel>
-        )
-    }
-    const { used, limit, usedPct, limitReached } = creditLimitStats
-    return (
-        <OverviewPanel
-            title="Spend against limit"
-            subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
-            fill
-        >
-            <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
-            <div className="text-sm tabular-nums">
-                {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
-            </div>
-            {limitReached && (
-                // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
-                // scan, so the copy has to explain that rather than claim the budget is fully spent.
-                <div className="text-xs text-muted">
-                    What's left won't cover another scan, so this scanner has stopped until its limit resets at the
-                    start of the next billing period. Sessions skipped while capped are not scanned later.
-                </div>
-            )}
-        </OverviewPanel>
     )
 }
 
@@ -422,7 +278,7 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const config = useChartConfig(() => ({ showGrid: false }), [])
     if (!scorerSummary || !scorerHistogram) {
         return (
-            <OverviewPanel title="Score distribution">
+            <FindingsSection title="Score distribution">
                 <PanelEmpty
                     loading={overviewStatsApiLoading}
                     message={
@@ -431,12 +287,12 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
                             : 'No scored observations yet.'
                     }
                 />
-            </OverviewPanel>
+            </FindingsSection>
         )
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`} fill>
-            <div className="flex-1 min-h-40 flex flex-col">
+        <FindingsSection title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
+            <div className="h-64 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}
                     series={[{ key: 'count', label: 'Sessions', color: theme.colors[0], data: scorerHistogram.counts }]}
@@ -450,8 +306,30 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
                 <span>avg {scorerSummary.mean.toFixed(1)}</span>
                 <span>max {scorerSummary.max.toFixed(1)}</span>
             </div>
-        </OverviewPanel>
+        </FindingsSection>
     )
+}
+
+function FindingsCoverage({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { coverageStats, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    if (coverageStats.totalSessions > 0) {
+        return (
+            <div className="text-xs text-muted tabular-nums mt-0.5">
+                Scanned <span className="font-semibold text-default">{coverageStats.recentSessions}</span>{' '}
+                {pluralize(coverageStats.recentSessions, 'session', 'sessions', false)} in the last{' '}
+                {pluralize(coverageStats.recentDays, 'day')} ·{' '}
+                <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
+            </div>
+        )
+    }
+    if (overviewStatsApiLoading) {
+        return (
+            <div className="text-xs text-muted mt-0.5 flex items-center gap-1.5">
+                <Spinner /> Loading coverage…
+            </div>
+        )
+    }
+    return null
 }
 
 // The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
@@ -488,7 +366,7 @@ function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Elemen
             <LemonButton
                 type="secondary"
                 size="small"
-                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                onClick={() => setActiveTab(ReplayScannerTab.Run)}
                 data-attr="vision-first-scan-pending-scan-now"
             >
                 Scan a recording now
@@ -503,61 +381,58 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     if (!scanner) {
         return null
     }
-    if (firstScanPending) {
-        return <FirstScanPendingPanel scannerId={scannerId} />
-    }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =
         scannerType === 'monitor' ? (
-            <MonitorOverview scannerId={scannerId} />
+            <VerdictMixOverview scannerId={scannerId} />
         ) : scannerType === 'classifier' ? (
             <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
             <ScorerOverview scannerId={scannerId} />
         ) : null
 
-    // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
-    let body: JSX.Element
-    if (scannerType === 'scorer') {
-        body = (
-            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
-                {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
-                <div className="min-w-0">
-                    <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                </div>
-                {/* The histogram fills to match the taller line chart, so the row has no dead space (stretch is the grid default). */}
-                <div className="min-w-0">{typeOverview}</div>
-            </div>
-        )
-    } else if (scannerType !== 'monitor') {
-        // Impact only exists for monitors; other types keep their overview at full width.
-        body = (
-            <div className="space-y-4">
-                <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                {typeOverview}
-            </div>
-        )
-    } else {
-        body = (
-            <div className="space-y-4">
-                <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
-                    {typeOverview && <div className="min-w-0">{typeOverview}</div>}
-                    <div className="min-w-0">
-                        <ImpactOverview scannerId={scannerId} />
-                    </div>
-                </div>
-            </div>
-        )
-    }
+    const body = (
+        <>
+            <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
+            {typeOverview && <div className="border-t pt-4">{typeOverview}</div>}
+        </>
+    )
 
     return (
-        <div className="@container flex flex-col gap-4">
-            <ScannerOverviewFilters scannerId={scannerId} />
-            {body}
-            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
-                <SelfDrivingOverview scannerId={scannerId} />
-                <CreditLimitOverview scannerId={scannerId} />
+        <div className="@container">
+            {/* The second row takes any extra height, so a side column taller than the main one can't open a gap under the status. */}
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,1fr)_22rem] @5xl:grid-rows-[auto_1fr] gap-4 items-start">
+                <div className="min-w-0 order-1 @5xl:col-start-1 @5xl:row-start-1">
+                    <ScannerStatusStrip scannerId={scannerId} />
+                </div>
+                {/* Its own column when wide. When stacked it dissolves, so the digest follows the status and self-driving drops below the findings. */}
+                <div className="contents @5xl:flex @5xl:flex-col @5xl:gap-4 @5xl:col-start-2 @5xl:row-start-1 @5xl:row-span-2">
+                    <div className="min-w-0 order-2">
+                        <ScannerScoutCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                    </div>
+                    <div className="min-w-0 order-5 @5xl:order-3">
+                        <ScannerSetupCard scannerId={scannerId} />
+                    </div>
+                    <div className="min-w-0 order-4">
+                        <ScannerSelfDrivingCard scannerId={scannerId} />
+                    </div>
+                </div>
+                <div className="@container min-w-0 flex flex-col gap-4 order-3 @5xl:col-start-1 @5xl:row-start-2">
+                    {firstScanPending ? (
+                        <FirstScanPendingPanel scannerId={scannerId} />
+                    ) : (
+                        <div className="border rounded bg-surface-primary p-4 flex flex-col gap-4">
+                            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b pb-3">
+                                <div>
+                                    <div className="text-sm font-medium">Findings</div>
+                                    <FindingsCoverage scannerId={scannerId} />
+                                </div>
+                                <ScannerOverviewFilters scannerId={scannerId} />
+                            </div>
+                            {body}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )
