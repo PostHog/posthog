@@ -1,6 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import time_machine
 from unittest.mock import PropertyMock, patch
 
 from django.test import SimpleTestCase
@@ -35,8 +36,8 @@ from products.marketing_analytics.backend.hogql_queries.attribution_table_query_
     MarketingAnalyticsAttributionQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
 )
 
 
@@ -50,7 +51,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 return_value=HogQLContext(team_id=1),
             )
         )
-        self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
         self.team = Team(id=1, organization=Organization(id=UUID(int=1)))
         self.team.modifiers = {"personsOnEventsMode": "person_id_override_properties_on_events"}
         config = TeamMarketingAnalyticsConfig(team=self.team)
@@ -105,39 +105,62 @@ class TestAttributionSessionsRead(SimpleTestCase):
         assert "AS first_conversion" in sql
         assert ("conv.last_conversion" in sql) is repeat
 
-    def test_default_lookback_and_ninety_display_days_fit_writer_coverage(self) -> None:
-        runner = MarketingAnalyticsAttributionQueryRunner(
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
-            query=MarketingAnalyticsAttributionQuery(
-                conversionGoalId="goal",
-                properties=[],
-                dateRange=DateRange(date_from="2023-01-01", date_to="2023-03-31"),
-            ),
-        )
-        assert runner.lookback_window_days == 90
-        assert marketing_sessions_precompute.precompute_window_days(self.team) == 181
-        assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) is None
-        with patch.object(
-            attribution_sessions_read,
-            "window",
-            return_value=attribution_sessions_read.ReadWindow(
-                start=datetime(2023, 1, 1, tzinfo=UTC), end=datetime(2023, 7, 1, tzinfo=UTC)
-            ),
+    @parameterized.expand(
+        [
+            ("fixed", "UTC", "2023-04-01T12:00:00Z", "2023-01-01", "2023-03-31", 90, 90, None),
+            ("utc", "UTC", "2024-07-05T12:00:00Z", "-90d", None, 30, 90, None),
+            ("west", "America/Los_Angeles", "2024-07-05T02:00:00Z", "-90d", None, 30, 90, None),
+            ("east", "Pacific/Auckland", "2024-07-05T16:00:00Z", "-90d", None, 90, 90, None),
+            ("spring", "America/Los_Angeles", "2024-03-15T18:00:00Z", "-90d", None, 30, 90, None),
+            ("fall", "America/Los_Angeles", "2024-11-15T18:00:00Z", "-90d", None, 30, 90, None),
+            ("configured", "UTC", "2024-07-05T12:00:00Z", "-7d", None, 7, 7, None),
+            ("too_wide", "UTC", "2024-07-05T12:00:00Z", "-91d", None, 30, 90, "window_over_max"),
+        ]
+    )
+    def test_display_window_fits_writer_coverage(
+        self,
+        _name: str,
+        timezone: str,
+        now: str,
+        date_from: str,
+        date_to: str | None,
+        lookback: int,
+        display_days: int,
+        expected_reason: str | None,
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.marketing_analytics_config.attribution_window_days = lookback
+        with (
+            time_machine.travel(now, tick=False),
+            patch.object(marketing_sessions_precompute, "PRECOMPUTE_WINDOW_DAYS", display_days),
         ):
-            assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == "window_over_max"
+            runner = MarketingAnalyticsAttributionQueryRunner(
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
+                query=MarketingAnalyticsAttributionQuery(
+                    conversionGoalId="goal",
+                    properties=[],
+                    dateRange=DateRange(date_from=date_from, date_to=date_to),
+                ),
+            )
+            assert runner.lookback_window_days == lookback
+            assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == expected_reason
+            if expected_reason is None:
+                read = attribution_sessions_read.window(runner, runner.query_date_range)
+                required_start = read.start - timedelta(days=marketing_sessions_precompute.SESSION_READ_REACHBACK_DAYS)
+                assert (
+                    marketing_sessions_precompute.precompute_window_start(self.team, datetime.now(UTC))
+                    <= required_start
+                )
 
     @parameterized.expand(
         [
-            ("stale_user", True, False, True, True),
-            ("flag_off", False, False, False, False),
-            ("revalidation", True, True, False, True),
-            ("cold_user", True, False, False, False),
+            ("stale_user", False, True, True),
+            ("revalidation", True, False, True),
+            ("cold_user", False, False, False),
         ]
     )
-    def test_stale_policy_and_revalidation(
-        self, _name: str, flag: bool, refreshing: bool, stale: bool, ready: bool
-    ) -> None:
+    def test_stale_policy_and_revalidation(self, _name: str, refreshing: bool, stale: bool, ready: bool) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -153,7 +176,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
             patch.object(
                 marketing_sessions_precompute, "create_default_modifiers_for_team", return_value=runner.modifiers
             ),
-            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
             patch.object(
                 marketing_sessions_precompute,
@@ -167,7 +189,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
             ensure.assert_called_once()
             assert ensure.call_args.kwargs["run_inserts"] is refreshing
             assert ensure.call_args.kwargs["stale_while_revalidate_seconds"] == (
-                STALE_WHILE_REVALIDATE_SECONDS if flag and not refreshing else None
+                None if refreshing else PRECOMPUTE_ONLY_MAX_STALE_SECONDS
             )
             assert revalidate.call_count == int(stale)
 

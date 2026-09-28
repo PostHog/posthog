@@ -18,6 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink
 from products.signals.backend.auto_start import (
     NO_STEERING,
     NO_SUPERSEDE,
@@ -39,10 +40,13 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
+    SignalReportPullRequest,
     SignalReportTask,
     SignalScoutConfig,
     SignalScoutNote,
@@ -918,6 +922,215 @@ def test_steering_reaches_the_run_without_the_report_derived_notes(organization,
         team=child, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
     assert load_report_steering(child.id, str(child_report.id)) == NO_STEERING
+
+
+def _link(team_id: int, source: SignalReport, target: SignalReport, kind: ReportLinkKind) -> None:
+    SignalReportArtefact.add_log(
+        team_id=team_id,
+        report_id=str(source.id),
+        content=ReportLink(kind=kind, report_id=str(target.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("link", "expect_skip_reason"),
+    [
+        ("duplicate_of_resolved", "duplicate_of"),
+        ("duplicate_of_with_pr", "duplicate_of"),
+        ("duplicate_chain_with_pr_midway", "duplicate_of"),
+        ("depends_on_without_pr", "blocked_by_dependency"),
+        ("depends_on_with_open_pr", None),
+        ("incoming_part_of", "plan_parent"),
+        ("none", None),
+    ],
+)
+@pytest.mark.parametrize("link_before_lock", [False, True])
+async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_before_lock):
+    # A duplicate opening its own pull request, or a child stacking on a branch that does not
+    # exist yet, is billable work the team throws away. The `plan_parent` case is the inverse: the
+    # steps carry the work, so a run on the plan itself would duplicate all of them. Committed rows
+    # because the runner resolves through a thread_sensitive=False executor.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name=f"links-org-{link}")
+        team = Team.objects.create(organization=organization, name="links-team")
+        enabler = User.objects.create(email=f"links-enabler-{link}@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+
+        def _report(status: str = SignalReport.Status.READY) -> SignalReport:
+            return SignalReport.objects.create(
+                team=team, status=status, title="t", summary="s", signal_count=0, total_weight=0.0
+            )
+
+        report = _report()
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _write_link(*_args):
+        def _report(status: str = SignalReport.Status.READY) -> SignalReport:
+            return SignalReport.objects.create(team=team, status=status, title="linked", summary="s")
+
+        def _attach_open_pr(target: SignalReport, number: int) -> None:
+            pr = SignalReportPullRequest.objects.for_team(team.id).create(
+                team_id=team.id,
+                repository="owner/repo",
+                number=number,
+                url=f"https://github.com/owner/repo/pull/{number}",
+                state="open",
+            )
+            row = SignalReportArtefact.add_log(
+                team_id=team.id,
+                report_id=str(target.id),
+                content=PullRequestLink(url=pr.url),
+                attribution=ArtefactAttribution.system(),
+            )
+            row.pull_request = pr
+            row.save(update_fields=["pull_request"])
+
+        if link == "duplicate_of_resolved":
+            root = _report(SignalReport.Status.RESOLVED)
+            _link(team.id, report, root, ReportLinkKind.DUPLICATE_OF)
+        elif link == "duplicate_of_with_pr":
+            root = _report()
+            _attach_open_pr(root, 21)
+            _link(team.id, report, root, ReportLinkKind.DUPLICATE_OF)
+        elif link == "duplicate_chain_with_pr_midway":
+            # The work sits on the report the run started from, not on the root of the chain.
+            root = _report()
+            midway = _report()
+            _attach_open_pr(midway, 23)
+            _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
+        elif link == "depends_on_without_pr":
+            _link(team.id, report, _report(), ReportLinkKind.DEPENDS_ON)
+        elif link == "depends_on_with_open_pr":
+            dependency = _report()
+            _attach_open_pr(dependency, 22)
+            _link(team.id, report, dependency, ReportLinkKind.DEPENDS_ON)
+        elif link == "incoming_part_of":
+            _link(team.id, _report(), report, ReportLinkKind.PART_OF)
+        return AgentRuntime()
+
+    if not link_before_lock:
+        await sync_to_async(_write_link)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch(
+            "products.signals.backend.auto_start.resolve_agent_runtime",
+            side_effect=_write_link if link_before_lock else None,
+            return_value=AgentRuntime(),
+        ),
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+    ):
+        outcome = await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    skips = await sync_to_async(
+        lambda: [
+            json.loads(row.content)
+            for row in SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip")
+        ]
+    )()
+    skipped_events = [
+        call.kwargs for call in capture_mock.call_args_list if call.kwargs.get("event") == "signals_autostart_skipped"
+    ]
+
+    if expect_skip_reason is None:
+        assert outcome.status == "started"
+        assert mock_create.call_count == 1
+        assert skips == []
+        assert skipped_events == []
+    else:
+        assert outcome.status == "blocked"
+        assert mock_create.call_count == 0
+        assert [entry["skip_reason"] for entry in skips] == [expect_skip_reason]
+        assert [event["properties"]["skip_reason"] for event in skipped_events] == [expect_skip_reason]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("actionability_choice", "already_addressed", "expect_skip_reason"),
+    [
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, True, "already_addressed"),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT, False, "requires_human_input"),
+        (ActionabilityChoice.NOT_ACTIONABLE, False, "not_actionable"),
+    ],
+)
+async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_entry(
+    actionability_choice, already_addressed, expect_skip_reason
+):
+    # Every gate has to be readable as a share of evaluations, but only the link gates put a row on
+    # the report: the other reasons are visible on the report already, so a row would be noise.
+    # A report parked for a person holds work, so it must not land in the `not_actionable` bucket.
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="skip-count-org")
+        team = Team.objects.create(organization=organization, name="skip-count-team")
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock:
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Somebody already has a pull request open.",
+                actionability=actionability_choice,
+                already_addressed=already_addressed,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    reasons = [
+        call.kwargs["properties"]["skip_reason"]
+        for call in capture_mock.call_args_list
+        if call.kwargs.get("event") == "signals_autostart_skipped"
+    ]
+    assert reasons == [expect_skip_reason]
+    logged = await sync_to_async(
+        SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip").count
+    )()
+    assert logged == 0
 
 
 @pytest.mark.asyncio

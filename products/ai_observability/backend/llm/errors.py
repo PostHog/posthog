@@ -41,6 +41,13 @@ class ProviderConnectionError(LLMError):
     and should not log it as an exception since it's usually resolved on the next attempt."""
 
 
+class ProviderConfigurationError(LLMError):
+    """Raised when a provider key's stored configuration cannot be used as it stands — a base URL
+    that no longer passes the SSRF allowlist, or a required endpoint that was never set. The user
+    has to change the key, so callers should surface the message as a 400 rather than an internal
+    error: the configuration will not fix itself on a retry."""
+
+
 class ProviderMismatchError(LLMError):
     """Raised when request provider doesn't match provider key's provider"""
 
@@ -197,3 +204,18 @@ def stream_error_chunk(
         type="error",
         data={"error": user_facing_error_message(mapped if mapped is not None else error)},
     )
+
+
+def error_field_for_message(
+    table: tuple[tuple[str, str], ...],
+    error_message: str | None,
+) -> str | None:
+    """Map a `validate_key` error message to the UI form field that should be highlighted.
+
+    Each provider owns its own prefix table, because the messages are the provider's. Keep a
+    table aligned with the `return` statements in that provider's `validate_key`: editing a
+    message string there without updating the table silently breaks field routing.
+    """
+    if not error_message:
+        return None
+    return next((field for prefix, field in table if error_message.startswith(prefix)), None)

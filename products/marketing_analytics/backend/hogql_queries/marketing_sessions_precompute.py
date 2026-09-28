@@ -2,7 +2,7 @@
 
 import os
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
@@ -91,9 +91,13 @@ def base_placeholders() -> dict[str, ast.Expr]:
     }
 
 
-def precompute_window_days(team: Team) -> int:
-    return (
-        PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days + SESSION_READ_REACHBACK_DAYS
+def precompute_window_start(team: Team, end: datetime) -> datetime:
+    # Relative display ranges start at local midnight; attribution lookback uses elapsed UTC seconds.
+    display_start = end.astimezone(team.timezone_info).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+        days=PRECOMPUTE_WINDOW_DAYS
+    )
+    return display_start.astimezone(UTC) - timedelta(
+        days=team.marketing_analytics_config.attribution_window_days + SESSION_READ_REACHBACK_DAYS
     )
 
 
@@ -129,10 +133,14 @@ def ensure_marketing_sessions_precomputed(
             team.timezone,
             max_window_days=CHUNK_DAYS,
             settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
+            invalidate_at_window_start=True,
         ),
         table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         modifiers=modifiers,
-        cache_key_context={"modifiers": modifiers.model_dump_json(exclude_none=True)},
+        # Traffic-type classification is absent from this query; its rollout may differ across workers.
+        cache_key_context={
+            "modifiers": modifiers.model_dump_json(exclude_none=True, exclude={"cookielessTrafficIsRegular"})
+        },
         placeholders=base_placeholders(),
         query_type="marketing_sessions_dimensional_insert",
     )

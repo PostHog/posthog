@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -269,22 +270,49 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
-    def test_issues_list_normalizes_volume_resolution(self) -> None:
-        observed_volume_resolutions: list[int] = []
+    @parameterized.expand(
+        [
+            ("counts_only", {"volumeResolution": 0}, 1, False),
+            ("with_volume", {"volumeResolution": 1}, 1, True),
+        ]
+    )
+    def test_issues_list_returns_compact_rows(
+        self, _name: str, data: dict[str, object], expected_resolution: int, expect_volume: bool
+    ) -> None:
+        observed_queries: list[tuple[int, int | None]] = []
 
         def calculate(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
-            observed_volume_resolutions.append(runner.query.volumeResolution)
-            return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
+            observed_queries.append((runner.query.volumeResolution, runner.query.limit))
+            issue = {
+                "id": self.issue_id,
+                "name": "TypeError",
+                "description": "x" * 2000,
+                "status": "active",
+                "aggregations": {
+                    "occurrences": 3,
+                    "users": 2,
+                    "sessions": 1,
+                    "volumeRange": [3],
+                    "volume_buckets": [{"label": "2026-04-17T12:00:00+00:00", "value": 3}],
+                },
+            }
+            return FakeQueryResponse({"results": [issue], "hasMore": False, "limit": 10, "offset": 0})
 
         with patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
-                data={"volumeResolution": 0},
+                data=data,
                 format="json",
             )
 
         assert response.status_code == 200
-        assert observed_volume_resolutions == [1]
+        assert observed_queries == [(expected_resolution, 10)]
+        row = response.json()["results"][0]
+        assert len(row["description"]) == 300
+        assert row["description"].endswith("[truncated from 2000 chars]")
+        assert row["aggregations"]["occurrences"] == 3
+        assert ("volumeRange" in row["aggregations"]) is expect_volume
+        assert ("volume_buckets" in row["aggregations"]) is expect_volume
 
     def test_issue_detail_tags_clickhouse_queries(self) -> None:
         self.create_issue()
@@ -660,7 +688,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                                     "source": "src/checkout.ts",
                                     "line": 42,
                                     "in_app": True,
-                                    "code_variables": {"order": {"customer": None}},
+                                    "code_variables": {"order": {"customer": None, "total": 42}},
                                 }
                             ]
                         },
@@ -696,7 +724,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
-        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        # The native-JSON table does not store a null leaf, so the null variable is absent there.
+        expected_variables = (
+            {"order": {"total": 42}}
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else {"order": {"customer": None, "total": 42}}
+        )
+        assert variables_frame["code_variables"] == expected_variables
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}

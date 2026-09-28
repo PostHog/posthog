@@ -343,11 +343,11 @@ export const getCanvasesEditCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */

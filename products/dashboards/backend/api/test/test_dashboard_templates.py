@@ -746,6 +746,49 @@ class TestDashboardTemplates(APIBaseTest):
         assert len(default_results) == 2
         assert [r["template_name"] for r in default_results] == ["Alpha", "Zebra"]
 
+    def create_templates_sharing_name_and_created_at(self) -> list[str]:
+        """Six org-scoped templates that tie on every sort column, one per team so the shared name is allowed."""
+        DashboardTemplate.objects.all().delete()
+        templates = [
+            DashboardTemplate.objects.create(
+                team=Team.objects.create(organization=self.organization, name=f"Tied team {index}"),
+                template_name="Tied name",
+                scope=DashboardTemplate.Scope.ORGANIZATION,
+                is_featured=False,
+            )
+            for index in range(6)
+        ]
+        DashboardTemplate.objects.all().update(created_at=datetime(2020, 6, 1, 12, 0, 0, tzinfo=UTC))
+        return [str(template.id) for template in templates]
+
+    def walk_template_list_pages(self, query: str) -> list[str]:
+        url: Optional[str] = f"/api/projects/{self.team.pk}/dashboard_templates/{query}"
+        paged_ids: list[str] = []
+        while url:
+            page = self.client.get(url)
+            assert page.status_code == status.HTTP_200_OK
+            body = page.json()
+            paged_ids.extend(result["id"] for result in body["results"])
+            url = body["next"]
+        return paged_ids
+
+    @parameterized.expand(
+        [
+            ("ordering=", True),
+            ("ordering=template_name", True),
+            ("ordering=-template_name", False),
+            ("ordering=created_at", True),
+            ("ordering=-created_at", False),
+            ("search=Tied", True),
+        ]
+    )
+    def test_list_pages_templates_with_equal_sort_values(self, query: str, ascending_ids: bool) -> None:
+        template_ids = self.create_templates_sharing_name_and_created_at()
+
+        paged_ids = self.walk_template_list_pages(f"?{query}&limit=1")
+
+        assert paged_ids == sorted(template_ids, reverse=not ascending_ids)
+
     def test_featured_templates_list_before_non_featured_when_listing_without_search(self) -> None:
         DashboardTemplate.objects.all().delete()
         self.create_template(

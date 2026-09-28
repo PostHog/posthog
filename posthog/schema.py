@@ -29,7 +29,9 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AmazonAdsDefaultSources as AmazonAdsDefaultSources,
     AnnotationScope as AnnotationScope,
+    AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -206,6 +208,7 @@ from posthog.schema_enums import (
     NativeMarketingSource as NativeMarketingSource,
     NeighborDirection as NeighborDirection,
     NodeKind as NodeKind,
+    OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
@@ -2105,6 +2108,47 @@ class MarketingIntegrationConfig8(BaseModel):
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
 
 
+class MarketingIntegrationConfig9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["ad_group_report"] = "ad_group_report"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["apple"] = "apple"
+    sourceType: Literal["AppleSearchAds"] = "AppleSearchAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+
+
+class MarketingIntegrationConfig10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=3, min_length=3)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["openai"] = "openai"
+    sourceType: Literal["OpenAIAds"] = "OpenAIAds"
+    statsTableName: Literal["campaign_insights"] = "campaign_insights"
+
+
+class MarketingIntegrationConfig11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["sp_campaigns"] = "sp_campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["amazon"] = "amazon"
+    sourceType: Literal["AmazonAds"] = "AmazonAds"
+    statsTableName: Literal["sp_campaign_reports"] = "sp_campaign_reports"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2115,6 +2159,9 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     ]
 ):
     root: (
@@ -2126,6 +2173,9 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     )
 
 
@@ -5921,6 +5971,14 @@ class MCPHarnessBreakdownItem(BaseModel):
         ...,
         description=('Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other".'),
     )
+    harness_sessions: int | None = Field(
+        default=None,
+        description=(
+            "Distinct sessions in this harness across all tools, in the same window and"
+            " filters. The denominator for the tool's session share within the harness."
+            " Set only when the query has toolName."
+        ),
+    )
     sessions: int
     total_calls: int
 
@@ -6047,9 +6105,34 @@ class MCPToolQualityRowItem(BaseModel):
     p50_duration_ms: float
     p95_duration_ms: float
     p99_duration_ms: float
+    previous_calls: int = Field(
+        ...,
+        description=(
+            "Calls in the previous period: the same length of time right before the"
+            ' window, or for a to-date range ("This month") the same part of the'
+            " previous unit."
+        ),
+    )
+    previous_errors: int = Field(..., description="Errored calls in the previous period.")
+    previous_p95_duration_ms: float | None = Field(
+        ...,
+        description=("p95 duration in the previous period, or null when no previous call carried a duration."),
+    )
+    previous_sessions: int = Field(
+        ...,
+        description="Distinct sessions that called the tool in the previous period.",
+    )
     sessions: int
     tool: str
     total_calls: int
+    trend_score: float = Field(
+        ...,
+        description=(
+            "Sort key ranking growth relative to volume, so a small tool's spike"
+            " doesn't outrank a large tool's surge. Not a percentage; only meaningful"
+            " for ordering."
+        ),
+    )
     users: int
 
 
@@ -6062,6 +6145,17 @@ class MCPToolStatsItem(BaseModel):
     errors: int
     p50_ms: float | None = None
     p95_ms: float | None = None
+    total_calls: int = Field(
+        ...,
+        description=("Calls to any tool in the same window and filters. The denominator for the tool's call share."),
+    )
+    total_conversations: int = Field(
+        ...,
+        description=(
+            "Conversations with a call to any tool in the same window and filters. The"
+            " denominator for the tool's session share."
+        ),
+    )
     users: int
     with_intent: int = Field(
         ...,
@@ -7507,7 +7601,9 @@ class SidebarItemsConfiguration(BaseModel):
     starred: UIVisibilityConfig | None = Field(
         default=None, description='"Starred" panel trigger in the Project section.'
     )
-    tools: UIVisibilityConfig | None = Field(default=None, description='"Tools" panel trigger in the Project section.')
+    tools: UIVisibilityConfig | None = Field(
+        default=None, description='"Products" panel trigger in the Project section.'
+    )
 
 
 class SidebarSectionsConfiguration(BaseModel):
@@ -7516,12 +7612,12 @@ class SidebarSectionsConfiguration(BaseModel):
     )
     my_tools: UIVisibilityConfig | None = Field(
         default=None,
-        description='The "My tools" section, listing the user\'s selected tools.',
+        description='The "My products" section, listing the user\'s selected products.',
     )
     project: UIVisibilityConfig | None = Field(
         default=None,
         description=(
-            'The "Project" section (Home and the Data/Files/Tools/Starred panel'
+            'The "Project" section (Home and the Data/Files/Products/Starred panel'
             " triggers). Activity stays visible even when this section is hidden."
         ),
     )
@@ -13114,6 +13210,10 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -13139,6 +13239,13 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -13358,6 +13465,10 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -13369,6 +13480,14 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -13671,6 +13790,10 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -13685,6 +13808,14 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16663,6 +16794,10 @@ class Response12(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -16674,6 +16809,14 @@ class Response12(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16715,6 +16858,10 @@ class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -16723,6 +16870,14 @@ class Response13(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18993,6 +19148,10 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19012,6 +19171,13 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -19180,6 +19346,10 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19188,6 +19358,14 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19433,6 +19611,10 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19444,6 +19626,14 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20944,6 +21134,10 @@ class QueryResponseAlternative33(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20955,6 +21149,14 @@ class QueryResponseAlternative33(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20996,6 +21198,10 @@ class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21004,6 +21210,14 @@ class QueryResponseAlternative34(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21859,6 +22073,10 @@ class QueryResponseAlternative50(BaseModel):
         extra="forbid",
     )
     columns: list | None = None
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21870,6 +22088,14 @@ class QueryResponseAlternative50(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21911,6 +22137,10 @@ class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataComputedAt: str | None = Field(
+        default=None,
+        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21919,6 +22149,14 @@ class QueryResponseAlternative51(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    precomputeNotReady: bool | None = Field(
+        default=None,
+        description=(
+            "True when a conversion goal's precompute has not been warmed for this"
+            ' window yet — the UI shows a "computing" state rather than empty results.'
+            " Marketing analytics serves exclusively from precompute."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24059,6 +24297,10 @@ class QueryResponseAlternative104(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24078,6 +24320,13 @@ class QueryResponseAlternative104(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -29584,7 +29833,7 @@ class TraceSpansQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
+    dateRange: DateRange | None = None
     excludeAttributes: bool | None = Field(
         default=None,
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
@@ -30116,6 +30365,10 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
 class LogAttributesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    attributeKeys: list[str] | None = Field(
+        default=None,
+        description=("Return only attribute keys that exactly match an entry in this list."),
     )
     attributeType: str
     dateRange: DateRange | None = None

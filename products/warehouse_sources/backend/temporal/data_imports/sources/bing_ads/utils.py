@@ -1,3 +1,4 @@
+import io
 import csv
 import time
 import uuid
@@ -5,7 +6,7 @@ import zipfile
 import datetime as dt
 import tempfile
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -45,21 +46,25 @@ REPORT_TIMEOUT_MS = 1_800_000
 # report queue fails the whole run, and the pipeline's own retry refetches the chunk from scratch.
 REPORT_GENERATION_ATTEMPTS = 3
 REPORT_GENERATION_RETRY_DELAY_SECONDS = 30
+# The batcher only caps what it accumulates between items, so one oversized item passes straight
+# through and sets the activity's peak memory on its own. Paging the report keeps that peak bounded.
+REPORT_PAGE_ROWS = 50_000
 
 
-def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
-    """Parse Bing Ads CSV report data into list of dictionaries."""
-    if not csv_data or not csv_data.strip():
-        return []
+def iter_csv_row_pages(csv_lines: Iterable[str], page_rows: int = REPORT_PAGE_ROWS) -> Iterator[list[dict[str, Any]]]:
+    """Parse Bing Ads report CSV into pages of at most `page_rows` dictionaries.
 
-    # Remove BOM if present
-    if csv_data.startswith("\ufeff"):
-        csv_data = csv_data[1:]
+    Bing writes an absent metric as "--", which the rest of the pipeline expects as None.
+    """
+    page: list[dict[str, Any]] = []
+    for row in csv.DictReader(csv_lines):
+        page.append({key: None if value in ("--", "") else value for key, value in row.items()})
+        if len(page) >= page_rows:
+            yield page
+            page = []
 
-    reader = csv.DictReader(csv_data.strip().split("\n"))
-
-    # Convert "--" and empty strings to None
-    return [{key: None if value in ("--", "") else value for key, value in row.items()} for row in reader]
+    if page:
+        yield page
 
 
 def fetch_data_in_yearly_chunks(
@@ -204,16 +209,18 @@ def download_report_file(
     return reporting_service_manager.download_file(download_params)
 
 
-def download_and_extract_report_csv(
+def iter_report_row_pages(
     reporting_service_manager: Any,
     report_request: Any,
     report_type: str,
     account_id: int,
-) -> str:
-    """Download report ZIP file and extract CSV content.
+    page_rows: int = REPORT_PAGE_ROWS,
+) -> Iterator[list[dict[str, Any]]]:
+    """Download the report ZIP and yield its CSV rows in bounded pages.
 
-    Bing Ads Reporting API returns reports as ZIP files containing a single CSV.
-    This function handles the download, extraction, and cleanup.
+    The CSV inside the ZIP is as large as the account's history, so every step stays streaming and
+    peak memory follows `page_rows` rather than the report. The temporary directory lives for as
+    long as the caller iterates, so a caller that abandons the iterator early must close it.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         filename = f"{report_type}_{account_id}_{uuid.uuid4()}.zip"
@@ -232,13 +239,16 @@ def download_and_extract_report_csv(
         # (e.g. a date window with no campaign activity). Treat that as an empty report instead of
         # crashing on Path(None).
         if result_file_path is None:
-            return ""
+            return
 
         result_path = Path(result_file_path)
         with zipfile.ZipFile(result_path, "r") as zip_file:
             csv_files = [name for name in zip_file.namelist() if name.endswith(".csv")]
             if not csv_files:
                 raise ValueError("No CSV file found in report ZIP")
-            csv_data = zip_file.read(csv_files[0]).decode("utf-8")
 
-    return csv_data
+            with zip_file.open(csv_files[0]) as raw_csv:
+                # `utf-8-sig` drops the BOM Bing prefixes the report with, and `newline=""` leaves
+                # newlines inside quoted fields for the csv module to handle.
+                csv_lines = io.TextIOWrapper(raw_csv, encoding="utf-8-sig", newline="")
+                yield from iter_csv_row_pages(csv_lines, page_rows=page_rows)
