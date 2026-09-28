@@ -7,6 +7,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
@@ -20,7 +21,7 @@ export function BroadcastWizard(): JSX.Element {
     const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
     const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
-    const { broadcastId } = useValues(broadcastWizardLogic)
+    const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
 
     return (
         <SceneContent className="min-h-full w-full shrink-0" data-attr="broadcast-wizard">
@@ -35,6 +36,7 @@ export function BroadcastWizard(): JSX.Element {
                                     label: 'Archive',
                                     status: 'danger',
                                     onClick: archiveBroadcast,
+                                    disabledReason: manageDisabledReason(broadcast?.user_access_level),
                                     'data-attr': 'broadcast-archive',
                                 },
                             ]}

@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,11 +11,9 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { archiveDisabledReason } from './broadcastLifecycle'
+import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import {
     BROADCASTS_PAGE_SIZE,
     BroadcastsStatusFilter,
@@ -94,46 +91,44 @@ export function BroadcastsTable(): JSX.Element {
             width: 0,
             render: function Render(_, item) {
                 const isArchived = item.status === 'archived'
+                const accessReason = manageDisabledReason(item.user_access_level)
                 return (
                     <More
                         overlay={
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={(item.user_access_level as AccessControlLevel | null) ?? undefined}
-                            >
-                                {isArchived ? (
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() => restoreBroadcast(item)}
-                                            data-attr="broadcast-row-restore"
-                                        >
-                                            Restore as draft
-                                        </LemonButton>
-                                        <LemonButton
-                                            fullWidth
-                                            status="danger"
-                                            onClick={() => deleteBroadcast(item)}
-                                            data-attr="broadcast-row-delete"
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </>
-                                ) : (
+                            isArchived ? (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => restoreBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-restore"
+                                    >
+                                        Restore as draft
+                                    </LemonButton>
                                     <LemonButton
                                         fullWidth
                                         status="danger"
-                                        onClick={() => archiveBroadcast(item)}
-                                        disabledReason={archiveDisabledReason(
-                                            rowDetailsById[item.id]?.batchJobStatuses ?? null
-                                        )}
-                                        data-attr="broadcast-row-archive"
+                                        onClick={() => deleteBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-delete"
                                     >
-                                        Archive
+                                        Delete
                                     </LemonButton>
-                                )}
-                            </AccessControlAction>
+                                </>
+                            ) : (
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() => archiveBroadcast(item)}
+                                    disabledReason={
+                                        accessReason ??
+                                        archiveDisabledReason(rowDetailsById[item.id]?.batchJobStatuses ?? null)
+                                    }
+                                    data-attr="broadcast-row-archive"
+                                >
+                                    Archive
+                                </LemonButton>
+                            )
                         }
                     />
                 )

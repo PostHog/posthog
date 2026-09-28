@@ -1,10 +1,25 @@
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { hogFlowsDestroy, hogFlowsPartialUpdate } from 'products/workflows/frontend/generated/api'
 
 export interface ManagedBroadcast {
     id: string
     name?: string | null
+}
+
+/** Archive, restore and delete need editor access to the broadcast, as they do for a workflow. */
+export function manageDisabledReason(userAccessLevel: string | null | undefined): string | undefined {
+    return (
+        getAccessControlDisabledReason(
+            AccessControlResourceType.Workflow,
+            AccessControlLevel.Editor,
+            (userAccessLevel as AccessControlLevel | null) ?? undefined
+        ) ?? undefined
+    )
 }
 
 const RUNNING_BATCH_JOB_STATUSES = ['waiting', 'queued', 'active']

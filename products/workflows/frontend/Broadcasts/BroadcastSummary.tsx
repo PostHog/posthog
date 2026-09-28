@@ -27,7 +27,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
-import { archiveDisabledReason } from './broadcastLifecycle'
+import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -315,6 +315,7 @@ export function BroadcastSummary(): JSX.Element {
     ]
 
     const isArchived = broadcast?.status === 'archived'
+    const accessReason = manageDisabledReason(broadcast?.user_access_level)
     const actionItems = [
         canMoveToDraft
             ? { label: 'Stop and edit', onClick: confirmMoveToDraft, 'data-attr': 'broadcast-move-to-draft' }
@@ -327,16 +328,29 @@ export function BroadcastSummary(): JSX.Element {
               }
             : null,
         isArchived
-            ? { label: 'Restore as draft', onClick: restoreBroadcast, 'data-attr': 'broadcast-restore' }
+            ? {
+                  label: 'Restore as draft',
+                  onClick: restoreBroadcast,
+                  disabledReason: accessReason,
+                  'data-attr': 'broadcast-restore',
+              }
             : {
                   label: 'Archive',
                   status: 'danger' as const,
                   onClick: archiveBroadcast,
-                  disabledReason: archiveDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
+                  disabledReason:
+                      accessReason ??
+                      archiveDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
                   'data-attr': 'broadcast-archive',
               },
         isArchived
-            ? { label: 'Delete', status: 'danger' as const, onClick: deleteBroadcast, 'data-attr': 'broadcast-delete' }
+            ? {
+                  label: 'Delete',
+                  status: 'danger' as const,
+                  onClick: deleteBroadcast,
+                  disabledReason: accessReason,
+                  'data-attr': 'broadcast-delete',
+              }
             : null,
     ]
     const actionsMenu = (
