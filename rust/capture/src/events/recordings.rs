@@ -364,29 +364,19 @@ fn group_by_session_id(events: Vec<RawRecording>) -> Vec<SessionEvents> {
     let mut current: Option<usize> = None;
 
     for mut event in events {
-        let index = match event.properties.session_id.take() {
-            None => current.unwrap_or_else(|| {
-                groups.push(SessionEvents {
-                    session_id: None,
-                    events: Vec::new(),
-                });
-                groups.len() - 1
-            }),
-            Some(session_id) => {
-                match groups
-                    .iter()
-                    .position(|g| g.session_id.as_ref() == Some(&session_id))
-                {
-                    Some(index) => index,
-                    None => {
-                        groups.push(SessionEvents {
-                            session_id: Some(session_id),
-                            events: Vec::new(),
-                        });
-                        groups.len() - 1
-                    }
+        let session_id = event.properties.session_id.take();
+        let index = match (&session_id, current) {
+            (None, Some(index)) => index,
+            _ => match groups.iter().position(|g| g.session_id == session_id) {
+                Some(index) => index,
+                None => {
+                    groups.push(SessionEvents {
+                        session_id,
+                        events: Vec::new(),
+                    });
+                    groups.len() - 1
                 }
-            }
+            },
         };
         groups[index].events.push(event);
         current = Some(index);
