@@ -640,6 +640,47 @@ export interface MCPToolRequestApi {
  */
 export type MCPToolResponseApiStructuredContent = { [key: string]: JsonValueApi } | null
 
+export type MCPToolErrorDetailsTypeEnumApi =
+    (typeof MCPToolErrorDetailsTypeEnumApi)[keyof typeof MCPToolErrorDetailsTypeEnumApi]
+
+export const MCPToolErrorDetailsTypeEnumApi = {
+    Validation: 'validation',
+    Permission: 'permission',
+    Timeout: 'timeout',
+    RateLimited: 'rate_limited',
+    Api5xx: 'api_5xx',
+    Internal: 'internal',
+} as const
+
+export type MCPToolErrorCodeApi = (typeof MCPToolErrorCodeApi)[keyof typeof MCPToolErrorCodeApi]
+
+export const MCPToolErrorCodeApi = {
+    InvalidInput: 'invalid_input',
+    PermissionDenied: 'permission_denied',
+    QueryTimeout: 'query_timeout',
+    QueryCapacityExceeded: 'query_capacity_exceeded',
+    QueryMemoryLimitExceeded: 'query_memory_limit_exceeded',
+    ServiceUnavailable: 'service_unavailable',
+    InternalError: 'internal_error',
+} as const
+
+export type RetryStrategyEnumApi = (typeof RetryStrategyEnumApi)[keyof typeof RetryStrategyEnumApi]
+
+export const RetryStrategyEnumApi = {
+    Never: 'never',
+    Once: 'once',
+    Adjusted: 'adjusted',
+} as const
+
+export interface MCPToolErrorDetailsApi {
+    /** Value-free failure category for MCP analytics. */
+    type: MCPToolErrorDetailsTypeEnumApi
+    /** Stable failure code that contains no caller input. */
+    code: MCPToolErrorCodeApi
+    /** Whether the agent can retry unchanged once, retry with adjusted inputs, or should not retry. */
+    retry_strategy: RetryStrategyEnumApi
+}
+
 export interface MCPToolResponseApi {
     /** Formatted tool output for the model. */
     content: string
@@ -647,6 +688,8 @@ export interface MCPToolResponseApi {
     structured_content?: MCPToolResponseApiStructuredContent
     /** Whether the tool completed successfully. */
     success: boolean
+    /** Structured failure and recovery information when the tool did not succeed. */
+    error?: MCPToolErrorDetailsApi | null
 }
 
 export interface DocsSearchRequestApi {

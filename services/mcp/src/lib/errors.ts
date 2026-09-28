@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -20,6 +21,16 @@ export class MCPToolError extends Error {
         this.tool = tool
         this.originalError = originalError
         this.timestamp = new Date()
+    }
+}
+
+export class MCPToolResultError extends Error {
+    constructor(
+        message: string,
+        public readonly detail: Schemas.MCPToolErrorDetails
+    ) {
+        super(message)
+        this.name = 'MCPToolResultError'
     }
 }
 
@@ -499,7 +510,8 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
         error instanceof ToolInputValidationError ||
-        error instanceof ExecCommandError
+        error instanceof ExecCommandError ||
+        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.detail.type))
     ) {
         return {
             content: [

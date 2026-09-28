@@ -3,18 +3,68 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse
 
 from posthog.event_usage import EventSource
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, Team
 
 from ee.hogai.mcp_tool import MCPToolResult
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError, MaxToolTransientError
 
 
 class TestMCPToolsAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            (tool_name, operation, args, error, outcome)
+            for tool_name, operation, args in [
+                ("execute_sql", "mcp_execute_sql", {"query": "SELECT 1"}),
+                ("read_taxonomy", "mcp_read_data_schema", {"query": {"kind": "events"}}),
+            ]
+            for error, outcome in [
+                (None, "success"),
+                (MaxToolRetryableError("private invalid input"), "success"),
+                (RuntimeError("private failure detail"), "failure"),
+            ]
+        ]
+    )
+    @patch("posthog.slo.events.posthoganalytics.capture")
+    def test_query_tool_service_slo_records_paired_outcomes(
+        self, tool_name: str, operation: str, args: dict, error: Exception | None, outcome: str, capture
+    ) -> None:
+        tool_class = (
+            "ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool"
+            if tool_name == "execute_sql"
+            else "ee.hogai.tools.read_taxonomy.mcp_tool.ReadTaxonomyMCPTool"
+        )
+        with patch(f"{tool_class}.execute", new_callable=AsyncMock, return_value="rows", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_tools/{tool_name}/", {"args": args}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        events = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event", "").startswith("slo_")]
+        self.assertEqual([event["event"] for event in events], ["slo_operation_started", "slo_operation_completed"])
+        started, completed = [event["properties"] for event in events]
+        self.assertEqual(started["correlation_id"], completed["correlation_id"])
+        self.assertEqual(started["operation"], operation)
+        self.assertEqual(completed["operation"], operation)
+        self.assertEqual(completed["team_id"], self.team.id)
+        self.assertEqual(completed["outcome"], outcome)
+        self.assertEqual(completed["tool_success"], error is None)
+        self.assertNotIn("private", str(events))
+        self.assertNotIn("SELECT", str(events))
+
     def test_unauthenticated_request(self):
         self.client.logout()
         response = self.client.post(
@@ -58,6 +108,19 @@ class TestMCPToolsAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertIn("validation error", data["content"].lower())
+
+    @parameterized.expand([("empty", ""), ("syntax", "SELECT (")])
+    def test_sql_validation_preserves_the_error_contract(self, _name: str, query: str) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/", {"args": {"query": query}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["success"])
+        self.assertEqual(
+            response.json()["error"],
+            {"type": "validation", "code": "invalid_input", "retry_strategy": "adjusted"},
+        )
 
     @parameterized.expand([("text_only", False), ("structured_query", True)])
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
@@ -113,11 +176,32 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
+    @parameterized.expand(
+        [
+            (MaxToolRetryableError("Invalid query with private input"), "validation", "invalid_input", "adjusted"),
+            (MaxToolTransientError("Temporarily unavailable"), "api_5xx", "service_unavailable", "once"),
+            (MaxToolAccessDeniedError("insight", "viewer"), "permission", "permission_denied", "never"),
+            (ClickHouseAtCapacity(), "rate_limited", "query_capacity_exceeded", "once"),
+            (ClickHouseClusterMemoryLimitExceeded(), "rate_limited", "query_capacity_exceeded", "once"),
+            (ClickHouseQueryTimeOut(), "timeout", "query_timeout", "adjusted"),
+            (ClickHouseQueryMemoryLimitExceeded(), "api_5xx", "query_memory_limit_exceeded", "adjusted"),
+            (SocketTimeoutError("private host"), "timeout", "query_timeout", "once"),
+            (NetworkError("private host"), "api_5xx", "service_unavailable", "once"),
+            (APIException("Serialized query failure"), "api_5xx", "service_unavailable", "never"),
+            (RuntimeError("private query text"), "internal", "internal_error", "never"),
+        ]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_error_returns_error_response(self, mock_execute):
-        from ee.hogai.tool_errors import MaxToolRetryableError
+    def test_invoke_tool_error_returns_error_response(
+        self, cause: Exception, error_type: str, code: str, retry_strategy: str, mock_execute: AsyncMock
+    ) -> None:
+        async def execute_with_wrapped_error(_args):
+            try:
+                raise cause
+            except Exception as error:
+                raise MaxToolRetryableError(f"Error executing query: {error}") from error
 
-        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
+        mock_execute.side_effect = execute_with_wrapped_error
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -129,6 +213,13 @@ class TestMCPToolsAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertIn("Tool failed", data["content"])
+        self.assertEqual(data["error"], {"type": error_type, "code": code, "retry_strategy": retry_strategy})
+        self.assertNotIn("private", str(data["error"]))
+        if retry_strategy == "once":
+            self.assertIn("retry this operation once without changes", data["content"])
+            self.assertNotIn("retry with adjusted inputs", data["content"])
+        elif retry_strategy == "never":
+            self.assertNotIn("retry with adjusted inputs", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
@@ -144,6 +235,7 @@ class TestMCPToolsAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertIn("internal error", data["content"].lower())
+        self.assertEqual(data["error"], {"type": "internal", "code": "internal_error", "retry_strategy": "never"})
 
 
 class TestDocsSearchAction(APIBaseTest):

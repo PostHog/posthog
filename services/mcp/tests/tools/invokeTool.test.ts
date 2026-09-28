@@ -37,6 +37,26 @@ describe('invokeMcpTool', () => {
         expect(result).toEqual({ success: true, content: 'rows' })
     })
 
+    it.each(['execute_sql', 'read_taxonomy'])(
+        'preserves typed failures from %s even when the API returns HTTP 200',
+        async (toolName) => {
+            const detail = { type: 'timeout', code: 'query_timeout', retry_strategy: 'once' }
+            stubFetch(new Response(JSON.stringify({ success: false, content: 'Retry once', error: detail })))
+
+            await expect(invokeMcpTool(makeContext(), toolName, {})).rejects.toMatchObject({
+                name: 'MCPToolResultError',
+                message: 'Retry once',
+                detail,
+            })
+        }
+    )
+
+    it('keeps failures from older backends as errors during a rolling deploy', async () => {
+        stubFetch(new Response(JSON.stringify({ success: false, content: 'Tool failed' })))
+
+        await expect(invokeMcpTool(makeContext(), 'execute_sql', {})).rejects.toThrow('Tool failed')
+    })
+
     it('throws PostHogRateLimitError on a 429 so it is not bucketed as an internal error', async () => {
         // `Retry-After` is past the client's total retry budget, so this returns without waiting.
         stubFetch(

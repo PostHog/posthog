@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -38,6 +38,7 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { ApiClient } from '@/api/client'
 import { trackToolCall } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -99,6 +100,58 @@ describe('ToolExecutor metrics', () => {
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
+
+    afterEach(() => vi.unstubAllGlobals())
+
+    it.each([
+        { tool: 'execute-sql', useSingleExec: false, type: 'validation', code: 'invalid_input' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'validation', code: 'invalid_input' },
+        { tool: 'read-data-schema', useSingleExec: false, type: 'validation', code: 'invalid_input' },
+        { tool: 'read-data-schema', useSingleExec: true, type: 'validation', code: 'invalid_input' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'timeout', code: 'query_timeout' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
+        { tool: 'read-data-schema', useSingleExec: false, type: 'timeout', code: 'query_timeout' },
+        { tool: 'read-data-schema', useSingleExec: true, type: 'timeout', code: 'query_timeout' },
+    ])(
+        'classifies backend result errors without capturing caller content: %j',
+        async ({ tool, useSingleExec, type, code }) => {
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const state = makeToolExecutorState(tools, { useSingleExec })
+            state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
+            const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            success: false,
+                            content,
+                            error: { type, code, retry_strategy: 'adjusted' },
+                        })
+                    )
+                )
+            )
+            const args = { query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' } }
+            const result = await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
+                    : { name: tool, arguments: args },
+                state
+            )
+
+            expect(result).toMatchObject({
+                isError: true,
+                content: [expect.objectContaining({ text: expect.stringContaining(content) })],
+            })
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
+            const properties = trackToolCallExtras(tool)
+            expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_code: code })
+            expect(JSON.stringify(properties)).not.toContain('private caller query')
+        }
+    )
 
     describe('direct tool calls', () => {
         it('records success counter and duration timer', async () => {

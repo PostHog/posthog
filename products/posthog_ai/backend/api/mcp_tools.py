@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from typing import cast
 
 from django.conf import settings
@@ -25,6 +26,10 @@ from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
+
+from products.posthog_ai.backend.mcp_tool_errors import MCPToolErrorDetails
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
@@ -41,6 +46,9 @@ class MCPToolRequest(pydantic.BaseModel):
 
 class MCPToolResponse(MCPToolResult):
     success: bool = pydantic.Field(description="Whether the tool completed successfully.")
+    error: MCPToolErrorDetails | None = pydantic.Field(
+        default=None, description="Structured failure and recovery information when the tool did not succeed."
+    )
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -159,33 +167,52 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-
-            async def execute_tool() -> str | MCPToolResult:
-                with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
-                    return await tool.execute(validated_args)
-
-            result = async_to_sync(execute_tool)()
-        except MaxToolError as e:
-            return Response(
-                {
-                    "success": False,
-                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
-                }
+        operation = {
+            "execute_sql": SloOperation.MCP_EXECUTE_SQL,
+            "read_taxonomy": SloOperation.MCP_READ_DATA_SCHEMA,
+        }.get(tool_name)
+        lifecycle = (
+            slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(cast(User, request.user).distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=operation,
+                    team_id=self.team.pk,
+                    sample_rate=settings.MCP_QUERY_SLO_SAMPLE_RATE,
+                )
             )
-        except Exception as e:
-            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "args": args_data})
-            return Response(
-                {
-                    "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
-                }
-            )
+            if operation
+            else nullcontext()
+        )
+        with lifecycle as slo:
+            try:
 
-        if isinstance(result, str):
-            result = MCPToolResult(content=result)
-        return Response({"success": True, **result.model_dump(exclude_none=True)})
+                async def execute_tool() -> str | MCPToolResult:
+                    with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
+                        return await tool.execute(validated_args)
+
+                result = async_to_sync(execute_tool)()
+                if isinstance(result, str):
+                    result = MCPToolResult(content=result)
+                response = Response({"success": True, **result.model_dump(exclude_none=True)})
+            except Exception as e:
+                error = MCPToolErrorDetails.from_exception(e)
+                if slo:
+                    # A rejected query is a completed service response. Keep the failed
+                    # tool outcome separately so it remains visible in journey metrics.
+                    complete = slo.succeed if error.type in ("validation", "permission") else slo.fail
+                    complete(tool_success=False, error_type=error.type, error_code=error.code)
+                if isinstance(e, MaxToolError):
+                    content = f"Tool failed: {e.to_summary()}.{error.retry_hint}"
+                else:
+                    logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
+                    capture_exception(e, properties={"tag": "mcp", "args": args_data})
+                    content = error.safe_message + error.retry_hint
+                return Response({"success": False, "content": content, "error": error.model_dump()})
+
+            if slo:
+                slo.succeed(tool_success=True)
+            return response
 
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:
