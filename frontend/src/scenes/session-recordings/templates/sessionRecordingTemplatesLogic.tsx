@@ -1,24 +1,34 @@
 import clsx from 'clsx'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
-    ReplayTabs,
     ReplayTemplateCategory,
     ReplayTemplateType,
     ReplayTemplateVariableType,
+    UniversalFilterValue,
     UniversalFiltersGroupValue,
 } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../types'
+import { convertUniversalFiltersToRecordingsQuery } from '../filters/recordingsQueryConversions'
+
+const MATCH_COUNT_LIMIT = 25
+export const TEMPLATE_DATE_FROM = '-7d'
+
+interface TemplateMatchCount {
+    count: number
+    hasMore: boolean
+}
 
 const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue => {
     return {
@@ -28,6 +38,8 @@ const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue =>
         type: PropertyFilterType.Recording,
     }
 }
+
+export type ReplayTemplateUsedSource = 'templates_tab' | 'filters_panel'
 
 export interface ReplayTemplateLogicPropsType {
     template: ReplayTemplateType
@@ -43,6 +55,11 @@ export interface sessionReplayTemplatesLogicValues {
     canApplyFilters: boolean
     editableVariables: ReplayTemplateVariableType[]
     filterGroup: Partial<RecordingUniversalFilters>
+    hasTemplateFilters: boolean
+    matchCount: TemplateMatchCount | null
+    matchCountError: boolean
+    matchCountLoading: boolean
+    previewFilters: UniversalFilterValue[]
     variables: ReplayTemplateVariableType[]
     variablesVisible: boolean
 }
@@ -52,8 +69,28 @@ export interface sessionReplayTemplatesLogicActions {
     hideVariables: () => {
         value: true
     }
-    navigate: () => {
+    loadMatchCount: () => {
         value: true
+    }
+    loadMatchCountFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMatchCountSuccess: (
+        matchCount: TemplateMatchCount | null,
+        payload?: any
+    ) => {
+        matchCount: TemplateMatchCount | null
+        payload?: any
+    }
+    matchCountFailed: () => {
+        value: true
+    }
+    reportTemplateUsed: (source: ReplayTemplateUsedSource) => {
+        source: ReplayTemplateUsedSource
     }
     resetVariable: (variable: ReplayTemplateVariableType) => {
         variable: ReplayTemplateVariableType
@@ -74,6 +111,8 @@ export interface sessionReplayTemplatesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         filterGroup: (variables: ReplayTemplateVariableType[]) => Partial<RecordingUniversalFilters>
+        previewFilters: (filterGroup: Partial<RecordingUniversalFilters>) => UniversalFilterValue[]
+        hasTemplateFilters: (previewFilters: UniversalFilterValue[], variables: ReplayTemplateVariableType[]) => boolean
         canApplyFilters: (variables: ReplayTemplateVariableType[], areAnyVariablesTouched: boolean) => boolean
         areAnyVariablesTouched: (variables: ReplayTemplateVariableType[]) => boolean
         editableVariables: (variables: ReplayTemplateVariableType[]) => ReplayTemplateVariableType[]
@@ -98,7 +137,8 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
         setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
         resetVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
-        navigate: true,
+        reportTemplateUsed: (source: ReplayTemplateUsedSource) => ({ source }),
+        matchCountFailed: true,
         showVariables: true,
         hideVariables: true,
     }),
@@ -127,6 +167,48 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
             {
                 showVariables: () => true,
                 hideVariables: () => false,
+            },
+        ],
+        matchCountError: [
+            false,
+            {
+                loadMatchCount: () => false,
+                matchCountFailed: () => true,
+            },
+        ],
+    })),
+    loaders(({ actions, values }) => ({
+        matchCount: [
+            null as TemplateMatchCount | null,
+            {
+                loadMatchCount: async (_, breakpoint) => {
+                    if (!values.hasTemplateFilters) {
+                        return null
+                    }
+                    await breakpoint(300)
+                    const query = {
+                        ...convertUniversalFiltersToRecordingsQuery({
+                            date_from: TEMPLATE_DATE_FROM,
+                            date_to: null,
+                            duration: [],
+                            filter_test_accounts: false,
+                            filter_group: values.filterGroup.filter_group ?? {
+                                type: FilterLogicalOperator.And,
+                                values: [],
+                            },
+                        }),
+                        limit: MATCH_COUNT_LIMIT,
+                    }
+                    let response
+                    try {
+                        response = await api.recordings.list(query)
+                    } catch {
+                        actions.matchCountFailed()
+                        return null
+                    }
+                    breakpoint()
+                    return { count: response.results.length, hasMore: response.has_next }
+                },
             },
         ],
     })),
@@ -164,6 +246,22 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return filterGroup
             },
         ],
+        previewFilters: [
+            (s) => [s.filterGroup],
+            (filterGroup: Partial<RecordingUniversalFilters>): UniversalFilterValue[] => {
+                const innerGroup = filterGroup.filter_group?.values[0]
+                return innerGroup && isUniversalGroupFilterLike(innerGroup)
+                    ? innerGroup.values.filter(
+                          (value): value is UniversalFilterValue => !isUniversalGroupFilterLike(value)
+                      )
+                    : []
+            },
+        ],
+        hasTemplateFilters: [
+            (s) => [s.previewFilters, s.variables],
+            (previewFilters: UniversalFilterValue[], variables: ReplayTemplateVariableType[]) =>
+                previewFilters.length > 0 || variables.length === 0,
+        ],
         canApplyFilters: [
             (s) => [s.variables, s.areAnyVariablesTouched],
             (variables: ReplayTemplateVariableType[], areAnyVariablesTouched: boolean) =>
@@ -179,14 +277,26 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
             (variables: ReplayTemplateVariableType[]) => variables.filter((v) => !v.noTouch),
         ],
     }),
-    listeners(({ values, props }) => ({
-        navigate: () => {
+    listeners(({ actions, props, values }) => ({
+        showVariables: () => {
+            actions.loadMatchCount()
+        },
+        setVariable: () => {
+            if (values.variablesVisible) {
+                actions.loadMatchCount()
+            }
+        },
+        resetVariable: () => {
+            if (values.variablesVisible) {
+                actions.loadMatchCount()
+            }
+        },
+        reportTemplateUsed: ({ source }) => {
             posthog.capture('session replay template used', {
                 template: props.template.key,
                 category: props.category,
+                source,
             })
-            const filterGroup = values.variables.length > 0 ? values.filterGroup : undefined
-            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup, undefined, props.template.order))
         },
     })),
     events(({ actions, props, values }) => ({
