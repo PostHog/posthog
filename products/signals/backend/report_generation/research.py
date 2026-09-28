@@ -62,6 +62,7 @@ __all__ = [
     "ImplementationDecision",
     "Priority",
     "PriorityAssessment",
+    "ReportLayer",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
@@ -79,6 +80,35 @@ def _rejection_reason(error: Exception) -> str:
         return type(error).__name__
     return ", ".join(
         f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+    )
+
+
+MIN_REPORT_LAYERS = 2
+MAX_REPORT_LAYERS = 6
+MAX_REPORT_LAYER_TITLE_LENGTH = 96
+MAX_REPORT_LAYER_SCOPE_LENGTH = 2_000
+
+
+class ReportLayer(BaseModel):
+    """One pull request in a stack of dependent pull requests. Each layer becomes a child report."""
+
+    title: str = Field(
+        description="A PR-style title for this layer alone, in the same Conventional Commits style as the report title.",
+        max_length=MAX_REPORT_LAYER_TITLE_LENGTH,
+    )
+    scope: str = Field(
+        description=(
+            "What this layer changes and what it leaves to the other layers, in two to five plain sentences. "
+            "This becomes the layer's own summary, so it must stand alone for the engineer who implements it."
+        ),
+        max_length=MAX_REPORT_LAYER_SCOPE_LENGTH,
+    )
+    depends_on: int | None = Field(
+        default=None,
+        description=(
+            "Zero-based index of the earlier layer whose pull request this layer builds on, or null when "
+            "the layer can land on the default branch by itself."
+        ),
     )
 
 
@@ -142,6 +172,57 @@ Hard rules:
             "EventsNode or ActionsNode sources. Its value/value_at snapshot is an optional cached fallback."
         ),
     )
+    layers: list[ReportLayer] = Field(
+        default_factory=list,
+        description=(
+            "An optional plan of dependent pull requests. Leave empty unless the work is too large for one "
+            "reviewable PR and splits into layers that a reviewer can review one at a time. When the source "
+            "issue has a `## Stack`, `## Phases` or landing plan section, follow its layers. Otherwise decide "
+            f"yourself, and use between {MIN_REPORT_LAYERS} and {MAX_REPORT_LAYERS} layers in landing order. "
+            "When you fill this, the report title and summary describe the whole plan, and each layer "
+            "becomes its own report with its own pull request."
+        ),
+    )
+
+    @field_validator("layers", mode="before")
+    @classmethod
+    def drop_a_plan_with_a_layer_that_does_not_validate(cls, v: object) -> object:
+        # Pydantic checks each layer's own fields (a missing scope, a title over the length cap, a
+        # non-integer dependency) before `layers_form_a_plan` runs, and the presentation turn has no
+        # retry. So a malformed layer drops the whole plan here, and the report continues as a single
+        # pull request with its title and summary, the same as a plan with a blank layer.
+        if not isinstance(v, list):
+            return v
+        for index, entry in enumerate(v):
+            try:
+                ReportLayer.model_validate(entry)
+            except ValidationError as e:
+                logger.warning(
+                    "presentation: dropped layer plan, layer at index %d did not validate (%s)",
+                    index,
+                    _rejection_reason(e),
+                )
+                return []
+        return v
+
+    @field_validator("layers")
+    @classmethod
+    def layers_form_a_plan(cls, layers: list[ReportLayer]) -> list[ReportLayer]:
+        # A plan outside the bounds, or with a layer that has no title or scope, keeps the report a
+        # single pull request instead of failing the whole presentation turn. A dependency must point
+        # at an earlier layer, which keeps the order acyclic. A forward or self reference falls back
+        # to the previous layer, the usual shape of a stack, and the first layer falls back to no
+        # dependency.
+        if not MIN_REPORT_LAYERS <= len(layers) <= MAX_REPORT_LAYERS:
+            return []
+        if any(not layer.title.strip() or not layer.scope.strip() for layer in layers):
+            return []
+        return [
+            layer
+            if layer.depends_on is None or 0 <= layer.depends_on < index
+            else layer.model_copy(update={"depends_on": index - 1 if index else None})
+            for index, layer in enumerate(layers)
+        ]
 
     @field_validator("charts", mode="before")
     @classmethod
@@ -297,6 +378,11 @@ class ReportResearchOutput(BaseModel):
             "The report's whole typed impact-metric set, replaced with title, summary, and charts. "
             "Every entry has a bounded live EventsNode/ActionsNode Trends query; its snapshot is optional."
         ),
+    )
+    layers: list[ReportLayer] = Field(
+        default_factory=list,
+        description="The plan of dependent pull requests, when research split the work. Each layer becomes "
+        "a child report when the report settles ready.",
     )
     research_task_id: str | None = Field(
         default=None,
@@ -1462,6 +1548,7 @@ async def run_multi_turn_research(
         summary=presentation_result.summary,
         charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
+        layers=presentation_result.layers,
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,

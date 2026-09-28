@@ -164,7 +164,8 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     bcc: z.string().optional(),
     subject: z.string(),
     preheader: z.string().optional(),
-    text: z.string(),
+    // Emails authored through the API or MCP often carry html only.
+    text: z.string().optional(),
     html: z.string(),
 })
 

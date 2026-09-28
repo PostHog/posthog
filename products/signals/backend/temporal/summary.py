@@ -40,8 +40,9 @@ from products.signals.backend.quota import (
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
-from products.signals.backend.report_generation.research import ActionabilityChoice
+from products.signals.backend.report_generation.research import ActionabilityChoice, ReportLayer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
@@ -151,6 +152,7 @@ class ReportDecision:
     # Check specs the research run's verification turn authored, and the research task they are
     # attributed to. Empty for the no-repo branch, which does no research.
     checks: list[dict[str, Any]] = field(default_factory=list)
+    layers: list[dict[str, Any]] = field(default_factory=list)
     research_task_id: str | None = None
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
     # `None` for the no-repo branch, which does no research and so never asks.
@@ -458,6 +460,7 @@ class SignalReportSummaryWorkflow:
                     charts=agentic_result.charts,
                     metrics=agentic_result.metrics,
                     checks=agentic_result.checks or [],
+                    layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
                     pending_reason="agent_requested",
@@ -522,6 +525,7 @@ class SignalReportSummaryWorkflow:
                     metrics=decision.metrics,
                     checks=decision.checks,
                     checks_task_id=decision.research_task_id,
+                    layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
                     charts_enabled=decision.charts_enabled,
                 ),
@@ -834,6 +838,10 @@ class MarkReportReadyInput:
     checks: list[dict[str, Any]] | None = None
     # Task the check rows are attributed to: the research sandbox that authored the specs.
     checks_task_id: str | None = None
+    # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
+    # report in the same transaction. Empty or `None` creates none, which is also what an older
+    # workflow history replays as.
+    layers: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
     # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
@@ -865,6 +873,25 @@ def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) ->
     create_checks_from_specs(
         report=report,
         specs=specs,
+        attribution=(
+            ArtefactAttribution.from_task(input.checks_task_id)
+            if input.checks_task_id
+            else ArtefactAttribution.system()
+        ),
+    )
+
+
+def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> None:
+    """Create one child report per layer of the research plan, inside the ready transaction.
+
+    Unlike the checks, a layer the pipeline cannot store fails the transition: a plan with a missing
+    layer would start the layers above it on a base that does not exist.
+    """
+    if not input.layers:
+        return
+    create_layer_reports(
+        parent=report,
+        layers=[ReportLayer.model_validate(raw) for raw in input.layers],
         attribution=(
             ArtefactAttribution.from_task(input.checks_task_id)
             if input.checks_task_id
@@ -926,6 +953,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # just stored: written earlier it would name a metric the report does not have yet,
                 # and written later it could survive a rollback that took the metric with it.
                 _write_research_checks(report, input)
+                _write_stack_layers(report, input)
             return _ReportTransition(
                 run_count=report.run_count,
                 chart_count=len(report.charts or []),
@@ -1054,6 +1082,10 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
     else:
         await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+        # A plan never starts its own run, so its first layers start here, at the same settle point.
+        await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
+            team_id=input.team_id, parent_report_id=input.report_id
+        )
 
 
 @dataclass

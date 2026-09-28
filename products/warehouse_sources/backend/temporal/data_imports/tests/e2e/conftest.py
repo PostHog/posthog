@@ -180,7 +180,7 @@ async def run_external_data_job_workflow(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -222,7 +222,7 @@ async def run_external_data_job_workflow(
     if expected_rows_synced is not None:
         assert run.rows_synced == expected_rows_synced
 
-    mock_compact_table.assert_called()
+    mock_run_scheduled.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )
