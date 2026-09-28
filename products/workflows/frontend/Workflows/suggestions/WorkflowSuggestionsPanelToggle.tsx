@@ -14,7 +14,9 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
         workflowProposalsLogic({ id })
     )
     const { setOptimizationEnabled } = useActions(workflowProposalsLogic({ id }))
-    const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
+    const { workflowUserAccessLevel, workflow } = useValues(workflowLogic({ id }))
+    const notLiveReason =
+        !!workflow && workflow.status !== 'active' ? 'Suggestions need a live workflow. Enable it first.' : undefined
 
     return (
         <AccessControlAction
@@ -30,9 +32,10 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
                     checked={optimizationEnabled}
                     onChange={(checked) => setOptimizationEnabled(checked)}
                     // A failed read must not show "off" for a workflow that may be on.
-                    disabled={optimizationLoading || optimizationUnreadable || !!disabledReason}
+                    disabled={optimizationLoading || optimizationUnreadable || !!disabledReason || !!notLiveReason}
                     tooltip={
                         disabledReason ??
+                        notLiveReason ??
                         (optimizationUnreadable
                             ? 'Could not read whether suggestions are on for this workflow. Reload the page to try again.'
                             : 'PostHog reads how this workflow performs and suggests changes for you to review. Nothing reaches anyone until you approve a suggestion and publish it.')

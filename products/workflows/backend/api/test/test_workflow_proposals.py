@@ -387,6 +387,27 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft["exit_condition"] == "exit_only_at_end"
         assert {action["name"] for action in draft["actions"]} >= {"renamed"}
 
+    def test_the_workflow_list_counts_what_is_waiting(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        other_id = self._create_active_flow()
+        self._propose(flow_id, source_id="waiting:1")
+        self._propose(flow_id, source_id="waiting:2")
+        rejected = self._propose(flow_id, source_id="waiting:3")
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{rejected['id']}/reject/", {})
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
+        # Something waiting on a person sorts above the workflow edited most recently.
+        assert listed[0]["id"] == flow_id
+        counts = {item["id"]: item["pending_suggestions"] for item in listed}
+        assert counts[flow_id] == 2
+        assert counts[other_id] == 0
+        # A workflow with suggestions on but none waiting still reads as self-improving in the list.
+        enabled = {item["id"]: item["suggestions_enabled"] for item in listed}
+        assert enabled[flow_id] is True
+        assert enabled[other_id] is True
+        detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        assert "pending_suggestions" not in detail
+
     def test_the_evidence_step_must_be_one_the_workflow_has(self, _mock_flag):
         flow_id = self._create_active_flow()
         response = self.client.post(
