@@ -1214,23 +1214,23 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
     gateway = _hosted_gateway()
     gateway_token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
     try:
+        # Before the claim, so a transient provider lookup error stays retryable.
+        sandbox = _reconnect_review_sandbox(input.sandbox_id)
         _claim_once(run, "reviewer_started_at")
         timer = _StepTimer()
         try:
-            sandbox = _reconnect_review_sandbox(input.sandbox_id)
-            try:
-                result = _run_reviewer(sandbox, run, input.merge_base_sha, gateway_token, [token], timer, deadline)
-            finally:
-                # A destroy failure must not mask a completed review, because the verdict still has
-                # to be persisted and posted.
-                with timer.step("destroy_dispatch"):
-                    _destroy_sandbox_in_background(sandbox, str(run.id))
-                _save_step_timings(run, "timings_ms", timer.timings_ms)
-                activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
+            result = _run_reviewer(sandbox, run, input.merge_base_sha, gateway_token, [token], timer, deadline)
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
             # stamphog:read can read run.error without access to the repository.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
+        finally:
+            # A destroy failure must not mask a completed review, because the verdict still has to be
+            # persisted and posted.
+            with timer.step("destroy_dispatch"):
+                _destroy_sandbox_in_background(sandbox, str(run.id))
+            _save_step_timings(run, "timings_ms", timer.timings_ms)
+            activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
     finally:
         _release_reviewer_token(gateway, gateway_token)
 

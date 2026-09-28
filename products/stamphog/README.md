@@ -134,8 +134,8 @@ The workflow dismisses stale approvals first, waits out other in-flight reviewer
 The sandbox starts right after the stale-approval sweep and fetches the PR head while the context loads. The checkout starts once the context is stored and runs beside the pre-check and the bot wait. Each step is its own activity, and the workflow does every wait between them. A pre-check verdict posts first, and the workflow then tears down the unused sandbox.
 Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
 The server also reads every `AGENT_APPROVALS.md` that governs a changed file at the PR head, so the pre-check budgets the size gate like the sandbox does.
-When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox.
-A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox.
+When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox review.
+A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox review.
 Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
