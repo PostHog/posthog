@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -154,7 +154,6 @@ export function DataWarehouseQueryVariant(): JSX.Element {
 
 function DataWarehouseQueryInner(): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
     const [phase, setPhase] = useState<'value-prop' | 'setup'>(initialOnboardingPhase)

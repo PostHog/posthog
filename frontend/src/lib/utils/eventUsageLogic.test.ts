@@ -4,6 +4,8 @@ import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardin
 import {
     reportOnboardingCompleted,
     reportOnboardingStarted,
+    reportOnboardingStepCompleted,
+    reportOnboardingStepSkipped,
     type OnboardingEventProperties,
 } from 'scenes/onboarding/onboardingUsage'
 
@@ -56,8 +58,8 @@ describe('eventUsageLogic', () => {
 
         it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
             reportOnboardingStarted(properties)
-            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
+            reportOnboardingStepCompleted('install', undefined, properties)
+            reportOnboardingStepSkipped('install', undefined, properties)
             reportOnboardingCompleted('product_analytics', properties)
 
             for (const event of [

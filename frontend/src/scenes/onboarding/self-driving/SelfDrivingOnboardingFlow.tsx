@@ -8,7 +8,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { RealtimeCheckIndicator } from '../legacy/sdks/RealtimeCheckIndicator'
 import {
@@ -16,7 +15,7 @@ import {
     SELF_DRIVING_ONBOARDING_EVENT_PROPS,
     type SelfDrivingOnboardingStepId,
 } from '../onboardingEventUsageLogic'
-import { reportOnboardingStarted } from '../onboardingUsage'
+import { reportOnboardingStarted, reportOnboardingStepCompleted, reportOnboardingStepSkipped } from '../onboardingUsage'
 import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
@@ -113,7 +112,6 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     }, [])
     const { completeOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
-    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { reportOnboardingStepViewed, reportOnboardingInstallVerified } = useActions(onboardingEventUsageLogic)
     // The step list depends on the declared use case (persisted, so a refresh keeps the
     // conditional steps in place).

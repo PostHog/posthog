@@ -12,11 +12,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { type BillingFeatureType, type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
@@ -70,7 +70,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
     const { billing } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
     // When platform packages are surfaced after subscribing (experiment on), there are more features
     // to unlock beyond pay-as-you-go, so soften the paid CTA from "Unlock all features".

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -15,7 +15,6 @@ import { DataWarehouseValuePropVariant } from './DataWarehouseValuePropVariant'
 
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const isTableVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'table')
     const isQueryVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'query')

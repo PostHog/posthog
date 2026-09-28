@@ -10,8 +10,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
-import { LEGACY_ONBOARDING_EVENT_PROPS, type OnboardingEventProperties } from 'scenes/onboarding/onboardingUsage'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -63,7 +61,6 @@ import {
     ExperimentIdType,
     ExperimentStatsMethod,
     FunnelCorrelation,
-    OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
     InsightModel,
@@ -1384,58 +1381,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingAIReportRemoved: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
-    }
-    reportOnboardingAIReportSubscribed: (
-        role: string | null,
-        reportKey: string,
-        experimentArm: string | null
-    ) => {
-        experimentArm: string | null
-        reportKey: string
-        role: string | null
-    }
-    reportOnboardingProductToggled: (
-        productKey: string,
-        selected: boolean,
-        recommendationSource: string
-    ) => {
-        productKey: string
-        recommendationSource: string
-        selected: boolean
-    }
-    reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
-    }
-    reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
-    }
-    reportOnboardingUseCaseSelected: (
-        useCase: string,
-        recommendedProducts: readonly string[]
-    ) => {
-        recommendedProducts: readonly string[]
-        useCase: string
-    }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
     }
@@ -2019,43 +1964,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStepCompleted: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
-            stepKey,
-            productKey,
-            properties,
-        }),
-        reportOnboardingStepSkipped: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
-            stepKey,
-            productKey,
-            properties,
-        }),
-        reportOnboardingAIReportSubscribed: (role: string | null, reportKey: string, experimentArm: string | null) => ({
-            role,
-            reportKey,
-            experimentArm,
-        }),
-        reportOnboardingAIReportRemoved: (role: string | null, reportKey: string, experimentArm: string | null) => ({
-            role,
-            reportKey,
-            experimentArm,
-        }),
-        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
-            useCase,
-            recommendedProducts,
-        }),
-        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
-            productKey,
-            selected,
-            recommendationSource,
-        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -2777,56 +2685,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('product unsubscribed', {
                 product,
                 $set: { [property_key]: true },
-            })
-        },
-        // onboarding
-        reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
-            posthog.capture('onboarding step completed', {
-                step_key: stepKey,
-                // Optional — only set when the caller knows which product owns the step.
-                // Lets dashboards split step funnels by product without joining elsewhere.
-                ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingStepSkipped: ({ stepKey, productKey, properties }) => {
-            posthog.capture('onboarding step skipped', {
-                step_key: stepKey,
-                ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingAIReportSubscribed: ({ role, reportKey, experimentArm }) => {
-            posthog.capture('onboarding ai report subscribed', {
-                role,
-                report_key: reportKey,
-                experiment_arm: experimentArm,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingAIReportRemoved: ({ role, reportKey, experimentArm }) => {
-            posthog.capture('onboarding ai report removed', {
-                role,
-                report_key: reportKey,
-                experiment_arm: experimentArm,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
-            posthog.capture('onboarding use case selected', {
-                use_case: useCase,
-                recommended_products: recommendedProducts,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
-            posthog.capture('onboarding product toggled', {
-                product_key: productKey,
-                selected,
-                recommendation_source: recommendationSource,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {

@@ -9,9 +9,9 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
+import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
@@ -30,7 +30,6 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepSkipped, reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
     if (billingLoading) {
         return (
