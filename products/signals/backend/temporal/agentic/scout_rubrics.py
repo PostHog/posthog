@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.scout_harness.rubrics import fail_generation
@@ -26,6 +27,7 @@ class ScoutRubricGenerationInput:
 
 
 @activity.defn
+@scoped_temporal()
 @close_db_connections
 async def generate_scout_rubrics_activity(input: ScoutRubricGenerationInput) -> None:
     from products.signals.backend.scout_harness.rubrics_runner import (  # noqa: PLC0415 - avoids the Temporal runner import cycle
@@ -37,6 +39,7 @@ async def generate_scout_rubrics_activity(input: ScoutRubricGenerationInput) -> 
 
 
 @activity.defn
+@scoped_temporal()
 @close_db_connections
 async def fail_scout_rubrics_activity(input: ScoutRubricGenerationInput) -> None:
     await database_sync_to_async(fail_generation, thread_sensitive=True)(

@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.rubrics import (
     ScoutRubricSuggestion,
     ScoutRubricSuggestionBatch,
     default_criteria,
+    fail_generation,
     read_rubric_state,
     reserve_generation,
     save_rubric,
@@ -189,6 +190,8 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(reloaded["criteria"][0]["id"], "custom-checkout")
         self.assertEqual(reloaded["generation"]["status"], "completed")
         self.assertEqual(len(reloaded["generation"]["suggestions"]), 1)
+        fail_generation(self.team.id, str(self.config.id), generation.id, "A delayed activity reported a failure.")
+        self.assertEqual(self.client.get(self.url).json(), reloaded)
 
     def test_timed_out_generation_is_retryable_and_old_worker_cannot_replace_it(self) -> None:
         config = reserve_generation(self.team.id, str(self.config.id)).config

@@ -248,7 +248,11 @@ def fail_generation(team_id: int, config_id: str, generation_id: str, message: s
         if config is None:
             return
         state = read_rubric_state(config)
-        if state.generation is None or state.generation.id != generation_id:
+        if (
+            state.generation is None
+            or state.generation.id != generation_id
+            or state.generation.status not in (ScoutRubricGenerationStatus.QUEUED, ScoutRubricGenerationStatus.RUNNING)
+        ):
             return
         state.generation.status = ScoutRubricGenerationStatus.FAILED
         state.generation.error = message
