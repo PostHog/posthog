@@ -1965,13 +1965,17 @@ snapshots:
     components-product-empty-state--error-tracking-needs-setup--light:
         hash: v1.k794b7964.be69fb2d7626d2f631ee941b123d04e42a5d237dc6bbb80dd790b41b0242bdc0.FX15-USN-cvQDOl2KiW7Do-QQdO4k3F5oqYk8Pk89fE
     components-product-empty-state--error-tracking-needs-setup-new-wizard--dark:
-        hash: v1.k794b7964.0d34f53819734a958ae3a1f0ba0f3fa5c9047f207fbf2918baff781ad85b8633.ul7zqUagfeWXeADQMOCCm1MAZFah0BMDpXl0N59N4F8
+        hash: v1.k794b7964.b01662684cc1beca4f47470388b52aa881b4a2839da90a49425b6131cca1f256.5Kj1jy3sYwy-jKsVcdH4tnBPNgMv3l_ceQT-kHSej8M
     components-product-empty-state--error-tracking-needs-setup-new-wizard--light:
-        hash: v1.k794b7964.df01ad4718becd1251b8a036d13d3bda3bb9ab9b5cbd1b2799024adcc7bc01d1.xUk5JSNd0b8og8Gvtbkf-QoNtBzSqXIgd3a_wuNGhV4
+        hash: v1.k794b7964.5ef07ad85b5c6d8eaab8c01ed0bb37d0b5b48a8d1c171e53ae7e286441eeba1f.13zxx_SQqtq4ddUqG4VFHRTUDcCy5QfZos9rbISXHTM
     components-product-empty-state--error-tracking-waiting-for-data--dark:
         hash: v1.k794b7964.f2a1ee553c96a22e20a1b9be7e92e19e0ada146b5aebc004aceb50b8645b4d64.pktEH1C9D3Ds9ErUnVBH9yvhEbFUxlMoUXAaRdsCsWI
     components-product-empty-state--error-tracking-waiting-for-data--light:
         hash: v1.k794b7964.153341c2cb3be4ca5f36d85b9acb051d61359bf976fc95a065ba15f9884225f7.Y1A6T5VkZ5TIAHbi4fTUePu7Wtyn-P45mtaOPF5XSVw
+    components-product-empty-state--error-tracking-waiting-for-data-new-wizard--dark:
+        hash: v1.k794b7964.105510be5ccb616f7d6f8fa1c6aacc7d5981859dca698daa66f265754e24c888.33DC63BUHL__QE_8nh6PZVP8MaRbM4bNKJHTj71JdJU
+    components-product-empty-state--error-tracking-waiting-for-data-new-wizard--light:
+        hash: v1.k794b7964.1c2478e9c9e74eb47d896585f4f78e377c27a838e4f60cb35f7e685709d4fff9.xW8y7FqybbzrWn2szBUXyfUTJMNMrCVmSVBDVa6Fpbg
     components-product-empty-state--evaluations-needs-setup--dark:
         hash: v1.k794b7964.d66a917dd9bbb71fe2c50f81b2c5a873af729170292973601909c77c6ed54304.X1ueW3Kooz45WUhf9edIjjWCpiT9MwXfZAuclmpxL_M
     components-product-empty-state--evaluations-needs-setup--light:
