@@ -365,7 +365,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_get_query_status.return_value = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
 
         query = AssistantTrendsQuery(series=[])
-        query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user, max_wait_s=2)
+        query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user, max_wait_s=0)
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
             with self.assertRaises(QueryStillRunningError) as context:
@@ -373,7 +373,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
         self.assertEqual(context.exception.query_id, "test-query-id")
-        self.assertLessEqual(mock_get_query_status.call_count, 5)
+        self.assertEqual(mock_get_query_status.call_count, 1)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

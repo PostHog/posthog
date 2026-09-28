@@ -74,6 +74,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotIn("You are given a table with the results of a SQL query", result.content)
         self.assertNotIn("Here is the results table", result.content)
 
+    @patch("ee.hogai.tools.execute_sql.mcp_tool.MCP_QUERY_WAIT_BUDGET_S", 0)
     @patch("ee.hogai.context.insight.query_executor.asyncio.sleep")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
