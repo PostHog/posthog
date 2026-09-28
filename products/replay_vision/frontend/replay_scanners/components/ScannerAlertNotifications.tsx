@@ -10,17 +10,7 @@ import {
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 
 import { VISION_ALERT_NOTIFICATION_TYPE_OPTIONS, scannerAlertNotificationLogic } from '../scannerAlertNotificationLogic'
-import { PendingVisionAlertNotification, VISION_ALERT_NOTIFICATION_TYPE_SLACK } from '../scannerAlertUtils'
-
-function pendingDestinationView(notification: PendingVisionAlertNotification): {
-    title: string
-    detail?: string
-} {
-    if (notification.type === VISION_ALERT_NOTIFICATION_TYPE_SLACK) {
-        return { title: 'Slack', detail: `#${notification.slackChannelName ?? 'channel'}` }
-    }
-    return { title: 'Webhook', detail: notification.webhookUrl }
-}
+import { VISION_ALERT_NOTIFICATION_TYPE_SLACK, pendingVisionAlertNotificationView } from '../scannerAlertUtils'
 
 export function ScannerAlertNotifications(): JSX.Element {
     const {
@@ -66,7 +56,7 @@ export function ScannerAlertNotifications(): JSX.Element {
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
             key: `${notification.type}-${index}`,
-            ...pendingDestinationView(notification),
+            ...pendingVisionAlertNotificationView(notification, slackIntegrations),
             onRemove: () => removePendingNotification(index),
         })
     )
