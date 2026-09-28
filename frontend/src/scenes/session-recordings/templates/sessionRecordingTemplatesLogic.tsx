@@ -261,12 +261,9 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
         previewFilters: [
             (s) => [s.filterGroup],
             (filterGroup: Partial<RecordingUniversalFilters>): UniversalFilterValue[] => {
-                const innerGroup = filterGroup.filter_group?.values[0]
-                return innerGroup && isUniversalGroupFilterLike(innerGroup)
-                    ? innerGroup.values.filter(
-                          (value): value is UniversalFilterValue => !isUniversalGroupFilterLike(value)
-                      )
-                    : []
+                const leaves = (values: UniversalFiltersGroupValue[]): UniversalFilterValue[] =>
+                    values.flatMap((value) => (isUniversalGroupFilterLike(value) ? leaves(value.values) : [value]))
+                return leaves(filterGroup.filter_group?.values ?? [])
             },
         ],
         hasTemplateFilters: [

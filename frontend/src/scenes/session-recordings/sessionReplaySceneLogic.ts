@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -63,6 +64,9 @@ export type sessionReplaySceneLogicType = MakeLogicType<
     sessionReplaySceneLogicMeta
 >
 
+const templatesInPanelUrl = (): string =>
+    combineUrl(urls.replay(ReplayTabs.Home), { showFilters: true, filtersTab: 'templates' }).url
+
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
     connect(() => ({
@@ -88,10 +92,15 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setTab: ({ tab }) => {
             if (tab === ReplayTabs.Templates) {
                 actions.hideNewBadge()
+            }
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (values.tab === ReplayTabs.Templates && values.templatesInFiltersPanel) {
+                router.actions.replace(templatesInPanelUrl())
             }
         },
     })),
@@ -147,9 +156,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 const candidateTab = tab as ReplayTabs
                 const validTab = Object.values(ReplayTabs).includes(candidateTab) ? candidateTab : ReplayTabs.Home
                 if (validTab === ReplayTabs.Templates && values.templatesInFiltersPanel) {
-                    router.actions.replace(
-                        combineUrl(urls.replay(ReplayTabs.Home), { showFilters: true, filtersTab: 'templates' }).url
-                    )
+                    router.actions.replace(templatesInPanelUrl())
                     return
                 }
                 if (validTab !== values.tab) {
