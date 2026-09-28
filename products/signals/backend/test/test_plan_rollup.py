@@ -147,13 +147,18 @@ class TestPlanRollup(BaseTest):
 
     @parameterized.expand(
         [
-            ("ready", SignalReport.Status.READY, {"title": "plan", "summary": "s"}),
-            ("pending_input", SignalReport.Status.PENDING_INPUT, {"title": "plan", "summary": "s", "error": "e"}),
-            ("failed", SignalReport.Status.FAILED, {"error": "e"}),
+            ("ready", SignalReport.Status.READY, "plan", "s", None),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, "plan", "s", "e"),
+            ("failed", SignalReport.Status.FAILED, None, None, "e"),
         ]
     )
     def test_plan_closes_when_its_own_run_lands_after_its_steps(
-        self, _name: str, landing: SignalReport.Status, transition_kwargs: dict[str, str]
+        self,
+        _name: str,
+        landing: SignalReport.Status,
+        title: str | None,
+        summary: str | None,
+        error: str | None,
     ):
         parent = self._report("plan", status=SignalReport.Status.IN_PROGRESS)
         child = self._report("step")
@@ -164,7 +169,7 @@ class TestPlanRollup(BaseTest):
         assert parent.status == SignalReport.Status.IN_PROGRESS
 
         with self.captureOnCommitCallbacks(execute=True):
-            parent.save(update_fields=parent.transition_to(landing, **transition_kwargs))
+            parent.save(update_fields=parent.transition_to(landing, title=title, summary=summary, error=error))
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
 

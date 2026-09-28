@@ -194,7 +194,9 @@ def has_open_or_merged_pull_request(*, team_id: int, report_ids: Collection[str]
         SignalReportPullRequest.State.MERGED,
         SignalReportPullRequest.State.UNKNOWN,
     }
-    prs_by_report = fetch_implementation_prs_for_reports(list(report_ids), team_id=team_id)
+    # Writer-pinned like every other read in this module: a pull request attached moments ago must
+    # not read as absent and buy a second one.
+    prs_by_report = fetch_implementation_prs_for_reports(list(report_ids), team_id=team_id, using="default")
     return {report_id for report_id, prs in prs_by_report.items() if any(pr.state in live_states for pr in prs)}
 
 
