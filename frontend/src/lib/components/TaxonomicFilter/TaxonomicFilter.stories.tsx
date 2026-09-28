@@ -18,6 +18,7 @@ import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterTy
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
+import { resetEventMatchMemoryForTests } from './taxonomicEventMatchLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -846,13 +847,21 @@ export const EmptyEventsWithStaleToggle: Story = {
     },
 }
 
-function EventMatchStoryRender(args: TaxonomicFilterProps): JSX.Element {
+function EventMatchStoryRender({
+    resetMatches = false,
+    ...args
+}: TaxonomicFilterProps & { resetMatches?: boolean }): JSX.Element {
     useMountedLogic(actionsModel)
     const { setSearchQuery } = useActions(
         taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
     )
 
-    useOnMountEffect(() => setSearchQuery('browser capture'))
+    useOnMountEffect(() => {
+        if (resetMatches) {
+            resetEventMatchMemoryForTests()
+        }
+        setSearchQuery('browser capture')
+    })
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -909,7 +918,7 @@ export const EmptyAllTabWithEventMatch: Story = {
 
 /** While the decision model is still answering, the empty state says so. */
 export const EmptyEventsWithEventMatchLoading: Story = {
-    render: EventMatchStoryRender,
+    render: (args) => <EventMatchStoryRender {...args} resetMatches />,
     args: {
         taxonomicFilterLogicKey: 'events-event-match-loading',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
