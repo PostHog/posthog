@@ -658,7 +658,7 @@ class TestRecordRunTokenUsageMetrics:
 @pytest.mark.requires_secrets
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "origin_product,origin_key,wakes,spend_failure,uses_gateway",
+    "origin_product,origin_key,wakes,cost_failure,uses_gateway",
     [
         (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, True),
         (Task.OriginProduct.WORKFLOW, "job:step:1", True, True, True),
@@ -672,7 +672,7 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     origin_product: str,
     origin_key: str | None,
     wakes: bool,
-    spend_failure: bool,
+    cost_failure: bool,
     uses_gateway: bool,
 ) -> None:
     task = test_task_run.task
@@ -681,7 +681,7 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     task.save(update_fields=["origin_product", "origin_key"])
     test_task_run.output = {"final_message": "done"}
     test_task_run.state = (
-        {"token_spend": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_spend_incomplete": True}
+        {"token_cost": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_cost_incomplete": True}
     )
     test_task_run.save(update_fields=["output", "state"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
@@ -690,8 +690,8 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
         patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume,
         patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
         patch(
-            "products.tasks.backend.logic.services.gateway_usage._compute_spend_source",
-            side_effect=OperationalError("unavailable") if spend_failure else None,
+            "products.tasks.backend.logic.services.gateway_usage._compute_cost_source",
+            side_effect=OperationalError("unavailable") if cost_failure else None,
             return_value=None,
         ),
     ):
@@ -701,7 +701,7 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     assert resume.call_count == (2 if wakes else 0)
     assert sum(call.kwargs.get("event") == "task_run_completed" for call in capture.call_args_list) == 1
     test_task_run.refresh_from_db()
-    assert ("compute_spend" in test_task_run.state) is not spend_failure
+    assert ("compute_cost" in test_task_run.state) is not cost_failure
     if wakes:
         assert resume.call_args.kwargs["origin_key"] == "job:step:1"
         assert resume.call_args.kwargs["status"] == "completed"

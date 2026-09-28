@@ -87,11 +87,11 @@ class WizardCloudRunDTO:
 
 
 @dataclass(frozen=True)
-class TaskRunSpend:
-    """Recorded spend in integer cents, or None when a source is unavailable."""
+class TaskRunCost:
+    """Recorded provider costs in integer USD cents, or None when a source is unavailable."""
 
-    token_spend: int | None
-    compute_spend: int | None
+    token_cost: int | None
+    compute_cost: int | None
 
 
 @dataclass(frozen=True)

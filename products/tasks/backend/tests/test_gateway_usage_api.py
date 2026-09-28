@@ -76,7 +76,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
         if environment == TaskRun.Environment.CLOUD:
-            assert run.state == {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
+            assert run.state == {"unprocessed_request_ids": ["request_1"], "token_cost": {}}
             self.schedule_usage.assert_called_once()
         else:
             assert run.state == {}
@@ -119,7 +119,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         run.refresh_from_db()
         assert run.state == (
-            {} if failure == "state_write" else {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
+            {} if failure == "state_write" else {"unprocessed_request_ids": ["request_1"], "token_cost": {}}
         )
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
@@ -178,7 +178,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         run.status = TaskRun.Status.COMPLETED
         run.state = {
             "unprocessed_request_ids": [],
-            "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["request_1"]}}},
+            "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request_1"]}}},
         }
         run.save(update_fields=["status", "state"])
 
@@ -186,7 +186,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.status == TaskRun.Status.COMPLETED
         assert run.state["unprocessed_request_ids"] == []
-        assert run.state["token_spend"]["model"]["provider"]["spend_microusd"] == 4
+        assert run.state["token_cost"]["model"]["provider"]["cost_microusd"] == 4
         assert self._post(run, "request_2").status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request_2"]
@@ -206,13 +206,13 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_ordinary_patch_cannot_write_queue_or_spend(self) -> None:
+    def test_ordinary_patch_cannot_write_queue_or_cost(self) -> None:
         run = self._run()
         run.state = {
             "unprocessed_request_ids": ["existing"],
-            "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
-            "token_spend_incomplete": True,
-            "compute_spend": 2,
+            "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
+            "token_cost_incomplete": True,
+            "compute_cost": 2,
         }
         run.save(update_fields=["state"])
 
@@ -221,44 +221,44 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             {
                 "state": {
                     "unprocessed_request_ids": ["forged"],
-                    "token_spend": {},
-                    "token_spend_incomplete": False,
-                    "compute_spend": 999,
+                    "token_cost": {},
+                    "token_cost_incomplete": False,
+                    "compute_cost": 999,
                 },
                 "state_append": {"unprocessed_request_ids": "forged"},
                 "state_remove_keys": [
                     "unprocessed_request_ids",
-                    "token_spend",
-                    "token_spend_incomplete",
-                    "compute_spend",
+                    "token_cost",
+                    "token_cost_incomplete",
+                    "compute_cost",
                 ],
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["state"]["token_spend_incomplete"] is True
+        assert response.json()["state"]["token_cost_incomplete"] is True
         run.refresh_from_db()
         assert run.state == {
             "unprocessed_request_ids": ["existing"],
-            "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
-            "token_spend_incomplete": True,
-            "compute_spend": 2,
+            "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
+            "token_cost_incomplete": True,
+            "compute_cost": 2,
         }
 
     @parameterized.expand([(False, True), (True, True), (False, False)])
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
-    @patch("products.tasks.backend.logic.services.gateway_usage._compute_spend_source", return_value=Decimal("0.12"))
-    def test_terminal_patch_returns_spend_without_blocking_completion(
-        self, refresh_fails: bool, uses_gateway: bool, compute_spend: Mock, signal: Mock
+    @patch("products.tasks.backend.logic.services.gateway_usage._compute_cost_source", return_value=Decimal("0.12"))
+    def test_terminal_patch_returns_cost_without_blocking_completion(
+        self, refresh_fails: bool, uses_gateway: bool, compute_cost: Mock, signal: Mock
     ) -> None:
         run = self._run()
-        run.state = {"unprocessed_request_ids": [], "token_spend": {}, "compute_spend": 7}
+        run.state = {"unprocessed_request_ids": [], "token_cost": {}, "compute_cost": 7}
         if not uses_gateway:
-            run.state = {"token_spend_incomplete": True, "compute_spend": 7}
+            run.state = {"token_cost_incomplete": True, "compute_cost": 7}
         run.save(update_fields=["state"])
         if refresh_fails:
-            compute_spend.side_effect = OperationalError("unavailable")
+            compute_cost.side_effect = OperationalError("unavailable")
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/tasks/{run.task_id}/runs/{run.id}/",
@@ -268,6 +268,6 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert response.json()["state"]["compute_spend"] == run.state["compute_spend"] == (7 if refresh_fails else 12)
+        assert response.json()["state"]["compute_cost"] == run.state["compute_cost"] == (7 if refresh_fails else 12)
         assert response.json()["updated_at"] == run.updated_at.isoformat().replace("+00:00", "Z")
         signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)

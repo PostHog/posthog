@@ -42,9 +42,10 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
-`state.token_spend_incomplete` is true when gateway cost tracking does not cover the whole run.
+Run accounting records provider costs. Each product calculates customer spend separately.
+`state.token_cost_incomplete` is true when gateway cost tracking does not cover the whole run.
 Treat recorded token costs as partial when this read-only marker is set.
-Cloud runs record `state.compute_spend` independently of gateway token tracking.
+Cloud runs record `state.compute_cost` independently of gateway token tracking.
 
 ## Event delivery
 

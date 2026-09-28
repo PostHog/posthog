@@ -10,12 +10,12 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.tasks.backend.facade.billing import TaskRunSpend, get_task_run_spend, get_task_spend
+from products.tasks.backend.facade.billing import TaskRunCost, get_task_cost, get_task_run_cost
 from products.tasks.backend.logic.services.gateway_usage import (
     process_pending_gateway_usage,
     record_gateway_routing,
     record_generation_request,
-    refresh_task_run_spend,
+    refresh_task_run_cost,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
@@ -24,7 +24,7 @@ from products.tasks.backend.models import SandboxSession, Task, TaskRun
 @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
 class TestGatewayUsage(BaseTest):
     def _run(self, *, task: Task | None = None, status: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
-        task = task or Task.objects.create(team=self.team, title="Spend test", description="")
+        task = task or Task.objects.create(team=self.team, title="Cost test", description="")
         run = TaskRun.objects.create(team=self.team, task=task, status=status, environment=TaskRun.Environment.CLOUD)
         record_gateway_routing(run_id=run.id, team_id=self.team.id, uses_gateway=True)
         return run
@@ -33,14 +33,14 @@ class TestGatewayUsage(BaseTest):
         TaskRun.update_state_atomic(run.id, updates={"unprocessed_request_ids": ids})
 
     def _response(
-        self, request_id: str, spend: object, *, model: str = "model-a", provider: str = "provider-a", status: int = 200
+        self, request_id: str, cost: object, *, model: str = "model-a", provider: str = "provider-a", status: int = 200
     ) -> MagicMock:
         response = MagicMock(
             status=status,
             json=AsyncMock(
                 return_value={
                     "request_id": request_id,
-                    "cost_usd": spend,
+                    "cost_usd": cost,
                     "model": model,
                     "provider": provider,
                 }
@@ -49,11 +49,11 @@ class TestGatewayUsage(BaseTest):
         response.__aenter__.return_value = response
         return response
 
-    def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunSpend:
+    def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunCost:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
     @patch("aiohttp.ClientSession._request")
-    def test_records_spend_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
+    def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
         run = self._run()
         self._report(run, ["parent", "subagent", "other-model", "second-turn", "parent"])
         get.side_effect = [
@@ -62,27 +62,27 @@ class TestGatewayUsage(BaseTest):
             self._response("other-model", "0.000009", model="model-b"),
             self._response("second-turn", "0.005"),
         ]
-        assert self._process(run).token_spend == 2
+        assert self._process(run).token_cost == 2
         assert get.call_count == 4
         assert get.call_args.kwargs["timeout"].total == 15
         run.refresh_from_db()
         assert run.state == {
             "unprocessed_request_ids": [],
-            "token_spend": {
+            "token_cost": {
                 "model-a": {
-                    "provider-a": {"spend_microusd": 10_000, "request_ids": ["parent", "second-turn"]},
-                    "provider-b": {"spend_microusd": 10_001, "request_ids": ["subagent"]},
+                    "provider-a": {"cost_microusd": 10_000, "request_ids": ["parent", "second-turn"]},
+                    "provider-b": {"cost_microusd": 10_001, "request_ids": ["subagent"]},
                 },
-                "model-b": {"provider-a": {"spend_microusd": 9, "request_ids": ["other-model"]}},
+                "model-b": {"provider-a": {"cost_microusd": 9, "request_ids": ["other-model"]}},
             },
-            "compute_spend": None,
+            "compute_cost": None,
         }
         get.reset_mock()
-        assert self._process(run).token_spend == 2
+        assert self._process(run).token_cost == 2
         get.assert_not_called()
 
     @patch("aiohttp.ClientSession._request")
-    def test_overlapping_worker_pass_preserves_new_ids_and_adds_spend_once(self, get: Mock) -> None:
+    def test_overlapping_worker_pass_preserves_new_ids_and_adds_cost_once(self, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
         response = self._response("request-1", "0.015")
@@ -95,17 +95,17 @@ class TestGatewayUsage(BaseTest):
             return response
 
         get.side_effect = other_worker
-        assert self._process(run).token_spend == 2
+        assert self._process(run).token_cost == 2
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-2"]
-        assert run.state["token_spend"]["model-a"]["provider-a"] == {
-            "spend_microusd": 15_000,
+        assert run.state["token_cost"]["model-a"]["provider-a"] == {
+            "cost_microusd": 15_000,
             "request_ids": ["request-1"],
         }
 
     @parameterized.expand([("unsettled",), ("connection_timeout",), ("body_timeout",)])
     @patch("aiohttp.ClientSession._request")
-    def test_unavailable_spend_stays_queued_until_a_later_pass(self, failure: str, get: Mock) -> None:
+    def test_unavailable_cost_stays_queued_until_a_later_pass(self, failure: str, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.CANCELLED)
         self._report(run, ["request-1"])
         get.return_value = self._response("request-1", "0", status=404)
@@ -114,13 +114,13 @@ class TestGatewayUsage(BaseTest):
         elif failure == "body_timeout":
             get.return_value.status = 200
             get.return_value.json.side_effect = TimeoutError
-        assert self._process(run).token_spend == 0
+        assert self._process(run).token_cost == 0
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
-        assert run.state["token_spend"] == {}
+        assert run.state["token_cost"] == {}
         get.side_effect = None
         get.return_value = self._response("request-1", "0.015")
-        assert self._process(run).token_spend == 2
+        assert self._process(run).token_cost == 2
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == []
 
@@ -133,36 +133,36 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["priced", "missing"]
         get.return_value = self._response("priced", "0.10")
-        assert self._process(run, limit=1).token_spend == 10
+        assert self._process(run, limit=1).token_cost == 10
         assert get.call_args.args[1].endswith("/v1/usage/priced")
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["missing"]
 
     @parameterized.expand([("0",), ("0.000001",)])
     @patch("aiohttp.ClientSession._request")
-    def test_subcent_spend_is_processed_without_losing_precision(self, spend: str, get: Mock) -> None:
+    def test_subcent_cost_is_processed_without_losing_precision(self, cost: str, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
-        get.return_value = self._response("request-1", spend)
-        assert self._process(run).token_spend == 0
+        get.return_value = self._response("request-1", cost)
+        assert self._process(run).token_cost == 0
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == []
-        assert run.state["token_spend"]["model-a"]["provider-a"]["spend_microusd"] == int(Decimal(spend) * 1_000_000)
+        assert run.state["token_cost"]["model-a"]["provider-a"]["cost_microusd"] == int(Decimal(cost) * 1_000_000)
 
     @parameterized.expand([("negative", "-1"), ("nan", "NaN"), ("float", 0.5), ("exponent", "1e999999")])
     @patch("aiohttp.ClientSession._request")
-    def test_invalid_gateway_spend_stays_queued(self, _name: str, spend: object, get: Mock) -> None:
+    def test_invalid_gateway_cost_stays_queued(self, _name: str, cost: object, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
-        get.return_value = self._response("request-1", spend)
-        assert self._process(run).token_spend == 0
+        get.return_value = self._response("request-1", cost)
+        assert self._process(run).token_cost == 0
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
-        assert run.state["token_spend"] == {}
+        assert run.state["token_cost"] == {}
 
     @parameterized.expand([(True,), (False,)])
     @patch("aiohttp.ClientSession._request")
-    def test_resume_preserves_pending_ids_and_processed_spend(self, fully_tracked: bool, get: Mock) -> None:
+    def test_resume_preserves_pending_ids_and_processed_cost(self, fully_tracked: bool, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.COMPLETED)
         self._report(run, ["old-request", "pending"])
         get.return_value = self._response("old-request", "0.015")
@@ -172,20 +172,20 @@ class TestGatewayUsage(BaseTest):
         record_gateway_routing(run_id=run.id, team_id=self.team.id, uses_gateway=True)
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["pending"]
-        expected_spend = 2 if fully_tracked else None
-        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == expected_spend
-        assert get_task_spend(team_id=self.team.id, task_id=run.task_id).token_spend == expected_spend
+        expected_cost = 2 if fully_tracked else None
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost == expected_cost
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost == expected_cost
         run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
         self._report(run, ["old-request", "pending"])
         get.side_effect = [self._response("old-request", "0.015"), self._response("pending", "0.005")]
-        assert self._process(run).token_spend == expected_spend
+        assert self._process(run).token_cost == expected_cost
         run.refresh_from_db()
-        assert run.state["token_spend"]["model-a"]["provider-a"]["request_ids"] == ["old-request", "pending"]
-        assert run.state["token_spend"]["model-a"]["provider-a"]["spend_microusd"] == 20_000
+        assert run.state["token_cost"]["model-a"]["provider-a"]["request_ids"] == ["old-request", "pending"]
+        assert run.state["token_cost"]["model-a"]["provider-a"]["cost_microusd"] == 20_000
 
     @patch("aiohttp.ClientSession._request")
-    def test_getters_use_recorded_spend_and_round_across_runs(self, get: Mock) -> None:
+    def test_getters_use_recorded_cost_and_round_across_runs(self, get: Mock) -> None:
         first = self._run(status=TaskRun.Status.FAILED)
         second = self._run(task=first.task, status=TaskRun.Status.CANCELLED)
         now = timezone.now()
@@ -207,24 +207,22 @@ class TestGatewayUsage(BaseTest):
             get.return_value = self._response(request_id, "0.005")
             self._process(run)
         get.reset_mock()
-        assert get_task_run_spend(run_id=first.id, team_id=self.team.id) == TaskRunSpend(token_spend=0, compute_spend=0)
-        assert get_task_run_spend(run_id=second.id, team_id=self.team.id) == TaskRunSpend(
-            token_spend=0, compute_spend=0
-        )
+        assert get_task_run_cost(run_id=first.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
+        assert get_task_run_cost(run_id=second.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
         with self.assertNumQueries(3):
-            assert get_task_spend(team_id=self.team.id, task_id=first.task_id) == TaskRunSpend(
-                token_spend=1, compute_spend=1
+            assert get_task_cost(team_id=self.team.id, task_id=first.task_id) == TaskRunCost(
+                token_cost=1, compute_cost=1
             )
         get.assert_not_called()
 
-    def test_untracked_runs_have_no_recorded_token_spend(self) -> None:
+    def test_untracked_runs_have_no_recorded_token_cost(self) -> None:
         run = self._run()
-        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 0
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost == 0
         run.state = {}
         run.save(update_fields=["state"])
-        assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend is None
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
 
-    def test_compute_spend_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
+    def test_compute_cost_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
         run = self._run()
         now = timezone.now()
         for name, attributed in (("prewarm", None), ("claimed", now - timedelta(hours=1))):
@@ -242,17 +240,17 @@ class TestGatewayUsage(BaseTest):
                 user_attributed_at=attributed,
                 ended_at=now,
             )
-        spend = get_task_run_spend(run_id=run.id, team_id=self.team.id)
+        cost = get_task_run_cost(run_id=run.id, team_id=self.team.id)
         card = COMPUTE_RATE_CARDS[-1]
         expected = int(((card.cpu_core_second_usd + card.memory_gib_second_usd) * 3600 * 100).quantize(Decimal(1)))
-        assert spend.compute_spend == expected
-        assert get_task_spend(team_id=self.team.id, task_id=run.task_id) == spend
+        assert cost.compute_cost == expected
+        assert get_task_cost(team_id=self.team.id, task_id=run.task_id) == cost
         run.refresh_from_db()
-        assert "compute_spend" not in run.state
-        assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id) == spend
+        assert "compute_cost" not in run.state
+        assert refresh_task_run_cost(run_id=run.id, team_id=self.team.id) == cost
         run.refresh_from_db()
-        assert run.state["compute_spend"] == expected
-        assert set(run.state) == {"unprocessed_request_ids", "token_spend", "compute_spend"}
+        assert run.state["compute_cost"] == expected
+        assert set(run.state) == {"unprocessed_request_ids", "token_cost", "compute_cost"}
 
     @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:
@@ -266,8 +264,8 @@ class TestGatewayUsage(BaseTest):
         with patch.object(TaskRun, "track_structured_result") as track_result:
             record_gateway_routing(run_id=run.id, team_id=run.team_id, uses_gateway=True)
             record_generation_request(run_id=run.id, team_id=run.team_id, request_id="late-request")
-            assert self._process(run).token_spend == 2
-            assert get_task_run_spend(run_id=run.id, team_id=self.team.id).token_spend == 2
+            assert self._process(run).token_cost == 2
+            assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost == 2
             track_result.assert_not_called()
         run.refresh_from_db()
         assert run.updated_at == completed_updated_at

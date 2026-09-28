@@ -14,7 +14,7 @@ from asgiref.sync import async_to_sync
 from pytest_mock import MockerFixture
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.facade.billing import get_task_run_spend
+from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
@@ -168,7 +168,7 @@ def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     test_task_run.refresh_from_db()
     test_task_run.state["unprocessed_request_ids"] = ["pending-request"]
     if not uses_gateway:
-        test_task_run.state = {"token_spend_incomplete": True}
+        test_task_run.state = {"token_cost_incomplete": True}
     test_task_run.save(update_fields=["state"])
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.stop_agent_server.return_value.exit_code = 0
@@ -180,10 +180,10 @@ def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     def publish_complete(*_args, **_kwargs):
         test_task_run.refresh_from_db()
         assert (
-            test_task_run.state["compute_spend"]
-            == get_task_run_spend(run_id=test_task_run.id, team_id=test_task_run.team_id).compute_spend
+            test_task_run.state["compute_cost"]
+            == get_task_run_cost(run_id=test_task_run.id, team_id=test_task_run.team_id).compute_cost
         )
-        assert test_task_run.state["compute_spend"] > 0
+        assert test_task_run.state["compute_cost"] > 0
         return True
 
     publish = mocker.patch(
@@ -203,11 +203,11 @@ def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     accounting_session.refresh_from_db()
     assert accounting_session.ended_at is not None
     test_task_run.refresh_from_db()
-    assert test_task_run.state["compute_spend"] > 0
+    assert test_task_run.state["compute_cost"] > 0
     if uses_gateway:
         assert test_task_run.state["unprocessed_request_ids"] == ["pending-request"]
     else:
-        assert get_task_run_spend(run_id=test_task_run.id, team_id=test_task_run.team_id).token_spend is None
+        assert get_task_run_cost(run_id=test_task_run.id, team_id=test_task_run.team_id).token_cost is None
 
 
 @pytest.mark.django_db
@@ -235,12 +235,12 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
         "sandbox_jwt_kid": "fake-key",
         "sandbox_backend": "modal",
     }
-    accounting_state: dict[str, object] = {"unprocessed_request_ids": [], "token_spend": {}}
+    accounting_state: dict[str, object] = {"unprocessed_request_ids": [], "token_cost": {}}
     test_task_run.state = {"other": "preserved", **connection, **accounting_state}
     test_task_run.save(update_fields=["state"])
     if refresh_fails:
         mocker.patch(
-            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.refresh_task_run_spend",
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.refresh_task_run_cost",
             side_effect=OperationalError("unavailable"),
         )
     sandbox = mocker.Mock(id="sandbox-123")
@@ -264,7 +264,7 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
     assert test_task_run.state == (
         {"other": "preserved", **accounting_state}
         | ({} if current_sandbox == "sandbox-123" else connection)
-        | ({} if refresh_fails else {"compute_spend": None})
+        | ({} if refresh_fails else {"compute_cost": None})
     )
 
 

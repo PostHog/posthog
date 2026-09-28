@@ -15,7 +15,7 @@ from posthog.models import Organization, Team
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
-from products.tasks.backend.facade.billing import get_task_run_spend
+from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task import utils
@@ -470,7 +470,7 @@ class TestProvisioningBoundaries:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        "task_runtime,tokens,initializes_spend,incomplete",
+        "task_runtime,tokens,initializes_cost,incomplete",
         [
             ("acp", ("phe_abc",), True, False),
             ("pi", ("phe_abc",), False, True),
@@ -480,13 +480,13 @@ class TestProvisioningBoundaries:
             ("acp", (RuntimeError("routing failed"), "phe_abc"), True, True),
         ],
     )
-    def test_gateway_spend_tracks_routing_across_provisioning_attempts(
+    def test_gateway_cost_tracks_routing_across_provisioning_attempts(
         self,
         mint_settings: Settings,
         test_task_run: TaskRun,
         task_runtime: str,
         tokens: tuple[str | None | RuntimeError, ...],
-        initializes_spend: bool,
+        initializes_cost: bool,
         incomplete: bool,
     ) -> None:
         ctx = self._ctx()
@@ -500,10 +500,10 @@ class TestProvisioningBoundaries:
                     token if isinstance(token, str) and task_runtime != "pi" else None
                 )
         test_task_run.refresh_from_db()
-        assert ("token_spend" in test_task_run.state) is initializes_spend
-        assert ("unprocessed_request_ids" in test_task_run.state) is initializes_spend
-        assert bool(test_task_run.state.get("token_spend_incomplete")) is incomplete
-        assert get_task_run_spend(run_id=test_task_run.id, team_id=test_task_run.team_id).token_spend == (
+        assert ("token_cost" in test_task_run.state) is initializes_cost
+        assert ("unprocessed_request_ids" in test_task_run.state) is initializes_cost
+        assert bool(test_task_run.state.get("token_cost_incomplete")) is incomplete
+        assert get_task_run_cost(run_id=test_task_run.id, team_id=test_task_run.team_id).token_cost == (
             None if incomplete else 0
         )
 
@@ -566,7 +566,7 @@ class TestProvisioningBoundaries:
             assert utils.run_gateway_env_vars(ctx, self._task()) == {}
         mint.assert_not_called()
         test_task_run.refresh_from_db()
-        assert test_task_run.state["token_spend_incomplete"] is True
+        assert test_task_run.state["token_cost_incomplete"] is True
 
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
