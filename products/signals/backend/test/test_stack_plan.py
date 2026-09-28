@@ -7,7 +7,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import PullRequestLink, SafetyJudgment
+from products.signals.backend.artefact_schemas import (
+    PullRequestLink,
+    SafetyJudgment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import (
@@ -165,6 +170,29 @@ class TestStackPlan(BaseTest):
                 "priority_judgment",
                 "repo_selection",
             }
+
+    @parameterized.expand(
+        [
+            ("pipeline_list_is_inherited", False, 3),
+            ("user_edited_list_is_not_inherited", True, 0),
+        ]
+    )
+    def test_layers_inherit_only_a_pipeline_reviewer_list(self, _name: str, edited_by_user: bool, expected: int):
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.parent.id),
+            content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+            attribution=ArtefactAttribution.from_user(self.user.id) if edited_by_user else ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+
+        child_ids = self._create_layers()
+
+        inherited = SignalReportArtefact.objects.filter(
+            report_id__in=child_ids, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        assert inherited.count() == expected
+        assert not inherited.filter(created_by__isnull=False).exists()
 
     def test_a_plan_that_already_has_layers_keeps_them(self):
         first = self._create_layers()
