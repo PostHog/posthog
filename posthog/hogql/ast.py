@@ -1028,6 +1028,8 @@ class JsonSubcolumnAccess(Expr):
     expr: Expr
     keys: list[str]
     access_type: Literal["path", "sub_object"] = "path"
+    # Physical JSON column to read instead of the field's own column (temporary event properties).
+    json_column: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)

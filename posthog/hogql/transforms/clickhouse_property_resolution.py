@@ -49,7 +49,11 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+from posthog.clickhouse.events_json import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    TEMPORARY_PROPERTIES_COLUMN,
+    is_temporary_event_property,
+)
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
@@ -85,6 +89,8 @@ class MaterializedPropertySource:
     # skip the string sentinel scrubbing and can be compared bare when the value side is type-compatible.
     column_type: str | None = None
     # Index metadata the comparison optimizations consult to keep the column index-eligible.
+    # For json_subcolumn: the physical JSON column when it differs from the field's (temporary event properties).
+    json_column: str | None = None
     has_minmax_index: bool = False
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
@@ -184,6 +190,11 @@ def resolve_json_subcolumn_source(
         column=property_name,
         is_nullable=True,
         column_type="Dynamic",
+        json_column=(
+            TEMPORARY_PROPERTIES_COLUMN
+            if field_name == "properties" and is_temporary_event_property(property_name)
+            else None
+        ),
     )
 
 
@@ -364,6 +375,7 @@ def _json_subcolumn_access(
         expr=ast.Field(chain=[field_type.name], type=field_type),
         keys=path,
         access_type=access_type,
+        json_column=source.json_column,
         type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
     for key in keys[len(path) :]:

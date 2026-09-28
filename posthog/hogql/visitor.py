@@ -732,6 +732,7 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
             keys=list(node.keys),
             access_type=node.access_type,
+            json_column=node.json_column,
         )
 
     def visit_lambda(self, node: ast.Lambda):

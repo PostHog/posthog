@@ -1280,6 +1280,10 @@ class ClickHousePrinter(BasePrinter):
             expr = super().visit_field_type(node.expr.type)
         else:
             expr = self.visit(node.expr)
+        if node.json_column is not None:
+            table_prefix, _, _ = expr.rpartition(".")
+            column = self._print_identifier(node.json_column)
+            expr = f"{table_prefix}.{column}" if table_prefix else column
 
         if any("%" in key for key in node.keys):
             if node.access_type == "sub_object":

@@ -1659,10 +1659,11 @@ class TestHogqlTableModifiers:
         "query,team_modifiers,expected_sql",
         [
             ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            # Changes the events query on both the legacy and native-JSON events tables.
             (
-                "SELECT properties.plan FROM events LIMIT 1",
-                {"propertyGroupsMode": "optimized"},
-                "properties_group_custom",
+                "SELECT person.properties.email FROM events LIMIT 1",
+                {"personsOnEventsMode": "disabled"},
+                "person_distinct_id",
             ),
         ],
     )
