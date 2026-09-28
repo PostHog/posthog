@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from unittest import mock
 from unittest.mock import Mock, patch
@@ -535,10 +536,12 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            ("mapped_user_with_a_different_email", "self", "vercel-login@example.com", True, True),
-            ("unmapped_user_with_a_different_email", None, "vercel-login@example.com", True, False),
-            ("mapping_to_another_user", "other", "vercel-login@example.com", True, False),
-            ("unverified_matching_email", None, "test@example.com", False, False),
+            ("mapped_user_with_a_different_email", "self", "vercel-login@example.com", True, True, True),
+            ("unmapped_user_with_a_different_email", None, "vercel-login@example.com", True, True, False),
+            ("mapping_to_another_user", "other", "vercel-login@example.com", True, True, False),
+            ("unverified_matching_email", None, "test@example.com", False, True, False),
+            ("matching_email_cannot_take_another_users_mapping", "other", "test@example.com", True, True, False),
+            ("mapped_user_removed_from_the_organization", "self", "vercel-login@example.com", True, False, False),
         ]
     )
     def test_sso_continue_links_only_a_proven_or_already_mapped_user(
@@ -547,6 +550,7 @@ class TestVercelIntegration(TestCase):
         mapping_owner: str | None,
         claim_email: str,
         claim_email_verified: bool,
+        still_a_member: bool,
         expect_linked: bool,
     ) -> None:
         other_user = User.objects.create_user(email="other-owner@example.com", password="other", first_name="Other")
@@ -554,6 +558,8 @@ class TestVercelIntegration(TestCase):
         if mapping_owner:
             self.installation.config["user_mappings"] = {"vercel_login_user": owners[mapping_owner]}
             self.installation.save()
+        if not still_a_member:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
         claims = self._create_user_claims("vercel_login_user")
         claims.user_email = claim_email
         claims.user_email_verified = claim_email_verified
@@ -571,6 +577,11 @@ class TestVercelIntegration(TestCase):
         assert ("/integrations/vercel/link-error" in redirect_url) is not expect_linked
         expected_mapping = self.user.pk if expect_linked else owners.get(mapping_owner or "")
         assert self.installation.config.get("user_mappings", {}).get("vercel_login_user") == expected_mapping
+        names_an_account = "expected_email" in parse_qs(urlparse(redirect_url).query)
+        assert names_an_account is (not expect_linked and mapping_owner is None)
+        assert OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists() is (
+            still_a_member or expect_linked
+        )
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):

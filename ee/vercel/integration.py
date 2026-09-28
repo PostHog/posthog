@@ -926,9 +926,18 @@ class VercelIntegration:
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=claims.installation_id,
                 )
-                is_mapped_user = VercelIntegration._get_user_mapping(installation, claims.user_id) == request.user.pk
+                mapped_user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
+                if mapped_user_pk is None:
+                    can_link = VercelIntegration._claims_prove_email(claims, request.user.email)
+                else:
+                    can_link = (
+                        mapped_user_pk == request.user.pk
+                        and request.user.organization_memberships.filter(
+                            organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
+                        ).exists()
+                    )
 
-                if not is_mapped_user and not VercelIntegration._claims_prove_email(claims, request.user.email):
+                if not can_link:
                     logger.warning(
                         "Email mismatch in Vercel SSO",
                         expected_email=claims.user_email,
@@ -936,12 +945,10 @@ class VercelIntegration:
                         integration="vercel",
                     )
                     VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
-                    error_params = {
-                        "expected_email": claims.user_email,
-                        "current_email": request.user.email,
-                        "code": params.code,
-                        "state": params.state,
-                    }
+                    error_params = {"current_email": request.user.email, "code": params.code, "state": params.state}
+                    # With a mapping, the linked account is the mapped one, whose email the token never proved, so name none.
+                    if mapped_user_pk is None:
+                        error_params["expected_email"] = claims.user_email
                     return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
