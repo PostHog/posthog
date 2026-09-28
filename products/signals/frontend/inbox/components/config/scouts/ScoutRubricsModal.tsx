@@ -71,6 +71,20 @@ export function ScoutRubricsModal({
         })
     }
 
+    const confirmReplaceSuggestions = (): void => {
+        if (generation?.status !== 'completed' || !availableSuggestions.length) {
+            generateSuggestions()
+            return
+        }
+        LemonDialog.open({
+            title: 'Replace current suggestions?',
+            description:
+                'New suggestions replace the ones you have not added to your rubric. To keep some, add them and save your rubric first.',
+            primaryButton: { children: 'Generate new suggestions', onClick: () => generateSuggestions() },
+            secondaryButton: { children: 'Keep current suggestions' },
+        })
+    }
+
     return (
         <LemonModal
             isOpen
@@ -142,7 +156,7 @@ export function ScoutRubricsModal({
                             <LemonButton
                                 type="secondary"
                                 icon={<IconSparkles />}
-                                onClick={generateSuggestions}
+                                onClick={confirmReplaceSuggestions}
                                 loading={generationSubmitting || generationActive}
                                 disabledReason={
                                     generationActive
