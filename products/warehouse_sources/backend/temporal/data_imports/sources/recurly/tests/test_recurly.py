@@ -228,7 +228,9 @@ class TestGetResource:
 
     @pytest.mark.parametrize("endpoint", NO_LIST_PARAMS_ENDPOINTS)
     @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    def test_endpoint_without_list_params_sends_no_query_params(self, endpoint, should_use_incremental_field):
+    def test_endpoint_without_list_params_sends_no_query_params(
+        self, endpoint: str, should_use_incremental_field: bool
+    ) -> None:
         # gift_cards' list endpoint 400s on any query parameter at all (confirmed against
         # the v2021-02-25 OpenAPI spec, which declares none for it), so limit/sort/order
         # must never be sent even when the pipeline asks for incremental.

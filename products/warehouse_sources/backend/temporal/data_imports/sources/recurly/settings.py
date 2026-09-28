@@ -12,7 +12,7 @@ RECURLY_BASE_URLS: dict[str, str] = {
 RECURLY_PARTITION_KEY = "created_at"
 
 
-@dataclass
+@dataclass(frozen=True)
 class RecurlyEndpoint:
     name: str
     path: str
