@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -73,6 +73,24 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("test_event", result.content)
         self.assertNotIn("You are given a table with the results of a SQL query", result.content)
         self.assertNotIn("Here is the results table", result.content)
+
+    @patch("ee.hogai.context.insight.query_executor.asyncio.sleep")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_slow_query_returns_running_status_with_query_id(
+        self, mock_process_query, mock_get_query_status, _mock_sleep
+    ):
+        running = {"id": "slow-query-id", "complete": False}
+        mock_process_query.return_value = {"query_status": running}
+        mock_get_query_status.return_value = Mock(model_dump=lambda mode: running)
+
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT count() FROM events"))
+
+        assert result.structured_content is not None
+        self.assertEqual(result.structured_content["status"], "running")
+        self.assertEqual(result.structured_content["query_id"], "slow-query-id")
+        self.assertIn("slow-query-id", result.content)
+        self.assertIn("exactly the same query", result.content)
 
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:

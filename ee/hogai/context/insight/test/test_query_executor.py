@@ -43,6 +43,7 @@ from posthog.errors import ExposedCHQueryError
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
+    QueryStillRunningError,
     execute_and_format_query,
     get_example_prompt,
     is_supported_query,
@@ -364,12 +365,15 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_get_query_status.return_value = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
 
         query = AssistantTrendsQuery(series=[])
+        query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user, max_wait_s=2)
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
-                await self.query_runner.arun_and_format_query(query)
+            with self.assertRaises(QueryStillRunningError) as context:
+                await query_runner.arun_and_format_query(query)
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
+        self.assertEqual(context.exception.query_id, "test-query-id")
+        self.assertLessEqual(mock_get_query_status.call_count, 5)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

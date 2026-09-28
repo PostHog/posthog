@@ -15,11 +15,25 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.query_executor import QueryStillRunningError
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.compatibility_hints import build_compatibility_hint
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
+
+# Kept under common MCP client tool timeouts (~60s), so a slow query returns a "running" result
+# instead of a client abort. The query keeps running, and a repeat call with the same SQL joins it.
+MCP_QUERY_WAIT_BUDGET_S = 45
+
+QUERY_STILL_RUNNING_MESSAGE = (
+    "The query is still running after {wait_s} seconds. It continues in the background (query ID: {query_id}).\n"
+    "To get the results, call execute-sql again with exactly the same query. "
+    "The call joins the running query and returns the results when they are ready.\n"
+    "If the query is still running after a few calls, make it cheaper: use a shorter time range "
+    "(filter `timestamp` on events, or `$start_timestamp` on sessions), filter before you join or group, "
+    "and select only the columns you need."
+)
 
 
 class ExecuteSQLMCPToolArgs(BaseModel):
@@ -110,7 +124,19 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
         )
         try:
             results = await insight_context.execute_and_format(
-                prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
+                prompt_template="{{{results}}}",
+                truncate_results=args.truncate,
+                include_prompt_framing=False,
+                max_wait_s=MCP_QUERY_WAIT_BUDGET_S,
+            )
+        except QueryStillRunningError as e:
+            return MCPToolResult(
+                content=QUERY_STILL_RUNNING_MESSAGE.format(wait_s=MCP_QUERY_WAIT_BUDGET_S, query_id=e.query_id),
+                structured_content={
+                    "query": query.model_dump(mode="json", exclude_none=True),
+                    "status": "running",
+                    "query_id": e.query_id,
+                },
             )
         except MaxToolRetryableError as e:
             # A connection query defers validation to the runner, so the compatibility rejections
