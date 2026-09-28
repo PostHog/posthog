@@ -332,12 +332,14 @@ class TestTaxonomyAgentToolkit(BaseTest):
         [
             (
                 "entity_lookup",
+                PropertyDefinition.Type.PERSON,
                 lambda toolkit: vars(TaxonomyAgentToolkit)["_get_definitions_for_entity"].func(
-                    toolkit, "event", ["sibling_tier"], ActorsPropertyTaxonomyQuery(properties=["sibling_tier"])
+                    toolkit, "person", ["sibling_tier"], ActorsPropertyTaxonomyQuery(properties=["sibling_tier"])
                 ),
             ),
             (
                 "event_or_action_lookup",
+                PropertyDefinition.Type.EVENT,
                 lambda toolkit: vars(TaxonomyAgentToolkit)["_get_definitions_for_event_or_action"].func(
                     toolkit, ["sibling_tier"]
                 ),
@@ -345,7 +347,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
         ]
     )
     def test_property_definitions_resolve_across_sibling_environments(
-        self, _name: str, lookup: Callable[[TaxonomyAgentToolkit], dict[str, PropertyDefinitionOrVirtual]]
+        self,
+        _name: str,
+        definition_type: PropertyDefinition.Type,
+        lookup: Callable[[TaxonomyAgentToolkit], dict[str, PropertyDefinitionOrVirtual]],
     ) -> None:
         # Both lookups are `database_sync_to_async(thread_sensitive=False)`, which runs them on another thread and
         # connection. The wrapper's `.func` runs them on the test's connection, the only one that sees its rows.
@@ -353,7 +358,7 @@ class TestTaxonomyAgentToolkit(BaseTest):
         PropertyDefinition.objects.create(
             team=sibling,
             project=self.team.project,
-            type=PropertyDefinition.Type.EVENT,
+            type=definition_type,
             name="sibling_tier",
             property_type="String",
         )
