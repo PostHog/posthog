@@ -404,25 +404,26 @@ STALE_LOOKING_RECENT_UPDATE_DAYS_AGO = 2
 def seed_recently_updated_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """A flag that reads stale on every other signal, excluded only by a recent update.
 
-    Full rollout, never called, created 90 days ago — every other exclusion in step 4
-    of the cleanup skill reads clean. Only `updated_at` inside the last 30 days must
-    block it, which a direct named-flag request has to catch on its own, not just the
-    generic "clean up our stale flags" survey a report already filters for it.
+    Full rollout, never called, created 90 days ago, so every other exclusion in the
+    skill's "Find and assess candidates" step reads clean. Only `updated_at` inside the
+    last 30 days blocks it. A request that names the flag starts from the by-key lookup
+    and skips the stale list, so the agent has to apply the recency exclusion to the
+    definition itself.
     """
     _require_claude_runtime(context)
-    flag = FeatureFlag.objects.create(
-        team_id=context.team_id,
+    flag = _create_flag(
+        context,
         key=STALE_LOOKING_RECENT_UPDATE_FLAG_KEY,
         name="Express checkout lane",
-        created_by_id=context.user_id,
-        active=True,
-        created_at=datetime.now(UTC) - timedelta(days=90),
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
-    # update() bypasses auto_now, the same technique _backdate_updated_at uses; here it
-    # moves updated_at forward to two days ago rather than back to the creation date.
+    # update() bypasses auto_now, the same technique _backdate_updated_at uses. It sets
+    # created_at too, which _create_flag cannot take, and writes neither `active` nor
+    # `filters`, so the gated-write scanner does not count it.
+    now = datetime.now(UTC)
     FeatureFlag.objects.filter(pk=flag.pk).update(
-        updated_at=datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO)
+        created_at=now - timedelta(days=90),
+        updated_at=now - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO),
     )
     return {
         "flag_id": flag.id,

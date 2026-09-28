@@ -22,13 +22,17 @@ SEEDERS = [
     ("partial_rollout", seed_stale_partial_rollout_flag),
 ]
 
+# seed_recently_updated_flag cannot join SEEDERS, because it breaks the
+# updated_at == created_at test on purpose. Every other check applies to it.
+CLEANUP_SEEDERS = [*SEEDERS, ("recently_updated", seed_recently_updated_flag)]
+
 
 def _context(team_id: int, user_id: int, runtime_adapter: str | None = "claude") -> CustomPromptSandboxContext:
     return CustomPromptSandboxContext(team_id=team_id, user_id=user_id, runtime_adapter=runtime_adapter)
 
 
 class TestFeatureFlagEvalSeeders(BaseTest):
-    @parameterized.expand(SEEDERS)
+    @parameterized.expand(CLEANUP_SEEDERS)
     def test_seeded_flag_is_classified_stale(self, _name, seeder) -> None:
         # Every cleanup case depends on the agent finding the flag under active="STALE".
         # If the seeded shape drifts out of the stale set, the cases pass by finding nothing.
@@ -49,7 +53,7 @@ class TestFeatureFlagEvalSeeders(BaseTest):
 
         assert flag.updated_at == flag.created_at
 
-    @parameterized.expand(SEEDERS)
+    @parameterized.expand(CLEANUP_SEEDERS)
     def test_seed_carries_the_state_snapshot_the_unchanged_scorer_compares(self, _name, seeder) -> None:
         # FlagStateUnchanged skips silently when the seed has no "state", so a seeder
         # that drops the snapshot would turn the mutation check off across the suite.
@@ -63,6 +67,7 @@ class TestFeatureFlagEvalSeeders(BaseTest):
         [
             ("full_rollout", seed_stale_full_rollout_flag, True, 100),
             ("partial_rollout", seed_stale_partial_rollout_flag, False, 40),
+            ("recently_updated", seed_recently_updated_flag, True, 100),
         ]
     )
     def test_seeded_flag_reports_the_rollout_shape_the_skill_classifies_from(
@@ -70,7 +75,8 @@ class TestFeatureFlagEvalSeeders(BaseTest):
     ) -> None:
         # The stale checks above pass the partial flag on last_called_at alone, so the
         # 40% rollout could silently drift to 100% and turn its case into a copy of the
-        # full-rollout one. The rollout summary is what step 3 classifies from.
+        # full-rollout one. The rollout summary is what the skill's "Classify the rollout
+        # state" step classifies from.
         seeded = seeder(_context(self.team.id, self.user.id))
 
         flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
@@ -80,7 +86,7 @@ class TestFeatureFlagEvalSeeders(BaseTest):
         assert summary.max_rollout_percentage == max_percentage
         assert summary.has_targeting_conditions is False
 
-    @parameterized.expand(SEEDERS)
+    @parameterized.expand(CLEANUP_SEEDERS)
     def test_seeder_refuses_the_codex_runtime(self, _name, seeder) -> None:
         with self.assertRaises(RuntimeError):
             seeder(_context(self.team.id, self.user.id, runtime_adapter="codex"))
@@ -90,19 +96,11 @@ class TestSeedRecentlyUpdatedFlag(BaseTest):
     """The recent-update case only has teeth if the backend does not already exclude it.
 
     ``filter_stale_flags`` classifies on ``created_at`` and ``last_called_at``, never
-    ``updated_at`` — so a flag updated two days ago still reads STALE from the backend.
-    Catching the recency exclusion is entirely the cleanup skill's job. If a future
-    change taught the backend classifier to look at ``updated_at`` too, this seeded flag
-    would stop reaching the agent as a stale candidate at all, and the eval case built on
-    it (``recent_update_excluded_without_override``) would silently start proving nothing.
+    ``updated_at``, so a flag updated two days ago still reads STALE from the backend.
+    Catching the recency exclusion is entirely the cleanup skill's job. The shared
+    stale-classification test above covers that this seeded flag still reaches the agent
+    as a stale candidate; the window below is what makes it a recent one.
     """
-
-    def test_seeded_flag_still_reads_stale_from_the_backend(self) -> None:
-        seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
-
-        stale_keys = {flag.key for flag in filter_stale_flags(FeatureFlag.objects.filter(team_id=self.team.id))}
-
-        assert seeded["flag_key"] in stale_keys
 
     def test_seeded_flag_updated_at_is_inside_the_30_day_window(self) -> None:
         seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
@@ -112,14 +110,3 @@ class TestSeedRecentlyUpdatedFlag(BaseTest):
 
         assert flag.updated_at > datetime.now(UTC) - timedelta(days=30)
         assert flag.updated_at < datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO - 1)
-
-    def test_seeded_flag_reports_a_clean_full_rollout(self) -> None:
-        # Every other signal must read clean, so a run that misses the recency check has
-        # no other exclusion to fall back on and land the right answer by accident.
-        seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
-
-        flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
-        summary = FeatureFlagStatusChecker().get_rollout_summary(flag)
-
-        assert summary.effectively_full_rollout is True
-        assert summary.has_targeting_conditions is False
