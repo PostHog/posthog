@@ -101,7 +101,7 @@ def duplicate_resources_from_dag(
     """
     consumed_vertices: ResourceMap = {}
     transfer_records: list[ResourceTransfer] = []
-    mapped_substitutions = _get_mapped_substitutions(substitutions, target_team=new_team)
+    mapped_substitutions = _get_mapped_substitutions(substitutions, source_team=source_team, target_team=new_team)
 
     logger.info(
         "resource_transfer.duplicate_dag.start",
@@ -543,6 +543,7 @@ def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Tea
 def _get_mapped_substitutions(
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
     target_team: Team | None = None,
+    source_team: Team | None = None,
 ) -> dict[ResourceTransferKey, Any]:
     """
     Build a mapping from source resource keys to destination resource instances.
@@ -552,6 +553,7 @@ def _get_mapped_substitutions(
     - destination_key identifies the existing resource in the destination team to use instead
 
     If target_team is provided, every destination resource is verified to belong to that team.
+    If source_team is provided, every source resource must belong to that team.
     """
     mapped_substitutions: dict[ResourceTransferKey, Any] = {}
     source_by_dest_key: dict[ResourceTransferKey, Any] = {}
@@ -589,6 +591,15 @@ def _get_mapped_substitutions(
                 "resource_transfer.map_substitutions.source_not_found",
                 source_kind=source_kind,
                 source_pk=str(source_pk),
+            )
+            raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
+
+        if source_team is not None and source_visitor.get_resource_team(source_resource).pk != source_team.pk:
+            logger.warning(
+                "resource_transfer.map_substitutions.source_team_mismatch",
+                source_kind=source_kind,
+                source_pk=str(source_pk),
+                source_team_id=source_team.pk,
             )
             raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
 
