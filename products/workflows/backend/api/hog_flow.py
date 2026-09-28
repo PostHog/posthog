@@ -5414,8 +5414,11 @@ class HogFlowViewSet(
         # `allow-same-origin`, which are the capabilities that would make captured email HTML
         # dangerous. It grants popups so that a link click can open its destination in a new
         # tab, and lets that tab escape the sandbox, because a tab that inherits an opaque
-        # origin with no scripts renders the destination as a broken page. The other
-        # directives are defense-in-depth.
+        # origin with no scripts renders the destination as a broken page. An escaped tab
+        # could reach back through `window.opener`. Two controls stop it: every link is
+        # rewritten to `_blank`, which implies noopener, and the app pages' default
+        # `Cross-Origin-Opener-Policy: same-origin` cuts the opener for any popup from this
+        # cross-origin frame. Keep both. The other directives are defense-in-depth.
         response["Content-Security-Policy"] = (
             "sandbox allow-popups allow-popups-to-escape-sandbox; "
             "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"

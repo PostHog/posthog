@@ -3,6 +3,8 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
+from lxml import html as lxml_html
+from lxml.etree import ParserError
 from rest_framework import serializers
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -318,29 +320,46 @@ def fetch_message_assets_for_person(
     return [_build_asset(row) for row in results]
 
 
-# A link click inside the viewer's iframe navigates that iframe, and most destinations refuse
-# to be framed, so the viewer goes blank. A `<base target="_blank">` covers links with no
-# target, but an explicit one wins over it, and the editor writes `target="_self"` for "same
-# tab" links. So explicit targets are rewritten too. The base tag has no href, so relative
-# URLs resolve as before.
-_NEW_TAB_BASE_TAG = '<base target="_blank">'
-# Any tag before the doctype puts the page in quirks mode, so with no head the base tag goes after it.
-_LEADING_DOCTYPE = re.compile(r"\s*<!doctype\b[^>]*>", re.IGNORECASE)
-# Both tag patterns stop at a `<` outside quotes, so an unclosed tag fails at the next tag start.
-# Without that stop, each unclosed tag rescans the rest of the body, and the cost grows with the
-# square of the body size.
-_HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^<>]*)?>", re.IGNORECASE)
-_LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
-# Requires whitespace before `target` so a `&target=` inside a click-tracking href is left alone.
-_TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
+# Browsers move content that follows these end tags back into the body, but lxml drops it.
+_BODY_OR_HTML_END_TAG = re.compile(r"</(?:body|html)\b[^<>]*>", re.IGNORECASE)
 
 
 def with_new_tab_link_target(html: str) -> str:
-    html = _LINK_OPEN_TAG.sub(lambda tag: _TARGET_ATTRIBUTE.sub(r'\1target="_blank"', tag.group(0)), html)
-    insert_after = _HEAD_OPEN_TAG.search(html) or _LEADING_DOCTYPE.match(html)
-    if insert_after is None:
-        return _NEW_TAB_BASE_TAG + html
-    return html[: insert_after.end()] + _NEW_TAB_BASE_TAG + html[insert_after.end() :]
+    """Make every link in a captured email open in a new tab, for the sandboxed email viewer.
+
+    A link click inside the viewer's iframe navigates that iframe, and most destinations refuse
+    to be framed, so the viewer goes blank. The editor also writes `target="_self"` for "same
+    tab" links, which wins over a `<base>` tag. So every link gets `target="_blank"`, other base
+    targets are removed, and a `<base target="_blank">` goes first in the head. A `_blank` target
+    also leaves the new tab with no `window.opener`.
+
+    This parses the email, because browsers accept link markup that tag patterns miss, such as
+    `<a/target=x>`, and a missed named target keeps the opener. The viewer shows lxml's
+    serialization, so badly nested markup can render slightly differently than in an inbox.
+    The sent email is unchanged.
+    """
+    # Browsers drop NUL characters, but lxml turns them into a visible U+FFFD.
+    html = _BODY_OR_HTML_END_TAG.sub("", html.replace("\x00", ""))
+    try:
+        # Bytes with an explicit encoding: lxml rejects a str that starts with an XML encoding
+        # declaration, and it would otherwise decode by the email's own `<meta charset>`.
+        document = lxml_html.document_fromstring(html.encode("utf-8"), parser=lxml_html.HTMLParser(encoding="utf-8"))
+    except ParserError:
+        # The email has no elements, such as a body of only comments. Never fall back to the
+        # unrewritten HTML, or a parse failure becomes a way around the rewrite.
+        return ""
+    for base in document.iter("base"):
+        base.attrib.pop("target", None)
+    for link in document.iter("a", "area"):
+        link.set("target", "_blank")
+    head = document.find("head")
+    if head is None:
+        head = lxml_html.Element("head")
+        document.insert(0, head)
+    head.insert(0, lxml_html.Element("base", target="_blank"))
+    # With no doctype in the email, lxml supplies HTML 4.0 Transitional, which renders in quirks
+    # mode just as a missing doctype does.
+    return lxml_html.tostring(document, encoding="unicode", doctype=document.getroottree().docinfo.doctype)
 
 
 def fetch_message_asset_html(
