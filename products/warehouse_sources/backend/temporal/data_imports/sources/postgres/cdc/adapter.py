@@ -384,34 +384,36 @@ class PostgresCDCAdapter:
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication."""
-        self._alter_publication_membership(source, schema, table, add=True)
+        """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""
+        publication_name = self._managed_publication_name(source)
+        if publication_name is None:
+            return
+        with cdc_pg_connection(source) as conn:
+            add_table_to_publication(conn, publication_name, schema, table)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
-        self._alter_publication_membership(source, schema, table, add=False)
-
-    def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
-        cdc_config = self.parse_cdc_config(source)
-        # PostHog only manages the publication in posthog-managed mode.
-        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+        publication_name = self._managed_publication_name(source)
+        if publication_name is None:
             return
         try:
             with cdc_pg_connection(source) as conn:
-                if add:
-                    add_table_to_publication(conn, cdc_config.publication_name, schema, table)
-                else:
-                    remove_table_from_publication(conn, cdc_config.publication_name, schema, table)
+                remove_table_from_publication(conn, publication_name, schema, table)
         except Exception:
             logger.exception(
-                "Failed to %s table %s.%s %s CDC publication '%s' (best-effort), source_id=%s",
-                "add" if add else "remove",
+                "Failed to remove table %s.%s from CDC publication '%s' (best-effort), source_id=%s",
                 schema,
                 table,
-                "to" if add else "from",
-                cdc_config.publication_name,
+                publication_name,
                 source.id,
             )
+
+    def _managed_publication_name(self, source: ExternalDataSource) -> str | None:
+        cdc_config = self.parse_cdc_config(source)
+        # PostHog only manages the publication in posthog-managed mode.
+        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+            return None
+        return cdc_config.publication_name
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
         raw = (source.job_inputs or {}).get("schema")

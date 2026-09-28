@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
+    add_table_failure_message,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
@@ -1082,6 +1083,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             _apply_primary_key_columns(data, payload, instance, "CDC")
             if instance.sync_type != ExternalDataSchema.SyncType.CDC:
                 _refuse_reserved_cdc_column(instance)
+                # A table joining CDC starts from a fresh snapshot, even when an earlier sync
+                # method or an earlier CDC period already loaded it. The snapshot moves to
+                # streaming only when initial_sync_complete goes from False to True, so a table
+                # left at True repeats the full snapshot on every scheduled run. A capture
+                # position from an earlier CDC period belongs to a dropped slot.
+                payload["cdc_mode"] = "snapshot"
+                for stale_key in ("cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY):
+                    payload.pop(stale_key, None)
+                instance.initial_sync_complete = False
+                validated_data["initial_sync_complete"] = False
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.XMIN:
@@ -1567,7 +1578,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Add table to capture set when enabling CDC or toggling sync on
         if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
-            adapter.add_table(source, db_schema, source_table_name)
+            try:
+                adapter.add_table(source, db_schema, source_table_name)
+            except Exception as e:
+                raise ValidationError(
+                    add_table_failure_message(adapter, e, source, db_schema, source_table_name)
+                ) from e
             # Capture skipped the table while it was out of the set, so its buffer has a gap. Without
             # the marker, capture empties the buffer before the new snapshot instead of replaying it.
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)

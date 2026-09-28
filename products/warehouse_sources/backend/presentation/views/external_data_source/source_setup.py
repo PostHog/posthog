@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     SourceSchema,
     WebhookSource,
+    add_table_failure_message,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -1645,11 +1646,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # guarantees non-None schema/table when it resolves above. `cast` narrows for mypy
             # without a runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
-                cdc_adapter.add_table(
-                    new_source_model,
-                    cast(str, metadata_source_schema),
-                    cast(str, metadata_source_table_name),
-                )
+                try:
+                    cdc_adapter.add_table(
+                        new_source_model,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
+                    )
+                except Exception as e:
+                    message = add_table_failure_message(
+                        cdc_adapter,
+                        e,
+                        new_source_model,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
+                    )
+                    # A hard delete leaves no source row for the orphan-slot sweeper to find, so
+                    # drop the slot and publication created above before deleting the source.
+                    cdc_adapter.cleanup_resources(new_source_model)
+                    new_source_model.delete()
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": message})
 
             if direct_engine_adapter is not None and is_direct_query and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,
