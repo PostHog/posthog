@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.db import connection
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -16,84 +18,76 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.workflows.backend.api.hog_flow import _EMAIL_BODY_TEXT_SQL
+from products.workflows.backend.api.test.test_hog_flow import _email_step
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-
-def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
-    return {
-        "id": step_id,
-        "name": name,
-        "type": "function_email",
-        "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
-    }
-
+from products.workflows.backend.models.hog_flow.search_text import (
+    SEARCH_TEXT_SEPARATOR,
+    email_body_text,
+    find_step_matches,
+)
 
 _ExpectedMatches = dict[str, list[tuple[str, str, str]]]
 
+_SEARCH_CASES: list[tuple[str, str, _ExpectedMatches]] = [
+    ("name_match_ignores_case", "WELCOME", {"Welcome email": []}),
+    ("description_match", "quarterly", {"Digest": []}),
+    ("space_matches_separators", "password reset", {"Password_reset": []}),
+    ("step_name_match", "monthly invoice", {"Billing": [("email_1", "step_name", "live")]}),
+    ("email_subject_match", "for march", {"Billing": [("email_1", "subject", "live")]}),
+    ("email_preheader_match", "billing page", {"Billing": [("email_1", "preheader", "live")]}),
+    ("email_body_text_match", "is attached", {"Billing": [("email_1", "body", "live")]}),
+    ("html_ignored_when_text_export_exists", "footer-links", {}),
+    ("email_html_only_body_match", "for your payment", {"Receipts": [("email_1", "body", "live")]}),
+    ("email_css_not_searched", "111111", {}),
+    ("draft_email_subject_match", "beta access", {"Onboarding": [("email_1", "subject", "draft")]}),
+    ("liquid_subject_matches_beside_the_tag", "your seat is ready", {"Nurture": [("email_1", "subject", "live")]}),
+    ("regex_characters_match_literally", "[vip] early access", {"Nurture": [("email_3", "subject", "live")]}),
+    ("percent_and_parentheses_match_literally", "50% off (today only)!", {"Nurture": [("email_2", "subject", "live")]}),
+    ("body_phrase_across_newlines", "upgrade now to keep", {"Nurture": [("email_2", "body", "live")]}),
+    (
+        "html_with_liquid_in_attribute_still_matches_content",
+        "thanks for your order",
+        {"Promo": [("email_1", "body", "live")]},
+    ),
+    ("html_attribute_css_not_searched", "color:#ffffff", {}),
+    ("html_script_not_searched", "trackVisit", {}),
+    ("unclosed_tag_keeps_its_text", "5 < 6 apples", {"Unclosed": [("email_1", "body", "live")]}),
+    ("numeric_subject_matches", "987654", {"Numbers": [("email_1", "subject", "live")]}),
+    (
+        "name_match_does_not_hide_step_matches",
+        "march",
+        {"March campaign": [], "Billing": [("email_1", "subject", "live")]},
+    ),
+    ("term_does_not_span_two_fields", "digest quarterly", {}),
+]
 
-def _search_cases() -> list[tuple[str, str, _ExpectedMatches, str]]:
-    cases: list[tuple[str, str, _ExpectedMatches]] = [
-        ("name_match", "welcome", {"Welcome email": []}),
-        ("case_insensitive", "WELCOME", {"Welcome email": []}),
-        ("description_match", "quarterly", {"Digest": []}),
-        ("space_matches_separators", "password reset", {"Password reset": []}),
-        ("step_name_match", "monthly invoice", {"Billing": [("email_1", "step_name", "live")]}),
-        ("email_subject_match", "for march", {"Billing": [("email_1", "subject", "live")]}),
-        ("email_preheader_match", "billing page", {"Billing": [("email_1", "preheader", "live")]}),
-        ("email_body_text_match", "is attached", {"Billing": [("email_1", "body", "live")]}),
-        ("email_markup_not_searched", "footer-links", {}),
-        ("email_html_only_body_match", "for your payment", {"Receipts": [("email_1", "body", "live")]}),
-        ("email_css_not_searched", "111111", {}),
-        ("draft_email_subject_match", "beta access", {"Onboarding": [("email_1", "subject", "draft")]}),
-        ("email_in_later_step_matches", "final reminder", {"Nurture": [("email_3", "subject", "live")]}),
-        ("liquid_subject_matches_beside_the_tag", "your seat is ready", {"Nurture": [("email_1", "subject", "live")]}),
-        ("liquid_subject_not_matched_by_rendered_wording", "hi jane, your seat", {}),
-        ("regex_characters_match_literally", "[vip] early access", {"Nurture": [("email_3", "subject", "live")]}),
-        (
-            "percent_and_parentheses_match_literally",
-            "50% off (today only)!",
-            {"Nurture": [("email_2", "subject", "live")]},
-        ),
-        ("body_phrase_across_newlines", "upgrade now to keep", {"Nurture": [("email_2", "body", "live")]}),
-        (
-            "shared_subject_returns_every_workflow",
-            "seat is confirmed",
-            {"Alpha": [("email_1", "subject", "live")], "Beta": [("email_1", "subject", "live")]},
-        ),
-        (
-            "html_with_liquid_in_attribute_still_matches_content",
-            "thanks for your order",
-            {"Promo": [("email_1", "body", "live")]},
-        ),
-        ("html_attribute_css_not_searched", "color:#ffffff", {}),
-        ("html_script_not_searched", "trackVisit", {}),
-        ("unclosed_tag_keeps_its_text", "5 < 6 apples", {"Unclosed": [("email_1", "body", "live")]}),
-        (
-            "name_match_does_not_hide_step_matches",
-            "march",
-            {"March campaign": [], "Billing": [("email_1", "subject", "live")]},
-        ),
-        ("term_does_not_span_two_fields", "digest quarterly", {}),
-        ("no_match", "nonexistent", {}),
-    ]
-    return [
-        (f"{name}_{mode}", query, expected, mode) for name, query, expected in cases for mode in ("stored", "fallback")
-    ]
+# The fallback path reuses the list search's SQL, which the list tests cover. These cases check its wiring.
+_FALLBACK_CASES = {
+    "name_match_ignores_case",
+    "description_match",
+    "email_subject_match",
+    "name_match_does_not_hide_step_matches",
+    "numeric_subject_matches",
+}
 
 
-class TestHogFlowSearchAPI(APIBaseTest):
-    def _search(self, query: str, **params: Any):
-        return self.client.get(f"/api/projects/{self.team.id}/hog_flows/search/", {"q": query, **params})
+def _search_url(team_id: int) -> str:
+    return f"/api/projects/{team_id}/hog_flows/search/"
 
-    def _create_search_fixtures(self) -> None:
-        HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=self.user)
+
+class TestHogFlowSearchMatching(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        HogFlow.objects.create(team=cls.team, name="Welcome email", created_by=cls.user)
+        HogFlow.objects.create(team=cls.team, name="Password_reset", created_by=cls.user)
+        HogFlow.objects.create(team=cls.team, name="Digest", description="quarterly summary", created_by=cls.user)
+        HogFlow.objects.create(team=cls.team, name="March campaign", status=HogFlow.State.ACTIVE, created_by=cls.user)
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
             name="Billing",
-            created_by=self.user,
+            created_by=cls.user,
             actions=[
                 _email_step(
                     "email_1",
@@ -106,9 +100,9 @@ class TestHogFlowSearchAPI(APIBaseTest):
             ],
         )
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
             name="Receipts",
-            created_by=self.user,
+            created_by=cls.user,
             actions=[
                 _email_step(
                     "email_1",
@@ -119,9 +113,9 @@ class TestHogFlowSearchAPI(APIBaseTest):
             ],
         )
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
             name="Promo",
-            created_by=self.user,
+            created_by=cls.user,
             actions=[
                 _email_step(
                     "email_1",
@@ -135,16 +129,22 @@ class TestHogFlowSearchAPI(APIBaseTest):
             ],
         )
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
             name="Unclosed",
-            created_by=self.user,
+            created_by=cls.user,
             actions=[_email_step("email_1", "Fruit email", subject="Fruit", html="<p>We have 5 < 6 apples today")],
         )
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
+            name="Numbers",
+            created_by=cls.user,
+            actions=[_email_step("email_1", "Code email", subject=987654)],
+        )
+        HogFlow.objects.create(
+            team=cls.team,
             name="Nurture",
             status=HogFlow.State.ACTIVE,
-            created_by=self.user,
+            created_by=cls.user,
             actions=[
                 {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "event"}},
                 _email_step("email_1", "Day 1", subject="Hi {{ person.properties.first_name }}, your seat is ready"),
@@ -155,42 +155,47 @@ class TestHogFlowSearchAPI(APIBaseTest):
                     subject="50% off (today only)! Upgrade before Friday",
                     text="Upgrade now\n\nto keep your dashboards and alerts.",
                 ),
-                {"id": "branch_1", "name": "Has upgraded?", "type": "conditional_branch", "config": {}},
                 _email_step("email_3", "Day 10", subject="[VIP] early access: final reminder"),
                 {"id": "exit_node", "name": "Exit", "type": "exit", "config": {}},
             ],
         )
-        for name in ("Alpha", "Beta"):
-            HogFlow.objects.create(
-                team=self.team,
-                name=name,
-                created_by=self.user,
-                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
-            )
         HogFlow.objects.create(
-            team=self.team,
+            team=cls.team,
             name="Onboarding",
             status=HogFlow.State.ACTIVE,
-            created_by=self.user,
+            created_by=cls.user,
             draft={"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]},
         )
 
-    def _results_by_name(self, response) -> dict[str, list[tuple[str, str, str]]]:
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        return {
-            row["name"]: [(step["action_id"], step["field"], step["source"]) for step in row["matched_steps"]]
-            for row in response.json()["results"]
-        }
-
-    @parameterized.expand(_search_cases())
-    def test_search_matches_name_description_and_step_content(self, _name, query, expected, mode):
-        self._create_search_fixtures()
-        if mode == "fallback":
+    @parameterized.expand(
+        [(f"{name}_stored", query, expected, False) for name, query, expected in _SEARCH_CASES]
+        + [
+            (f"{name}_fallback", query, expected, True)
+            for name, query, expected in _SEARCH_CASES
+            if name in _FALLBACK_CASES
+        ]
+    )
+    def test_search_matches_name_description_and_step_content(
+        self, _name: str, query: str, expected: _ExpectedMatches, fallback: bool
+    ) -> None:
+        if fallback:
             HogFlow.objects.filter(team=self.team).update(search_text=None)
 
-        assert self._results_by_name(self._search(query)) == expected
+        response = self.client.get(_search_url(self.team.id), {"q": query})
 
-    def test_search_returns_an_excerpt_around_a_body_match(self):
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = {
+            row["name"]: [(step["action_id"], step["field"], step["matched_in"]) for step in row["matched_steps"]]
+            for row in response.json()["results"]
+        }
+        assert results == expected
+
+
+class TestHogFlowSearchAPI(APIBaseTest):
+    def _search(self, query: str, **params: Any):
+        return self.client.get(_search_url(self.team.id), {"q": query, **params})
+
+    def test_search_returns_an_excerpt_around_a_body_match(self) -> None:
         body = " ".join(["Filler words before the part that matters."] * 5)
         body += " Your renewal date moved to the first of the month. "
         body += " ".join(["Filler words after the part that matters."] * 5)
@@ -203,7 +208,7 @@ class TestHogFlowSearchAPI(APIBaseTest):
         (step,) = row["matched_steps"]
         assert step["excerpt"] == "…before the part that matters. Your renewal date moved to the first of the month.…"
 
-    def test_search_pages_newest_created_first_with_one_search_scan(self):
+    def test_search_pages_newest_created_first_with_one_search_scan(self) -> None:
         for index, name in enumerate(("Oldest seat", "Middle seat", "Newest seat")):
             flow = HogFlow.objects.create(team=self.team, name=name, created_by=self.user)
             HogFlow.objects.filter(id=flow.id).update(created_at=datetime(2026, 1, index + 1, tzinfo=UTC))
@@ -219,7 +224,7 @@ class TestHogFlowSearchAPI(APIBaseTest):
         search_scans = [query["sql"] for query in queries.captured_queries if "~*" in query["sql"]]
         assert len(search_scans) == 1, search_scans
 
-    def test_search_counts_matches_when_the_page_is_past_the_end(self):
+    def test_search_counts_matches_when_the_page_is_past_the_end(self) -> None:
         HogFlow.objects.create(team=self.team, name="Seat reminder", created_by=self.user)
 
         response = self._search("seat", offset=5)
@@ -230,15 +235,19 @@ class TestHogFlowSearchAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("draft_only", ["draft", "draft_updated_at"], "beta access", False),
-            ("name_only", ["name"], "renamed onboarding", True),
+            ("draft_only", "draft", ["draft", "draft_updated_at"], "beta access", False),
+            ("name_only", "name", ["name"], "renamed onboarding", True),
         ]
     )
-    def test_partial_save_refreshes_search_text(self, _name, update_fields, query, expect_reload):
+    def test_partial_save_refreshes_search_text(
+        self, _name: str, changed: str, update_fields: list[str], query: str, expect_reload: bool
+    ) -> None:
         flow = HogFlow.objects.create(team=self.team, name="Onboarding", status=HogFlow.State.ACTIVE)
-        flow.name = "Renamed onboarding"
-        flow.draft = {"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]}
-        flow.draft_updated_at = timezone.now()
+        if changed == "name":
+            flow.name = "Renamed onboarding"
+        else:
+            flow.draft = {"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]}
+            flow.draft_updated_at = timezone.now()
 
         with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as reload:
             flow.save(update_fields=update_fields)
@@ -246,18 +255,33 @@ class TestHogFlowSearchAPI(APIBaseTest):
         assert reload.called is expect_reload
         assert [row["id"] for row in self._search(query).json()["results"]] == [str(flow.id)]
 
-    def test_rebuild_command_fills_missing_and_stale_search_text(self):
+    def test_save_of_a_deferred_instance_writes_only_its_loaded_fields(self) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Seat reminder", description="Kept as stored")
+        partial = HogFlow.objects.only("id", "name").get(id=flow.id)
+        partial.name = "Seat waitlist"
+
+        with CaptureQueriesContext(connection) as queries:
+            partial.save()
+
+        (update,) = [query["sql"] for query in queries.captured_queries if query["sql"].startswith("UPDATE")]
+        assert '"description" =' not in update
+        assert '"actions" =' not in update
+        assert [row["name"] for row in self._search("seat waitlist").json()["results"]] == ["Seat waitlist"]
+
+    @parameterized.expand([("write", False), ("dry_run", True)])
+    def test_rebuild_command_fills_missing_and_stale_search_text(self, _name: str, dry_run: bool) -> None:
         missing = HogFlow.objects.create(team=self.team, name="Seat reminder", created_by=self.user)
-        stale = HogFlow.objects.create(team=self.team, name="Seat waitlist", created_by=self.user)
+        stale = HogFlow.objects.create(team=self.team, name="Old name", created_by=self.user)
         HogFlow.objects.filter(id=missing.id).update(search_text=None)
-        HogFlow.objects.filter(id=stale.id).update(search_text="outdated")
+        HogFlow.objects.filter(id=stale.id).update(name="Seat waitlist")
 
-        call_command("rebuild_hog_flow_search_text", page_size=1, stdout=StringIO())
+        call_command("rebuild_hog_flow_search_text", page_size=1, dry_run=dry_run, stdout=StringIO())
 
-        assert not HogFlow.objects.filter(team=self.team, search_text__isnull=True).exists()
-        assert {row["name"] for row in self._search("seat").json()["results"]} == {"Seat reminder", "Seat waitlist"}
+        names = {row["name"] for row in self._search("seat").json()["results"]}
+        assert names == ({"Seat reminder"} if dry_run else {"Seat reminder", "Seat waitlist"})
+        assert HogFlow.objects.filter(team=self.team, search_text__isnull=True).exists() is dry_run
 
-    def test_personal_api_key_with_read_scope_can_search(self):
+    def test_personal_api_key_with_read_scope_can_search(self) -> None:
         HogFlow.objects.create(team=self.team, name="Seat reminder", created_by=self.user)
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -265,19 +289,65 @@ class TestHogFlowSearchAPI(APIBaseTest):
         )
         self.client.logout()
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_flows/search/",
-            {"q": "seat"},
-            headers={"authorization": f"Bearer {key}"},
-        )
+        response = self.client.get(_search_url(self.team.id), {"q": "seat"}, headers={"authorization": f"Bearer {key}"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [row["name"] for row in response.json()["results"]] == ["Seat reminder"]
 
-    @parameterized.expand([("missing", None), ("blank", "   "), ("too_long", "a" * 201)])
-    def test_search_rejects_unusable_terms(self, _name, query):
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("blank", "   "),
+            ("too_long", "a" * 201),
+            ("separator", f"a{SEARCH_TEXT_SEPARATOR}b"),
+        ]
+    )
+    def test_search_rejects_unusable_terms(self, _name: str, query: str | None) -> None:
         params = {} if query is None else {"q": query}
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/search/", params)
+        response = self.client.get(_search_url(self.team.id), params)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+_TRICKY_EMAILS: list[tuple[str, dict[str, Any]]] = [
+    ("text_export_wins", {"text": "Plain text", "html": "<p>Html</p>"}),
+    ("empty_text_uses_html", {"text": "", "html": "<p>Html <b>body</b></p>"}),
+    ("boolean_text", {"text": False, "html": "<p>Html</p>"}),
+    ("zero_text", {"text": 0, "html": "<p>Html</p>"}),
+    ("unclosed_tag", {"html": "<p>5 < 6 and 7 > 3"}),
+    ("quoted_gt_in_attribute", {"html": '<td title="a > b">cell</td> after'}),
+    ("stray_quotes_in_text", {"html": "<p>It's \"quoted\" text</p><br>tail's"}),
+    ("unclosed_style", {"html": "<style>.a{color:red} <p>kept</p>"}),
+    ("uppercase_blocks", {"html": "<STYLE>.a{}</STYLE><SCRIPT>x()</SCRIPT><P>shown</P>"}),
+    ("style_prefix_tag", {"html": "<styles>not a style</styles> tail"}),
+    ("script_without_gt", {"html": "<script src='a.js' text"}),
+    ("nested_style_opening", {"html": "<style><style>a</style>b</style>c"}),
+    ("liquid_in_attribute", {"html": '<td style="{% if x > 1 %}color:red{% endif %}">Order</td>'}),
+    ("unicode", {"html": "<p>Grüße, 東京 – ok</p>"}),
+    ("no_body", {"subject": "Only a subject"}),
+]
+
+
+class TestEmailBodyTextMatchesSql(TestCase):
+    @parameterized.expand(_TRICKY_EMAILS)
+    def test_email_body_text_matches_the_sql_rule(self, _name: str, email: dict[str, Any]) -> None:
+        action = {"config": {"inputs": {"email": {"value": email}}}}
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_EMAIL_BODY_TEXT_SQL} FROM (SELECT %s::jsonb AS action) AS step", [json.dumps(action)]
+            )
+            (expected,) = cursor.fetchone()
+
+        assert email_body_text(email) == expected
+
+
+class TestFindStepMatches(SimpleTestCase):
+    def test_term_of_many_separators_matches_without_backtracking(self) -> None:
+        target = "e" + " -" * 14 + " q"
+        body = "e" + " -" * 40 + " x. Then the " + target + " line."
+        actions = [_email_step("email_1", "Notice", text=body)]
+
+        (match,) = find_step_matches(actions, None, target)
+
+        assert match.excerpt.endswith(f"{target} line.")

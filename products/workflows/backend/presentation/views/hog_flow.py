@@ -42,6 +42,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.schema import ProductKey
 
@@ -180,9 +181,9 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow.search_text import (
     MAX_SEARCH_TERM_LENGTH,
+    SEARCH_TEXT_SEPARATOR,
     StepSearchField,
-    StepSearchMatch,
-    StepSearchSource,
+    StepSearchVersion,
     find_step_matches,
     search_pattern,
 )
@@ -2803,11 +2804,17 @@ class HogFlowSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=MAX_SEARCH_TERM_LENGTH,
         help_text=(
-            "Text to find, at most 200 characters. Case-insensitive, and a space also matches a dash or an "
-            "underscore. Matches the workflow name and description, and the step names and the subject line, "
-            "preheader and body text of email steps, in both the live workflow and its pending draft."
+            "Text to find. Case-insensitive, and a space also matches a dash or an underscore. Matches the "
+            "workflow name and description, and the step names and the subject line, preheader and body text of "
+            "email steps, in both the live workflow and its pending draft."
         ),
     )
+
+    def validate_q(self, value: str) -> str:
+        # The separator joins the fields of the stored search text, so a term containing it could match across two.
+        if SEARCH_TEXT_SEPARATOR in value:
+            raise serializers.ValidationError("Search term contains an unsupported character.")
+        return value
 
 
 class HogFlowSearchStepMatchSerializer(serializers.Serializer):
@@ -2816,8 +2823,8 @@ class HogFlowSearchStepMatchSerializer(serializers.Serializer):
         choices=StepSearchField.choices,
         help_text="The first field of the step that matched: the step name, or the email subject, preheader or body text.",
     )
-    source = serializers.ChoiceField(
-        choices=StepSearchSource.choices,
+    matched_in = serializers.ChoiceField(
+        choices=StepSearchVersion.choices,
         help_text="`live` when the published step matched, `draft` when only the version staged in the draft matched.",
     )
     excerpt = serializers.CharField(
@@ -2830,7 +2837,7 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
 
     # Metadata only, like HogFlowSummarySerializer, because action config can hold credential-like values. The
     # matched steps name the step and quote only the searchable text.
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     matched_steps = serializers.SerializerMethodField(
         help_text=(
             "The steps that matched the search, one entry per step. Empty when only the workflow name or "
@@ -2857,10 +2864,8 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(HogFlowSearchStepMatchSerializer(many=True))
     def get_matched_steps(self, instance: HogFlow) -> list[dict[str, str]]:
-        matches: list[StepSearchMatch] = find_step_matches(
-            instance.actions, instance.draft, self.context["search_term"]
-        )
-        return [dataclasses.asdict(match) for match in matches]
+        matches = find_step_matches(instance.actions, instance.draft, self.context["search_term"])
+        return cast(list[dict[str, str]], HogFlowSearchStepMatchSerializer(matches, many=True).data)
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
@@ -4691,12 +4696,13 @@ class HogFlowSearchPagination(HogFlowPagination):
     """Reads the total from a window count on the page query, so the search predicate runs once per request
     instead of once for the count and again for the page."""
 
-    def paginate_queryset(self, queryset: QuerySet, request: Request, view: Any = None) -> list[HogFlow]:
+    def paginate_queryset(self, queryset: QuerySet[Any], request: Request, view: APIView | None = None) -> list[Any]:
         self.request = request
-        self.limit = self.get_limit(request)
+        self.limit = cast(int, self.get_limit(request))
         self.offset = self.get_offset(request)
-        assert self.limit is not None
-        page = list(queryset.annotate(_search_total=Window(Count("id")))[self.offset : self.offset + self.limit])
+        page: list[Any] = list(
+            queryset.annotate(_search_total=Window(Count("id")))[self.offset : self.offset + self.limit]
+        )
         if page:
             self.count = page[0]._search_total
         else:
@@ -4710,7 +4716,8 @@ class HogFlowSearchPagination(HogFlowPagination):
 # The block patterns start with a non-greedy quantifier because Postgres gives a whole regex the
 # greediness of its first quantifier. The tag pattern skips over quoted attribute values, so a '>' inside
 # one (a liquid comparison, say) does not end the tag early and leak the rest of the attribute into the
-# searchable text. Mirrored by emailBodyText in the frontend's workflowSearchMatches.ts.
+# searchable text. email_body_text in models/hog_flow/search_text.py and emailBodyText in the frontend's
+# workflowSearchMatches.ts copy this rule, so a change here must reach both.
 _EMAIL_BODY_TEXT_SQL = (
     "COALESCE(NULLIF(action #>> '{config,inputs,email,value,text}', ''), "
     "regexp_replace(regexp_replace(regexp_replace(action #>> '{config,inputs,email,value,html}', "
@@ -5142,11 +5149,13 @@ class HogFlowViewSet(
         search = (self.request.GET.get("search") or "").strip()
         if not search:
             return queryset
-        if len(search) > 200:
-            raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
-        # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
-        # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
-        regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
+        if len(search) > MAX_SEARCH_TERM_LENGTH:
+            raise exceptions.ValidationError(
+                {"search": f"Search term cannot exceed {MAX_SEARCH_TERM_LENGTH} characters"}
+            )
+        # Spaces match any run of space/dash/underscore, so "welcome email" also matches "welcome-email", the same
+        # approach as feature flag search.
+        regex_pattern = search_pattern(search)
 
         # Name and description are small columns, while the step search has to read every workflow's `actions`
         # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
@@ -5186,7 +5195,7 @@ class HogFlowViewSet(
 
         # Rows saved before `search_text` existed stay null until the rebuild command runs, so they match the
         # source columns the way the list search does.
-        by_stored_text = Q(search_text__isnull=False, search_text__iregex=pattern)
+        by_stored_text = Q(search_text__iregex=pattern)
         by_source_columns = Q(search_text__isnull=True) & (
             Q(name__iregex=pattern) | Q(description__iregex=pattern) | Q(_action_content_matches(pattern))
         )
