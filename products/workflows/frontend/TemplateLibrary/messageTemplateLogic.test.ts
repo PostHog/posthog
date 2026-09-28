@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { ResourceEditedEvent } from '~/types'
@@ -270,6 +273,13 @@ describe('messageTemplateLogic', () => {
     })
 
     describe('starting-point picker', () => {
+        const AI_FIRST_FLAGS = [
+            FEATURE_FLAGS.EMAIL_TEMPLATES_AI_FIRST_NEW,
+            FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ]
+        const NEW_PATH = '/workflows/library/templates/new'
+
         it.each([
             {
                 description: 'opens for a brand-new template',
@@ -286,11 +296,46 @@ describe('messageTemplateLogic', () => {
                 props: { id: 'existing-id' },
                 expectedOpen: false,
             },
-        ])('$description', async ({ props, expectedOpen }) => {
+            // The AI composer is its own starting point, so the modal would cover it.
+            {
+                description: 'does not open while the AI composer is the page',
+                props: { id: 'new' },
+                flags: AI_FIRST_FLAGS,
+                search: { mode: 'ai' },
+                expectedOpen: false,
+            },
+            {
+                description: 'opens for an AI URL when the variant is off',
+                props: { id: 'new' },
+                flags: [FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+                search: { mode: 'ai' },
+                expectedOpen: true,
+            },
+        ])('$description', async ({ props, flags, search, expectedOpen }) => {
+            if (flags) {
+                featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            }
+            router.actions.push(NEW_PATH, search ?? {}, {})
             logic = messageTemplateLogic(props)
             logic.mount()
 
             await expectLogic(logic).toMatchValues({ templatePickerOpen: expectedOpen })
+        })
+
+        // The escape hatch only swaps a search param, so nothing remounts, and the picker has to follow the URL.
+        it('opens when the URL switches to editor mode on the mounted page', async () => {
+            featureFlagLogic.actions.setFeatureFlags(
+                AI_FIRST_FLAGS,
+                Object.fromEntries(AI_FIRST_FLAGS.map((flag) => [flag, true]))
+            )
+            router.actions.push(NEW_PATH, { mode: 'ai' }, {})
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ templatePickerOpen: false })
+
+            router.actions.push(NEW_PATH, { mode: 'editor' }, {})
+
+            await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
         })
     })
 })
