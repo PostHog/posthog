@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentActorsQuery.test_experiment_exposure_actors_with_recordings
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_exposure_actors_with_recordings.1
-  '''
   SELECT source.id,
          source.id AS id,
          source.matching_events AS matching_events
@@ -58,7 +46,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentActorsQuery.test_experiment_exposure_actors_with_recordings.2
+# name: TestExperimentActorsQuery.test_experiment_exposure_actors_with_recordings.1
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -83,18 +71,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_0_exposure_control
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_0_exposure_control.1
   '''
   SELECT source.id,
          source.id AS id
@@ -141,18 +117,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_1_exposure_test
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_1_exposure_test.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -197,18 +161,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_2_conversions_step1_control
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_2_conversions_step1_control.1
   '''
   SELECT source.id,
          source.id AS id
@@ -282,18 +234,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_3_conversions_step2_control
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_3_conversions_step2_control.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -365,18 +305,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_4_dropoffs_step1_control
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_4_dropoffs_step1_control.1
   '''
   SELECT source.id,
          source.id AS id
@@ -450,18 +378,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_5_dropoffs_control
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_5_dropoffs_control.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -533,18 +449,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_6_conversions_step1_test
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_6_conversions_step1_test.1
   '''
   SELECT source.id,
          source.id AS id
@@ -618,18 +522,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_7_conversions_step2_test
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_7_conversions_step2_test.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -701,18 +593,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_8_dropoffs_step1_test
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_8_dropoffs_step1_test.1
   '''
   SELECT source.id,
          source.id AS id
@@ -786,18 +666,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_9_dropoffs_test
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_9_dropoffs_test.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -869,18 +737,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_excludes_events_before_exposure
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_excludes_events_before_exposure.1
   '''
   SELECT source.id,
          source.id AS id
@@ -954,18 +810,6 @@
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_step1_dropoff_counts_pre_exposure_signup
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_step1_dropoff_counts_pre_exposure_signup.1
-  '''
   SELECT source.id,
          source.id AS id
   FROM
@@ -1037,18 +881,6 @@
   '''
 # ---
 # name: TestExperimentActorsQuery.test_experiment_funnel_actors_with_recordings
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_with_recordings.1
   '''
   SELECT source.id,
          source.id AS id,
@@ -1127,7 +959,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentActorsQuery.test_experiment_funnel_actors_with_recordings.2
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_with_recordings.1
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,

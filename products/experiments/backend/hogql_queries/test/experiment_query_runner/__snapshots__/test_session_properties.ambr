@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentSessionPropertyMetrics.test_session_duration_not_multiplied_across_events
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentSessionPropertyMetrics.test_session_duration_not_multiplied_across_events.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,

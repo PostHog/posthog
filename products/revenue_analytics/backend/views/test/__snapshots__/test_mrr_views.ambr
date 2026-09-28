@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestMRRViewsE2E.test_no_data_when_no_events
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-05-18'
-    AND date < '2025-05-31'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestMRRViewsE2E.test_no_data_when_no_events.1
-  '''
   SELECT count() AS count
   FROM
     (SELECT union.source_label AS source_label,
@@ -349,18 +337,6 @@
   '''
 # ---
 # name: TestMRRViewsE2E.test_query_output_events
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-05-18'
-    AND date < '2025-05-31'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestMRRViewsE2E.test_query_output_events.1
   '''
   SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.source_label AS source_label,
          `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,

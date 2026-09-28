@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups.1
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -71,18 +59,6 @@
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups_across_persons
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups_across_persons.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -150,18 +126,6 @@
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -235,19 +199,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.3
+# name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.1
   '''
   SELECT source.id,
          source.id AS id,
@@ -315,18 +267,6 @@
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2.1
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2011-12-19'
-    AND date < '2012-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2.2
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -412,18 +352,6 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -492,18 +420,6 @@
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -577,19 +493,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.1
   '''
   SELECT source.id,
          source.id AS id,
@@ -647,19 +551,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.5
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
   '''
   SELECT source.id,
          source.id AS id,
@@ -717,19 +609,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.6
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.7
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
   '''
   SELECT source.id,
          source.id AS id,
@@ -798,18 +678,6 @@
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter.1
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter.2
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -880,18 +748,6 @@
 # ---
 # name: TestFOSSFunnelUDF.test_timezones
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFOSSFunnelUDF.test_timezones.1
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -957,18 +813,6 @@
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -1038,18 +882,6 @@
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -1118,18 +950,6 @@
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot.1
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -1197,18 +1017,6 @@
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -1289,18 +1097,6 @@
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
-  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          sum(step_3) AS step_3,
@@ -1385,19 +1181,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
+# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
   '''
   SELECT source.id,
          source.id AS id
@@ -1466,19 +1250,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.5
+# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
   '''
   SELECT source.id,
          source.id AS id
@@ -1547,19 +1319,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.6
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.7
+# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
   '''
   SELECT source.id,
          source.id AS id
@@ -1628,19 +1388,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.8
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.9
+# name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
   '''
   SELECT source.id,
          source.id AS id

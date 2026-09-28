@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_ordered
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_ordered.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -60,18 +48,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_unordered
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_unordered.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -128,18 +104,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -188,18 +152,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -247,18 +199,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -305,19 +245,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct.3
+# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_direct.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -374,18 +302,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_action_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -433,18 +349,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window_0_direct.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -494,18 +398,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -553,18 +445,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps_0_direct.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -618,18 +498,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -679,18 +547,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -738,18 +594,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps_0_direct.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -806,18 +650,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_maturity_anchored_on_first_exposure_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-02'
-    AND date < '2020-01-15'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_maturity_anchored_on_first_exposure_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -866,18 +698,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_only_count_matured_users_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-02'
-    AND date < '2020-01-15'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_only_count_matured_users_0_direct.1
-  '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
@@ -925,18 +745,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_metric_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_metric_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1010,18 +818,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_no_fanout_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_no_fanout_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1093,18 +889,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_partial_coverage_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_partial_coverage_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1178,18 +962,6 @@
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_zero_coverage_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_data_warehouse_funnel_zero_coverage_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1261,18 +1033,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_direct.1
   '''
   WITH base_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1371,18 +1131,6 @@
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric_0_direct.1
   '''
   WITH base_events AS
     (SELECT events.`$group_0` AS entity_id,

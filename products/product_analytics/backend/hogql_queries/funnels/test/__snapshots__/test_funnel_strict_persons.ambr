@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-12-20'
-    AND date < '2021-01-02'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
-  '''
   SELECT source.id,
          source.id AS id,
          source.matching_events AS matching_events
@@ -74,7 +62,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -98,19 +86,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-12-20'
-    AND date < '2021-01-02'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
   '''
   SELECT source.id,
          source.id AS id,
@@ -173,7 +149,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
@@ -197,19 +173,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.6
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-12-20'
-    AND date < '2021-01-02'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.7
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
   '''
   SELECT source.id,
          source.id AS id,
@@ -272,7 +236,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.8
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
   '''
   SELECT session_replay_events.session_id AS session_id,
          min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,

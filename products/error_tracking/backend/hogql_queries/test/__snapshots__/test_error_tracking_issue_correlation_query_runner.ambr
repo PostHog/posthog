@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestErrorTrackingIssueCorrelationQueryRunner.test_column_names
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingIssueCorrelationQueryRunner.test_column_names.1
-  '''
   WITH issues AS
     (SELECT groupArray(issue_id) AS ids,
             groupArray(last_seen) AS last_seen_timestamps,

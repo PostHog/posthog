@@ -1,25 +1,6 @@
 # serializer version: 1
 # name: TestFunnelInsightActors.test_insight_persons_funnels_query
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFunnelInsightActors.test_insight_persons_funnels_query.1
-  '''
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestFunnelInsightActors.test_insight_persons_funnels_query.2
-  '''
   SELECT name AS name
   FROM
     (SELECT persons.properties___name AS name

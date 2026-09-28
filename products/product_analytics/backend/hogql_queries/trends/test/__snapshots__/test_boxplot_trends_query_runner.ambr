@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestBoxPlotTrendsQueryRunner.test_custom_event_name
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_custom_event_name.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -39,18 +27,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_0_day
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_0_day.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -79,18 +55,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_1_hour
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_1_hour.1
-  '''
   SELECT toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -117,18 +81,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_2_minute
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_2_minute.1
   '''
   SELECT toStartOfMinute(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -157,18 +109,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_3_week
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_3_week.1
-  '''
   SELECT toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -195,18 +135,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_4_month
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_4_month.1
   '''
   SELECT toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -235,18 +163,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_each_datum_has_label_and_day
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_each_datum_has_label_and_day.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -273,18 +189,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_0_filter_test_accounts_off
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_0_filter_test_accounts_off.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -313,18 +217,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_1_filter_test_accounts_on
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_1_filter_test_accounts_on.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -351,18 +243,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_days_produce_separate_buckets_with_correct_stats
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_days_produce_separate_buckets_with_correct_stats.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -391,18 +271,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -428,19 +296,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each.3
+# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -469,18 +325,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -507,18 +351,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -547,18 +379,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -585,18 +405,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -625,18 +433,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_0_filter_chrome_only
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_property_filters_0_filter_chrome_only.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -663,18 +459,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_1_filter_firefox_only
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_property_filters_1_filter_firefox_only.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -703,18 +487,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_2_no_filter_sees_both
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_property_filters_2_no_filter_sees_both.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -742,18 +514,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_results_are_ordered_by_day_ascending
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_results_are_ordered_by_day_ascending.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -780,18 +540,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_session_duration_produces_boxplot_data
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_session_duration_produces_boxplot_data.1
   '''
   SELECT day_start AS day_start,
          min(accurateCastOrNull(session_duration, 'Float64')) AS min_val,
@@ -831,18 +579,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_sparse_data_fills_missing_dates_with_zeros
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_sparse_data_fills_missing_dates_with_zeros.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -869,18 +605,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_0_uniform_distribution
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_0_uniform_distribution.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -909,18 +633,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_1_single_value
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_1_single_value.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -947,18 +659,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_2_two_values
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_2_two_values.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -987,18 +687,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_3_identical_values
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_3_identical_values.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -1025,18 +713,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_4_negative_values
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_4_negative_values.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -1065,18 +741,6 @@
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_5_large_values
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_5_large_values.1
-  '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
          quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
@@ -1103,18 +767,6 @@
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_6_decimal_values
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_6_decimal_values.1
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,

@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_persons
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_correctly_counts_persons.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -77,18 +65,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_session_ids
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_correctly_counts_session_ids.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -155,18 +131,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_empty_search_query
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_empty_search_query.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -222,18 +186,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_first_seen_filters
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_first_seen_filters.1
-  '''
   SELECT e__fingerprint_issue_state.issue_id AS id,
          any(e__fingerprint_issue_state.issue_status) AS status,
          any(e__fingerprint_issue_state.issue_severity) AS severity,
@@ -279,19 +231,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestErrorTrackingQueryRunner.test_first_seen_filters.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_first_seen_filters.3
+# name: TestErrorTrackingQueryRunner.test_first_seen_filters.1
   '''
   SELECT e__fingerprint_issue_state.issue_id AS id,
          any(e__fingerprint_issue_state.issue_status) AS status,
@@ -339,18 +279,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_group_key_filter
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -405,19 +333,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.3
+# name: TestErrorTrackingQueryRunner.test_group_key_filter.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -472,19 +388,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.5
+# name: TestErrorTrackingQueryRunner.test_group_key_filter.2
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -539,19 +443,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.6
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_group_key_filter.7
+# name: TestErrorTrackingQueryRunner.test_group_key_filter.3
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -608,18 +500,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_hogql_filters.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -675,18 +555,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_filters
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_issue_filters.1
-  '''
   SELECT e__fingerprint_issue_state.issue_id AS id,
          any(e__fingerprint_issue_state.issue_status) AS status,
          any(e__fingerprint_issue_state.issue_severity) AS severity,
@@ -733,18 +601,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_grouping
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_issue_grouping.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -811,18 +667,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_only_returns_exception_events
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_only_returns_exception_events.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -878,18 +722,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_ordering.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -943,19 +775,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestErrorTrackingQueryRunner.test_ordering.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_ordering.3
+# name: TestErrorTrackingQueryRunner.test_ordering.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -1011,18 +831,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_overrides_aggregation
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_overrides_aggregation.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -1089,18 +897,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_person_id_filter
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_person_id_filter.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -1163,18 +959,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_person_properties
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_search_person_properties.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -1229,18 +1013,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_search_query.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
@@ -1307,18 +1079,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-28'
-    AND date < '2022-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -1384,18 +1144,6 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_volume_aggregation_advanced
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-04-22'
-    AND date < '2025-05-05'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_volume_aggregation_advanced.1
-  '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,
          any(fp_state.issue_severity) AS severity,
@@ -1460,18 +1208,6 @@
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_volume_aggregation_simple
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-30'
-    AND date < '2020-01-12'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingQueryRunner.test_volume_aggregation_simple.1
   '''
   SELECT fp_state.issue_id AS id,
          any(fp_state.issue_status) AS status,

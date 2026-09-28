@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentActivationConfig.test_exposures_timeseries_counts_users_on_activation_day
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActivationConfig.test_exposures_timeseries_counts_users_on_activation_day.1
-  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             any(flag_exposures.variant) AS variant,
@@ -64,18 +52,6 @@
   '''
 # ---
 # name: TestExperimentActivationConfig.test_funnel_metric_counts_conversions_after_activation_only
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActivationConfig.test_funnel_metric_counts_conversions_after_activation_only.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -155,18 +131,6 @@
   '''
 # ---
 # name: TestExperimentActivationConfig.test_mean_metric_anchors_exposure_on_activation_event
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentActivationConfig.test_mean_metric_anchors_exposure_on_activation_event.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

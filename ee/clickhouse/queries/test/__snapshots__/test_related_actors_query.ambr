@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestRelatedGroupsQuery.test_query
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-02-16'
-    AND date < '2025-03-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestRelatedGroupsQuery.test_query.1
-  '''
   SELECT DISTINCT tuples.1 AS group_type_index,
                   tuples.2 AS group_key
   FROM events
@@ -68,18 +56,6 @@
   '''
 # ---
 # name: TestRelatedPersonsQuery.test_query_related_people.1
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-02-16'
-    AND date < '2025-03-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestRelatedPersonsQuery.test_query_related_people.2
   '''
   SELECT DISTINCT tuples.1 AS group_type_index,
                   tuples.2 AS group_key

@@ -1,13 +1,6 @@
 # serializer version: 1
 # name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier
   '''
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.1
-  '''
   SELECT count() AS `count()`
   FROM
     (SELECT person.id AS id
@@ -29,7 +22,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.2
+# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.1
   '''
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
@@ -58,7 +51,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.3
+# name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.2
   '''
   SELECT count() AS `count()`
   FROM
@@ -82,14 +75,6 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
@@ -119,7 +104,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius.2
+# name: TestBlastRadius.test_user_blast_radius.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -146,14 +131,6 @@
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.groups
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
-  '''
-  /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
     (SELECT argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
@@ -178,7 +155,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
@@ -198,7 +175,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.3
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
@@ -225,7 +202,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.4
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
@@ -246,14 +223,6 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.groups
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_groups.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
@@ -281,7 +250,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_groups.2
+# name: TestBlastRadius.test_user_blast_radius_with_groups.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
@@ -302,14 +271,6 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.groups
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
@@ -337,7 +298,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.2
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
@@ -380,14 +341,6 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
-  '''
-  /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT argMax(person.team_id, person.version) AS team_id,
@@ -426,7 +379,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -463,14 +416,6 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
-  '''
-  /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
@@ -504,7 +449,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -528,7 +473,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
   
   SELECT count(DISTINCT person_id)
@@ -538,7 +483,7 @@
     AND version = 0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
@@ -579,7 +524,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -604,14 +549,6 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
@@ -641,7 +578,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -665,7 +602,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -675,7 +612,7 @@
     AND version = 0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
@@ -710,7 +647,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.5
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS `count()`
@@ -1801,14 +1738,6 @@
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.31
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count()
-  FROM posthog_test.person
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.32
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id

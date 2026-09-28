@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestWebVitalsPathBreakdownQueryRunner.test_data_correctly_split_between_bands
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_data_correctly_split_between_bands.1
-  '''
   SELECT band AS band,
          path AS path,
                  value AS value
@@ -45,18 +33,6 @@
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths.1
   '''
   SELECT band AS band,
          path AS path,
@@ -91,18 +67,6 @@
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data.1
-  '''
   SELECT band AS band,
          path AS path,
                  value AS value
@@ -135,18 +99,6 @@
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric.1
   '''
   SELECT band AS band,
          path AS path,
@@ -181,18 +133,6 @@
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period.1
-  '''
   SELECT band AS band,
          path AS path,
                  value AS value
@@ -225,18 +165,6 @@
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_path_cleaning_filters
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_path_cleaning_filters.1
   '''
   SELECT band AS band,
          path AS path,
@@ -271,18 +199,6 @@
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
-  '''
   SELECT band AS band,
          path AS path,
                  value AS value
@@ -314,19 +230,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.3
+# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
   '''
   SELECT band AS band,
          path AS path,
@@ -359,19 +263,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.5
+# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
   '''
   SELECT band AS band,
          path AS path,
@@ -405,18 +297,6 @@
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied.1
   '''
   SELECT band AS band,
          path AS path,
