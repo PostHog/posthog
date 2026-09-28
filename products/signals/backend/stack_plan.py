@@ -221,6 +221,7 @@ def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
         .values_list("id", flat=True)
     }
     evaluated: list[str] = []
+    failed: list[str] = []
     for report_id in report_ids:
         if report_id not in ready_ids:
             continue
@@ -236,6 +237,11 @@ def start_unblocked_layers(*, team_id: int, report_ids: list[str]) -> list[str]:
         except Exception:
             # One layer that fails to start must not hold back its siblings.
             logger.exception("signals.stack_plan.layer_autostart_failed", report_id=report_id, team_id=team_id)
+            failed.append(report_id)
+    if failed:
+        # Raise only after every sibling was tried, so the caller's retry runs. A retry skips the
+        # layers that already started.
+        raise RuntimeError(f"Stack layers failed to start: {', '.join(failed)}")
     return evaluated
 
 

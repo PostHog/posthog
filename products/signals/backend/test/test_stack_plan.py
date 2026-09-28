@@ -246,6 +246,23 @@ class TestStackPlan(BaseTest):
         assert started == [child_ids[0]]
         autostart.assert_awaited_once_with(team_id=self.team.id, report_id=child_ids[0])
 
+    def test_a_failed_layer_start_raises_after_its_siblings_are_tried(self):
+        with transaction.atomic():
+            child_ids = create_layer_reports(
+                parent=self.parent,
+                layers=[
+                    ReportLayer(title="feat(x): api", scope="Add the API."),
+                    ReportLayer(title="feat(x): docs", scope="Add the docs."),
+                ],
+                attribution=ArtefactAttribution.system(),
+            )
+
+        with patch(AUTOSTART, new_callable=AsyncMock, side_effect=[RuntimeError("temporal down"), None]) as autostart:
+            with self.assertRaises(RuntimeError):
+                start_unblocked_layers_of_plan(team_id=self.team.id, parent_report_id=str(self.parent.id))
+
+        assert sorted(call.kwargs["report_id"] for call in autostart.await_args_list) == sorted(child_ids)
+
     def test_the_next_layer_starts_when_its_dependency_opens_a_pull_request(self):
         child_ids = self._create_layers()
 
