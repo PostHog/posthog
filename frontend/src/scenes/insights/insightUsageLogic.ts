@@ -95,19 +95,21 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
             const logic = insightSceneLogic.findMounted()
-            const shortId = logic?.values.insight?.short_id
+            // Unsaved insights share an empty short_id, so it can't tell the scene's insight from a preview.
+            const sceneDashboardItemId = logic?.values.insightLogicRef?.logic.props.dashboardItemId
 
-            if (!logic || shortId !== values.insight?.short_id) {
+            if (!logic || sceneDashboardItemId !== props.dashboardItemId) {
                 return
             }
 
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id && !isSharedView()) {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 void api.create(`api/projects/${values.currentProjectId}/insights/viewed`, {
                     insight_ids: [values.insight.id],
                 })

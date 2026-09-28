@@ -24,8 +24,9 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.event_usage import groups
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
@@ -1295,7 +1296,7 @@ def _artifact_display_title(artifact: TaskArtifact) -> str:
 def _artifact_fallback_text(artifact: TaskArtifact) -> str:
     # Slack parses a message's top-level text as mrkdwn, so an artifact named `<@U…>` or
     # `<!channel>` would notify from the PostHog bot — escape it like the title block does.
-    return _escape_slack_mrkdwn_text(_artifact_display_title(artifact))
+    return escape_slack_mrkdwn(_artifact_display_title(artifact))
 
 
 def _chart_card_blocks(card: _SlackImageCard) -> list[dict[str, Any]]:
@@ -1307,7 +1308,7 @@ def _chart_card_blocks(card: _SlackImageCard) -> list[dict[str, Any]]:
     else:
         image_block = {"type": "image", "slack_file": {"id": card.file_id}, "alt_text": title}
     blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(title)}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{escape_slack_mrkdwn(title)}*"}},
         image_block,
     ]
     posthog_url = metadata.get("posthog_url")
@@ -1561,17 +1562,13 @@ def _slack_canvas_url(response: dict[str, Any] | None, workspace_id: str | None,
     return None
 
 
-def _escape_slack_mrkdwn_text(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _post_canvas_created_message(
     slack: Any, mapping: Any, name: str, canvas_id: str | None, canvas_url: str | None
 ) -> None:
     if not canvas_id:
         return
-    escaped_name = _escape_slack_mrkdwn_text(name).replace("|", " ")
-    escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
+    escaped_name = escape_slack_mrkdwn(name).replace("|", " ")
+    escaped_canvas_id = escape_slack_mrkdwn(canvas_id)
     canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
     try:
         post_slack_thread_reply(

@@ -28,6 +28,7 @@ import type {
     NotebookSQLV2StateResponseApi,
     NotebooksListParams,
     NotebooksWidgetFrameParams,
+    NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
     NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
@@ -50,6 +51,9 @@ import type {
     WidgetGenerateRequestApi,
     WidgetPinRequestApi,
     WidgetRevertRequestApi,
+    WidgetSnapshotApi,
+    WidgetSnapshotPublishApi,
+    WidgetSnapshotRequestApi,
     WidgetSourceApi,
     WidgetStatusApi,
     WidgetVersionPageApi,
@@ -795,6 +799,109 @@ export const notebooksSqlV2StateRetrieve = async (
     return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetSnapshotCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotCreate = async (
+    projectId: string,
+    shortId: string,
+    widgetSnapshotRequestApi: WidgetSnapshotRequestApi,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetSnapshotRequestApi),
+    })
+}
+
+export const getNotebooksWidgetSnapshotRetrieveUrl = (projectId: string, shortId: string, snapshotId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotRetrieve = async (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotRetrieveUrl(projectId, shortId, snapshotId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetSnapshotFrameUrl = (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    frameName: string,
+    params?: NotebooksWidgetSnapshotFrameParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/frames/${frameName}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/frames/${frameName}/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotFrame = async (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    frameName: string,
+    params?: NotebooksWidgetSnapshotFrameParams,
+    options?: RequestInit
+): Promise<WidgetFrameApi> => {
+    return apiMutator<WidgetFrameApi>(
+        getNotebooksWidgetSnapshotFrameUrl(projectId, shortId, snapshotId, frameName, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getNotebooksWidgetSnapshotPublishUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/publish/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotPublish = async (
+    projectId: string,
+    shortId: string,
+    widgetSnapshotPublishApi: WidgetSnapshotPublishApi,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotPublishUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetSnapshotPublishApi),
     })
 }
 

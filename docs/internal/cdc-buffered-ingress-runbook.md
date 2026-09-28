@@ -41,9 +41,34 @@ was: the base class is the single-table path with extract-method seams, and `Lan
 `SourceResponse.lanes`. The load queue, the producer and the loader carry nothing about lanes at
 all, so a single-table run finalizes exactly as before.
 
-Schemas still snapshotting stay on legacy extraction until their first sync completes. A source
-with a mix runs hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure
-guard for the legacy ones.
+A table taking its snapshot keeps its changes on legacy deferred runs, as before, unless its snapshot runs in the buffer.
+A snapshot runs in the buffer when capture starts it there, which needs the `dwh-cdc-buffered-snapshot` flag and no deferred runs, or when a streaming table on a buffered source is reset to snapshot with the flag on.
+Either path records `cdc_snapshot_lane: "buffer"` in the schema's `sync_type_config`, and that marker, not the flag, routes the table until the snapshot hands over to streaming.
+So one snapshot never splits between the buffer and deferred runs, even when the flag changes or fails to evaluate.
+Turning the flag off only stops new snapshots from starting in the buffer.
+Turn the flag on only after a deploy has fully rolled, because an older worker ignores the marker.
+
+While the marker holds, the buffer carries an unbroken run of the table's changes, and the hand-over deletes none of them.
+The consumer replays all of them over the snapshot, including changes the snapshot already contains.
+Replaying an unbroken run in order converges on the source's state, because the merge is an upsert by primary key.
+A gap would break that, so capture empties the table's buffer when it starts a snapshot there, which drops files left from before a re-enable.
+A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
+The reset also pauses the table's schedule and cancels its running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+A cancel only asks the workflow to stop, and the loader still applies batches the sync queued, so while either is in progress the reset waits (`cdc_reset_waits_for_running_sync`).
+The table then carries `cdc_reset_pending`, capture leaves it out, and each later run tries the reset again before it reads the WAL.
+The new snapshot reads the table after the reset, so nothing skipped is lost.
+The key stays until the schedule is unpaused, so a failed unpause is retried too.
+A reset from slot-invalidation recovery marks the key `awaiting_slot` until the replacement slot exists, so no later run can unpause the table before capture has a point to resume from, and the table stays out of capture until then.
+Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
+A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
+They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
+Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
+The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
+Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
+Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
+Without the marker, the hand-over purges the whole buffer, as legacy always did.
+A source with a mix runs hybrid, some schemas buffered and the rest unchanged, and keeps its backpressure guard for the legacy ones.
+The rollback command restarts any snapshot the buffer carries as a legacy snapshot, because only the buffer holds those changes and legacy's hand-over would purge them.
 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
@@ -231,7 +256,9 @@ The order matters, and the command enforces it:
 1. Pause the extraction schedule, so no new capture run starts.
 2. Wait for the in-flight extraction run to finish — pausing a schedule does not stop a running
    workflow, and a run still executing would keep writing files and advancing the slot behind the
-   drain check.
+   drain check. Then restart every snapshot the buffer carries: cancel its running sync, empty its
+   buffer, and reset it to snapshot without the marker. The new snapshot starts after capture
+   stopped, so it covers every change up to there, and legacy capture defers the rest.
 3. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
    advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
    good. The command refuses to proceed (extraction left paused, consumer left running) until every

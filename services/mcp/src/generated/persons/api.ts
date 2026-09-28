@@ -33,6 +33,12 @@ export const PersonsListQueryParams = () => zod.object({
     distinct_id: zod.string().optional().describe('Filter list by distinct id.'),
     email: zod.string().optional().describe('Filter persons by email (exact match)'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_matched_fields: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     properties: zod

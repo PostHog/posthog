@@ -3,12 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"runtime/pprof"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -491,6 +495,7 @@ func makeKeyDict(keys []string) jsonKey {
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	debugLog := flag.Bool("debug", false, "enable debug logging")
+	rowBinary := flag.Bool("row-binary", false, "read (json String, keys Array(String)) RowBinary rows after a row-count header")
 	flag.Parse()
 
 	keysArg := flag.Arg(0)
@@ -508,12 +513,24 @@ func main() {
 		fmt.Fprintf(logFile, "keysToDrop: %s\n", keysArg)
 	}
 
-	keys, err := parseSingleQuotedArray(keysArg)
-	if err != nil {
-		fmt.Fprintf(stdErr, "keysToDrop parse error: %v\n", err)
-		os.Exit(1)
+	var runner func(io.Reader, io.Writer) error
+	if *rowBinary {
+		if flag.NArg() > 0 {
+			fmt.Fprintln(stdErr, "keys are a per-row argument in RowBinary mode, not a command-line argument")
+			os.Exit(1)
+		}
+		runner = runRowBinary
+	} else {
+		keys, err := parseSingleQuotedArray(keysArg)
+		if err != nil {
+			fmt.Fprintf(stdErr, "keysToDrop parse error: %v\n", err)
+			os.Exit(1)
+		}
+		keysToDrop := makeKeyDict(keys)
+		runner = func(input io.Reader, output io.Writer) error {
+			return run(input, output, keysToDrop)
+		}
 	}
-	keysToDrop := makeKeyDict(keys)
 
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -532,7 +549,7 @@ func main() {
 		}()
 	}
 
-	if err := run(os.Stdin, os.Stdout, keysToDrop); err != nil {
+	if err := runner(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(stdErr, err)
 		os.Exit(1)
 	}
@@ -581,6 +598,137 @@ func run(input io.Reader, output io.Writer, keys jsonKey) error {
 		}
 		if err == io.EOF {
 			return writer.Flush()
+		}
+	}
+}
+
+const (
+	// Matches ClickHouse's default format_binary_max_string_size, so the limit only rejects corrupt lengths.
+	maxRowBinaryJSONSize = 1 << 30
+	maxRowBinaryKeyCount = 1 << 16
+	maxRowBinaryKeySize  = 64 * 1024
+)
+
+// rowBinaryKeys keeps the filter for the most recent key array. A query sends the same array on every row,
+// so the filter is rebuilt only when the encoded array changes.
+type rowBinaryKeys struct {
+	encoded []byte
+	scratch []byte
+	filter  jsonKey
+}
+
+func (k *rowBinaryKeys) read(reader *bufio.Reader) (jsonKey, error) {
+	count, err := readRowBinaryLength(reader, maxRowBinaryKeyCount, "key array")
+	if err != nil {
+		return nil, err
+	}
+	k.scratch = binary.AppendUvarint(k.scratch[:0], uint64(count))
+	for range count {
+		size, err := readRowBinaryLength(reader, maxRowBinaryKeySize, "key")
+		if err != nil {
+			return nil, err
+		}
+		k.scratch = binary.AppendUvarint(k.scratch, uint64(size))
+		if k.scratch, err = appendRowBinaryBytes(reader, k.scratch, size); err != nil {
+			return nil, err
+		}
+	}
+	if k.filter != nil && bytes.Equal(k.scratch, k.encoded) {
+		return k.filter, nil
+	}
+
+	keys := make([]string, 0, count)
+	_, offset := binary.Uvarint(k.scratch)
+	for range count {
+		size, n := binary.Uvarint(k.scratch[offset:])
+		offset += n
+		keys = append(keys, string(k.scratch[offset:offset+int(size)]))
+		offset += int(size)
+	}
+	k.filter = makeKeyDict(keys)
+	k.encoded, k.scratch = k.scratch, k.encoded
+	return k.filter, nil
+}
+
+func readRowBinaryLength(reader *bufio.Reader, maxSize int, name string) (int, error) {
+	length, err := binary.ReadUvarint(reader)
+	if err != nil {
+		return 0, fmt.Errorf("read %s length: %w", name, truncated(err))
+	}
+	if length > uint64(maxSize) {
+		return 0, fmt.Errorf("%s length %d exceeds %d", name, length, maxSize)
+	}
+	return int(length), nil
+}
+
+func appendRowBinaryBytes(reader *bufio.Reader, dst []byte, size int) ([]byte, error) {
+	start := len(dst)
+	dst = slices.Grow(dst, size)[:start+size]
+	if _, err := io.ReadFull(reader, dst[start:]); err != nil {
+		return nil, fmt.Errorf("read RowBinary string: %w", truncated(err))
+	}
+	return dst, nil
+}
+
+// truncated reports a clean EOF inside a chunk as truncation, because the chunk header promised more rows.
+func truncated(err error) error {
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+	return err
+}
+
+// runRowBinary serves the executable_pool function. ClickHouse keeps one process per pool slot across blocks and
+// queries, and sends an ASCII row count before each chunk so the process knows when to flush its answer.
+func runRowBinary(input io.Reader, output io.Writer) error {
+	reader := bufio.NewReaderSize(input, 64*1024)
+	writer := bufio.NewWriterSize(output, 64*1024)
+	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
+	var (
+		row    []byte
+		keys   rowBinaryKeys
+		length [binary.MaxVarintLen64]byte
+	)
+	for {
+		header, err := reader.ReadSlice('\n')
+		if err == io.EOF && len(header) == 0 {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("chunk header read error: %w", err)
+		}
+		rows, err := strconv.ParseUint(string(header[:len(header)-1]), 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid chunk header: %w", err)
+		}
+		for range rows {
+			size, err := readRowBinaryLength(reader, maxRowBinaryJSONSize, "JSON")
+			if err != nil {
+				return err
+			}
+			if cap(row) > max(64*1024, 2*size) {
+				row = nil
+			}
+			if row, err = appendRowBinaryBytes(reader, row[:0], size); err != nil {
+				return err
+			}
+			filter, err := keys.read(reader)
+			if err != nil {
+				return err
+			}
+			if err := processLine(filter, row, buf); err != nil {
+				return fmt.Errorf("row processing error: %w", err)
+			}
+			n := binary.PutUvarint(length[:], uint64(buf.Len()))
+			if _, err := writer.Write(length[:n]); err != nil {
+				return fmt.Errorf("stdout write error: %w", err)
+			}
+			if _, err := writer.Write(buf.Bytes()); err != nil {
+				return fmt.Errorf("stdout write error: %w", err)
+			}
+		}
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("stdout flush error: %w", err)
 		}
 	}
 }

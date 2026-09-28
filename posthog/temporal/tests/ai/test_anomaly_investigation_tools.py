@@ -213,6 +213,7 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
     mock_calculate.return_value = InsightResult(
         result=rows,
         columns=["day", "failure_rate_pct", "run_count"],
+        has_more=False,
         timezone="UTC",
         last_refresh=None,
         cache_key="",
