@@ -691,6 +691,13 @@ export const ListPageWithSourceMapsBanner: Story = {
         }),
     ],
 }
+
+// A narrow window wraps the banner buttons below the text instead of squeezing the text
+export const ListPageWithSourceMapsBannerNarrow: Story = {
+    ...ListPageWithSourceMapsBanner,
+    parameters: { testOptions: { viewport: { width: 900, height: 1000 } } },
+}
+
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
 function IssueScenePreviewStory({

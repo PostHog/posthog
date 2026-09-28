@@ -49,31 +49,38 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
     return (
         <>
             <div className="mb-2">
-                <div className="rounded-lg border border-border bg-bg-light pl-3 pr-4 py-3 mt-2">
-                    <div className="flex items-center gap-4">
+                <div className="@container rounded-lg border border-border bg-bg-light pl-3 pr-4 py-3 mt-2">
+                    {/* The row wraps so a narrow scene moves the buttons below the text instead of squeezing it. */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         {/* The hog is absolutely positioned so it doesn't drive the card height —
                             it overflows the card edges slightly by design. */}
-                        <div className="relative hidden sm:block shrink-0 self-stretch w-20">
+                        <div className="relative hidden @2xl:block shrink-0 self-stretch w-20">
                             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 pointer-events-none">
                                 <div className="absolute -inset-2 bg-[radial-gradient(circle,rgba(43,111,244,0.18),transparent_70%)]" />
                                 <WizardHog className="relative w-20 h-20 -rotate-3" />
                             </div>
                         </div>
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 basis-60 min-w-0">
                             <div className="font-semibold">{percent}% of your stack traces aren't readable</div>
                             <div className="text-sm text-secondary">
                                 Let the wizard set up automatic uploads in your project.
                             </div>
                         </div>
-                        <LemonButton type="tertiary" size="small" to={SOURCE_MAPS_DOCS_URL} targetBlank>
-                            Read docs
-                        </LemonButton>
-                        <LemonButton type="secondary" icon={<IconMagicWand />} onClick={() => openModal('issues_list')}>
-                            <span className="rainbow-text rainbow-text-animating font-semibold">
-                                Fix with AI wizard
-                            </span>
-                        </LemonButton>
-                        <LemonButton size="xsmall" icon={<IconX />} onClick={dismiss} aria-label="Dismiss banner" />
+                        <div className="flex items-center gap-4 ml-auto shrink-0">
+                            <LemonButton type="tertiary" size="small" to={SOURCE_MAPS_DOCS_URL} targetBlank>
+                                Read docs
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconMagicWand />}
+                                onClick={() => openModal('issues_list')}
+                            >
+                                <span className="rainbow-text rainbow-text-animating font-semibold">
+                                    Fix with AI wizard
+                                </span>
+                            </LemonButton>
+                            <LemonButton size="xsmall" icon={<IconX />} onClick={dismiss} aria-label="Dismiss banner" />
+                        </div>
                     </div>
                 </div>
             </div>
