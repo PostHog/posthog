@@ -56,8 +56,8 @@ function extractExceptions(properties: Record<string, unknown>): ExceptionData[]
     return []
 }
 
-function joinValues(values: string[] | undefined): string | undefined {
-    return values && values.length > 0 ? values.join(', ') : undefined
+function joinValues(values: string[] | undefined): string | null {
+    return values && values.length > 0 ? values.join(', ') : null
 }
 
 function ErrorEventsSummaryView({ summary }: { summary: ErrorDetailsSummaryData }): ReactElement {
@@ -72,17 +72,18 @@ function ErrorEventsSummaryView({ summary }: { summary: ErrorDetailsSummaryData 
                             { label: 'Sessions', value: summary.sessions ?? 0 },
                             {
                                 label: 'First seen',
-                                value: summary.first_seen ? formatDate(summary.first_seen, true) : undefined,
+                                value: summary.first_seen ? formatDate(summary.first_seen, true) : null,
                             },
                             {
                                 label: 'Last seen',
-                                value: summary.last_seen ? formatDate(summary.last_seen, true) : undefined,
+                                value: summary.last_seen ? formatDate(summary.last_seen, true) : null,
                             },
                             { label: 'Top URLs', value: joinValues(summary.top_urls) },
                             { label: 'Browsers', value: joinValues(summary.top_browsers) },
                             { label: 'OS', value: joinValues(summary.top_os) },
                             { label: 'Libraries', value: joinValues(summary.top_libraries) },
                             { label: 'Library versions', value: joinValues(summary.top_library_versions) },
+                            { label: 'Sample session IDs', value: joinValues(summary.sample_session_ids) },
                         ]}
                     />
                 </CardContent>

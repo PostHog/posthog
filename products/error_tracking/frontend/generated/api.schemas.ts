@@ -1445,7 +1445,7 @@ export const IncludeEnumApi = {
 export interface ErrorTrackingIssueEventsQueryRequestApi {
     /** Error tracking issue ID. */
     issueId: string
-    /** events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events.
+    /** events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. In summary mode, limit, offset, include, and onlyAppFrames have no effect, but they must still be valid. Defaults to events.
      *
      * * `events` - events
      * * `summary` - summary */

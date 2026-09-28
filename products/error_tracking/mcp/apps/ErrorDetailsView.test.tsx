@@ -66,12 +66,21 @@ describe('ErrorDetailsView', () => {
     it('shows the aggregate instead of the empty state in summary mode', () => {
         render(
             <ErrorDetailsView
-                data={{ summary: { occurrences: 3, users: 1, sessions: 2, top_browsers: ['Chrome', 'Safari'] } }}
+                data={{
+                    summary: {
+                        occurrences: 3,
+                        users: 1,
+                        sessions: 2,
+                        top_browsers: ['Chrome', 'Safari'],
+                        sample_session_ids: ['session-id-1', 'session-id-2'],
+                    },
+                }}
             />
         )
 
         expect(screen.queryByText('No error events')).toBeNull()
         expect(screen.getByText('Occurrences: 3')).toBeTruthy()
         expect(screen.getByText('Browsers: Chrome, Safari')).toBeTruthy()
+        expect(screen.getByText('Sample session IDs: session-id-1, session-id-2')).toBeTruthy()
     })
 })

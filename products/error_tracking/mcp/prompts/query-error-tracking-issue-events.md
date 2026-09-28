@@ -9,7 +9,7 @@ Set `mode: "summary"` to get one compact aggregate over all matching events inst
 # Parameters
 
 - `issueId`: required Error tracking issue UUID.
-- `mode`: `events` (default) returns sampled events. `summary` returns the aggregate and ignores `limit`, `offset`, `include`, and `onlyAppFrames`.
+- `mode`: `events` (default) returns sampled events. `summary` returns the aggregate. `limit`, `offset`, `include`, and `onlyAppFrames` have no effect on it, but they must still be valid.
 - `dateRange`: time range for sampled events. Defaults to last 7 days.
 - `searchQuery`: search exception types, values, and current URL.
 - `filterGroup`: advanced flat AND property filters applied to sampled events.

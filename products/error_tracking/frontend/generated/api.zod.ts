@@ -635,7 +635,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .describe('\* `events` - events\n\* `summary` - summary')
         .default(errorTrackingQueryIssueEventsCreateBodyModeDefault)
         .describe(
-            'events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events.\n\n\* `events` - events\n\* `summary` - summary'
+            'events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. In summary mode, limit, offset, include, and onlyAppFrames have no effect, but they must still be valid. Defaults to events.\n\n\* `events` - events\n\* `summary` - summary'
         ),
     dateRange: zod
         .object({

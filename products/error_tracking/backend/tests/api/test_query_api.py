@@ -21,6 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    EVENT_SUMMARY_TOP_VALUES,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
@@ -654,6 +655,31 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert summary["top_os"] == []
         assert summary["top_libraries"] == ["posthog-js"]
         assert sorted(summary["sample_session_ids"]) == ["session-id-1", "session-id-2"]
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_summary_keeps_empty_values_out_of_top_values(self) -> None:
+        self.create_issue()
+        urls = [f"https://example.test/page-{index}" for index in range(EVENT_SUMMARY_TOP_VALUES)]
+        for url in urls:
+            self.create_exception_event(properties={"$current_url": url})
+        # More events have an empty URL than have any single real URL, so an empty value would win a
+        # top slot and hide a real URL if the query ranked it.
+        for _ in range(EVENT_SUMMARY_TOP_VALUES):
+            self.create_exception_event(properties={"$current_url": ""})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "mode": "summary",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert sorted(response.json()["summary"]["top_urls"]) == urls
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

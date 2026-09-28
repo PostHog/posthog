@@ -92,12 +92,23 @@ EVENT_SUMMARY_COUNT_SELECTS = {
     "first_seen": "min(timestamp)",
     "last_seen": "max(timestamp)",
 }
+
+
+def top_nonempty_values(expression: str) -> str:
+    """Rank the most common values of an expression and ignore the empty ones.
+
+    An aggregate function skips NULL arguments, so a map from empty to NULL keeps empty values out of
+    the ranking. Without it, an empty value can take one of the returned slots and hide a real value.
+    """
+    return f"topK({EVENT_SUMMARY_TOP_VALUES})(nullIf({expression}, ''))"
+
+
 EVENT_SUMMARY_VALUE_SELECTS = {
-    "top_urls": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$current_url)",
-    "top_browsers": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$browser)",
-    "top_os": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$os)",
-    "top_libraries": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$lib)",
-    "top_library_versions": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$lib_version)",
+    "top_urls": top_nonempty_values("properties.$current_url"),
+    "top_browsers": top_nonempty_values("properties.$browser"),
+    "top_os": top_nonempty_values("properties.$os"),
+    "top_libraries": top_nonempty_values("properties.$lib"),
+    "top_library_versions": top_nonempty_values("properties.$lib_version"),
     "sample_session_ids": f"groupUniqArray({EVENT_SUMMARY_TOP_VALUES})(nullIf(properties.$session_id, ''))",
 }
 EVENT_SUMMARY_SELECTS = {**EVENT_SUMMARY_COUNT_SELECTS, **EVENT_SUMMARY_VALUE_SELECTS}
