@@ -29,6 +29,23 @@ STATUS_TABLE = "sourcebatchstatus"
 STATUS_VIEW = "v_latest_source_batch_status"
 LEASE_TABLE = "sourcegrouplease"
 
+# Lock order for `sourcegrouplease`: a statement that locks more than one lease row
+# must take those locks in ascending (team_id, schema_id).
+#
+# Four paths write this table concurrently across the fleet: the claim upsert in
+# `get_unprocessed_and_lock`, the heartbeat `renew_lease`, the `unlock_for_batches`
+# delete, and the shutdown `release_all_owned_leases`. Postgres locks rows in whatever
+# order the plan happens to emit them, so two pods whose group sets overlap can lock the
+# same rows in opposite orders and deadlock. That also takes down single-row writers
+# caught in the cycle, because a waiter holds an ExclusiveLock on the tuple it is queued
+# for while it waits. `renew_lease` can therefore be a link in a cycle it did not cause.
+#
+# Single-row statements (`renew_lease`, `delete_expired_lease`,
+# `try_acquire_reconcile_sweep_slot`) satisfy the order for free. Multi-row statements
+# have to force it, either with `ORDER BY team_id, schema_id` on the rows an upsert
+# reads, or with an ordered `FOR UPDATE` sub-select that takes every lock before the
+# delete runs.
+
 # Default group-lease validity window, in seconds. The consumer renews the
 # lease on its heartbeat (~every grace/3); a group whose owner stops renewing
 # becomes reclaimable once this window elapses. Coordinated with the consumer's
@@ -793,7 +810,9 @@ class BatchQueue:
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
-        affect the same (team_id, schema_id) row twice in one statement.
+        affect the same (team_id, schema_id) row twice in one statement, and it
+        is ordered and materialized so the upsert takes its lease-row locks in
+        the fleet-wide order (see the lock-order note above).
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
         ``state_changed_at``: a batch is only eligible when
@@ -868,8 +887,9 @@ class BatchQueue:
                     FROM {BATCH_TABLE} b
                     JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
-                candidate_groups AS (
+                candidate_groups AS MATERIALIZED (
                     SELECT DISTINCT team_id, schema_id FROM candidates
+                    ORDER BY team_id, schema_id
                 ),
                 claimed AS (
                     INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
@@ -1026,7 +1046,11 @@ class BatchQueue:
 
         The ``expires_at > now()`` predicate makes a lapsed lease unrenewable, so an owner
         whose lease expired (e.g. a >TTL queue-DB blip during a long write) can't resurrect
-        it and finish over a batch the recovery sweep has already re-queued."""
+        it and finish over a batch the recovery sweep has already re-queued.
+
+        One row per call, so this satisfies the lease lock order (see the note above)
+        without doing anything: it can only ever wait, never hold one lease row while
+        queueing for another."""
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
@@ -1219,6 +1243,7 @@ class BatchQueue:
         job_id: str,
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
+        spare_runs_with_progress: bool = True,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -1238,11 +1263,19 @@ class BatchQueue:
 
         A spared run that stalls later is not re-checked here (this fires once, at the
         new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+
+        ``spare_runs_with_progress=False`` drops the sparing rule. Pass it when the
+        incoming run overwrites the table regardless, which is a fresh non-resume
+        ``full_refresh``: its batch 0 writes with ``mode="overwrite"`` (``should_overwrite_table``
+        in ``load/processor.py``, applied in the full_refresh branch of ``core/delta/writer.py``),
+        so every row an older attempt loaded is discarded the moment this run starts. Sparing
+        those runs protects nothing, and leaves their batches to drain through the serial
+        per-(team, schema) gate — holding the queue head for hours to write data that has
+        already been thrown away. Incremental and CDC keep the sparing rule, because their
+        partially merged work survives into the new run.
         """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
-                AND NOT EXISTS (
+        progress_guard = (
+            f"""AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
                     WHERE b_live.run_uuid = b.run_uuid
@@ -1250,6 +1283,13 @@ class BatchQueue:
                         AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
                         AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
                 )"""
+            if spare_runs_with_progress
+            else ""
+        )
+        cursor = conn.execute(
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                {progress_guard}"""
             ),
             {
                 "job_id": job_id,
@@ -1609,8 +1649,13 @@ class BatchQueue:
         The ``owner_token`` predicate is load-bearing: if this owner's lease
         already expired and another pod reclaimed the group, the delete must be
         a no-op rather than removing the new owner's lease.
+
+        The ordered ``FOR UPDATE`` sub-select takes every row lock before the
+        delete runs, so this honors the fleet-wide lease lock order (see the
+        note above). A bare multi-row ``DELETE`` locks in plan order instead,
+        which is what let this statement deadlock against a concurrent claim.
         """
-        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        pairs = sorted({(b.team_id, b.schema_id) for b in batches})
         if not pairs:
             return
         team_ids = [team_id for team_id, _ in pairs]
@@ -1618,10 +1663,16 @@ class BatchQueue:
         await conn.execute(
             f"""
             DELETE FROM {LEASE_TABLE}
-            WHERE owner_token = %(owner)s
-              AND (team_id, schema_id) IN (
-                  SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
-              )
+            WHERE id IN (
+                SELECT l.id
+                FROM {LEASE_TABLE} l
+                WHERE l.owner_token = %(owner)s
+                  AND (l.team_id, l.schema_id) IN (
+                      SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+                  )
+                ORDER BY l.team_id, l.schema_id
+                FOR UPDATE
+            )
             """,
             {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
         )
@@ -1632,9 +1683,22 @@ class BatchQueue:
         *,
         owner_token: str,
     ) -> None:
-        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown."""
+        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown.
+
+        Ordered ``FOR UPDATE`` for the same reason as :meth:`unlock_for_batches`: a pod
+        shutting down releases many groups at once, against a fleet still claiming them.
+        """
         await conn.execute(
-            f"DELETE FROM {LEASE_TABLE} WHERE owner_token = %(owner)s",
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE id IN (
+                SELECT id
+                FROM {LEASE_TABLE}
+                WHERE owner_token = %(owner)s
+                ORDER BY team_id, schema_id
+                FOR UPDATE
+            )
+            """,
             {"owner": owner_token},
         )
 
@@ -1844,16 +1908,23 @@ class BatchQueue:
         """
         if not pairs:
             return 0
+        ordered = sorted(pairs)
         cursor = conn.execute(
             f"""
             DELETE FROM {LEASE_TABLE}
-            WHERE (team_id, schema_id) IN (
-                SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+            WHERE id IN (
+                SELECT l.id
+                FROM {LEASE_TABLE} l
+                WHERE (l.team_id, l.schema_id) IN (
+                    SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+                )
+                ORDER BY l.team_id, l.schema_id
+                FOR UPDATE
             )
             """,
             {
-                "team_ids": [team_id for team_id, _ in pairs],
-                "schema_ids": [schema_id for _, schema_id in pairs],
+                "team_ids": [team_id for team_id, _ in ordered],
+                "schema_ids": [schema_id for _, schema_id in ordered],
             },
         )
         return cursor.rowcount or 0

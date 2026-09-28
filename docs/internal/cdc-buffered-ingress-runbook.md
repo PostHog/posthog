@@ -239,6 +239,16 @@ The consumer is a scheduled sync, so it stops at the billing check, while captur
 Once the limit lifts, the next sync loads the backlog, as long as none of it has expired.
 Unlike the webhook prefix, `cdc_producer/` expires after 14 days.
 
+**The sweeper stops a source blocked for longer than that.**
+Once a table has been blocked by the billing limit for longer than the buffer keeps files, and the team is still over the limit, the slot sweeper (`cleanup_orphan_slots_activity`) marks the source broken with reason `billing_limit_expired`.
+A PostHog-managed slot with auto-drop on is dropped and the schedules are paused, on the same terms as the critical-lag safety net.
+If that drop is refused, such as by an active slot or a missing grant, the source is left running and the next sweep retries it, because pausing capture behind a live slot is what makes WAL grow.
+Any other slot is left to its owner and capture keeps advancing it, so the customer's WAL does not grow.
+Once the team is back under the limit, a dropped slot needs Repair CDC, which recreates it and re-snapshots every table.
+A kept slot needs nothing: the sweeper lifts its marker, and each table's next sync finds its buffer expired and re-snapshots on its own.
+Only a table's own sync runs count toward the 14 days.
+Capture records a Failed job on every table when it fails, and those rows do not restart the count.
+
 ## Retried capture attempts
 
 Temporal retries a capture attempt that dies, and the retry re-reads the WAL from the slot's

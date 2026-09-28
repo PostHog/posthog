@@ -212,6 +212,7 @@ def _sweeper_adapter(*, lag_bytes=0, retention_cap_mb=None):
     adapter.management_connection.side_effect = _conn
     adapter.get_lag_bytes.return_value = lag_bytes
     adapter.get_retention_cap_mb.return_value = retention_cap_mb
+    adapter.slot_exists.return_value = False
     return adapter
 
 

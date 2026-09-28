@@ -130,6 +130,12 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     if not ctx.has_github_credentials:
         return branch
 
+    # A stacked run starts on the head branch of the pull request it builds on, and that branch is
+    # its PR base. Only the exact branch the run was created for counts, so a resume that moved to
+    # the run's own head branch takes the lookup below.
+    if (ctx.state or {}).get("stack_base_branch") == branch:
+        return branch
+
     try:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:

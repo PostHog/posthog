@@ -203,7 +203,10 @@ Idempotent. It recomputes each report from its artefacts and writes only the row
 
 An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
 Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
-`resume_setup_paused_operational_scouts` resumes only operational rows paused without an attributed user within `--max-gap-seconds` (default 300) of creation.
+The setup flow paused them over MCP on the user's own session, so `status_changed_by` holds the user and cannot tell the two apart.
+`resume_setup_paused_operational_scouts` resumes only operational rows whose pause has an `mcp` activity log entry within a few seconds of `status_changed_at`.
+It leaves pauses from the UI, the system, a scout, or with no log entry alone, and prints how many paused rows each source holds.
+Pass `--max-gap-seconds` to also require that the pause landed soon after creation. It is off by default.
 It skips withheld scouts and does not go past the enabled-scout cap.
 
 ```bash
