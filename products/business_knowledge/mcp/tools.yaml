@@ -54,6 +54,27 @@ tools:
     business-knowledge-gap-suggestions-list:
         operation: business_knowledge_gap_suggestions_list
         enabled: false
+    business-knowledge-playground-chats-ask-create:
+        operation: business_knowledge_playground_chats_ask_create
+        enabled: false
+    business-knowledge-playground-chats-create:
+        operation: business_knowledge_playground_chats_create
+        enabled: false
+    business-knowledge-playground-chats-destroy:
+        operation: business_knowledge_playground_chats_destroy
+        enabled: false
+    business-knowledge-playground-chats-list:
+        operation: business_knowledge_playground_chats_list
+        enabled: false
+    business-knowledge-playground-chats-retrieve:
+        operation: business_knowledge_playground_chats_retrieve
+        enabled: false
+    business-knowledge-sandbox-create:
+        operation: business_knowledge_sandbox_create
+        enabled: false
+    business-knowledge-sandbox-retrieve:
+        operation: business_knowledge_sandbox_retrieve
+        enabled: false
     business-knowledge-settings-partial-update:
         operation: business_knowledge_settings_partial_update
         enabled: false
