@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
+import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.dataclasses import frozen
@@ -14,6 +15,8 @@ from posthog.exceptions import Conflict
 from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import SignalScoutConfig
+
+logger = structlog.get_logger(__name__)
 
 RUBRIC_TEAM_ID = 2
 MAX_CRITERIA = 30
@@ -290,6 +293,12 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
             user_id=user_id,
         )
     except Exception:
+        logger.exception(
+            "signals.scout_rubrics.dispatch_failed",
+            team_id=team_id,
+            config_id=config_id,
+            generation_id=generation.id,
+        )
         refund_daily_attempt("signals_scout_rubrics", team_id)
         fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
         raise ScoutRubricGenerationUnavailable from None
