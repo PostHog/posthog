@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -140,6 +141,43 @@ describe('ChartAlternatives', () => {
         await waitFor(() =>
             expect(document.querySelector('[data-attr="chart-alternatives-all"]')).not.toBeInTheDocument()
         )
+    })
+
+    it.each([
+        ['the gallery', 'test', 'chart-alternatives-all', 1],
+        ['the chart type dropdown', 'control', 'chart-filter', 1],
+    ])('reports an exposure when %s opens', async (_, variant, dataAttr, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: variant,
+        })
+        setQuery(makeTrendsQuery())
+        alternativesLogic()
+        const capture = jest.spyOn(posthog, 'capture')
+
+        const menuButton = await waitFor(() => {
+            const button = document.querySelector(`[data-attr="${dataAttr}"]`)
+            expect(button).toBeInTheDocument()
+            return button!
+        })
+        fireEvent.click(menuButton)
+
+        await waitFor(() =>
+            expect(capture.mock.calls.filter(([event]) => event === 'insight chart type menu opened')).toHaveLength(
+                expected
+            )
+        )
+        jest.restoreAllMocks()
+    })
+
+    it('does not report an exposure when the chart type dropdown opens on a read-only insight', () => {
+        setQuery(makeTrendsQuery())
+        const capture = jest.spyOn(posthog, 'capture')
+
+        chartAlternativesLogic({ embedded: true, ...insightProps }).mount()
+        chartAlternativesLogic({ embedded: true, ...insightProps }).actions.reportChartMenuOpened()
+
+        expect(capture.mock.calls.map(([event]) => event)).not.toContain('insight chart type menu opened')
+        jest.restoreAllMocks()
     })
 
     it.each([
