@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -459,12 +460,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 refreshTreeItem('dashboard', id)
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
-                    eventUsageLogic.actions.reportDashboardFrontEndUpdate(
-                        id,
-                        updatedAttribute,
-                        values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
-                        payload[updatedAttribute].length
-                    )
+                    posthog.capture(`dashboard frontend updated`, {
+                        dashboard_id: id,
+                        attribute: updatedAttribute,
+                        original_length: values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
+                        new_length: payload[updatedAttribute].length,
+                    })
                     if (updatedAttribute === 'tags') {
                         actions.loadTags()
                     }

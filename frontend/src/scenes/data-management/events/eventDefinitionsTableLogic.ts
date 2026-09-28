@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -682,44 +683,44 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
-                        performance.now() - cache.eventsStartTime,
-                        values.eventDefinitions.results.length
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event definitions page load succeeded', {
+                        load_time: performance.now() - cache.eventsStartTime,
+                        num_results: values.eventDefinitions.results.length,
+                    })
+                }
                 cache.eventsStartTime = undefined
             }
         },
         loadEventDefinitionsFailure: ({ error }) => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
-                        performance.now() - cache.eventsStartTime,
-                        error ?? 'There was an unknown error fetching event definitions.'
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event definitions page load failed', {
+                        load_time: performance.now() - cache.eventsStartTime,
+                        error: error ?? 'There was an unknown error fetching event definitions.',
+                    })
+                }
                 cache.eventsStartTime = undefined
             }
         },
         loadPropertiesForEventSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
-                        performance.now() - cache.propertiesStartTime
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event definitions page event nested properties load succeeded', {
+                        load_time: performance.now() - cache.propertiesStartTime,
+                    })
+                }
                 cache.propertiesStartTime = undefined
             }
         },
         loadPropertiesForEventFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
-                        performance.now() - cache.propertiesStartTime,
-                        error ?? 'There was an unknown error fetching nested property definitions.'
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('event definitions page event nested properties load failed', {
+                        load_time: performance.now() - cache.propertiesStartTime,
+                        error: error ?? 'There was an unknown error fetching nested property definitions.',
+                    })
+                }
                 cache.propertiesStartTime = undefined
             }
         },

@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { isApprovalRequiredError } from 'lib/api-error'
@@ -22,7 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -2320,13 +2321,25 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            if (values.experiment) {
+                posthog.capture('experiment start date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_start_date: values.experiment.start_date,
+                    new_start_date: startDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            if (values.experiment) {
+                posthog.capture('experiment end date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_end_date: values.experiment.end_date,
+                    new_end_date: endDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
@@ -2534,29 +2547,27 @@ export const experimentLogic = kea<experimentLogicType>([
                     const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                     const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
-                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                        values.experimentId,
-                        values.currentTeamId,
-                        {
-                            total_duration_ms: totalDurationMs,
-                            primary_metrics_count: primaryCount,
-                            secondary_metrics_count: secondaryCount,
-                            successful_count: successfulCount,
-                            errored_count: erroredCount,
-                            cached_count: cachedCount,
-                            triggered_by: triggeredBy ?? 'manual',
-                            force_refresh: !!forceRefresh,
-                            refresh_id: refreshId,
-                            experiment_duration_hours: values.experiment?.start_date
-                                ? Math.round(
-                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                                  )
-                                : null,
-                            experiment_status: values.experiment?.status ?? null,
-                            total_metrics_count: primaryCount + secondaryCount,
-                            execution_mode: getExperimentExecutionMode(values.featureFlags),
-                        }
-                    )
+                    posthog.capture('experiment results refresh completed', {
+                        experiment_id: values.experimentId,
+                        team_id: values.currentTeamId,
+                        total_duration_ms: totalDurationMs,
+                        primary_metrics_count: primaryCount,
+                        secondary_metrics_count: secondaryCount,
+                        successful_count: successfulCount,
+                        errored_count: erroredCount,
+                        cached_count: cachedCount,
+                        triggered_by: triggeredBy ?? 'manual',
+                        force_refresh: !!forceRefresh,
+                        refresh_id: refreshId,
+                        experiment_duration_hours: values.experiment?.start_date
+                            ? Math.round(
+                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                              )
+                            : null,
+                        experiment_status: values.experiment?.status ?? null,
+                        total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
+                    })
 
                     const finalState: FinishedRefreshState = caughtError
                         ? 'errored'

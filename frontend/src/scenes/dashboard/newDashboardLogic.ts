@@ -14,6 +14,7 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -421,7 +422,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 
-                eventUsageLogic.actions.reportWebDashboardCreatedFromTemplate({
+                posthog.capture('dashboard created from template', {
                     dashboard_id: result.id,
                     template_id: template.id,
                     template_name: template.template_name,

@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
@@ -465,24 +466,24 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         },
         handleSaveSuccess: () => {
             if (cache.startTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportDataManagementDefinitionSaveSucceeded(
-                        values.type,
-                        performance.now() - cache.startTime
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('definition save succeeded', {
+                        type: values.type,
+                        load_time: performance.now() - cache.startTime,
+                    })
+                }
                 cache.startTime = undefined
             }
         },
         handleSaveFailure: ({ error }) => {
             if (cache.startTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportDataManagementDefinitionSaveFailed(
-                        values.type,
-                        performance.now() - cache.startTime,
-                        error
-                    )
+                if (eventUsageLogic.findMounted()) {
+                    posthog.capture('definition save failed', {
+                        type: values.type,
+                        load_time: performance.now() - cache.startTime,
+                        error: error,
+                    })
+                }
                 cache.startTime = undefined
             }
         },
@@ -490,13 +491,18 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             actions.setPopoverState(DefinitionPopoverState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
-            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)
+            if (eventUsageLogic.findMounted()) {
+                posthog.capture('definition cancelled', { type: values.type })
+            }
         },
         recordHoverActivity: async (_, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
-            eventUsageLogic
-                .findMounted()
-                ?.actions?.reportDataManagementDefinitionHovered(values.type, values.mediaPreviews.length)
+            if (eventUsageLogic.findMounted()) {
+                posthog.capture('definition hovered', {
+                    type: values.type,
+                    media_preview_count: values.mediaPreviews.length ?? 0,
+                })
+            }
         },
     })),
     events(({ actions }) => ({
