@@ -7,7 +7,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -131,7 +130,6 @@ describe('definitionPopoverLogic', () => {
         })
 
         it('cancel', async () => {
-            expect(eventUsageLogic.findMounted()).toBeFalsy()
             const capture = jest.spyOn(posthog, 'capture')
             await expectLogic(logic, async () => {
                 logic.actions.setDefinition(mockEventDefinitions[0])

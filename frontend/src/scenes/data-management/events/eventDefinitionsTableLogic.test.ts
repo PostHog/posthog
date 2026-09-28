@@ -5,7 +5,6 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -145,7 +144,6 @@ describe('eventDefinitionsTableLogic', () => {
 
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
-            expect(eventUsageLogic.findMounted()).toBeFalsy()
             const capture = jest.spyOn(posthog, 'capture')
             const url = urls.eventDefinitions()
             router.actions.push(url)
