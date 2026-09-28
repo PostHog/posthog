@@ -747,14 +747,30 @@ class TestWidgetData(APIBaseTest):
             "name": "Results",
         }
 
-        with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False):
+        with (
+            patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False),
+            patch("products.notebooks.backend.analytics.report_user_action") as report,
+        ):
             assert self.client.post(path, payload).status_code == 400
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
         assert not dashboard.tiles.exists()
+        report.assert_not_called()
 
-        response = self.client.post(path, payload)
+        with patch("products.notebooks.backend.analytics.report_user_action") as report:
+            response = self.client.post(path, payload)
         assert response.status_code == 201, response.json()
         snapshot_id = response.json()["id"]
+        report.assert_called_once()
+        assert report.call_args.args[1:] == (
+            "notebook widget published",
+            {
+                "short_id": self.notebook.short_id,
+                "snapshot_id": snapshot_id,
+                "version_id": str(version.id),
+                "operation": "add",
+                "uses_notebook_run": False,
+            },
+        )
         tile = dashboard.tiles.get()
         assert tile.widget is not None
         assert tile.widget.config == {"notebookShortId": self.notebook.short_id, "snapshotId": snapshot_id}
@@ -773,11 +789,15 @@ class TestWidgetData(APIBaseTest):
             "previous_snapshot_id": snapshot_id,
             "notebook_run_id": str(parent.id),
         }
-        response = self.client.post(path, refresh)
-        assert response.status_code == 201, response.json()
+        with patch("products.notebooks.backend.analytics.report_user_action") as report:
+            response = self.client.post(path, refresh)
+            assert response.status_code == 201, response.json()
+            assert self.client.post(path, refresh).status_code == 409
+        report.assert_called_once()
+        assert report.call_args.args[2]["operation"] == "refresh"
+        assert report.call_args.args[2]["uses_notebook_run"] is True
         tile.widget.refresh_from_db()
         assert tile.widget.config["snapshotId"] == response.json()["id"]
-        assert self.client.post(path, refresh).status_code == 409
         assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
         tile.widget.refresh_from_db()
         assert tile.widget.config["snapshotId"] == response.json()["id"]

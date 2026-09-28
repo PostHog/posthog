@@ -59,6 +59,7 @@ from products.notebooks.backend.analytics import (
     NotebookCreationSource,
     capture_notebook_created,
     capture_notebook_read,
+    capture_notebook_widget_published,
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
@@ -846,9 +847,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
         try:
             snapshot = service.publish(user=user, **serializer.validated_data)
-            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
+            data = WidgetSnapshotSerializer(service.describe(snapshot)).data
         except WidgetError as error:
             return self._widget_error_response(error)
+        capture_notebook_widget_published(
+            request=request,
+            user=user,
+            short_id=service.notebook.short_id,
+            snapshot_id=str(snapshot.id),
+            version_id=str(snapshot.version_id),
+            is_refresh="tile_id" in serializer.validated_data,
+            uses_notebook_run="notebook_run_id" in serializer.validated_data,
+        )
+        return Response(data, status=201)
 
     @extend_schema(
         operation_id="notebooks_widget_snapshot_retrieve",
