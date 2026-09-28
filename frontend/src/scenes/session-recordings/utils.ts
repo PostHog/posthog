@@ -8,6 +8,7 @@ import {
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
+    type SessionRecordingRetentionPeriod,
     UniversalFilterValue,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
@@ -65,6 +66,14 @@ const pagePropertiesOf = (filter: UniversalFilterValue): PageProperty[] =>
  */
 export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
     filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
+
+/**
+ * The widest `date_from` worth scanning for recordings, because no recording outlives the project's
+ * retention period. `legacy` (not a duration) and an unset period fall back to 90 days, as the
+ * recordings API does.
+ */
+export const retentionPeriodDateFrom = (period: SessionRecordingRetentionPeriod | null | undefined): string =>
+    `-${period && period !== 'legacy' ? period : '90d'}`
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
     if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {

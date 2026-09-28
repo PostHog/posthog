@@ -1,19 +1,10 @@
 import api from 'lib/api'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { retentionPeriodDateFrom } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/queries/schema/schema-general'
-import type { SessionRecordingRetentionPeriod } from '~/types'
-
-// The recordings list defaults to the last 3 days server-side, which reads a project whose newest
-// recording is older than that as "nothing captured" and hides the scene behind the waiting
-// screen. Probe the project's retention period instead: no recording can outlive it, so it is the
-// widest window worth scanning. `legacy` (not a duration) and an unset period fall back to 90
-// days, as the recordings API does.
-function probeDateFrom(period: SessionRecordingRetentionPeriod | null | undefined): string {
-    return `-${period && period !== 'legacy' ? period : '90d'}`
-}
 
 /**
  * Setup detection for the session replay empty state. Three-state: recordings
@@ -28,10 +19,12 @@ export const sessionReplaySetupLogic = createSetupDetectionLogic({
     revalidateCachedHasData: true,
     detect: async () => {
         const currentTeam = teamLogic.findMounted()?.values.currentTeam
+        // The recordings list defaults to the last 3 days, which reads a project whose newest
+        // recording is older than that as "nothing captured". Scan the whole retention period.
         const response = await api.recordings.list({
             kind: NodeKind.RecordingsQuery,
             limit: 1,
-            date_from: probeDateFrom(currentTeam?.session_recording_retention_period),
+            date_from: retentionPeriodDateFrom(currentTeam?.session_recording_retention_period),
         })
         if (response.results.length > 0) {
             return 'has-data'
