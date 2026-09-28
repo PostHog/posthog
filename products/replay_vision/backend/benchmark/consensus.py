@@ -126,7 +126,9 @@ def _median_ratings(labels: list[dict[str, Any]]) -> tuple[dict[str, Any], None]
     by_option: dict[str, list[int]] = {}
     for label in labels:
         for option_id, rating in (label.get("ratings") or {}).items():
-            by_option.setdefault(option_id, []).append(rating)
+            # A missing or malformed rating is no answer for that option, the way a span missing an edge is.
+            if type(rating) is int:
+                by_option.setdefault(option_id, []).append(rating)
     ratings = {
         option_id: median
         for option_id, values in by_option.items()
