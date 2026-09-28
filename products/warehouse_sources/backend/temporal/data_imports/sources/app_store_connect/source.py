@@ -65,22 +65,32 @@ _MISSING_VENDOR_NUMBER = (
 )
 
 
-def _load_snapshot_owed(schema_id: str, team_id: int) -> tuple[bool, date | None]:
+def _load_snapshot_owed(schema_id: str, team_id: int) -> tuple[bool, dict[str, date]]:
     schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
     config = schema.sync_type_config or {}
-    coverage_start = config.get(SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY)
+    coverage_starts = config.get(SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY)
     return (
         bool(config.get(SNAPSHOT_OWED_CONFIG_KEY)),
-        date.fromisoformat(coverage_start) if isinstance(coverage_start, str) else None,
+        {
+            app_id: date.fromisoformat(coverage_start)
+            for app_id, coverage_start in coverage_starts.items()
+            if isinstance(app_id, str) and isinstance(coverage_start, str)
+        }
+        if isinstance(coverage_starts, dict)
+        else {},
     )
 
 
-def _record_snapshot_owed(schema_id: str, team_id: int, owed: bool, coverage_start: date | None = None) -> None:
+def _record_snapshot_owed(
+    schema_id: str, team_id: int, owed: bool, coverage_starts: dict[str, date] | None = None
+) -> None:
     close_old_connections()
     if owed:
         updates: dict[str, Any] = {SNAPSHOT_OWED_CONFIG_KEY: True}
-        if coverage_start is not None:
-            updates[SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY] = coverage_start.isoformat()
+        if coverage_starts:
+            updates[SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY] = {
+                app_id: coverage_start.isoformat() for app_id, coverage_start in coverage_starts.items()
+            }
         update_sync_type_config_keys(schema_id, team_id, updates=updates)
     else:
         update_sync_type_config_keys(
@@ -316,7 +326,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         inputs: SourceInputs,
     ) -> SourceResponse:
         is_analytics = APP_STORE_CONNECT_ENDPOINTS[inputs.schema_name].kind == "analytics_report"
-        snapshot_owed, snapshot_owed_coverage_start = (
+        snapshot_owed, snapshot_owed_coverage_starts = (
             _load_snapshot_owed(inputs.schema_id, inputs.team_id) if is_analytics else (False, None)
         )
         return app_store_connect_source(
@@ -333,7 +343,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             if inputs.should_use_incremental_field
             else None,
             snapshot_owed=snapshot_owed,
-            snapshot_owed_coverage_start=snapshot_owed_coverage_start,
+            snapshot_owed_coverage_starts=snapshot_owed_coverage_starts,
             record_snapshot_owed=partial(_record_snapshot_owed, inputs.schema_id, inputs.team_id)
             if is_analytics
             else None,
