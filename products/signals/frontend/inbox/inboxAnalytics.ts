@@ -255,6 +255,14 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
     }
 }
 
+/** Which sources and scout produced a report, so rating events can break down by who authored it. */
+function reportAuthorshipProperties(report: SignalReport): { source_products: string[]; scout_name: string | null } {
+    return {
+        source_products: report.source_products ?? [],
+        scout_name: report.scout_name ?? null,
+    }
+}
+
 /** Per-priority counts of the visible reports (P0–P4, plus unknown). Mirrors desktop's breakdown. */
 function priorityBreakdown(reports: SignalReport[]): Record<string, number> {
     const counts = { p0: 0, p1: 0, p2: 0, p3: 0, p4: 0, unknown: 0 }
@@ -517,6 +525,7 @@ export function captureInboxReportFeedback(params: {
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
+        ...reportAuthorshipProperties(params.report),
         sentiment: params.sentiment,
         has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
@@ -538,6 +547,7 @@ export function captureInboxReportFeedbackNote(params: {
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
+        ...reportAuthorshipProperties(params.report),
         sentiment: params.sentiment,
         has_pr: reportPullRequests(params.report).length > 0,
         note: params.note,

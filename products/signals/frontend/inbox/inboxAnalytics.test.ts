@@ -4,6 +4,8 @@ import {
     captureInboxQueryChanged,
     captureInboxReportAction,
     captureInboxReportClosed,
+    captureInboxReportFeedback,
+    captureInboxReportFeedbackNote,
     captureInboxReportScrolled,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
@@ -147,6 +149,37 @@ describe('inboxAnalytics', () => {
                 source_products: ['error_tracking'],
             }),
         ])
+    })
+
+    it.each([
+        [
+            'rating',
+            INBOX_EVENTS.REPORT_FEEDBACK,
+            (report: SignalReport) =>
+                captureInboxReportFeedback({ report, sentiment: 'negative', surface: 'detail_footer' }),
+        ],
+        [
+            'note',
+            INBOX_EVENTS.REPORT_FEEDBACK_NOTE,
+            (report: SignalReport) =>
+                captureInboxReportFeedbackNote({
+                    report,
+                    sentiment: 'negative',
+                    note: 'not useful',
+                    surface: 'detail_footer',
+                }),
+        ],
+    ])('attributes a feedback %s to the sources and scout behind the report', (_, event, capture) => {
+        capture(makeReport({ source_products: ['error_tracking'], scout_name: 'signals-scout-general' }))
+        expect(lastCapture(event)).toMatchObject({
+            report_id: 'r1',
+            sentiment: 'negative',
+            source_products: ['error_tracking'],
+            scout_name: 'signals-scout-general',
+        })
+
+        capture(makeReport())
+        expect(lastCapture(event)).toMatchObject({ source_products: [], scout_name: null })
     })
 
     it('emits a single-report action with the report context', () => {
