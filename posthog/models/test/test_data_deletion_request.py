@@ -126,8 +126,9 @@ def test_property_removal_clean_raises(events, delete_all_events, match):
         ("this is not hogql", "hogql_predicate"),
         ("nonexistent_column = 1", "hogql_predicate"),
         ("event IN (SELECT event FROM events)", None),
+        ("session.$session_duration > 10", "needs a join"),
     ],
-    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery_allowed"],
+    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery_allowed", "join_rejected"],
 )
 def test_hogql_predicate_validation(team, predicate, error_match):
     request = DataDeletionRequest(

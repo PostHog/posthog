@@ -19,8 +19,13 @@ def translate_hogql(
     events_table_alias: Optional[str] = None,
     events_table_use_new_schema: Optional[bool] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
+    forbid_joins: bool = False,
 ) -> str:
-    """Translate a HogQL expression into a ClickHouse expression."""
+    """Translate a HogQL expression into a ClickHouse expression.
+
+    The result holds only the expression, so a join it needs is lost. With ``forbid_joins`` such an
+    expression raises QueryError instead of printing a reference to a table alias that does not exist.
+    """
     if query == "":
         raise QueryError("Empty query")
 
@@ -52,6 +57,12 @@ def translate_hogql(
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
         )
+        if (
+            forbid_joins
+            and prepared_select_query.select_from is not None
+            and prepared_select_query.select_from.next_join is not None
+        ):
+            raise QueryError("The expression needs a join to another table, which is not supported here")
         return print_prepared_ast(
             prepared_select_query.select[0],
             context=context,

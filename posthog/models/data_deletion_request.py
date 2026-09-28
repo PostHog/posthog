@@ -86,13 +86,16 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
     # ``person.properties`` must read the on-events ``person_properties`` column — a joined
     # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
-    # not exist in either splice site.
+    # not exist in either splice site. For the same reason ``person_id`` reads the stored column:
+    # the override modes join person_distinct_id_overrides. Every other events-shaped deletion
+    # also matches on the stored ``person_id``. ``forbid_joins`` rejects any predicate that still
+    # needs a join.
     try:
         team = Team.objects.get(id=obj.team_id)
     except Team.DoesNotExist as exc:
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
-    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
     context = HogQLContext(
         team_id=obj.team_id,
         team=team,
@@ -109,6 +112,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
             context,
             dialect="clickhouse",
             events_table_use_new_schema=use_new_events_schema,
+            forbid_joins=True,
         )
     except ImportError:
         # A failed import means the runtime environment is broken (e.g. a Dagster worker that

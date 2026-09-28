@@ -171,6 +171,13 @@ To sweep it again:
 
 Neither restores what earlier runs left behind. That needs a backfill sweep over the affected uuids.
 
+### A HogQL predicate matches the stored `person_id`
+
+`compile_hogql_predicate` splices the predicate into a bare `WHERE`, so it cannot carry a join, and it raises on any predicate that needs one.
+A normal HogQL query corrects `person_id` by joining `person_distinct_id_overrides`, so the predicate reads the stored column instead, like every other events-shaped deletion.
+After a merge, a row keeps the old `person_id` until the person-overrides squash rewrites it.
+Until then, a predicate on `person_id` or `person.id` does not match that row.
+
 ### Property removal does not reach `flag_evaluations`
 
 `person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.

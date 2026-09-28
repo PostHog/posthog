@@ -502,7 +502,15 @@ def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(clu
 
 
 @pytest.mark.django_db
-def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster):
+@pytest.mark.parametrize(
+    "hogql_predicate",
+    [
+        "properties.$browser = 'Chrome'",
+        # writable_events leaves person_id at the zero UUID.
+        "person_id = '00000000-0000-0000-0000-000000000000' AND properties.$browser = 'Chrome'",
+    ],
+)
+def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster, hogql_predicate: str):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
@@ -529,7 +537,7 @@ def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseClust
         start_time=start_time,
         end_time=end_time,
         events=["$pageview"],
-        hogql_predicate="properties.$browser = 'Chrome'",
+        hogql_predicate=hogql_predicate,
     )
     context = build_op_context()
     execute_event_deletion(context, cluster, deletion_ctx)
