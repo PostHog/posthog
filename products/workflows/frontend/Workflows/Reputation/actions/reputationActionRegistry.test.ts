@@ -1,4 +1,5 @@
 import { readdirSync } from 'fs'
+import { join } from 'path'
 
 import { urls } from 'scenes/urls'
 
@@ -345,9 +346,11 @@ describe('buildReputationActions', () => {
         expect(providerAction.description).toContain('mail.example.com')
     })
 
-    it('registers every action in this folder under its own kind', async () => {
-        const files = readdirSync(__dirname).filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
-        const modules: Record<string, unknown>[] = await Promise.all(files.map((file) => import(`./${file}`)))
+    it('registers every action definition under its own kind', async () => {
+        const files = readdirSync(join(__dirname, 'definitions'))
+        const modules: Record<string, unknown>[] = await Promise.all(
+            files.map((file) => import(`./definitions/${file}`))
+        )
         const defined = modules
             .flatMap((module) => Object.values(module))
             .filter(

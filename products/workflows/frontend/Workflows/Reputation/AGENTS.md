@@ -1,6 +1,7 @@
 # Reputation action list
 
-Each row type of the action list is one `defineReputationAction` file in `actions/`.
+Each row type of the action list is one `defineReputationAction` file in `actions/definitions/`.
+The rest of `actions/` is what they share: types, context, ranking, buttons and the registry.
 To add a row type:
 
 - Add its kind to `ReputationActionKind`. Kinds are pinned, because the buttons' `data-attr` carries them.

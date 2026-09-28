@@ -7,9 +7,9 @@ import {
     exceededLevel,
     formatRate,
     rateOf,
-} from '../reputationUtils'
-import { defineReputationAction } from './defineReputationAction'
-import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts } from './reputationActionCtas'
+} from '../../reputationUtils'
+import { defineReputationAction } from '../defineReputationAction'
+import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts } from '../reputationActionCtas'
 
 interface ProjectRate {
     kind: RateKind

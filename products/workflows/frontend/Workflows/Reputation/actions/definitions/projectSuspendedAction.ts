@@ -1,5 +1,5 @@
-import { defineReputationAction } from './defineReputationAction'
-import { contactSupport } from './reputationActionCtas'
+import { defineReputationAction } from '../defineReputationAction'
+import { contactSupport } from '../reputationActionCtas'
 
 /** PostHog suspended all email for the project. Only support can lift it. */
 export const projectSuspendedAction = defineReputationAction<true>({

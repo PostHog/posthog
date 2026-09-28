@@ -1,21 +1,21 @@
-import { bimiFindingAction } from './bimiFindingAction'
 import type { RegisteredReputationAction } from './defineReputationAction'
-import { dnsFindingAction } from './dnsFindingAction'
-import { otherFindingAction } from './otherFindingAction'
-import { pausedWorkflowAction } from './pausedWorkflowAction'
-import { projectRateAction } from './projectRateAction'
-import { projectSuspendedAction } from './projectSuspendedAction'
-import { providerRateAction } from './providerRateAction'
-import { providerStatusAction } from './providerStatusAction'
-import { rateFindingAction } from './rateFindingAction'
+import { bimiFindingAction } from './definitions/bimiFindingAction'
+import { dnsFindingAction } from './definitions/dnsFindingAction'
+import { otherFindingAction } from './definitions/otherFindingAction'
+import { pausedWorkflowAction } from './definitions/pausedWorkflowAction'
+import { projectRateAction } from './definitions/projectRateAction'
+import { projectSuspendedAction } from './definitions/projectSuspendedAction'
+import { providerRateAction } from './definitions/providerRateAction'
+import { providerStatusAction } from './definitions/providerStatusAction'
+import { rateFindingAction } from './definitions/rateFindingAction'
+import { workflowRateAction } from './definitions/workflowRateAction'
 import type { ReputationActionContext } from './reputationActionContext'
 import { compareReputationActionRanks } from './reputationActionRanking'
 import type { ReputationAction, ReputationActionKind } from './reputationActionTypes'
-import { workflowRateAction } from './workflowRateAction'
 
 /**
  * Every item the action list can show, keyed by its kind. To add one, write a `defineReputationAction`
- * file and list it here. Rows sort by their rank, so this order only settles exact ties.
+ * file in `definitions/` and list it here. Rows sort by their rank, so this order only settles exact ties.
  */
 export const REPUTATION_ACTIONS: Readonly<Record<ReputationActionKind, RegisteredReputationAction>> = {
     'project-suspended': projectSuspendedAction,

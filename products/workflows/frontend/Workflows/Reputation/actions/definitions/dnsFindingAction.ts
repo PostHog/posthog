@@ -1,8 +1,8 @@
 import type { FindingTypeEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { defineReputationAction } from './defineReputationAction'
-import { CHANNEL_SETUP_DOCS, openChannels } from './reputationActionCtas'
-import { IndexedFinding, findingsOfType, isHighImpact } from './reputationFindings'
+import { defineReputationAction } from '../defineReputationAction'
+import { CHANNEL_SETUP_DOCS, openChannels } from '../reputationActionCtas'
+import { IndexedFinding, findingsOfType, isHighImpact } from '../reputationFindings'
 
 export const DNS_FINDING_TYPES: readonly FindingTypeEnumApi[] = ['DKIM', 'DMARC', 'SPF']
 

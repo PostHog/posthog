@@ -2,12 +2,12 @@ import { endWithPunctation } from 'lib/utils/strings'
 
 import type { AwsTenantFindingApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { defineReputationAction } from '../defineReputationAction'
+import { LOWER_RATES_DOCS, VIEW_WORKFLOWS } from '../reputationActionCtas'
+import { IndexedFinding, isHighImpact } from '../reputationFindings'
 import { BIMI_FINDING_TYPES } from './bimiFindingAction'
-import { defineReputationAction } from './defineReputationAction'
 import { DNS_FINDING_TYPES } from './dnsFindingAction'
 import { RATE_FINDING_TYPES } from './rateFindingAction'
-import { LOWER_RATES_DOCS, VIEW_WORKFLOWS } from './reputationActionCtas'
-import { IndexedFinding, isHighImpact } from './reputationFindings'
 
 // A finding action with its own types lists them here, or its findings also show up as generic rows.
 const DEDICATED_FINDING_TYPES = new Set<string>([...RATE_FINDING_TYPES, ...DNS_FINDING_TYPES, ...BIMI_FINDING_TYPES])

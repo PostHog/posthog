@@ -6,10 +6,10 @@ import {
     RateKind,
     formatRate,
     workflowName,
-} from '../reputationUtils'
-import { defineReputationAction } from './defineReputationAction'
-import type { WorkflowOverLine } from './reputationActionContext'
-import { LOWER_RATES_DOCS, openWorkflow } from './reputationActionCtas'
+} from '../../reputationUtils'
+import { defineReputationAction } from '../defineReputationAction'
+import type { WorkflowOverLine } from '../reputationActionContext'
+import { LOWER_RATES_DOCS, openWorkflow } from '../reputationActionCtas'
 
 interface WorkflowRate extends WorkflowOverLine {
     kind: RateKind

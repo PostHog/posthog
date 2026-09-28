@@ -1,8 +1,8 @@
 import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { workflowName } from '../reputationUtils'
-import { defineReputationAction } from './defineReputationAction'
-import { LOWER_RATES_DOCS, openWorkflow } from './reputationActionCtas'
+import { workflowName } from '../../reputationUtils'
+import { defineReputationAction } from '../defineReputationAction'
+import { LOWER_RATES_DOCS, openWorkflow } from '../reputationActionCtas'
 
 /**
  * A workflow whose email is paused. The workflow page opens with the pause banner. It has a resume

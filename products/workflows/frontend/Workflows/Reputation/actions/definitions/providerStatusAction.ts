@@ -1,5 +1,5 @@
-import { defineReputationAction } from './defineReputationAction'
-import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, contactSupport } from './reputationActionCtas'
+import { defineReputationAction } from '../defineReputationAction'
+import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, contactSupport } from '../reputationActionCtas'
 
 interface ProviderStatus {
     stopped: boolean

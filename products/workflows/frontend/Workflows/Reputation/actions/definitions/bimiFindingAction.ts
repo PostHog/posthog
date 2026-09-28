@@ -1,7 +1,7 @@
 import type { FindingTypeEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { defineReputationAction } from './defineReputationAction'
-import { IndexedFinding, findingsOfType } from './reputationFindings'
+import { defineReputationAction } from '../defineReputationAction'
+import { IndexedFinding, findingsOfType } from '../reputationFindings'
 
 export const BIMI_FINDING_TYPES: readonly FindingTypeEnumApi[] = ['BIMI']
 

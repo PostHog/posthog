@@ -1,10 +1,10 @@
 import type { FindingTypeEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { RATE_KINDS, RATE_KIND_LIST, RateKind, workflowName } from '../reputationUtils'
-import { defineReputationAction } from './defineReputationAction'
-import type { Offender } from './reputationActionContext'
-import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts, openWorkflow } from './reputationActionCtas'
-import { IndexedFinding, findingsOfType, isHighImpact } from './reputationFindings'
+import { RATE_KINDS, RATE_KIND_LIST, RateKind, workflowName } from '../../reputationUtils'
+import { defineReputationAction } from '../defineReputationAction'
+import type { Offender } from '../reputationActionContext'
+import { LOWER_RATES_DOCS, VIEW_WORKFLOWS, manageOptOuts, openWorkflow } from '../reputationActionCtas'
+import { IndexedFinding, findingsOfType, isHighImpact } from '../reputationFindings'
 
 export const RATE_FINDING_TYPES: readonly FindingTypeEnumApi[] = RATE_KIND_LIST.map(
     (kind) => RATE_KINDS[kind].findingType

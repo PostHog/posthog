@@ -1,9 +1,9 @@
 import { humanList } from 'lib/utils/strings'
 
-import { OTHER_ISP, RATE_THRESHOLDS, formatRate, ispDisplayName } from '../reputationUtils'
-import { defineReputationAction } from './defineReputationAction'
-import type { ProviderOverLine } from './reputationActionContext'
-import { LOWER_RATES_DOCS, VIEW_PROVIDERS } from './reputationActionCtas'
+import { OTHER_ISP, RATE_THRESHOLDS, formatRate, ispDisplayName } from '../../reputationUtils'
+import { defineReputationAction } from '../defineReputationAction'
+import type { ProviderOverLine } from '../reputationActionContext'
+import { LOWER_RATES_DOCS, VIEW_PROVIDERS } from '../reputationActionCtas'
 
 /** A mailbox provider where too much of the project's email bounces. */
 export const providerRateAction = defineReputationAction<ProviderOverLine>({
