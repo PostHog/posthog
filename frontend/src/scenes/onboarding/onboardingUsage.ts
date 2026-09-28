@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { OnboardingStepKey } from '~/types'
+import type { OnboardingStepKey } from '~/types'
 
 import type { SelfDrivingOnboardingStepId } from './onboardingEventUsageLogic'
 

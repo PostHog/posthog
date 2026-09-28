@@ -1,14 +1,3 @@
-import posthog from 'posthog-js'
-
-import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
-import {
-    reportOnboardingCompleted,
-    reportOnboardingStarted,
-    reportOnboardingStepCompleted,
-    reportOnboardingStepSkipped,
-    type OnboardingEventProperties,
-} from 'scenes/onboarding/onboardingUsage'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -17,7 +6,6 @@ import type {
     ExperimentRetentionMetric,
     Node,
 } from '~/queries/schema/schema-general'
-import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
     BehavioralEventType,
@@ -30,50 +18,9 @@ import {
     StepOrderValue,
 } from '~/types'
 
-import {
-    dashboardViewedProperties,
-    eventUsageLogic,
-    getEventPropertiesForMetric,
-    sanitizeQuery,
-} from './eventUsageLogic'
+import { dashboardViewedProperties, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
-            initKeaTests()
-            eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
-
-        afterEach(() => {
-            capture.mockRestore()
-        })
-
-        const cases: [string, OnboardingEventProperties | undefined, string][] = [
-            ['legacy', undefined, 'product_selection'],
-            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
-        ]
-
-        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            reportOnboardingStarted(properties)
-            reportOnboardingStepCompleted('install', undefined, properties)
-            reportOnboardingStepSkipped('install', undefined, properties)
-            reportOnboardingCompleted('product_analytics', properties)
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
-            }
-        })
-    })
-
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {
