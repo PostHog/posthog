@@ -238,4 +238,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "The time the checklist template was created.",
         },
     },
+    "schedules": {
+        "description": "On-call schedules known to FireHydrant, as pulled from the connected external on-call providers.",
+        "docs_url": "https://docs.firehydrant.com/reference/list_schedules",
+        "columns": {
+            "id": "UUID of the schedule.",
+            "name": "Name of the schedule.",
+            "integration": "The external provider the schedule was pulled from.",
+            "discarded": "Whether the schedule has been discarded.",
+        },
+    },
+    "incident_milestones": {
+        "description": "Lifecycle milestones reached on each incident, with the time spent in each one.",
+        "docs_url": "https://docs.firehydrant.com/reference/list_incident_milestones",
+        "columns": {
+            "id": "UUID of the milestone.",
+            "incident_id": "UUID of the incident the milestone belongs to.",
+            "type": "The milestone's type, one of the milestones configured for the incident.",
+            "duration": "How long the incident spent in this milestone, in ISO 8601 duration format. Null while the milestone is the incident's current one.",
+            "occurred_at": "The time the incident reached this milestone.",
+            "created_at": "The time the milestone record was created.",
+            "updated_at": "The time the milestone record was last changed.",
+        },
+    },
+    "incident_tasks": {
+        "description": "Tasks created on incidents, including who they are assigned to and whether they are done.",
+        "docs_url": "https://docs.firehydrant.com/reference/list_incident_tasks",
+        "columns": {
+            "id": "UUID of the task.",
+            "incident_id": "UUID of the incident the task belongs to.",
+            "title": "Title of the task.",
+            "description": "Description of what the task is for.",
+            "state": "State of the task: open, in_progress, cancelled or done.",
+            "assignee": "The user the task is assigned to.",
+            "created_by": "The user who created the task.",
+            "created_at": "The time the task was created.",
+            "updated_at": "The time the task was last changed.",
+            "due_at": "The time the task is due.",
+        },
+    },
+    "team_escalation_policies": {
+        "description": "Signals escalation policies per team, describing how an alert is routed and escalated.",
+        "docs_url": "https://docs.firehydrant.com/reference/list_team_escalation_policies",
+        "columns": {
+            "id": "UUID of the escalation policy.",
+            "team_id": "UUID of the team the escalation policy belongs to.",
+        },
+    },
 }

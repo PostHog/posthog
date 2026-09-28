@@ -63,7 +63,7 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions.
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision alerts, and the Gemini file cleanup sweep.
@@ -73,6 +73,7 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/prompt_suggestions.py` + `backend/proposers/` — rating-driven prompt rewrites, one proposer per scanner type. `backend/prompt_evaluation.py` re-runs a suggestion against rated sessions before it's applied, and `backend/feedback_themes.py` clusters written thumbs-down feedback.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
+- `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
 - `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
 - `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.
