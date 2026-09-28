@@ -2352,6 +2352,13 @@ _COARSEN_FLAGS_ON = (
     ".is_auto_repartition_enabled",
     "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
     ".is_auto_coarsen_enabled",
+    # `repartition_activity_has_work` (used by job creation to decide whether to schedule the
+    # activity at all) calls the module-local `is_auto_repartition_enabled` binding inside
+    # `repartition_controller`, a separate name from the one `repartition_table` imported for its
+    # own use above. Patching only the latter leaves job creation seeing the real (disabled) flag,
+    # so organic pre-extraction detection never gets scheduled and coarsening never runs.
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+    ".is_auto_repartition_enabled",
 )
 
 
@@ -2445,7 +2452,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert len(ids_before) == len(timestamps)
 
     # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2461,7 +2472,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
 
     # And it must settle: a table just coarsened must not be split straight back on the next sync.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2599,7 +2614,11 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
     ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2685,7 +2704,11 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
     assert len(ids_before) == 320
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
