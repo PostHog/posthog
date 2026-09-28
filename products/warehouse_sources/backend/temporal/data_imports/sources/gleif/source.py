@@ -99,6 +99,7 @@ class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
                 "registry. No API key or account is required."
             ),
             iconPath="/static/services/gleif.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/gleif",
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(list[FieldType], []),
         )

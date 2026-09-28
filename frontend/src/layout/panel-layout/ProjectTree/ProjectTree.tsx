@@ -32,7 +32,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -305,10 +304,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
-                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
-                        item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
-                    )
+                    posthog.capture('navbar starred item clicked', {
+                        item_type: item?.record?.type || 'unknown',
+                        item_name: item?.name || 'unknown',
+                    })
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop

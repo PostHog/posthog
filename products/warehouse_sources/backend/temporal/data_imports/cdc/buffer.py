@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import re
 import time
+import datetime as dt
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -58,6 +59,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 BUFFER_ROOT_FOLDER = "cdc_producer"
+# How long the lifecycle rule in the module docstring keeps a buffer file after it is written.
+BUFFER_FILE_RETENTION = dt.timedelta(days=14)
 
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
 _INDEX_WIDTH = 6

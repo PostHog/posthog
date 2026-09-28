@@ -1792,8 +1792,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
+            buffer_expired_unread,
             build_output_lanes,
             clear_listing,
             completed_listing_proof,
@@ -1862,6 +1864,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
+        proof_time = async_to_sync(completed_listing_proof)(schema)
+        # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
+        # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
+        # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
+        # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
+        # without the longer read.
+        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+            inputs.logger.warning(
+                "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
+            )
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick()
+
         # Nothing of any earlier run is executing now, so a companion still Running belongs to a
         # run that died without its `finally` and nothing else will ever close it.
         retired = retire_orphaned_companions(schema)
@@ -1875,7 +1890,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=async_to_sync(completed_listing_proof)(schema),
+            proof_time=proof_time,
         )
         return SourceResponse(
             name=lanes[0].name,
