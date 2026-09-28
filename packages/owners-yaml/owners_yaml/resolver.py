@@ -242,6 +242,9 @@ class OwnersResolver:
     Reads a worktree by default, locating the repo root via ``git rev-parse`` (override with
     ``repo_root`` for testing). Pass ``source`` to resolve without one. Parsed files are cached per
     directory.
+
+    ``purpose`` and ``producer`` decide which channel a resolution reports; ``team_channel``
+    documents how they select one.
     """
 
     def __init__(
@@ -249,10 +252,12 @@ class OwnersResolver:
         repo_root: Path | None = None,
         purpose: Purpose = DEFAULT_PURPOSE,
         source: OwnershipSource | None = None,
+        producer: Producer | None = None,
     ) -> None:
         self.repo_root = (repo_root or (VIRTUAL_ROOT if source is not None else _git_repo_root())).resolve()
         self.source = source if source is not None else DiskSource(self.repo_root)
         self.purpose = purpose
+        self.producer = producer
         self._dir_cache: dict[str, OwnersFile | None] = {}
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
@@ -401,12 +406,28 @@ class OwnersResolver:
         root = self._load_dir_file("")
         return root.settings if root is not None else RepoSettings()
 
+    def producer_error(self) -> str | None:
+        """Why this resolver's ``producer`` cannot be honored, or None when it can.
+
+        A name the root file does not declare would fall through to the people channel, which is
+        the one place automation must not post, so an entrypoint reports this instead of resolving.
+        A repo that declares no ``producers`` accepts any name.
+        """
+        if self.producer is None:
+            return None
+        if not self.producer:
+            return "producer name must not be empty"
+        declared = self.settings().producers
+        if declared is None or self.producer in declared:
+            return None
+        return f"unknown producer '{self.producer}' (declared in 'producers': {', '.join(sorted(declared))})"
+
     def _effective_slack(self, owners: list[str] | None) -> str | None:
         """The Slack channel for a path: the registry entry for the primary owner
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            return team_channel(owners[0], self._teams_registry(), self.purpose).channel
+            return team_channel(owners[0], self._teams_registry(), self.purpose, self.producer).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:

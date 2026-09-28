@@ -161,6 +161,24 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         )
         assert response.status_code == 400, response.json()
 
+    def test_a_scout_with_only_a_display_name_gets_a_derived_name_and_keeps_its_label(self) -> None:
+        payload = self._payload(display_name="Checkout digest")
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+        assert response.status_code == 201, response.json()
+
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name=response.json()["config"]["skill_name"])
+        assert config.display_name == "Checkout digest"
+        assert config.skill_name.endswith("checkout-digest")
+        assert config.source_id == str(self.scanner.id)
+
+    def test_a_scout_with_neither_name_nor_display_name_is_rejected(self) -> None:
+        payload = self._payload()
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+        assert response.status_code == 400, response.json()
+
     def test_a_scout_that_already_exists_without_an_owner_is_not_adopted(self) -> None:
         # Reusing a name tunes the existing config, and the reports route serves a scanner's reports
         # on the strength of the recorded owner — so adopting an unowned scout would surface every

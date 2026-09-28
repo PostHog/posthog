@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -11,9 +11,12 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace import dynatrace as dt
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.dynatrace import (
+    METRIC_SELECTOR_REQUIRED_ERROR,
     DynatraceHostNotAllowedError,
     DynatraceResumeConfig,
     _build_url,
+    _clamped_from_value,
+    _flatten_metric_data_points,
     _format_from_value,
     _validated_hostname,
     check_endpoint_permissions,
@@ -88,6 +91,22 @@ class TestFormatFromValue:
         assert _format_from_value(value) == expected
 
 
+class TestClampedFromValue:
+    def test_watermark_older_than_the_window_is_pulled_forward(self) -> None:
+        # Synthetic executions are served for six hours only, so an older watermark would ask
+        # for a timeframe Dynatrace refuses.
+        clamped = int(_clamped_from_value(1735689600000, timedelta(hours=6)))
+        earliest_ms = int((datetime.now(UTC) - timedelta(hours=6)).timestamp() * 1000)
+        assert clamped == pytest.approx(earliest_ms, abs=5000)
+
+    def test_watermark_inside_the_window_is_kept(self) -> None:
+        recent_ms = int((datetime.now(UTC) - timedelta(hours=1)).timestamp() * 1000)
+        assert _clamped_from_value(recent_ms, timedelta(hours=6)) == str(recent_ms)
+
+    def test_relative_seed_passes_through(self) -> None:
+        assert _clamped_from_value("now-6h", timedelta(hours=6)) == "now-6h"
+
+
 def _response(body: dict[str, Any], *, status: int = 200, location: str | None = None) -> Response:
     resp = Response()
     resp.status_code = status
@@ -137,6 +156,7 @@ def _source(
     *,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    metric_selector: str | None = "builtin:host.cpu.usage",
 ) -> Any:
     return dynatrace_source(
         environment_url=BASE_URL,
@@ -147,6 +167,7 @@ def _source(
         resumable_source_manager=manager,
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        metric_selector=metric_selector,
     )
 
 
@@ -195,6 +216,48 @@ class TestFirstPageParams:
             )
         )
         assert "from" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metric_data_points_sends_selector_and_resolution_but_no_page_size(
+        self, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"result": [], "nextPageKey": None})])
+        manager, _ = _make_manager()
+        _rows(_source("metric_data_points", manager, metric_selector="  builtin:host.cpu.usage  "))
+        assert params[0]["metricSelector"] == "builtin:host.cpu.usage"
+        assert params[0]["resolution"] == "1h"
+        # The metrics query endpoint has no pageSize param.
+        assert "pageSize" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_synthetic_executions_window_uses_its_own_param_name(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"executions": [], "nextPageKey": None})])
+        manager, _ = _make_manager()
+        _rows(_source("synthetic_executions", manager))
+        assert params[0]["executionFrom"] == "now-6h"
+        assert "from" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_synthetic_executions_watermark_is_clamped_to_the_served_window(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"executions": [], "nextPageKey": None})])
+        manager, _ = _make_manager()
+        _rows(
+            _source(
+                "synthetic_executions",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1735689600000,
+            )
+        )
+        earliest_ms = int((datetime.now(UTC) - timedelta(hours=6)).timestamp() * 1000)
+        assert int(params[0]["executionFrom"]) == pytest.approx(earliest_ms, abs=5000)
+
+    def test_metric_data_points_without_a_selector_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="Metric keys"):
+            _source("metric_data_points", mock.MagicMock(), metric_selector="   ")
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_slos_request_evaluation(self, MockSession: mock.MagicMock) -> None:
@@ -284,22 +347,113 @@ class TestPagination:
 
 class TestDynatraceSourceResponse:
     @pytest.mark.parametrize(
-        ("endpoint", "expected_pk", "expected_sort_mode"),
+        ("endpoint", "expected_pks", "expected_sort_mode"),
         [
-            ("problems", "problemId", "desc"),
-            ("events", "eventId", "desc"),
-            ("audit_logs", "logId", "desc"),
-            ("security_problems", "securityProblemId", "asc"),
-            ("hosts", "entityId", "asc"),
-            ("metrics", "metricId", "asc"),
-            ("slos", "id", "asc"),
+            ("problems", ["problemId"], "desc"),
+            ("events", ["eventId"], "desc"),
+            ("audit_logs", ["logId"], "desc"),
+            ("security_problems", ["securityProblemId"], "asc"),
+            ("hosts", ["entityId"], "asc"),
+            ("kubernetes_clusters", ["entityId"], "asc"),
+            ("metrics", ["metricId"], "asc"),
+            # A data point is only unique on the metric, its dimension tuple and the timestamp.
+            ("metric_data_points", ["metricId", "dimensionKey", "timestamp"], "desc"),
+            ("slos", ["id"], "asc"),
+            ("synthetic_monitors", ["entityId"], "asc"),
+            ("synthetic_executions", ["executionId"], "desc"),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, expected_pk: str, expected_sort_mode: str) -> None:
+    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_sort_mode: str) -> None:
         response = _source(endpoint, mock.MagicMock())
         assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == expected_pks
         assert response.sort_mode == expected_sort_mode
+
+
+class TestFlattenMetricDataPoints:
+    def test_series_become_one_row_per_data_point(self) -> None:
+        rows = _flatten_metric_data_points(
+            [
+                {
+                    "metricId": "builtin:host.disk.avail",
+                    "data": [
+                        {
+                            "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
+                            "dimensions": ["HOST-1", "DISK-1"],
+                            "timestamps": [1735689600000, 1735693200000],
+                            "values": [11.1, 22.2],
+                        }
+                    ],
+                }
+            ]
+        )
+
+        assert rows == [
+            {
+                "metricId": "builtin:host.disk.avail",
+                "dimensionKey": "dt.entity.disk=DISK-1|dt.entity.host=HOST-1",
+                "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
+                "dimensions": ["HOST-1", "DISK-1"],
+                "timestamp": 1735689600000,
+                "value": 11.1,
+            },
+            {
+                "metricId": "builtin:host.disk.avail",
+                "dimensionKey": "dt.entity.disk=DISK-1|dt.entity.host=HOST-1",
+                "dimensionMap": {"dt.entity.host": "HOST-1", "dt.entity.disk": "DISK-1"},
+                "dimensions": ["HOST-1", "DISK-1"],
+                "timestamp": 1735693200000,
+                "value": 22.2,
+            },
+        ]
+
+    def test_dimension_key_falls_back_to_the_ordered_dimensions(self) -> None:
+        # Older responses carry only the deprecated `dimensions` list, and the key still has to
+        # separate the series.
+        rows = _flatten_metric_data_points(
+            [
+                {
+                    "metricId": "builtin:host.cpu.usage",
+                    "data": [{"dimensions": ["HOST-1"], "timestamps": [1], "values": [1.0]}],
+                }
+            ]
+        )
+        assert [row["dimensionKey"] for row in rows] == ["HOST-1"]
+
+    def test_series_without_data_points_yields_no_rows(self) -> None:
+        # Dynatrace returns an empty `data` list, and a warning, for a metric it could not read.
+        assert _flatten_metric_data_points([{"metricId": "builtin:host.cpu.usage", "data": []}]) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_the_metrics_query_response_is_flattened_end_to_end(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "result": [
+                            {
+                                "metricId": "builtin:host.cpu.usage",
+                                "data": [
+                                    {
+                                        "dimensionMap": {"dt.entity.host": "HOST-1"},
+                                        "timestamps": [1735689600000],
+                                        "values": [42.0],
+                                    }
+                                ],
+                            }
+                        ],
+                        "nextPageKey": None,
+                    }
+                )
+            ],
+        )
+        manager, _ = _make_manager()
+        rows = _rows(_source("metric_data_points", manager))
+        assert [(row["metricId"], row["timestamp"], row["value"]) for row in rows] == [
+            ("builtin:host.cpu.usage", 1735689600000, 42.0)
+        ]
 
 
 class TestValidateCredentials:
@@ -368,6 +522,44 @@ class TestCheckEndpointPermissions:
             assert "entities.read" in reason
         # The four entity tables share the entities.read scope, so one probe covers them all.
         assert call_count == 2
+
+    def test_metric_data_points_scope_is_probed_on_the_descriptor_endpoint(self) -> None:
+        # The query endpoint rejects a request with no metric selector, so probing it could never
+        # tell a missing scope apart from a malformed probe.
+        probed: list[str] = []
+
+        def fake_get(url: str, timeout: Any = None) -> Any:
+            probed.append(url)
+            response = mock.MagicMock()
+            response.status_code = 403
+            return response
+
+        with (
+            mock.patch.object(dt, "make_tracked_session") as mock_session,
+            mock.patch.object(dt, "_is_host_safe", return_value=(True, None)),
+        ):
+            mock_session.return_value.get.side_effect = fake_get
+            results = check_endpoint_permissions(
+                BASE_URL, "token", ["metric_data_points"], team_id=1, metric_selector="builtin:host.cpu.usage"
+            )
+
+        assert probed == [f"{BASE_URL}/api/v2/metrics?pageSize=1"]
+        reason = results["metric_data_points"]
+        assert reason is not None
+        assert "metrics.read" in reason
+
+    def test_metric_data_points_reports_the_missing_metric_keys_instead_of_probing(self) -> None:
+        # Nothing about the token stops this table syncing — the user has not said which metrics
+        # to read — so the picker must say that rather than run a probe that cannot answer it.
+        with (
+            mock.patch.object(dt, "make_tracked_session") as mock_session,
+            mock.patch.object(dt, "_is_host_safe", return_value=(True, None)),
+        ):
+            results = check_endpoint_permissions(BASE_URL, "token", ["metric_data_points"], team_id=1)
+            call_count = mock_session.return_value.get.call_count
+
+        assert results["metric_data_points"] == METRIC_SELECTOR_REQUIRED_ERROR
+        assert call_count == 0
 
     def test_network_blip_is_not_reported_as_missing_permission(self) -> None:
         with (

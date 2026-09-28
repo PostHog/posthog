@@ -380,9 +380,10 @@ Read it:
 
 - `HAVING problem_tools > 0` keeps healthy categories out of the result — they get no report,
   so they don't belong in the report-grain rollup.
-- This is aggregation, not detection — it catches the failure shape only. Struggle (query 2)
-  and latency (query 4) candidates join their category via the `category` column those queries
-  now carry; a category whose only problem tools are struggle/latency won't appear here (the
+- This is aggregation, not detection — it catches the failure shape only. Struggle (query 2),
+  latency (query 4) and session-share (query 10) candidates join their category via the
+  `category` column those queries now carry, and they count toward the category's problem tools.
+  A category whose only problem tools are struggle/latency/session-share won't appear here (the
   `HAVING` sees only the failure floor) — pull its `category_calls` denominators by re-running
   without the `HAVING`, filtered to that category.
 - The `Uncategorized` bucket is dominated by bare `exec` rows (discovery verbs, wrapper
@@ -390,3 +391,191 @@ Read it:
   sanity-check, not an owning team.
 - `category_error_rate_pct` alone is not a finding — a big category dilutes a broken tool; the
   per-tool entries in `problem_tool_details` are what clears the bar.
+
+## 10. Session share — the "called too much" lens
+
+The lens the other four miss: a tool the agent reaches for in a growing share of sessions costs
+context and latency in every one of them, and every call succeeds, so failure rate, struggle,
+latency, and bloat all read it as healthy. Ranks each tool by the share of its source's sessions
+that called it at least once, against the same share over the preceding window. Deterministic —
+no judge.
+
+The surface is the bare `source` property (no `$` prefix) that the hono server stamps alongside
+the `$mcp_*` fields: `self_driving`, `mcp`, `posthog_code`, `slack`, `posthog_ai`, `wizard`, `cli`.
+It is the surface the call came from, not `$mcp_source`, which names the emitting SDK. External-SDK
+projects do not stamp it, so those rows bucket as `unknown` and the lens degrades to one
+project-wide denominator rather than breaking.
+
+Both windows come out of one 14-day scan split by `is_current`, so the current and prior share are
+measured the same way. The per-source denominator is a separate CTE joined back on `source_bucket` —
+without it each tool would be scored against its own callers and every share would read 100%.
+
+```sql
+WITH per_session AS (
+    SELECT
+        coalesce(nullIf(nullIf(toString(properties.source), ''), 'None'), 'unknown') AS source_bucket,
+        $session_id AS session,
+        any(distinct_id) AS user,
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        coalesce(nullIf(nullIf(toString(any(properties.$mcp_tool_category)), ''), 'None'), 'Uncategorized') AS category,
+        timestamp >= now() - INTERVAL 7 DAY AS is_current,
+        count() AS calls
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_source = 'posthog_mcp_analytics'
+        AND $session_id != ''
+        AND timestamp >= now() - INTERVAL 14 DAY
+    GROUP BY source_bucket, session, tool, is_current
+),
+totals AS (
+    SELECT
+        source_bucket,
+        uniqIf(session, is_current) AS sessions_total,
+        uniqIf(session, NOT is_current) AS prior_sessions_total
+    FROM per_session
+    GROUP BY source_bucket
+)
+SELECT
+    t.source_bucket AS source,
+    t.tool AS tool,
+    any(t.category) AS category,
+    uniqIf(t.session, t.is_current) AS sessions_with_call,
+    uniqIf(t.user, t.is_current) AS users_with_call,
+    any(d.sessions_total) AS sessions_total,
+    round(uniqIf(t.session, t.is_current) * 100.0 / nullIf(any(d.sessions_total), 0), 1) AS session_share_pct,
+    round(avgIf(t.calls, t.is_current), 2) AS calls_per_session,
+    any(d.prior_sessions_total) AS prior_sessions_total,
+    if(any(d.prior_sessions_total) >= 20, round(uniqIf(t.session, NOT t.is_current) * 100.0 / any(d.prior_sessions_total), 1), NULL) AS share_pct_prior_window
+FROM per_session AS t
+JOIN totals AS d ON d.source_bucket = t.source_bucket
+WHERE t.tool != 'exec'
+GROUP BY source, tool
+HAVING sessions_with_call >= 20
+ORDER BY source, session_share_pct DESC
+LIMIT 20 BY source
+```
+
+Read it:
+
+- **The step change is the finding, not the level.** A tool that sits high and flat is doing its
+  job. A tool whose share jumped between `share_pct_prior_window` and `session_share_pct`, across
+  many sessions, is being advertised too eagerly — the fix hypothesis points at prompt or
+  tool-description wording, not the handler.
+- `share_pct_prior_window` is null when the source had fewer than 20 sessions in the prior window,
+  the same floor as the current reach. A share over a few prior sessions reads as 0% or 100% by
+  chance, so a surface a team is only starting to use would look like a jump on every tool. A null
+  prior share is no baseline, so the row is not a step-change candidate. `prior_sessions_total` is
+  the prior denominator to cite as evidence.
+- `users_with_call` is the reach check. Twenty sessions from one `distinct_id` pass the session
+  floor and are still one developer, so the single-user disqualifier applies here as everywhere.
+  The category falls back to `Uncategorized` the same way query 9 does, because the record schema
+  requires a string and one null category would reject the whole batch.
+- Keep the source split. A tool called in most sessions of one surface and almost none of another
+  localizes the cause to that surface's prompt.
+- `calls_per_session` separates "reached for once, everywhere" from "hammered" — the latter is
+  query 2's territory, and the two together say whether the tool is over-advertised or confusing.
+- **Bare `exec` is filtered out.** The wrapper is present in nearly every session by construction,
+  so it would top this query on every project and mean nothing. The `totals` CTE still counts its
+  sessions, so the denominator stays every MCP session of the source. The same disqualifiers as
+  everywhere else apply: a share over a handful of sessions is one developer.
+- `LIMIT 20 BY source` returns the top 20 tools of each source, so one busy source cannot crowd
+  another out. These rows are what the scout records as `tool_session_share` — the schema's fields
+  only. `users_with_call` and `prior_sessions_total` are evidence for the report, not record fields,
+  and the closed schema rejects a batch that carries them.
+- For detection, rank by the change instead of the level. Run it again with
+  `ORDER BY source, session_share_pct - share_pct_prior_window DESC NULLS LAST`, so a tool that
+  rose from a low share is not cut behind tools that sit high and flat.
+
+## 11. Category metrics — the `category_rollup` record
+
+The source for every measured field of a `category_rollup` record: one row per category with any
+traffic, healthy ones included, plus the project-wide `all` row. The per-tool queries cannot stand
+in for it. Summing per-tool `users` or `sessions` counts a user once per tool they called, and a
+per-tool p95 or struggle share does not average into a category value. Their volume floors also
+drop tools, so they do not cover the whole category.
+
+Every metric comes from raw rows at category grain. `tool_category` applies the header's
+derivation rule, and joining it back to the raw rows keeps exec-routed calls that lack the property
+in their tool's category. `arrayJoin` counts each row twice, once in its category and once in `all`,
+so the baseline row is measured the same way in the same scan. Struggle uses query 2's session
+definition: a session struggled in a category when any of its tools there was called three or more
+times, or failed and was called again.
+
+```sql
+WITH calls AS (
+    SELECT
+        coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+        properties.$mcp_tool_category AS raw_category,
+        $session_id AS session,
+        distinct_id,
+        toBool(properties.$mcp_is_error) AS is_error,
+        toFloat(properties.$mcp_duration_ms) AS duration_ms
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_source = 'posthog_mcp_analytics'
+        AND timestamp >= now() - INTERVAL 7 DAY
+),
+tool_category AS (
+    SELECT
+        tool,
+        coalesce(nullIf(nullIf(toString(any(raw_category)), ''), 'None'), 'Uncategorized') AS category_bucket
+    FROM calls
+    GROUP BY tool
+),
+struggle AS (
+    SELECT
+        category,
+        count() AS measured_sessions,
+        countIf(session_struggled) AS struggle_sessions
+    FROM (
+        SELECT
+            arrayJoin([c.category_bucket, 'all']) AS category,
+            s.session AS session,
+            max(s.session_calls >= 3 OR (s.session_errors > 0 AND s.session_calls > s.session_errors)) AS session_struggled
+        FROM (
+            SELECT session, tool, count() AS session_calls, countIf(is_error) AS session_errors
+            FROM calls
+            WHERE session != ''
+            GROUP BY session, tool
+        ) AS s
+        JOIN tool_category AS c ON c.tool = s.tool
+        GROUP BY category, session
+    )
+    GROUP BY category
+),
+volume AS (
+    SELECT
+        arrayJoin([c.category_bucket, 'all']) AS category,
+        count() AS category_calls,
+        countIf(k.is_error) AS category_errors,
+        uniqIf(k.session, k.session != '') AS category_sessions,
+        uniq(k.distinct_id) AS category_users,
+        quantile(0.95)(k.duration_ms) AS category_p95_ms
+    FROM calls AS k
+    JOIN tool_category AS c ON c.tool = k.tool
+    GROUP BY category
+)
+SELECT
+    v.category AS category,
+    v.category_calls AS calls,
+    v.category_errors AS errors,
+    v.category_sessions AS sessions,
+    v.category_users AS users,
+    round(v.category_errors * 100.0 / v.category_calls, 1) AS error_rate_pct,
+    round(s.struggle_sessions * 100.0 / nullIf(s.measured_sessions, 0), 1) AS struggle_session_pct,
+    round(v.category_p95_ms) AS p95_duration_ms,
+    round(v.category_calls * 100.0 / max(v.category_calls) OVER (), 1) AS share_of_project_calls_pct
+FROM volume AS v
+LEFT JOIN struggle AS s ON s.category = v.category
+ORDER BY calls DESC
+```
+
+Read it:
+
+- Each column maps to the `mcp_`-prefixed record field of the same name. `mcp_problem_tools` and
+  `mcp_report_action` are the scout's own judgment, so they do not come from here.
+- `share_of_project_calls_pct` divides by the largest row, which is always `all`.
+- `struggle_session_pct` is null for a category whose calls carry no `$session_id`, and
+  `p95_duration_ms` is null when no call carries a duration. Record them as null, not zero.
+- The numbers change only when the data does. Do not re-derive them from other queries on a run
+  that skips this one, because a change of method shows on the chart as a step in the metric.

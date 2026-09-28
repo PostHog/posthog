@@ -3210,6 +3210,8 @@ def _post_untagged_followup_prompt(
         timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
     )
 
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
@@ -3218,7 +3220,7 @@ def _post_untagged_followup_prompt(
                 "type": "mrkdwn",
                 "text": (
                     "I'm working in this thread. Want me to pick up your message? "
-                    "Only you can see this — nothing happens unless you say so."
+                    "Only you can see this, and I won't reply or start work unless you say so."
                 ),
             },
         },
@@ -3239,6 +3241,12 @@ def _post_untagged_followup_prompt(
                     "text": {"type": "plain_text", "text": "No thanks"},
                     "value": context_token,
                 },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {home_tab_label} you can set what happens in threads you start."}
             ],
         },
     ]

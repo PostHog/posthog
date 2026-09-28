@@ -19,7 +19,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     },
     urls: {

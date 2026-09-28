@@ -308,6 +308,15 @@ def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
     )
 
 
+def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
+    """The facade's plain-value holdout setter, bound to the experiments holdout model."""
+    return set_holdout(
+        filters,
+        holdout_id=holdout.id if holdout else None,
+        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
 class ExperimentVersionConflict(APIException):
     """A stale write raced a concurrent update and could not be applied safely."""
 
@@ -1599,15 +1608,14 @@ class ExperimentService:
         # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
         # and any future key — is applied as-is so nothing the serializer accepted is
         # silently dropped.
-        feature_flag_filters = set_holdout(
+        feature_flag_filters = _apply_holdout(
             {
                 "aggregation_group_type_index": None,
                 **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                 "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
                 "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             },
-            holdout_id=holdout.id if holdout else None,
-            exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+            holdout,
         )
 
         feature_flag_data: dict[str, Any] = {
@@ -3620,6 +3628,14 @@ class ExperimentService:
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+            saved_metric_uuids = self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            # A stored inline metric can carry the uuid of a shared metric this update links, for
+            # example one promoted from it. Send that list through the uuid assignment below so the
+            # inline copy gets a fresh uuid and the two metrics stop sharing results.
+            for field in ("metrics", "metrics_secondary"):
+                stored_metrics = getattr(experiment, field) or []
+                if field not in update_data and any(m.get("uuid") in saved_metric_uuids for m in stored_metrics):
+                    update_data[field] = deepcopy(stored_metrics)
 
         # Seed the uniqueness set with uuids that must remain stable in the
         # ordering arrays — any inline metric reusing one of these gets
@@ -3639,7 +3655,7 @@ class ExperimentService:
                 if uuid := metric.get("uuid"):
                     seen_metric_uuids.add(uuid)
         if "saved_metrics_ids" in update_data:
-            seen_metric_uuids |= self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            seen_metric_uuids |= saved_metric_uuids
         else:
             for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
                 if link.saved_metric.query and (uuid := link.saved_metric.query.get("uuid")):
@@ -4034,15 +4050,14 @@ class ExperimentService:
             # merged, and variants always resolve against the flag); every other validated filters
             # key is merged as-is over the flag's current filters, so nothing the serializer
             # accepted is silently dropped.
-            new_filters = set_holdout(
+            new_filters = _apply_holdout(
                 {
                     **existing_filters,
                     **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                     "groups": new_groups,
                     "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
                 },
-                holdout_id=holdout.id if holdout else None,
-                exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+                holdout,
             )
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
@@ -4054,13 +4069,7 @@ class ExperimentService:
             self._assert_flag_access(feature_flag)
             update_flag(
                 feature_flag,
-                {
-                    "filters": set_holdout(
-                        feature_flag.filters,
-                        holdout_id=holdout.id if holdout else None,
-                        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
-                    )
-                },
+                {"filters": _apply_holdout(feature_flag.filters, holdout)},
                 team=self.team,
                 user=self.user,
                 request=context.get("request"),
@@ -4922,12 +4931,22 @@ class ExperimentService:
 
     def _sync_ordering_with_metric_changes(self, experiment: Experiment, update_data: dict) -> None:
         """Sync ordering arrays with inline metric changes during update."""
+        if "metrics" not in update_data and "metrics_secondary" not in update_data:
+            return
+
+        # A stored inline metric can share its uuid with a linked shared metric. When dedup gives the
+        # inline copy a fresh uuid, the old uuid still belongs to the shared metric, so keep it in the ordering.
+        saved_uuids = self._saved_metric_uuids_by_type(
+            (link.saved_metric.query, link.metadata)
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+        )
+
         if "metrics" in update_data:
             old_uuids = {m.get("uuid") for m in experiment.metrics or [] if m.get("uuid")}
             new_uuids = {m.get("uuid") for m in update_data.get("metrics") or [] if m.get("uuid")}
 
             added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
+            removed = old_uuids - new_uuids - saved_uuids["primary"]
 
             if added or removed:
                 if "primary_metrics_ordered_uuids" in update_data:
@@ -4947,7 +4966,7 @@ class ExperimentService:
             new_uuids = {m.get("uuid") for m in update_data.get("metrics_secondary") or [] if m.get("uuid")}
 
             added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
+            removed = old_uuids - new_uuids - saved_uuids["secondary"]
 
             if added or removed:
                 if "secondary_metrics_ordered_uuids" in update_data:
@@ -5004,10 +5023,21 @@ class ExperimentService:
             new_primary_uuids = new_uuids["primary"]
             new_secondary_uuids = new_uuids["secondary"]
 
+        # An inline metric can share its uuid with a detached shared metric. The ordering entry
+        # still belongs to the inline metric, so keep it.
+        inline_primary_uuids = {
+            uuid for m in update_data.get("metrics", experiment.metrics) or [] if (uuid := m.get("uuid"))
+        }
+        inline_secondary_uuids = {
+            uuid
+            for m in update_data.get("metrics_secondary", experiment.metrics_secondary) or []
+            if (uuid := m.get("uuid"))
+        }
+
         added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
-        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
+        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids - inline_primary_uuids
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
-        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
+        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids - inline_secondary_uuids
 
         # Fields whose new value is purely a side effect of add/remove — save these
         # via a muted save to avoid logging a spurious "reordered metrics" entry
