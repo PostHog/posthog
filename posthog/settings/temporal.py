@@ -311,6 +311,13 @@ LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE
 MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general-purpose-task-queue"))
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
+# Release file lists come from git fetches that run for minutes and arrive in bursts from CI, so they
+# get their own fleet and never hold the activity slots of alert delivery. The fleet's replicas times
+# its MAX_CONCURRENT_ACTIVITIES caps the git fetches that run at once. Deploy a fleet that polls this
+# queue before flagging teams, because a workflow on a queue without a worker waits until one starts.
+ERROR_TRACKING_REPO_PATHS_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("ERROR_TRACKING_REPO_PATHS_TASK_QUEUE", "error-tracking-repo-paths-task-queue")
+)
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Defaults to the general-purpose fleet so the daily coordinator always has a live worker. Deploy a

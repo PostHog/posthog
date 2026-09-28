@@ -46,7 +46,7 @@ async def _start(inputs: RepoPathsWorkflowInputs, workflow_id: str) -> None:
                 WORKFLOW_NAME,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
+                task_queue=settings.ERROR_TRACKING_REPO_PATHS_TASK_QUEUE,
                 # A second release of the same commit must not fetch again, but a failed run can be
                 # started again by the next release of that commit.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,

@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
 
@@ -12,6 +14,7 @@ COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 class TestStartRepoPathsWorkflow(BaseTest):
     @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @override_settings(ERROR_TRACKING_REPO_PATHS_TASK_QUEUE="repo-paths-test-queue")
     def test_starts_one_workflow_per_commit_for_flagged_teams(self, _name: str, flag_enabled: bool) -> None:
         release = ErrorTrackingRelease.objects.create(
             team=self.team,
@@ -42,3 +45,4 @@ class TestStartRepoPathsWorkflow(BaseTest):
         kwargs = temporal.start_workflow.await_args.kwargs
         assert kwargs["id"] == f"error-tracking-repo-paths:{self.team.id}:github.com/acme/shop:{COMMIT}"
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert kwargs["task_queue"] == "repo-paths-test-queue"
