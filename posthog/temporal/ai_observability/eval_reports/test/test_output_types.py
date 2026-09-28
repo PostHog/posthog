@@ -15,7 +15,7 @@ class TestOutcomeDefinitions(SimpleTestCase):
             (["resolved", "incorrect"], ["resolved"], "fail"),
             (["incorrect"], ["resolved"], "fail"),
             ([], ["resolved"], "fail"),
-            ([], [], "fail"),
+            ([], [], "pass"),
             (["resolved"], [], "fail"),
             ([], None, None),
             (["resolved"], None, None),

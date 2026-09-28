@@ -851,8 +851,17 @@ class TestPeriodForScheduledReport(BaseTest):
 
 
 class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
-    @parameterized.expand([("registered", True), ("unregistered", False)])
-    def test_categorical_reports_count_empty_selections_and_exclude_skips(self, _name: str, registered: bool) -> None:
+    @parameterized.expand(
+        [
+            ("registered", True, ["resolved"]),
+            ("unregistered", False, ["resolved"]),
+            ("empty_registered", True, []),
+            ("empty_unregistered", False, []),
+        ]
+    )
+    def test_categorical_reports_count_empty_selections_and_exclude_skips(
+        self, _name: str, registered: bool, passing_categories: list[str]
+    ) -> None:
         if registered:
             PropertyDefinition.objects.create(
                 team=self.team, name="$ai_evaluation_categorical_result", property_type="String"
@@ -881,7 +890,7 @@ class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
         config = {
             "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}],
             "selection_mode": "multiple",
-            "passing_rule": {"categories": ["resolved"]},
+            "passing_rule": {"categories": passing_categories},
         }
         metrics = _compute_metrics(
             self.team.id,

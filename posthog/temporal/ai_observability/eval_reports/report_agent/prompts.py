@@ -163,8 +163,9 @@ def build_eval_report_system_prompt(
             )
         elif output_type == "categorical":
             result_semantics = (
-                "With a passing rule, a result passes only if it is non-empty and every category is marked as passing. "
-                "An empty selection fails. Without a rule, results are ungraded; null is N/A. "
+                "With passing categories selected, a result passes only if it is non-empty and every category is marked as passing. "
+                "If no passing categories are selected, only an empty selection passes. "
+                "Without a rule, results are ungraded; null is N/A. "
                 "Exclude N/A from pass rates. Use get_summary_metrics() to compare periods under the current rule. "
                 "Historical reports use saved rules; do not compare snapshots with different or unknown rules. "
                 f"Category configuration: {output_config}"

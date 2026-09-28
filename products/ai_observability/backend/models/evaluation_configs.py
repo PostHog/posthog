@@ -138,7 +138,9 @@ class CategoricalPassingRule(BaseModel):
         return self
 
     def passes(self, categories: list[str]) -> bool:
-        return bool(categories) and set(categories) <= set(self.categories)
+        if not categories:
+            return not self.categories
+        return set(categories) <= set(self.categories)
 
 
 class UnknownEvaluationCategory(ValueError):

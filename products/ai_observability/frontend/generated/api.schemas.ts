@@ -1337,7 +1337,7 @@ export type EvaluationApiOutputConfigPassingRule =
           threshold: number
       }
     | {
-          /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
           categories: string[]
       }
     | null
@@ -1656,7 +1656,7 @@ export type PatchedEvaluationApiOutputConfigPassingRule =
           threshold: number
       }
     | {
-          /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
           categories: string[]
       }
     | null
@@ -1835,7 +1835,7 @@ export type TestHogRequestApiOutputConfigPassingRule =
           threshold: number
       }
     | {
-          /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
           categories: string[]
       }
     | null
@@ -2550,7 +2550,7 @@ export type EvaluationReportMetricsApiOutputConfigPassingRule =
           threshold: number
       }
     | {
-          /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
           categories: string[]
       }
     | null

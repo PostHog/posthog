@@ -134,8 +134,10 @@ export function CategoricalEvaluationConfig({
                         ))}
                     <p className="text-muted text-sm">
                         Every returned category must be marked as passing.
-                        {config.selection_mode === 'multiple' ? ' An empty selection fails.' : ''} Changing this rule
-                        also updates how historical results count as passes.
+                        {config.selection_mode === 'multiple'
+                            ? ' An empty selection passes only when no categories are marked as passing.'
+                            : ''}{' '}
+                        Changing this rule also updates how historical results count as passes.
                     </p>
                 </div>
             ) : (
