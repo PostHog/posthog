@@ -8,6 +8,12 @@ falls back to normal module resolution.
 """
 
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .maildev import MAILDEV_MOCK_DNS_RECORDS
+    from .ses import SESProvider
+    from .twilio import TwilioProvider
 
 __all__ = ["TwilioProvider", "SESProvider", "MAILDEV_MOCK_DNS_RECORDS"]
 
@@ -18,7 +24,7 @@ _LOCATIONS = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     if name in _LOCATIONS:
         module = importlib.import_module(_LOCATIONS[name], __name__)
         value = getattr(module, name)
