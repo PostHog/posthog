@@ -7,8 +7,10 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
@@ -22,6 +24,9 @@ import { ActivityScope } from '~/types'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
+import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
@@ -88,6 +93,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
     // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
@@ -168,6 +176,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
+        selfOptimisingEnabled
+            ? {
+                  label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
+                  key: 'suggestions',
+                  content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Assets',
             key: 'assets',
@@ -196,17 +211,21 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
     ]
 
+    // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
+    const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />
                 ) : (
                     <LemonTabs
-                        activeKey={currentTab}
+                        activeKey={activeTab}
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
