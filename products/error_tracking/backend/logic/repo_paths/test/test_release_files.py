@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 
 from products.error_tracking.backend.logic import create_release
-from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, RepoFileList
+from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, GitHostNotAllowed, RepoFileList
 from products.error_tracking.backend.logic.repo_paths.release_files import store_release_file_list
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -107,6 +107,17 @@ class TestStoreReleaseFileList(BaseTest):
         release_id = self._release("https://gitlab.example.com/acme/shop.git")
 
         assert store_release_file_list(self.team.id, release_id) == "too_large"
+        assert self.storage.objects == {}
+
+    def test_a_refused_git_host_is_final_and_writes_nothing(self) -> None:
+        self._gitlab_integration("https://gitlab.example.com", "acme/shop")
+        release_id = self._release("https://gitlab.example.com/acme/shop.git")
+
+        with patch(
+            "products.error_tracking.backend.logic.repo_paths.release_files.list_repository_files",
+            side_effect=GitHostNotAllowed("Disallowed target IP"),
+        ):
+            assert store_release_file_list(self.team.id, release_id) == "host_not_allowed"
         assert self.storage.objects == {}
 
     def test_keeps_only_the_newest_lists_of_the_repo(self) -> None:

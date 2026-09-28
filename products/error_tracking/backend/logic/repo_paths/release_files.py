@@ -21,6 +21,7 @@ from products.error_tracking.backend.logic.repo_paths.git_lister import (
     GitCommitNotFound,
     GitFailed,
     GitFetchTarget,
+    GitHostNotAllowed,
     GitRemote,
     GitTimeout,
     GitTooLarge,
@@ -49,6 +50,7 @@ RepoPathsOutcome = Literal[
     "auth_failed",
     "commit_not_found",
     "too_large",
+    "host_not_allowed",
     "budget_exhausted",
 ]
 
@@ -114,6 +116,8 @@ def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
         return "commit_not_found"
     except GitTooLarge:
         return "too_large"
+    except GitHostNotAllowed:
+        return "host_not_allowed"
     except (GitTimeout, GitFailed) as e:
         raise RepoPathsRetryableError(e.outcome, str(e)) from e
 
