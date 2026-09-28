@@ -61,7 +61,7 @@ class CanvasAPIBaseTest(APIBaseTest):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
-        enqueue = patch("products.canvas.backend.tasks.process_canvas_build.delay")
+        enqueue = patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow")
         self.enqueue = enqueue.start()
         self.addCleanup(enqueue.stop)
         no_build_wait = patch.object(build_service, "PUBLISH_BUILD_WAIT_SECONDS", 0)
