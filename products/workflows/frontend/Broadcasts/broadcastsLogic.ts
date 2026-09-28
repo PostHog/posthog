@@ -199,6 +199,7 @@ export interface broadcastsLogicValues {
     listGeneration: number
     loadFailed: boolean
     loadedFilters: BroadcastsFilters | null
+    pendingBroadcastIds: Record<string, boolean>
     rowDetailsById: Record<string, BroadcastRowDetails>
 }
 
@@ -236,6 +237,13 @@ export interface broadcastsLogicActions {
     }
     restoreBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
+    }
+    setBroadcastPending: (
+        id: string,
+        pending: boolean
+    ) => {
+        id: string
+        pending: boolean
     }
     setFilters: (filters: Partial<BroadcastsFilters>) => {
         filters: Partial<BroadcastsFilters>
@@ -284,6 +292,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         archiveBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
         restoreBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
         deleteBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
+        setBroadcastPending: (id: string, pending: boolean) => ({ id, pending }),
     }),
     loaders(({ actions, values }) => ({
         broadcasts: [
@@ -312,6 +321,16 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
     })),
     reducers({
+        // Broadcasts with an archive, restore or delete request in flight.
+        pendingBroadcastIds: [
+            {} as Record<string, boolean>,
+            {
+                setBroadcastPending: (state, { id, pending }) => {
+                    const { [id]: _, ...rest } = state
+                    return pending ? { ...rest, [id]: true } : rest
+                },
+            },
+        ],
         rowDetailsById: [
             {} as Record<string, BroadcastRowDetails>,
             {
@@ -374,18 +393,27 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     listeners(({ actions, values }) => ({
         // Each change moves the row between status filters, so the page reloads rather than patching the row.
         archiveBroadcast: ({ broadcast }) => {
-            if (values.currentProjectId) {
-                confirmArchiveBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            if (values.currentProjectId && !values.pendingBroadcastIds[broadcast.id]) {
+                confirmArchiveBroadcast(String(values.currentProjectId), broadcast, {
+                    onDone: actions.loadBroadcasts,
+                    setPending: (pending) => actions.setBroadcastPending(broadcast.id, pending),
+                })
             }
         },
         restoreBroadcast: async ({ broadcast }) => {
-            if (values.currentProjectId) {
-                await restoreBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            if (values.currentProjectId && !values.pendingBroadcastIds[broadcast.id]) {
+                await restoreBroadcast(String(values.currentProjectId), broadcast, {
+                    onDone: actions.loadBroadcasts,
+                    setPending: (pending) => actions.setBroadcastPending(broadcast.id, pending),
+                })
             }
         },
         deleteBroadcast: ({ broadcast }) => {
-            if (values.currentProjectId) {
-                confirmDeleteBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            if (values.currentProjectId && !values.pendingBroadcastIds[broadcast.id]) {
+                confirmDeleteBroadcast(String(values.currentProjectId), broadcast, {
+                    onDone: actions.loadBroadcasts,
+                    setPending: (pending) => actions.setBroadcastPending(broadcast.id, pending),
+                })
             }
         },
         loadBroadcastsSuccess: ({ broadcasts }) => {

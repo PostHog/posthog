@@ -160,6 +160,7 @@ export interface broadcastWizardLogicValues {
     hasLoadedBatchJobs: boolean
     isReadOnly: boolean
     launching: boolean
+    managingBroadcast: boolean
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
@@ -308,6 +309,9 @@ export interface broadcastWizardLogicActions {
     }
     setGoalEnabled: (enabled: boolean) => {
         enabled: boolean
+    }
+    setManagingBroadcast: (managing: boolean) => {
+        managing: boolean
     }
     setName: (name: string) => {
         name: string
@@ -480,6 +484,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         archiveBroadcast: true,
         restoreBroadcast: true,
         deleteBroadcast: true,
+        setManagingBroadcast: (managing: boolean) => ({ managing }),
         duplicateBroadcastFinished: true,
     }),
 
@@ -722,6 +727,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 duplicateBroadcast: () => true,
                 duplicateBroadcastFinished: () => false,
+            },
+        ],
+        // An archive, restore or delete request is in flight.
+        managingBroadcast: [
+            false,
+            {
+                setManagingBroadcast: (_, { managing }) => managing,
             },
         ],
         // Set once the initial load of an existing draft has hydrated the reducers, so the wizard can
@@ -1377,20 +1389,27 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.moveToDraftFinished()
         },
         archiveBroadcast: () => {
-            if (values.currentProjectId && values.broadcast) {
-                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            if (values.currentProjectId && values.broadcast && !values.managingBroadcast) {
+                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, {
+                    onDone: actions.loadBroadcast,
+                    setPending: actions.setManagingBroadcast,
+                })
             }
         },
         restoreBroadcast: async () => {
-            if (values.currentProjectId && values.broadcast) {
-                await restoreBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
+            if (values.currentProjectId && values.broadcast && !values.managingBroadcast) {
+                await restoreBroadcast(String(values.currentProjectId), values.broadcast, {
+                    onDone: actions.loadBroadcast,
+                    setPending: actions.setManagingBroadcast,
+                })
             }
         },
         deleteBroadcast: () => {
-            if (values.currentProjectId && values.broadcast) {
-                confirmDeleteBroadcast(String(values.currentProjectId), values.broadcast, () =>
-                    router.actions.push(urls.broadcasts())
-                )
+            if (values.currentProjectId && values.broadcast && !values.managingBroadcast) {
+                confirmDeleteBroadcast(String(values.currentProjectId), values.broadcast, {
+                    onDone: () => router.actions.push(urls.broadcasts()),
+                    setPending: actions.setManagingBroadcast,
+                })
             }
         },
         duplicateBroadcast: async () => {
