@@ -73,6 +73,10 @@ const chat: PlaygroundChatApi = {
     ],
 }
 
+// The fixtures show answers that are still running, so their spinners never hide.
+const LIST_SELECTOR = '[data-attr="business-knowledge-playground-open-chat"]'
+const SAVED_CHAT_SELECTORS = [LIST_SELECTOR, 'text=Refund policy']
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Business knowledge/Playground',
@@ -82,6 +86,7 @@ const meta: Meta = {
         mockDate: '2023-01-28T10:00:00Z',
         featureFlags: [FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE],
         pageUrl: urls.businessKnowledgePlayground(chat.id),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: SAVED_CHAT_SELECTORS },
     },
     decorators: [
         mswDecorator({
@@ -99,9 +104,18 @@ type Story = StoryObj<{}>
 export const SavedChat: Story = {}
 
 export const NewChat: Story = {
-    parameters: { pageUrl: urls.businessKnowledgePlayground() },
+    parameters: {
+        pageUrl: urls.businessKnowledgePlayground(),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: LIST_SELECTOR },
+    },
 }
 
 export const NarrowScene: Story = {
-    parameters: { testOptions: { viewport: { width: 560, height: 900 } } },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: SAVED_CHAT_SELECTORS,
+            viewport: { width: 560, height: 900 },
+        },
+    },
 }
