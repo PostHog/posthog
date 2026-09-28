@@ -89,6 +89,14 @@ class ScoutRubricDocument:
     state: ScoutRubricState
 
 
+@frozen
+class ScoutRubricReservation:
+    config: SignalScoutConfig
+    created: bool
+    # The completed batch the new request replaced. It is restored if the request cannot start.
+    replaced_batch: ScoutRubricGeneration | None = None
+
+
 class ScoutRubricNotFound(Exception):
     pass
 
@@ -195,7 +203,7 @@ def save_rubric(
     return config
 
 
-def reserve_generation(team_id: int, config_id: str) -> tuple[SignalScoutConfig, bool]:
+def reserve_generation(team_id: int, config_id: str) -> ScoutRubricReservation:
     with transaction.atomic():
         config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config_id)
         state = read_rubric_state(config)
@@ -209,13 +217,14 @@ def reserve_generation(team_id: int, config_id: str) -> tuple[SignalScoutConfig,
                 ScoutRubricGenerationStatus.RUNNING,
             )
         ):
-            return config, False
+            return ScoutRubricReservation(config=config, created=False)
         state.generation = ScoutRubricGeneration(
             id=str(uuid4()), status=ScoutRubricGenerationStatus.QUEUED, requested_at=timezone.now()
         )
         config.rubrics = state.model_dump(mode="json")
         config.save(update_fields=["rubrics", "updated_at"])
-    return config, True
+    replaced_batch = generation if generation and generation.status == ScoutRubricGenerationStatus.COMPLETED else None
+    return ScoutRubricReservation(config=config, created=True, replaced_batch=replaced_batch)
 
 
 def update_generation(team_id: int, config_id: str, generation: ScoutRubricGeneration) -> bool:
@@ -248,6 +257,25 @@ def fail_generation(team_id: int, config_id: str, generation_id: str, message: s
         config.save(update_fields=["rubrics", "updated_at"])
 
 
+def release_generation(
+    team_id: int, config_id: str, generation_id: str, message: str, *, replaced_batch: ScoutRubricGeneration | None
+) -> None:
+    if replaced_batch is None:
+        fail_generation(team_id, config_id, generation_id, message)
+        return
+    with transaction.atomic():
+        config = SignalScoutConfig.objects.for_team(team_id).select_for_update().filter(id=config_id).first()
+        if config is None:
+            return
+        state = read_rubric_state(config)
+        if state.generation is None or state.generation.id != generation_id:
+            return
+        # The caller's error response reports the refusal, so the last completed batch stays visible.
+        state.generation = replaced_batch
+        config.rubrics = state.model_dump(mode="json")
+        config.save(update_fields=["rubrics", "updated_at"])
+
+
 def _to_document(config: SignalScoutConfig) -> ScoutRubricDocument:
     return ScoutRubricDocument(config_id=config.id, skill_name=config.skill_name, state=visible_rubric_state(config))
 
@@ -272,10 +300,10 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
         refund_daily_attempt,
     )
 
-    config, created = reserve_generation(team_id, config_id)
-    if not created:
-        return _to_document(config)
-    generation = read_rubric_state(config).generation
+    reservation = reserve_generation(team_id, config_id)
+    if not reservation.created:
+        return _to_document(reservation.config)
+    generation = read_rubric_state(reservation.config).generation
     assert generation is not None
     try:
         within_limit = consume_daily_attempt("signals_scout_rubrics", team_id, 20)
@@ -286,10 +314,22 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
             config_id=config_id,
             generation_id=generation.id,
         )
-        fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
+        release_generation(
+            team_id,
+            config_id,
+            generation.id,
+            "Generation could not start. Try again.",
+            replaced_batch=reservation.replaced_batch,
+        )
         raise ScoutRubricGenerationUnavailable from None
     if not within_limit:
-        fail_generation(team_id, config_id, generation.id, "Daily generation limit reached. Try tomorrow.")
+        release_generation(
+            team_id,
+            config_id,
+            generation.id,
+            "Daily generation limit reached. Try tomorrow.",
+            replaced_batch=reservation.replaced_batch,
+        )
         raise ScoutRubricGenerationLimitExceeded
     try:
         from products.signals.backend.temporal.agentic.scout_rubrics import (  # noqa: PLC0415 - keeps Temporal off the route import path
@@ -314,6 +354,12 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
             refund_daily_attempt("signals_scout_rubrics", team_id)
         except Exception:
             logger.warning("signals.scout_rubrics.refund_failed", team_id=team_id, exc_info=True)
-        fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
+        release_generation(
+            team_id,
+            config_id,
+            generation.id,
+            "Generation could not start. Try again.",
+            replaced_batch=reservation.replaced_batch,
+        )
         raise ScoutRubricGenerationUnavailable from None
-    return _to_document(config)
+    return _to_document(reservation.config)

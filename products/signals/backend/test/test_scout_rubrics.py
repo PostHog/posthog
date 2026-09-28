@@ -191,7 +191,7 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(len(reloaded["generation"]["suggestions"]), 1)
 
     def test_timed_out_generation_is_retryable_and_old_worker_cannot_replace_it(self) -> None:
-        config, _ = reserve_generation(self.team.id, str(self.config.id))
+        config = reserve_generation(self.team.id, str(self.config.id)).config
         old = read_rubric_state(config).generation
         assert old is not None
         old.requested_at = timezone.now() - GENERATION_TIMEOUT - timedelta(seconds=1)
@@ -239,6 +239,33 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(state["generation"]["status"], "failed")
         self.assertEqual(state["revision"], 1)
         self.assertEqual(state["criteria"][0]["id"], "custom-checkout")
+
+    @parameterized.expand([("limit_reached", 21, False, 429), ("dispatch_failed", 1, True, 500)])
+    def test_refused_generation_keeps_completed_suggestions(
+        self, _name: str, attempts: int, connect_fails: bool, expected_status: int
+    ) -> None:
+        generation = read_rubric_state(reserve_generation(self.team.id, str(self.config.id)).config).generation
+        assert generation is not None
+        generation.status = ScoutRubricGenerationStatus.COMPLETED
+        generation.suggestions = default_criteria()[:1]
+        generation.completed_at = timezone.now()
+        update_generation(self.team.id, str(self.config.id), generation)
+        cache = MagicMock()
+        cache.incr.return_value = attempts
+        with (
+            patch("products.signals.backend.scout_chat.cache", cache),
+            patch(
+                "products.signals.backend.scout_harness.rubrics.sync_connect",
+                side_effect=RuntimeError("offline") if connect_fails else None,
+                return_value=SimpleNamespace(start_workflow=AsyncMock()),
+            ),
+        ):
+            response = self.client.post(self.url + "generate/")
+        self.assertEqual(response.status_code, expected_status)
+        restored = self.client.get(self.url).json()["generation"]
+        self.assertEqual(restored["id"], generation.id)
+        self.assertEqual(restored["status"], "completed")
+        self.assertEqual(len(restored["suggestions"]), 1)
 
     def test_generation_requires_ai_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -358,7 +385,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             )
         if name in {"saved_choices", "oversized_selection"}:
             save_rubric(self.team.id, str(self.config.id), revision=0, criteria=expected_criteria)
-        config, _ = reserve_generation(self.team.id, str(self.config.id))
+        config = reserve_generation(self.team.id, str(self.config.id)).config
         generation = read_rubric_state(config).generation
         assert generation is not None
         criterion = custom_criterion()
