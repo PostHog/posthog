@@ -759,6 +759,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         are the span's own timestamp / duration.
         """
         where_exprs: list[ast.Expr] = [self.where()]
+        if self._unbounded_trace_lookup:
+            where_exprs.append(self._unbounded_trace_filter())
 
         # Time order keysets on (timestamp, span_id) in the WHERE; duration order offset-paginates via
         # the paginator (see _calculate). The coarse UTC day bound lets ClickHouse prune parts first —

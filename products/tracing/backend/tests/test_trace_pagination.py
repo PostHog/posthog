@@ -6,6 +6,7 @@ from posthog.schema import TraceSpansQuery
 
 from posthog.clickhouse.client import sync_execute
 
+from products.tracing.backend.logic import TraceSpansQueryRunner
 from products.tracing.backend.presentation.views import TRACE_SPANS_PAGE_SIZE
 from products.tracing.backend.tests.test_keyset_pagination import _b64, _TraceSpansTestBase
 
@@ -80,9 +81,16 @@ class TestTracePagination(_TraceSpansTestBase):
         self.assertEqual(first & second, set())
         self.assertEqual(len(first | second), SPAN_COUNT)
 
-    # The query API passes traceId through unvalidated, so it can arrive in the stored base64 form too.
-    @parameterized.expand([("hex", (1).to_bytes(16, "big").hex()), ("base64", _b64((1).to_bytes(16, "big")))])
-    def test_undated_lookup_accepts_hex_or_base64_trace_id(self, _name: str, trace_id: str):
+    # The query API passes traceId through unvalidated, so it can arrive in the stored base64 form too. Both
+    # query shapes must reach an undated trace through the projection subquery, not a scan of every part.
+    @parameterized.expand(
+        [
+            (f"{fmt}_{shape}", trace_id, flat)
+            for fmt, trace_id in (("hex", (1).to_bytes(16, "big").hex()), ("base64", _b64((1).to_bytes(16, "big"))))
+            for shape, flat in (("grouped", False), ("flat", True))
+        ]
+    )
+    def test_undated_lookup_finds_the_trace_through_the_projection(self, _name: str, trace_id: str, flat: bool):
         query = TraceSpansQuery(
             traceId=trace_id,
             orderBy="timestamp",
@@ -90,5 +98,11 @@ class TestTracePagination(_TraceSpansTestBase):
             limit=1,
             prefetchSpans=SPAN_COUNT,
             rootSpans=False,
+            flatSpans=flat,
         )
-        self.assertEqual(len(self._execute(query)), SPAN_COUNT)
+        where = TraceSpansQueryRunner(query, self.team).to_query().where
+        assert where is not None
+        self.assertIn("_part_offset", where.to_hogql())
+        rows = self._execute(query)
+        self.assertTrue(rows)
+        self.assertEqual({row[1] for row in rows}, {(1).to_bytes(16, "big").hex().upper()})
