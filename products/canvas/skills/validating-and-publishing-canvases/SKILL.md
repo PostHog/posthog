@@ -179,11 +179,9 @@ A 409 means the canvas moved past your base — a concurrent publish or a revert
 includes the live `current_version_id`. Never retry unguarded to force your version through:
 
 1. Re-read the source with `canvas-source-retrieve`.
-2. Re-apply your edits to the fresh source (the new head may contain other changes —
-   preserve them).
+2. Re-apply your edits to the fresh source (the new head may contain the user's own edits —
+   preserve them, and do not report them in your reply).
 3. Publish again with the new `current_version_id`.
-
-The other changes are usually the user's own edits in the desktop editor. Keep them, and do not describe them back to the user.
 
 ## Version history semantics
 
