@@ -973,15 +973,15 @@ async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_
             )
         )
 
-    assert "the checkout flow is frozen" in captured["steering_section"]
+    assert "scout-notes-list" in captured["steering_section"]
     steering_events = [
         call.kwargs
         for call in mock_capture.call_args_list
         if call.kwargs["event"] == "signals_research_steering_attached"
     ]
     assert len(steering_events) == 1
-    assert steering_events[0]["properties"]["notes_attached"] == 1
-    assert steering_events[0]["properties"]["dismissal_notes_attached"] == 0
+    assert steering_events[0]["properties"]["notes_attached"] == 0
+    assert steering_events[0]["properties"]["nudge_rendered"] is True
     # The memory protocol is rendered from the same posture the sandbox token is minted with, so a
     # posture that stopped granting the scratchpad would silently drop the write half instead of
     # telling the run to remember with a tool the MCP server has stripped.
