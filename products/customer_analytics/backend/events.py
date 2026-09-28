@@ -14,7 +14,12 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import Tag
 from posthog.models.user import User
 
-from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition, CustomPropertyDefinition
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationshipDefinition,
+    CustomerTask,
+    CustomPropertyDefinition,
+)
 
 EVENT_SOURCE = "customer_analytics_events"
 
@@ -127,6 +132,41 @@ def emit_account_custom_property_changed(
             }
         ],
         token=account.team.api_token,
+        event_source=EVENT_SOURCE,
+    ).raise_for_status()
+
+
+def emit_customer_task_assigned(task: CustomerTask, actor: User | None) -> None:
+    """Fires when PostHog is assigned to a customer task, so a loop can pick the task up.
+
+    Carries ids and names only. The loop reads the description through the API, so the
+    reader's account access applies and a task author cannot write into a prompt.
+    """
+    account = task.account
+    properties: dict[str, Any] = {
+        "customer_task_id": str(task.id),
+        "customer_task_name": task.name,
+        "assignee_type": "agent",
+        "account_id": str(account.id) if account else None,
+        "account_external_id": account.external_id if account else None,
+        "account_name": account.name if account else None,
+        "assigned_by_id": actor.id if actor else None,
+        "assigned_by_email": actor.email if actor else None,
+        "status": task.status,
+        "due_at": _json_value(task.due_at),
+    }
+    groups = _account_groups(account) if account else None
+    if groups:
+        properties["$groups"] = groups
+    capture_batch_internal(
+        events=[
+            {
+                "event": "$customer_task_assigned",
+                "distinct_id": actor.distinct_id if actor and actor.distinct_id else f"customer_task:{task.id}",
+                "properties": properties,
+            }
+        ],
+        token=task.team.api_token,
         event_source=EVENT_SOURCE,
     ).raise_for_status()
 

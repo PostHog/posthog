@@ -1204,6 +1204,9 @@ const customerTasksCreate = (): ToolBase<ReturnType<typeof CustomerTasksCreateSc
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
         }
+        if (params.assigned_to_agent !== undefined) {
+            body['assigned_to_agent'] = params.assigned_to_agent
+        }
         if (params.due_at !== undefined) {
             body['due_at'] = params.due_at
         }
@@ -1279,6 +1282,9 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
+        }
+        if (params.assigned_to_agent !== undefined) {
+            body['assigned_to_agent'] = params.assigned_to_agent
         }
         if (params.due_at !== undefined) {
             body['due_at'] = params.due_at

@@ -101,6 +101,7 @@ export interface customerTasksLogicValues {
     draftDescription: string
     draftAccount: CustomerTaskAccountFilter | null
     draftAssignedTo: CustomerTaskUserApi | null
+    draftAssignedToAgent: boolean
     draftDueAt: string | null
     user: UserType | null
 }
@@ -128,6 +129,7 @@ export interface customerTasksLogicActions {
     setSearch: (search: string) => { search: string }
     setDraftAccount: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => { assignedTo: CustomerTaskUserApi | null }
+    setDraftAssignedToAgent: (assignedToAgent: boolean) => { assignedToAgent: boolean }
     setDraftDescription: (description: string) => { description: string }
     setDraftDueAt: (dueAt: string | null) => { dueAt: string | null }
     setDraftName: (name: string) => { name: string }
@@ -187,6 +189,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setDraftDescription: (description: string) => ({ description }),
         setDraftAccount: (account: CustomerTaskAccountFilter | null) => ({ account }),
         setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => ({ assignedTo }),
+        setDraftAssignedToAgent: (assignedToAgent: boolean) => ({ assignedToAgent }),
         setDraftDueAt: (dueAt: string | null) => ({ dueAt }),
         submitModal: () => ({}),
         createTask: (task: CustomerTaskCreateApi) => ({ task }),
@@ -352,7 +355,20 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                         _: CustomerTaskUserApi | null,
                         a: { assignedTo: CustomerTaskUserApi | null }
                     ) => a.assignedTo,
+                    // PostHog and a person exclude each other, so picking PostHog drops the person.
+                    setDraftAssignedToAgent: (state: CustomerTaskUserApi | null, a: { assignedToAgent: boolean }) =>
+                        a.assignedToAgent ? null : state,
                     closeModal: () => null,
+                },
+            ],
+            draftAssignedToAgent: [
+                false,
+                {
+                    openCreateModal: () => false,
+                    openEditModal: (_: boolean, a: { task: CustomerTaskApi }) => a.task.assigned_to_agent,
+                    setDraftAssignedToAgent: (_: boolean, a: { assignedToAgent: boolean }) => a.assignedToAgent,
+                    setDraftAssignedTo: () => false,
+                    closeModal: () => false,
                 },
             ],
             draftDueAt: [
@@ -468,6 +484,9 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 if (assignedToId !== (values.modalTask.assigned_to?.id ?? null)) {
                     patch.assigned_to_id = assignedToId
                 }
+                if (values.draftAssignedToAgent !== values.modalTask.assigned_to_agent) {
+                    patch.assigned_to_agent = values.draftAssignedToAgent
+                }
                 if (values.draftDueAt !== values.modalTask.due_at) {
                     patch.due_at = values.draftDueAt
                 }
@@ -482,6 +501,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     name: values.draftName,
                     description,
                     assigned_to_id: assignedToId,
+                    ...(values.draftAssignedToAgent ? { assigned_to_agent: true } : {}),
                     due_at: values.draftDueAt,
                 })
             }

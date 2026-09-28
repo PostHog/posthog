@@ -23,7 +23,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
-_ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, or a project member ID."
+_ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, agent, or a project member ID."
+_AGENT_AND_PERSON_ERROR = "Choose PostHog or a person, not both."
 # posthog_user.id is an int4 column, and DRF never runs full_clean, so an ID past this bound would
 # fail in Postgres with a 500 rather than being rejected here.
 _MAX_MEMBER_ID = 2147483647
@@ -69,6 +70,9 @@ class CustomerTaskSerializer(serializers.Serializer):
     assigned_to = CustomerTaskUserSerializer(
         read_only=True, allow_null=True, help_text="Assigned project member, if any."
     )
+    assigned_to_agent = serializers.BooleanField(
+        read_only=True, help_text="Whether PostHog is assigned to this task instead of a person."
+    )
     due_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="Task deadline, if any.")
     completed_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the task was completed, if applicable."
@@ -90,6 +94,16 @@ class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
     assigned_to_id = serializers.CharField(read_only=True, help_text="Why the selected assignee is not allowed.")
 
 
+class CustomerTaskAgentAssigneeErrorSerializer(serializers.Serializer):
+    assigned_to_agent = serializers.CharField(read_only=True, help_text="Why PostHog cannot be assigned.")
+
+
+def _validate_one_assignee(attrs: dict[str, Any]) -> dict[str, Any]:
+    if attrs.get("assigned_to_agent") and attrs.get("assigned_to_id") is not None:
+        raise serializers.ValidationError({"assigned_to_id": _AGENT_AND_PERSON_ERROR})
+    return attrs
+
+
 class CustomerTaskCreateSerializer(serializers.Serializer):
     account_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="UUID of a visible account, or null for an accountless task."
@@ -100,6 +114,11 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
     )
     assigned_to_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="PostHog user ID to assign, or null to leave unassigned."
+    )
+    assigned_to_agent = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Assign PostHog instead of a person. Cannot be combined with assigned_to_id.",
     )
     due_at = serializers.DateTimeField(
         required=False, allow_null=True, help_text="ISO 8601 deadline, or null for no deadline."
@@ -118,7 +137,7 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
         unexpected = set(self.initial_data) - set(self.fields)
         if unexpected:
             raise serializers.ValidationError(dict.fromkeys(unexpected, "This field is not accepted."))
-        return attrs
+        return _validate_one_assignee(attrs)
 
 
 class CustomerTaskUpdateSerializer(serializers.Serializer):
@@ -136,6 +155,10 @@ class CustomerTaskUpdateSerializer(serializers.Serializer):
     )
     assigned_to_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="Replacement assignee ID, or null to unassign."
+    )
+    assigned_to_agent = serializers.BooleanField(
+        required=False,
+        help_text="True assigns PostHog and clears the person. False hands the task back to nobody.",
     )
     due_at = serializers.DateTimeField(
         required=False, allow_null=True, help_text="Replacement ISO 8601 deadline, or null to clear it."
@@ -157,7 +180,7 @@ class CustomerTaskUpdateSerializer(serializers.Serializer):
         unexpected = set(self.initial_data) - set(self.fields)
         if unexpected:
             raise serializers.ValidationError(dict.fromkeys(unexpected, "This field is not accepted."))
-        return attrs
+        return _validate_one_assignee(attrs)
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "object"}]})
@@ -188,7 +211,9 @@ class CustomerTaskActivitySerializer(serializers.Serializer):
 class CustomerTaskListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, allow_blank=True, help_text="Search task name and description.")
     account_id = serializers.UUIDField(required=False, help_text="Filter by account UUID.")
-    assigned_to = serializers.CharField(required=False, help_text="Filter by me, unassigned, or one user ID.")
+    assigned_to = serializers.CharField(
+        required=False, help_text="Filter by me, unassigned, agent (tasks assigned to PostHog), or one user ID."
+    )
     statuses = serializers.CharField(required=False, help_text="Comma-separated task statuses.")
     archive_state = serializers.ChoiceField(
         required=False,
@@ -210,7 +235,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
 
     def validate_assigned_to(self, value: str) -> str:
-        if value in {"me", "unassigned"}:
+        if value in {"me", "unassigned", "agent"}:
             return value
         # str.isdigit() accepts characters such as "²" that int() rejects.
         try:
@@ -380,6 +405,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name_provided="name" in request.data,
                 description_provided="description" in request.data,
                 assigned_to_id_provided="assigned_to_id" in request.data,
+                assigned_to_agent_provided="assigned_to_agent" in request.data,
                 due_at_provided="due_at" in request.data,
                 status_provided="status" in request.data,
             ),
@@ -458,6 +484,11 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     + chr(39)
                     + "t access the selected account. Choose another assignee or remove the account link."
                 }
+            )
+            return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(exc, contracts.CustomerTaskAgentAssigneeUnavailable):
+            error = CustomerTaskAgentAssigneeErrorSerializer(
+                instance={"assigned_to_agent": "PostHog can" + chr(39) + "t be assigned to tasks in this project yet."}
             )
             return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskInvalidTransition):

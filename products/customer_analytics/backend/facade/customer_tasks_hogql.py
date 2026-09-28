@@ -1,6 +1,7 @@
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -33,6 +34,9 @@ customer_tasks = _CustomerTasksTable(
         "status": StringDatabaseField(name="status", description="open, in_progress, completed, or canceled."),
         "assigned_to_id": IntegerDatabaseField(
             name="assigned_to_id", nullable=True, description="Assigned PostHog user ID."
+        ),
+        "assigned_to_agent": BooleanDatabaseField(
+            name="assigned_to_agent", description="True when the task is assigned to PostHog instead of a person."
         ),
         "due_at": DateTimeDatabaseField(name="due_at", nullable=True, description="Task deadline."),
         "completed_at": DateTimeDatabaseField(name="completed_at", nullable=True, description="Completion time."),

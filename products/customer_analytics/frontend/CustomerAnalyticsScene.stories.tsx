@@ -114,6 +114,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
             first_name: 'Alex',
             last_name: 'Morgan',
         },
+        assigned_to_agent: false,
         due_at: '2024-01-12T16:00:00Z',
         completed_at: null,
         completed_by: null,
@@ -136,6 +137,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
             first_name: 'Taylor',
             last_name: 'Rivera',
         },
+        assigned_to_agent: false,
         due_at: '2024-01-18T11:00:00Z',
         completed_at: null,
         completed_by: null,
@@ -153,6 +155,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
         description: null,
         status: 'open',
         assigned_to: null,
+        assigned_to_agent: true,
         due_at: null,
         completed_at: null,
         completed_by: null,
@@ -180,7 +183,11 @@ export const CustomerTasks: Story = {
         return <App />
     },
     parameters: {
-        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        featureFlags: [
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_AGENT_ASSIGNEE,
+        ],
         pageUrl: urls.customerAnalyticsTasks(),
         testOptions: {
             waitForSelector: '[data-attr="customer-task-name"]',

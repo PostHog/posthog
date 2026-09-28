@@ -11,7 +11,10 @@ from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Valu
 from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
+import posthoganalytics
+
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade import (
@@ -19,10 +22,13 @@ from products.access_control.backend.facade import (
     contracts as access_control_contracts,
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.customer_analytics.backend import events
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_AGENT_ASSIGNEE_FLAG
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAccessDenied,
     CustomerTaskAccountNotFound,
+    CustomerTaskAgentAssigneeUnavailable,
     CustomerTaskArchived,
     CustomerTaskAssigneeCannotViewAccount,
     CustomerTaskAssigneeInvalid,
@@ -111,6 +117,20 @@ def _validate_assignee(
     return assignee
 
 
+def _agent_assignee_enabled(team: Team, actor: User | None) -> bool:
+    if actor is None:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            CUSTOMER_ANALYTICS_AGENT_ASSIGNEE_FLAG,
+            str(actor.distinct_id),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def _set_customer_task_assignee_access(
     *,
     task: CustomerTask,
@@ -172,6 +192,32 @@ def _snapshot_user(user: User | None) -> dict[str, object] | None:
     return {"id": user.id, "email": user.email, "first_name": user.first_name, "last_name": user.last_name}
 
 
+def _agent_properties(actor: User | None) -> dict[str, object]:
+    return {"assigned_by_id": actor.id if actor else None, "assigned_at": _timestamp(timezone.now())}
+
+
+def _assign_agent(task: CustomerTask, actor: User | None) -> None:
+    task.assigned_to = None
+    task.assigned_to_agent = True
+    task.properties = {**task.properties, "agent": _agent_properties(actor)}
+
+
+def _unassign_agent(task: CustomerTask) -> None:
+    task.assigned_to_agent = False
+    task.properties = {key: value for key, value in task.properties.items() if key != "agent"}
+
+
+def _emit_agent_assigned_after_commit(task: CustomerTask, actor: User | None) -> None:
+    # The event feeds workflows and adoption metrics. A capture outage must not undo the assignment.
+    def emit() -> None:
+        try:
+            events.emit_customer_task_assigned(task, actor)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
+
+
 def _changes(
     *,
     before_account: Account | None,
@@ -184,6 +230,8 @@ def _changes(
     after_status: str | None,
     before_assignee: User | None,
     after_assignee: User | None,
+    before_agent: bool,
+    after_agent: bool,
     before_due_at: datetime | None,
     after_due_at: datetime | None,
 ) -> list[dict[str, object | None]]:
@@ -193,6 +241,7 @@ def _changes(
         ("description", before_description, after_description),
         ("status", before_status, after_status),
         ("assigned_to", _snapshot_user(before_assignee), _snapshot_user(after_assignee)),
+        ("assigned_to_agent", before_agent, after_agent),
         ("due_at", _timestamp(before_due_at), _timestamp(after_due_at)),
     )
     before_account_id = str(before_account.id) if before_account is not None else None
@@ -289,7 +338,9 @@ def list_customer_tasks(
     if filters.assigned_to == "me":
         queryset = queryset.filter(assigned_to_id=user_access_control.user.id)
     elif filters.assigned_to == "unassigned":
-        queryset = queryset.filter(assigned_to_id__isnull=True)
+        queryset = queryset.filter(assigned_to_id__isnull=True, assigned_to_agent=False)
+    elif filters.assigned_to == "agent":
+        queryset = queryset.filter(assigned_to_agent=True)
     elif filters.assigned_to:
         queryset = queryset.filter(assigned_to_id=int(filters.assigned_to))
     if filters.statuses:
@@ -336,6 +387,11 @@ def create_customer_task(
 ) -> CustomerTask:
     account = _account_for_write(team.id, input.account_id, user_access_control)
     assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
+    if input.assigned_to_agent:
+        if assignee is not None:
+            raise CustomerTaskAssigneeInvalid()
+        if not _agent_assignee_enabled(team, actor):
+            raise CustomerTaskAgentAssigneeUnavailable()
     completed_at = timezone.now() if input.status == CustomerTaskStatus.COMPLETED else None
     completed_by = actor if completed_at is not None and actor is not None else assignee if completed_at else None
     with transaction.atomic():
@@ -346,12 +402,16 @@ def create_customer_task(
             name=input.name,
             description=input.description,
             assigned_to=assignee,
+            assigned_to_agent=input.assigned_to_agent,
+            properties={"agent": _agent_properties(actor)} if input.assigned_to_agent else {},
             due_at=input.due_at,
             status=input.status,
             completed_at=completed_at,
             completed_by=completed_by,
             created_by=actor,
         )
+        if input.assigned_to_agent:
+            _emit_agent_assigned_after_commit(task, actor)
         _set_customer_task_assignee_access(
             task=task,
             organization_id=team.organization_id,
@@ -374,6 +434,8 @@ def create_customer_task(
                 after_status=task.status,
                 before_assignee=None,
                 after_assignee=assignee,
+                before_agent=False,
+                after_agent=task.assigned_to_agent,
                 before_due_at=None,
                 after_due_at=task.due_at,
             ),
@@ -403,12 +465,14 @@ def update_customer_task(
         before_description = task.description
         before_status = task.status
         before_assignee = task.assigned_to
+        before_agent = task.assigned_to_agent
         before_due_at = task.due_at
         semantic_change = (
             (input.account_id_provided and input.account_id != task.account_id)
             or (input.name_provided and input.name != task.name)
             or (input.description_provided and input.description != task.description)
             or (input.assigned_to_id_provided and input.assigned_to_id != task.assigned_to_id)
+            or (input.assigned_to_agent_provided and input.assigned_to_agent != task.assigned_to_agent)
             or (input.due_at_provided and input.due_at != task.due_at)
             or (input.status_provided and input.status != task.status)
         )
@@ -419,7 +483,15 @@ def update_customer_task(
             team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
         )
         assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
+        requested_agent = input.assigned_to_agent if input.assigned_to_agent_provided else task.assigned_to_agent
+        # A person and PostHog exclude each other: whichever the request names wins.
+        if input.assigned_to_id_provided and input.assigned_to_id is not None:
+            requested_agent = False
+        if requested_agent:
+            assignee_id = None
         assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
+        if requested_agent and not before_agent and not _agent_assignee_enabled(team, actor):
+            raise CustomerTaskAgentAssigneeUnavailable()
         requested_status = input.status if input.status_provided else task.status
         if requested_status is None:
             raise CustomerTaskInvalidTransition(task.status, "")
@@ -445,6 +517,10 @@ def update_customer_task(
             task.name = cast(str, input.name)
         task.description = input.description if input.description_provided else task.description
         task.assigned_to = assignee
+        if requested_agent and not before_agent:
+            _assign_agent(task, actor)
+        elif before_agent and not requested_agent:
+            _unassign_agent(task)
         task.due_at = input.due_at if input.due_at_provided else task.due_at
         task.status = requested_status
         task.completed_at = completed_at
@@ -468,11 +544,15 @@ def update_customer_task(
             after_status=task.status,
             before_assignee=before_assignee,
             after_assignee=task.assigned_to,
+            before_agent=before_agent,
+            after_agent=task.assigned_to_agent,
             before_due_at=before_due_at,
             after_due_at=task.due_at,
         )
         if changes:
             _record_activity(task=task, activity_type=CustomerTaskActivityType.UPDATED, actor=actor, changes=changes)
+        if task.assigned_to_agent and not before_agent:
+            _emit_agent_assigned_after_commit(task, actor)
         return task
 
 

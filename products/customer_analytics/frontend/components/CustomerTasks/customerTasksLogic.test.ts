@@ -53,6 +53,7 @@ function task(canEdit = true): CustomerTaskApi {
         description: null,
         status: 'open',
         assigned_to: null,
+        assigned_to_agent: false,
         due_at: null,
         completed_at: null,
         completed_by: null,
@@ -259,6 +260,27 @@ describe('customerTasksLogic', () => {
 
         expect(toast).toHaveBeenCalledWith(Object.values(body)[0])
         toast.mockRestore()
+    })
+
+    test('submits PostHog as the assignee and drops the person', async () => {
+        const assignedTask = {
+            ...task(),
+            account: { id: 'account-1', name: 'Acme' },
+            assigned_to: { id: 7, email: 'casey@example.com', first_name: 'Casey', last_name: 'Kim' },
+        }
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [assignedTask] })
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openEditModal(logic.values.tasks[0])
+        logic.actions.setDraftAssignedToAgent(true)
+        expect(logic.values.draftAssignedTo).toBeNull()
+        logic.actions.submitModal()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockUpdate).toHaveBeenCalledWith(expect.any(String), 'task-1', {
+            assigned_to_id: null,
+            assigned_to_agent: true,
+        })
     })
 
     test('does not submit an unchanged modal, an uneditable task, or an archived task', async () => {
