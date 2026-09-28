@@ -136,7 +136,12 @@ function describeHogFunctionField(change: ActivityChange, objectNoun: string): H
         case 'encrypted_inputs':
             return { inline: 'updated encrypted inputs for', inlist: 'updated encrypted inputs' }
         case 'inputs':
+            if (!isObject(change.before) && !isObject(change.after)) {
+                return { inline: 'updated inputs for', inlist: 'updated inputs' }
+            }
             return describeHogFunctionInputs(change)
+        case 'mappings':
+            return { inline: 'updated mappings for', inlist: 'updated mappings' }
         case 'deleted': {
             const verb = change.after ? 'deleted' : 'undeleted'
             return { inline: verb, inlist: `${verb} the ${objectNoun}` }

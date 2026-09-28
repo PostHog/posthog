@@ -35,6 +35,15 @@ describe('hogFunctionActivityDescriber', () => {
             notification: 'A user updated the input region for the hog function: Example destination',
         },
         {
+            name: 'describes masked inputs and mappings without values',
+            changes: [
+                { field: 'inputs', before: 'masked', after: 'masked' },
+                { field: 'mappings', before: 'masked', after: 'masked' },
+            ],
+            summary: 'updated inputs, and updated mappings',
+            notification: 'A user updated the hog function: Example destinationupdated inputsupdated mappings',
+        },
+        {
             name: 'retains source-code links and multi-change notifications',
             changes: [
                 { field: 'hog', before: 'return 1', after: 'return 2' },
