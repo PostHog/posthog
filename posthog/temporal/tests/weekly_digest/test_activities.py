@@ -18,6 +18,9 @@ import fakeredis
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.schema import HogQLQueryResponse
+
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
@@ -842,6 +845,28 @@ def test_generate_usage_trends_lookup_queries_only_teams_with_events(
         ("Active users", 1),
     ]
     assert redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, idle_team.id)) is None
+
+
+@pytest.mark.django_db
+def test_generate_usage_trends_lookup_waits_out_a_busy_clickhouse(team, redis_servers, common_input, digest):
+    with (
+        patch(
+            "posthog.temporal.weekly_digest.activities.sync_execute",
+            side_effect=[ClickHouseAtCapacity(), [(team.id,)]],
+        ),
+        patch(
+            "posthog.temporal.weekly_digest.activities.execute_hogql_query",
+            side_effect=[ClickHouseAtCapacity(), HogQLQueryResponse(results=[[5, 4, 2, 2]])],
+        ),
+        patch("posthog.temporal.common.utils.time.sleep"),
+    ):
+        run_sync(generate_usage_trends_lookup, batch_input(team, digest, common_input))
+
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, team.id)))
+    assert [(metric["label"], metric["current"]) for metric in stored["metrics"]] == [
+        ("Events", 5),
+        ("Active users", 2),
+    ]
 
 
 @pytest.mark.django_db
