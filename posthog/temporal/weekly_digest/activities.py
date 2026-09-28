@@ -103,8 +103,7 @@ P = ParamSpec("P")
 
 
 def _retry_while_clickhouse_busy(fn: Callable[P, T]) -> Callable[P, T]:
-    # Every workload on the offline cluster shares one per-user limit on simultaneous queries, and
-    # another workload's burst can fill it for a few seconds. Back off instead of failing the batch.
+    # Other workloads share the offline cluster's per-user query limit, so a rejection clears within seconds.
     return make_sync_retryable_with_exponential_backoff(fn, retryable_exceptions=(ClickHouseAtCapacity,))
 
 

@@ -116,6 +116,31 @@ async def test_asyncify_delivers_heartbeater_sync_heartbeats_on_the_event_loop()
     assert set(heartbeat_threads) == {loop_thread}
 
 
+async def test_asyncify_reports_a_heartbeat_the_sdk_rejects_on_the_event_loop() -> None:
+    warned = threading.Event()
+    logger = mock.MagicMock()
+    logger.warning.side_effect = lambda *args, **kwargs: warned.set()
+    tracker = mock.MagicMock()
+
+    def reject_heartbeat(*details: Any) -> None:
+        raise RuntimeError("heartbeat rejected")
+
+    @asyncify
+    def heartbeat_from_a_worker_thread() -> bool:
+        with HeartbeaterSync(factor=10, logger=logger):
+            return warned.wait(timeout=BARRIER_TIMEOUT_SECONDS)
+
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(seconds=1))
+    env.on_heartbeat = reject_heartbeat
+
+    with mock.patch("posthog.temporal.common.heartbeat_sync.get_liveness_tracker", return_value=tracker):
+        assert await env.run(heartbeat_from_a_worker_thread)
+
+    assert logger.warning.call_args.kwargs["error"] == "heartbeat rejected"
+    tracker.record_heartbeat.assert_not_called()
+
+
 async def test_asyncify_falls_back_to_the_default_executor() -> None:
     previous = get_asyncify_executor()
     utils._asyncify_executor = None

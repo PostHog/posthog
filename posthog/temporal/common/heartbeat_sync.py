@@ -3,6 +3,7 @@ import socket
 import asyncio
 import threading
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from typing import Any
@@ -15,8 +16,9 @@ from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 LOGGER = get_logger(__name__)
 
-# For an async activity, `activity.heartbeat` schedules a task on the event loop. Called from any
-# other thread, it fails with "no running event loop" and the server never sees the heartbeat.
+HEARTBEAT_ACCEPT_TIMEOUT_SECONDS = 10
+
+# An async activity's `activity.heartbeat` only works on the event loop thread.
 _loop_heartbeat: ContextVar[Callable[..., None] | None] = ContextVar("loop_heartbeat", default=None)
 
 
@@ -26,7 +28,18 @@ def heartbeat_through_loop(loop: asyncio.AbstractEventLoop) -> Iterator[None]:
     activity_context = copy_context()
 
     def heartbeat(*details: Any) -> None:
-        loop.call_soon_threadsafe(activity.heartbeat, *details, context=activity_context)
+        accepted: Future[None] = Future()
+
+        def send() -> None:
+            try:
+                activity.heartbeat(*details)
+            except Exception as e:
+                accepted.set_exception(e)
+            else:
+                accepted.set_result(None)
+
+        loop.call_soon_threadsafe(send, context=activity_context)
+        accepted.result(timeout=HEARTBEAT_ACCEPT_TIMEOUT_SECONDS)
 
     token = _loop_heartbeat.set(heartbeat)
     try:
