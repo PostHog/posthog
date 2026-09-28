@@ -89,6 +89,11 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
 
+# How many of the deepest (team_id, schema_id) groups the depth probe's
+# concentration share covers. Small enough that a near-1 share means a handful
+# of tenants own the queue, large enough that one bursty tenant does not.
+DEPTH_TOP_GROUPS = 5
+
 
 class _Unset:
     """Sentinel for ``update_status_unless_failed(expected_state_changed_at=...)``.
@@ -424,6 +429,85 @@ def _orphaned_candidate_runs_sql() -> str:
     """
 
 
+def _queue_depth_sql() -> str:
+    """Queue depth and how it is spread over (team_id, schema_id) groups, in one scan.
+
+    The claimable set is the same as ``sb_claimable_idx`` covers: 'pending' or
+    'waiting_retry' inside ``CLAIM_ELIGIBILITY_INTERVAL``. The per-run and
+    per-group gates below are not filters on that scan. The scan is aggregated
+    into runs first, so the failed-run probe costs one ``sb_run_gate_idx``
+    descent per run, and then into groups, so the executing probe costs one
+    ``sb_schema_busy_idx`` descent per group. Both probes keep
+    ``PARTITION_PRUNING_INTERVAL`` because they must see every row that still
+    exists, the same as the claim query's gates.
+
+    ``batches`` per group keeps every claimable row, so the depth total stays
+    what the claim query could scan. ``live_batches`` drops the runs that hold a
+    failed batch: the claim query refuses those, so they are neither waiting for
+    a slot nor waiting behind their group. Without that split a leaked run reads
+    as capacity demand forever, which is the same distortion that made the age
+    gauge exclude them.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what
+    runs, the way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH claimable_runs AS (
+            SELECT b.team_id, b.schema_id, b.run_uuid, count(*) AS batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.team_id, b.schema_id, b.run_uuid
+        ),
+        gated_runs AS (
+            SELECT
+                r.team_id,
+                r.schema_id,
+                r.batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_failed
+                    WHERE b_failed.run_uuid = r.run_uuid
+                      AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_failed.latest_state = 'failed'
+                ) AS blocked
+            FROM claimable_runs r
+        ),
+        groups AS (
+            SELECT
+                g.team_id,
+                g.schema_id,
+                sum(g.batches) AS batches,
+                coalesce(sum(g.batches) FILTER (WHERE NOT g.blocked), 0) AS live_batches
+            FROM gated_runs g
+            GROUP BY g.team_id, g.schema_id
+        ),
+        ranked AS (
+            SELECT
+                g.batches,
+                g.live_batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_busy
+                    WHERE b_busy.team_id = g.team_id
+                      AND b_busy.schema_id = g.schema_id
+                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_busy.latest_state = 'executing'
+                ) AS executing,
+                row_number() OVER (ORDER BY g.live_batches DESC) AS depth_rank
+            FROM groups g
+        )
+        SELECT
+            coalesce(sum(batches), 0) AS claimable_batches,
+            count(*) FILTER (WHERE live_batches > 0) AS claimable_groups,
+            coalesce(sum(live_batches), 0) AS live_batches,
+            coalesce(sum(live_batches) FILTER (WHERE depth_rank <= %(top_groups)s), 0) AS top_groups_batches,
+            coalesce(sum(live_batches) FILTER (WHERE NOT executing), 0) AS slot_waiting_batches,
+            coalesce(sum(live_batches) FILTER (WHERE executing), 0) AS serialized_batches
+        FROM ranked
+    """
+
+
 def _stranded_candidate_runs_sql() -> str:
     """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
 
@@ -696,6 +780,27 @@ class QueueFreshness:
     oldest_age_seconds: float | None
     blocked_batches: int
     backlogged_groups: int
+
+
+@dataclass(frozen=True, slots=True)
+class QueueDepth:
+    """What one depth probe reads off the claimable set.
+
+    The total alone cannot tell a few (team_id, schema_id) groups draining one
+    batch at a time from a fleet that has run out of loader slots: the loader
+    serializes each group by design, so a deep queue with idle slots is normal
+    when the depth sits in a handful of groups. The other four numbers separate
+    those two readings.
+    """
+
+    claimable_batches: int
+    claimable_groups: int
+    # 0..1 share of those batches held by the DEPTH_TOP_GROUPS deepest groups; 0 when empty.
+    top_groups_claimable_share: float
+    # Batches whose group has nothing executing: they start as soon as a slot frees.
+    slot_waiting_batches: int
+    # Batches whose group already has a batch executing: they wait for their own group.
+    serialized_batches: int
 
 
 class BatchQueue:
@@ -1569,28 +1674,40 @@ class BatchQueue:
         )
 
     @staticmethod
-    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
-        """How many batches are state-eligible for claiming right now (queue depth).
+    async def get_queue_depth(conn: psycopg.AsyncConnection[Any]) -> QueueDepth:
+        """How many batches are state-eligible for claiming right now, and where they sit.
 
-        The depth companion to :meth:`get_queue_freshness`:
-        the claim's per-run, schema-busy, and lease gates are deliberately not
-        applied (they need per-row probes; this must stay one cheap partial-index
-        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
-        config, and this probe stays parameter-free), so the count reads slightly
-        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
-        query can see.
+        The depth companion to :meth:`get_queue_freshness`. ``claimable_batches``
+        applies none of the claim's per-run, schema-busy, or lease gates (those
+        need per-row probes, and this must stay one partial-index scan), nor the
+        retry-backoff gate (it needs the fleet's backoff config, and this probe
+        stays parameter-free), so the count reads slightly high. Bounded by
+        ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim query can see.
+
+        The other four fields exclude batches whose run holds a failed batch, the
+        same population :meth:`get_queue_freshness` reports as ``blocked_batches``,
+        so ``slot_waiting_batches + serialized_batches`` is the depth minus those.
+        See :func:`_queue_depth_sql` for why.
         """
         async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                SELECT count(*)
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
-                  AND b.latest_state IN ('pending', 'waiting_retry')
-                """
-            )
+            await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
             row = await cur.fetchone()
-        return int(row[0]) if row else 0
+        if row is None:
+            return QueueDepth(
+                claimable_batches=0,
+                claimable_groups=0,
+                top_groups_claimable_share=0.0,
+                slot_waiting_batches=0,
+                serialized_batches=0,
+            )
+        live_batches = int(row[2])
+        return QueueDepth(
+            claimable_batches=int(row[0]),
+            claimable_groups=int(row[1]),
+            top_groups_claimable_share=int(row[3]) / live_batches if live_batches else 0.0,
+            slot_waiting_batches=int(row[4]),
+            serialized_batches=int(row[5]),
+        )
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(

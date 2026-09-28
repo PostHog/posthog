@@ -4,6 +4,7 @@ import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import {
     BROADCASTS_PAGE_SIZE,
     BroadcastsStatusFilter,
@@ -35,7 +37,7 @@ export function BroadcastsTable(): JSX.Element {
         useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
-    const { setFilters } = useActions(broadcastsLogic)
+    const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
@@ -87,6 +89,53 @@ export function BroadcastsTable(): JSX.Element {
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
         createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
+        {
+            width: 0,
+            render: function Render(_, item) {
+                const isArchived = item.status === 'archived'
+                const accessReason = manageDisabledReason(item.user_access_level)
+                return (
+                    <More
+                        overlay={
+                            isArchived ? (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => restoreBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-restore"
+                                    >
+                                        Restore as draft
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => deleteBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-delete"
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() => archiveBroadcast(item)}
+                                    disabledReason={
+                                        accessReason ??
+                                        archiveDisabledReason(rowDetailsById[item.id]?.batchJobStatuses ?? null)
+                                    }
+                                    data-attr="broadcast-row-archive"
+                                >
+                                    Archive
+                                </LemonButton>
+                            )
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     const isEmpty =
