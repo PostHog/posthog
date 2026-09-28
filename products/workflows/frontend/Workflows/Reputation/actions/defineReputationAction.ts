@@ -35,6 +35,7 @@ export interface RankedReputationAction extends ReputationAction {
 
 /** A registered action. The match type stays inside, so the registry can hold every action in one list. */
 export interface RegisteredReputationAction {
+    kind: ReputationActionKind
     build: (context: ReputationActionContext) => RankedReputationAction[]
 }
 
@@ -42,6 +43,7 @@ export function defineReputationAction<Match>(
     definition: ReputationActionDefinition<Match>
 ): RegisteredReputationAction {
     return {
+        kind: definition.kind,
         build: (context) =>
             definition.detect(context).map((match) => {
                 const { rank, blocksSending, ...content } = definition.content(match, context)

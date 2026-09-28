@@ -10,29 +10,30 @@ import { providerStatusAction } from './providerStatusAction'
 import { rateFindingAction } from './rateFindingAction'
 import type { ReputationActionContext } from './reputationActionContext'
 import { compareReputationActionRanks } from './reputationActionRanking'
-import type { ReputationAction } from './reputationActionTypes'
+import type { ReputationAction, ReputationActionKind } from './reputationActionTypes'
 import { workflowRateAction } from './workflowRateAction'
 
 /**
- * Every item the action list can show. To add one, write a `defineReputationAction` file and list
- * it here. Rows sort by their rank, so this order only settles exact ties.
+ * Every item the action list can show, keyed by its kind. To add one, write a `defineReputationAction`
+ * file and list it here. Rows sort by their rank, so this order only settles exact ties.
  */
-const REPUTATION_ACTIONS: readonly RegisteredReputationAction[] = [
-    projectSuspendedAction,
-    providerStatusAction,
-    pausedWorkflowAction,
-    rateFindingAction,
-    dnsFindingAction,
-    bimiFindingAction,
-    otherFindingAction,
-    projectRateAction,
-    workflowRateAction,
-    providerRateAction,
-]
+export const REPUTATION_ACTIONS: Readonly<Record<ReputationActionKind, RegisteredReputationAction>> = {
+    'project-suspended': projectSuspendedAction,
+    'provider-status': providerStatusAction,
+    'paused-workflow': pausedWorkflowAction,
+    'rate-finding': rateFindingAction,
+    'dns-finding': dnsFindingAction,
+    'bimi-finding': bimiFindingAction,
+    'other-finding': otherFindingAction,
+    'project-rate': projectRateAction,
+    'workflow-rate': workflowRateAction,
+    'provider-rate': providerRateAction,
+}
 
 export function buildReputationActions(context: ReputationActionContext): ReputationAction[] {
     const seenKeys = new Map<string, number>()
-    return REPUTATION_ACTIONS.flatMap((action) => action.build(context))
+    return Object.values(REPUTATION_ACTIONS)
+        .flatMap((action) => action.build(context))
         .map((row) => {
             // A tenant can hold two findings of one type, for example DKIM on two domains.
             const seen = seenKeys.get(row.key) ?? 0

@@ -1,3 +1,5 @@
+import { readdirSync } from 'fs'
+
 import { urls } from 'scenes/urls'
 
 import {
@@ -10,8 +12,9 @@ import {
 
 import { HEALTHY, workflowRates } from '../reputationFixtures'
 import { CHANNEL_SETUP_DOCS_URL, LOWER_RATES_DOCS_URL } from '../reputationUtils'
+import type { RegisteredReputationAction } from './defineReputationAction'
 import { buildReputationActionContext } from './reputationActionContext'
-import { buildReputationActions } from './reputationActionRegistry'
+import { REPUTATION_ACTIONS, buildReputationActions } from './reputationActionRegistry'
 import type { ReputationAction, ReputationPageControls } from './reputationActionTypes'
 
 type Overrides = Partial<TeamEmailReputationResponseApi>
@@ -340,5 +343,20 @@ describe('buildReputationActions', () => {
 
         expect(providerAction.key).toEqual('provider-bounce:Yahoo')
         expect(providerAction.description).toContain('mail.example.com')
+    })
+
+    it('registers every action in this folder under its own kind', async () => {
+        const files = readdirSync(__dirname).filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+        const modules: Record<string, unknown>[] = await Promise.all(files.map((file) => import(`./${file}`)))
+        const defined = modules
+            .flatMap((module) => Object.values(module))
+            .filter(
+                (value): value is RegisteredReputationAction => typeof value === 'object' && !!value && 'build' in value
+            )
+
+        expect(defined.filter((action) => REPUTATION_ACTIONS[action.kind] !== action).map(({ kind }) => kind)).toEqual(
+            []
+        )
+        expect(defined).toHaveLength(Object.keys(REPUTATION_ACTIONS).length)
     })
 })
