@@ -21,6 +21,8 @@
         display: block;
     }
 
+    // LemonTable renders one <col> per column, so these must follow the column order in CustomerTasksTable.tsx.
+    // Account: Assignee (3) and Updated (5). Inbox adds Account at 3: Assignee (4) and Updated (6).
     .CustomerTasksTable--account .LemonTable colgroup col:nth-child(3),
     .CustomerTasksTable--account .LemonTable colgroup col:nth-child(5),
     .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(4),
@@ -31,6 +33,7 @@
 
 @container (max-width: 560px) {
     .CustomerTasksTable--account {
+        // Also hides the Status (2) and Due (4) <col> elements.
         .CustomerTasksTable__status,
         .CustomerTasksTable__due,
         .LemonTable colgroup col:nth-child(2),
