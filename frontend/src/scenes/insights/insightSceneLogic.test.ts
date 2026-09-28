@@ -62,15 +62,14 @@ describe('insightSceneLogic', () => {
     })
 
     it('captures an insight start after leaving the scene during the debounce', async () => {
-        router.actions.push(urls.insightNew())
-        logic = insightSceneLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         jest.useFakeTimers()
         try {
-            logic.actions.reportInsightStarted(null)
+            router.actions.push(urls.insightNew())
+            logic = insightSceneLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
             logic.unmount()
             expect(logic.isMounted()).toBe(false)
             await jest.advanceTimersByTimeAsync(501)
