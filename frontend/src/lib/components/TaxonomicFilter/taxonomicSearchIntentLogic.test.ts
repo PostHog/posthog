@@ -5,10 +5,11 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AppContext } from '~/types'
+import { AppContext, PreflightStatus, Region } from '~/types'
 
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { resetSearchIntentAvailabilityForTests, taxonomicSearchIntentLogic } from './taxonomicSearchIntentLogic'
@@ -43,7 +44,7 @@ describe('taxonomicSearchIntentLogic', () => {
     let classifyRequests: Record<string, any>[]
     let answer: Record<string, any>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         classifyRequests = []
         answer = PERSON_PROPERTIES_ANSWER
         resetSearchIntentAvailabilityForTests()
@@ -61,6 +62,7 @@ describe('taxonomicSearchIntentLogic', () => {
             },
         })
         initKeaTests()
+        await expectLogic(preflightLogic).toFinishAllListeners()
         filterLogic = taxonomicFilterLogic(PROPS)
         filterLogic.mount()
         logic = taxonomicSearchIntentLogic(PROPS)
@@ -90,6 +92,16 @@ describe('taxonomicSearchIntentLogic', () => {
 
         expect(classifyRequests).toHaveLength(0)
         expect(logic.values.intent).toBeNull()
+    })
+
+    it('does not read the experiment flag or ask the model outside the US cloud', async () => {
+        enroll('banner')
+        preflightLogic.actions.loadPreflightSuccess({ region: Region.EU, is_debug: false } as PreflightStatus)
+
+        await search('email')
+
+        expect(classifyRequests).toHaveLength(0)
+        expect(logic.values.variant).toBeNull()
     })
 
     it('suggests the tab in the banner arm and switches to it on accept', async () => {
