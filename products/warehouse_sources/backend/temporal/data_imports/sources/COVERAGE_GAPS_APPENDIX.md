@@ -2941,7 +2941,7 @@ Note: The Redoc page embeds the full OpenAPI document. Its entire GET surface is
 
 ## Everhour — gaps
 
-Today (9): `assignments`, `clients`, `expenses`, `invoices`, `projects`, `tasks`, `time_records`, `timecards`, `users`
+Today (13): `allocations`, `assignments`, `clients`, `expense_categories`, `expenses`, `invoices`, `projects`, `tasks`, `time_off_types`, `time_records`, `timecards`, `timesheets`, `users`
 
 Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 
@@ -2949,10 +2949,10 @@ Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 - [x] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
 - [x] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
 - [x] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
-- [ ] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
-- [ ] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
-- [ ] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
-- [ ] `GET /allocations` — time-off and capacity allocations per user (medium)
+- [x] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
+- [x] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
+- [x] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
+- [x] `GET /allocations` — time-off and capacity allocations per user (medium)
 - [ ] `GET /projects/{project_id}/sections` — lookup resolving the section id on tasks (medium)
 - [ ] `GET /projects/{project_id}/fields` — custom field definitions needed to interpret task custom field values (medium)
 - [ ] `GET /dashboards/projects, /dashboards/clients, /dashboards/users` — prebuilt report aggregates by project, client and member (low)
@@ -3014,23 +3014,23 @@ Note: The reference exposes roughly 140 list endpoints across ATS, attendance, c
 
 ## Fastly — **thin**
 
-Today (11): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `invoices`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
+Today (15): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `historical_stats`, `invoices`, `origin_inspector`, `pops`, `service_acls`, `service_authorizations`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
 
 Diffed against: <https://www.fastly.com/documentation/reference/api/>
 
-- [ ] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
+- [x] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
 - [x] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
 - [x] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
 - [x] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
 - [x] `account/invoices` — billed amounts per period for cost reporting (high)
-- [ ] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
+- [x] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
 - [ ] `metrics-stats/domain-inspector` — per-domain request and error breakdowns, the natural dimension for service_domains (medium)
 - [ ] `account/events` — account audit event log - who changed what and when (medium)
 - [ ] `account/customer (and its users list)` — lookup resolving customer ids on services and users; today only current_user is synced (medium)
-- [ ] `account/service-authorization` — user-to-service permission membership table (medium)
-- [ ] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
+- [x] `account/service-authorization` — user-to-service permission membership table (medium)
+- [x] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
 
-Note: Coverage is service configuration objects plus the account/billing family; none of the metrics-stats family is exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
+Note: Coverage is service configuration objects, the account/billing family, and the historical stats and Origin Inspector halves of metrics-stats; the domain inspector and bots halves are not exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
 
 ## Featurebase — **thin**
 
@@ -3241,18 +3241,18 @@ Note: No OpenAPI file is published; the resource list came from the Docusaurus s
 
 ## Flexmail — gaps
 
-Today (7): `contacts`, `custom_fields`, `interests`, `opt_in_forms`, `preferences`, `segments`, `sources`
+Today (9): `contact_interest_subscriptions`, `contact_sources`, `contacts`, `custom_fields`, `interests`, `opt_in_forms`, `preferences`, `segments`, `sources`
 
 Diffed against: <https://api.flexmail.eu/documentation/openapi.php>
 
-- [ ] `/contacts/{id}/interest-subscriptions` — membership table joining synced contacts to synced interests - the only way to segment by interest (high)
-- [ ] `/contacts/{id}/preferences` — membership table joining contacts to the synced preferences (consent/topic opt-ins) (high)
-- [ ] `/contacts/{id}/sources` — attribution rows linking each contact to the synced sources that acquired them (high)
-- [ ] `/interest-labels` — lookup resolving the label IDs carried on interest rows (medium)
-- [ ] `/contacts/{id}/interest-labels` — per-contact interest labels, a second targeting dimension not derivable from the synced tables (medium)
+- [x] `/contacts/{id}/interest-subscriptions` — membership table joining synced contacts to synced interests - the only way to segment by interest (high)
+- [ ] `/contacts/{id}/preferences` — membership table joining contacts to the synced preferences (consent/topic opt-ins) (high) — skipped: marked `deprecated` in the spec; the whole Preferences resource is superseded by Interests
+- [x] `/contacts/{id}/sources` — attribution rows linking each contact to the synced sources that acquired them (high)
+- [ ] `/interest-labels` — lookup resolving the label IDs carried on interest rows (medium) — skipped: marked `deprecated` in the spec; superseded by Interests
+- [ ] `/contacts/{id}/interest-labels` — per-contact interest labels, a second targeting dimension not derivable from the synced tables (medium) — skipped: marked `deprecated` in the spec; superseded by Interests
 - [ ] `/account-contact-languages` — lookup resolving the language code on contact rows (low)
 
-Note: The Flexmail public API is contact-management only - it exposes no campaigns, mailings, sends, opens or clicks - so the synced set already covers every top-level collection. The genuine gaps are all per-contact sub-resources, which need a contact-ID-driven fan-out rather than a plain list endpoint. Webhooks and webhook-events are excluded as plumbing.
+Note: The Flexmail public API is contact-management only - it exposes no campaigns, mailings, sends, opens or clicks - so the synced set already covers every top-level collection. The remaining gaps are the two deprecated resources (preferences and interest labels, both superseded by Interests) and the contact-languages lookup. Webhooks and webhook-events are excluded as plumbing.
 
 ## FloatApp — gaps
 

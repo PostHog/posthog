@@ -86,7 +86,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_increment_request_count_remote_config_uses_own_bucket(self):
+    def test_increment_request_count_uses_one_bucket_per_request_type(self):
         team_id = 3
 
         with time_machine.travel("2022-05-07 12:23:07", tick=False):
@@ -94,11 +94,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 increment_request_count(team_id)
             for _ in range(6):
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
+            for _ in range(2):
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
 
             client = redis.get_client()
 
             # Remote config fetches are telemetry-only, so they must never leak into the
-            # decide bucket that billing consumes.
+            # decide bucket that billing consumes. The literal keys are the contract with the
+            # Rust service, which writes them, so a drift would leave those requests unbilled.
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{team_id}"),
                 {b"165192618": b"4"},
@@ -106,6 +109,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(
                 client.hgetall(f"posthog:remote_config_requests:{team_id}"),
                 {b"165192618": b"6"},
+            )
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_not_modified_requests:{team_id}"),
+                {b"165192618": b"2"},
             )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -124,6 +131,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(7):
                 # 7 requests for other team
@@ -135,6 +143,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(3):
                 # 3 requests for other team
@@ -146,6 +155,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
                 increment_request_count(other_team_id)
 
@@ -153,7 +163,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             # these other requests should not add duplicate counts
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
-            assert mock_capture.capture.call_count == 3
+            assert mock_capture.capture.call_count == 4
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="decide usage",
@@ -169,6 +179,18 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="local evaluation usage",
+                properties={
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
+            )
+            mock_capture.capture.assert_any_call(
+                distinct_id=team_id,
+                event="local evaluation not modified usage",
                 properties={
                     "count": 15,
                     "team_id": team_id,

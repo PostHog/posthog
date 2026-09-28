@@ -106297,8 +106297,12 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest start first. */
+      /** AI events in the trace, earliest start first, up to `limit` of them. */
       results: _TracingTraceAiEvent[];
+      /** The most AI events the lookup returns for one trace. */
+      limit: number;
+      /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+      has_more: boolean;
     }
 
     export interface _TracingTraceRequest {
