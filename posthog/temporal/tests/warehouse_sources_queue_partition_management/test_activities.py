@@ -524,11 +524,6 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
 
 
-def _connect_refused(*args: Any, **kwargs: Any) -> None:
-    del args, kwargs
-    raise psycopg.OperationalError("connection refused")
-
-
 def _frames_holding(tb: TracebackType | None, needle: str) -> list[str]:
     hits: list[str] = []
     while tb is not None:
@@ -541,18 +536,67 @@ def _frames_holding(tb: TracebackType | None, needle: str) -> list[str]:
 _SECRET = "invented-secret"
 
 
+def _raise(error: Exception) -> Any:
+    def _connect(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise error
+
+    return _connect
+
+
 @pytest.mark.asyncio
-async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> None:
-    with (
-        patch.object(
-            activities_module.settings,
-            "WAREHOUSE_SOURCES_DATABASE_URL",
+@pytest.mark.parametrize(
+    ("database_url", "connect_error"),
+    [
+        (f"postgres://alice:{_SECRET}@db.example.com/app", psycopg.OperationalError("connection refused")),
+        (
             f"postgres://alice:{_SECRET}@db.example.com/app",
+            psycopg.ProgrammingError(f'invalid percent-encoded token: "{_SECRET}"'),
         ),
-        patch.object(activities_module.psycopg.Connection, "connect", _connect_refused),
-        pytest.raises(psycopg.OperationalError) as exc_info,
+        (f"postgres://alice:{_SECRET}/x@db.example.com/app", None),
+    ],
+)
+async def test_connect_failure_keeps_database_credentials_out_of_the_raised_error(
+    database_url: str, connect_error: Exception | None
+) -> None:
+    connect = _raise(connect_error) if connect_error else MagicMock()
+    with (
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_DATABASE_URL", database_url),
+        patch.object(activities_module.psycopg.Connection, "connect", connect),
+        pytest.raises(activities_module.QueueDatabaseConnectionError) as exc_info,
     ):
         await manage_warehouse_sources_queue_partitions()
 
-    hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
-    assert hits == []
+    error = exc_info.value
+    assert _SECRET not in str(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert error.__traceback__ is not None
+    # Skip this test's own frame: it holds the URL as a parameter.
+    assert _frames_holding(error.__traceback__.tb_next, _SECRET) == []
+
+
+@pytest.mark.asyncio
+async def test_activity_connects_when_the_password_is_not_url_encoded(activity_environment) -> None:
+    with (
+        _patched_pg(),
+        _patched_s3([]),
+        patch.object(
+            activities_module.settings,
+            "WAREHOUSE_SOURCES_DATABASE_URL",
+            "postgresql://alice:ab%zz9@db.example.com:5432/app?sslmode=require",
+        ),
+    ):
+        connect = activities_module.psycopg.Connection.connect
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert result["success"] is True
+    connect.assert_called_once_with(
+        autocommit=True,
+        dbname="app",
+        user="alice",
+        password="ab%zz9",
+        host="db.example.com",
+        port=5432,
+        sslmode="require",
+    )

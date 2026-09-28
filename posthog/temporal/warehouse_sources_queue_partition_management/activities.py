@@ -9,6 +9,7 @@ from django.conf import settings
 import psycopg
 import requests
 import structlog
+import dj_database_url
 import temporalio.activity
 from asgiref.sync import sync_to_async
 
@@ -39,13 +40,44 @@ class PartitionResult:
         return len(self.errors) == 0
 
 
+class QueueDatabaseConnectionError(Exception):
+    pass
+
+
+def _connection_kwargs(database_url: str) -> dict[str, Any]:
+    # The deploy template does not URL-encode the credentials, so a password with "%" fails
+    # psycopg's strict URI parser. dj_database_url accepts it, as the Django connections do.
+    parsed = dj_database_url.parse(database_url)
+    kwargs: dict[str, Any] = {
+        "dbname": parsed.get("NAME"),
+        "user": parsed.get("USER"),
+        "password": parsed.get("PASSWORD"),
+        "host": parsed.get("HOST"),
+        "port": parsed.get("PORT"),
+        **parsed.get("OPTIONS", {}),
+    }
+    return {key: value for key, value in kwargs.items() if value not in (None, "")}
+
+
+def _connect_to_queue_database() -> psycopg.Connection:
+    try:
+        return psycopg.Connection.connect(
+            autocommit=True, **_connection_kwargs(settings.WAREHOUSE_SOURCES_DATABASE_URL)
+        )
+    except (psycopg.Error, ValueError) as e:
+        error_type = type(e).__name__
+    # Raise outside the except block, so that no chained exception can carry the original
+    # message into error tracking. Parser messages can quote parts of the password.
+    raise QueueDatabaseConnectionError(f"Could not connect to the warehouse sources queue database ({error_type})")
+
+
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
     ensured: list[str] = []
     dropped: list[str] = []
     errors: list[str] = []
 
-    with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with _connect_to_queue_database() as conn:
         today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
