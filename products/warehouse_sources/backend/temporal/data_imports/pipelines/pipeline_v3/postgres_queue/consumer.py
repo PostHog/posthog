@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
+    _is_transient_queue_db_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -178,10 +179,15 @@ def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConne
     """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
 
     A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
-    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
-    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    reconcile cycle reconnects and retries, so it isn't worth paging on.
+
+    The engine's classifier reads the error itself, so it also catches the shapes that
+    leave the connection usable, such as pgbouncer cutting the query loose before it
+    reached Postgres. The `conn.closed` arm stays for a drop worded in a way no marker
+    matches, because a closed connection under a psycopg error is a drop however it is
+    phrased.
     """
-    return isinstance(err, psycopg.OperationalError) and conn.closed
+    return _is_transient_queue_db_error(err) or (isinstance(err, psycopg.OperationalError) and conn.closed)
 
 
 class DeltaBatchConsumerAdapter:
@@ -480,7 +486,7 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._drain_orphaned_batches(conn, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
+            if _is_transient_queue_connection_drop(e, conn):
                 logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
             else:
                 logger.exception("orphaned_batch_drain_failed")
@@ -494,9 +500,9 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
-                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
-                # leaves the connection closed. The engine reconnects on the next cycle.
+            if _is_transient_queue_connection_drop(e, conn):
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce).
+                # The engine reconnects on the next cycle.
                 logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
             else:
                 logger.exception("stranded_run_reconcile_sweep_failed")
