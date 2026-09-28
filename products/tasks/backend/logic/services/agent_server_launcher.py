@@ -249,6 +249,15 @@ def _credential_marker(*sources: str) -> str | None:
     return None
 
 
+def _health_initialization_phase(health_response: str) -> str | None:
+    try:
+        payload = json.loads(health_response or "{}")
+    except ValueError:
+        return None
+    phase = payload.get("initializationPhase") if isinstance(payload, dict) else None
+    return phase if isinstance(phase, str) else None
+
+
 def _health_duration_ms(stdout: str) -> int | None:
     for line in stdout.splitlines():
         if line.startswith(AGENT_SERVER_HEALTH_DURATION_PREFIX):
@@ -441,6 +450,11 @@ class AgentServerLaunchMixin(SandboxBase):
                 timeout_seconds=5,
             )
             diagnostics["health_response"] = health_result.stdout.strip()[:500]
+            if _health_initialization_phase(health_result.stdout) == "setup_hooks":
+                diagnostics["failure_reason"] = (
+                    "agent server still running the repository's SessionStart hooks when the startup budget ended"
+                )
+                return diagnostics
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
