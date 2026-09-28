@@ -97,6 +97,20 @@ class TestMCPProtocolVersionBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixi
         assert rows[-1] == ("Other", False, 11 + 12)
         assert len(rows) == PROTOCOL_VERSION_SERIES_LIMIT + 1
 
+    def test_keeps_current_calls_current_when_they_overflow_the_cut(self) -> None:
+        current: dict[str | None, int] = {
+            f"2027-01-{day:02}": 10 + day for day in range(1, PROTOCOL_VERSION_SERIES_LIMIT + 2)
+        }
+        self._emit_calls({**current, "2025-06-18": 1})
+
+        rows = self._rows()
+
+        assert ("Other", True, 11) in rows
+        assert ("Other", False, 1) in rows
+        assert sum(calls for _, is_current, calls in rows if is_current) == sum(
+            calls for version, calls in current.items() if version
+        )
+
     def test_ignores_calls_outside_the_date_range(self) -> None:
         _create_event(
             team=self.team,
