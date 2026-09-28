@@ -1760,8 +1760,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 description=(
-                    "The check does not exist for this project, already finished, is measured by the "
-                    "coordinator rather than a run, runs on another scout, or is not waiting on a run."
+                    "The check does not exist for this project, already finished, waits for its report to "
+                    "resolve, is measured by the coordinator rather than a run, runs on another scout, or is "
+                    "neither waiting on a run nor due."
                 )
             ),
             404: OpenApiResponse(description="Run not found for this project."),
@@ -1773,7 +1774,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "investigates and says nothing leaves the check unanswered. The verdict lands on the report as a "
             "`check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a "
             "recurring one, and `errored` retries it, so send the outcome you actually reached rather than "
-            "the one that closes the loop. A run may only close a check dispatched to its own scout."
+            "the one that closes the loop. A run may close the check it was dispatched for, or a check on its own "
+            "scout that is due or waiting on a run."
         ),
         operation_id="signals_scout_record_check_result",
     )

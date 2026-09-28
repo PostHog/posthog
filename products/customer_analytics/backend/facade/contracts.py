@@ -193,6 +193,7 @@ class CalendarSyncStatus:
     integration_id: int
     last_synced_at: datetime | None
     is_syncing: bool
+    sync_interval_minutes: int
 
 
 @dataclass(frozen=True)
