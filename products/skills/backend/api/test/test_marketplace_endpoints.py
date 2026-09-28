@@ -392,7 +392,7 @@ class TestSkillBundle(APIBaseTest):
         invalid = self._fetch(limit="abc", accept="application/zip")
         assert invalid.status_code == status.HTTP_400_BAD_REQUEST
         assert invalid["Content-Type"] == "application/json"
-        assert "limit" in json.loads(invalid.content)
+        assert json.loads(invalid.content)["attr"] == "limit"
 
     def test_skipped_skills_page_at_a_fixed_size_not_the_limit(self):
         def queries_with_skipped_rows(count: int) -> int:
