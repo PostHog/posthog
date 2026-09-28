@@ -291,6 +291,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     metabase_link: 'https://example.com/metabase',
                     stripe_customer_id: 'stripe-old',
                     sfdc_id: 'salesforce-concurrent',
+                    billing_id: 'billing-concurrent',
                 },
             }
             const updatedAccount = {
@@ -302,10 +303,11 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
             logic.actions.openAccountEditor()
             expect(logic.values.accountForm.name).toBe(account.name)
+            logic.actions.loadAccountSuccess(currentAccount)
             logic.actions.setAccountFormValues({
                 name: '  Renamed account  ',
                 website_domain: 'example.com',
-                billing_id: 'billing-1',
+                billing_id: '',
                 slack_channel_id: 'C123',
                 sfdc_id: '',
                 stripe_customer_id: 'stripe-new',
@@ -321,7 +323,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     metabase_link: 'https://example.com/metabase',
                     stripe_customer_id: 'stripe-new',
                     website_domain: 'example.com',
-                    billing_id: 'billing-1',
+                    billing_id: 'billing-concurrent',
                     slack_channel_id: 'C123',
                     sfdc_id: 'salesforce-concurrent',
                 },

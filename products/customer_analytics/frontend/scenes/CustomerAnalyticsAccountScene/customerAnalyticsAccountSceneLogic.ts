@@ -99,6 +99,7 @@ export interface customerAnalyticsAccountSceneLogicValues {
     receivedFeatureFlags: boolean // featureFlagLogic
     account: AccountApi | null
     accountEditorOpen: boolean
+    accountEditorOpenedValues: AccountEditFormValues
     accountForm: AccountEditFormValues
     accountFormAllErrors: Record<string, any>
     accountFormChanged: boolean
@@ -287,7 +288,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     throw new Error('Could not determine the current project or account.')
                 }
                 const projectId = String(props.projectId)
-                const openedValues = getAccountEditFormValues(values.account)
+                const openedValues = values.accountEditorOpenedValues
                 const changedPropertyKeys = ACCOUNT_ID_FIELDS.map(({ key }) => key).filter(
                     (key) => formValues[key] !== openedValues[key]
                 )
@@ -366,6 +367,10 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             },
         ],
         accountEditorOpen: [false, { openAccountEditor: () => true, closeAccountEditor: () => false }],
+        accountEditorOpenedValues: [
+            EMPTY_ACCOUNT_EDIT_FORM,
+            { resetAccountForm: (_, { values }) => values ?? EMPTY_ACCOUNT_EDIT_FORM },
+        ],
         eventStreamModalOpen: [false, { openEventStreamModal: () => true, closeEventStreamModal: () => false }],
     }),
     selectors({
