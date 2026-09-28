@@ -54,6 +54,12 @@ class TypeSafeRequestFailed(SystemOneRequestFailed):
         self.response = response
 
 
+def _prevent_redirect_body_read(response: requests.Response, **_: object) -> None:
+    if response.is_redirect:
+        # boffin: Requests reads redirect bodies while preparing Response.next, even with redirects disabled.
+        response.headers.pop("Location", None)
+
+
 def system_one(
     *,
     state: JsonValue,
@@ -101,6 +107,7 @@ def system_one(
         timeout=timeout,
         allow_redirects=False,
         stream=True,
+        hooks={"response": _prevent_redirect_body_read},
         session=session,
         json=build_system_one_body(state=state, questions=questions, model=model),
     )

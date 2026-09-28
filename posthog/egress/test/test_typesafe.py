@@ -203,6 +203,29 @@ class TestTypeSafeEgress(SimpleTestCase):
         assert response.raw.closed
         assert read.call_count == 2
 
+    def test_redirect_body_is_not_read(self) -> None:
+        response = _response(302, "redirect body")
+        response.headers["Location"] = "https://elsewhere.example.com/systemone"
+        response.url = "https://decisions.example.com/v1/systemone"
+        response.request = requests.Request("POST", response.url).prepare()
+        with (
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True),
+            patch("requests.adapters.HTTPAdapter.send", return_value=response),
+            patch.object(response.raw, "read", wraps=response.raw.read) as read,
+            requests.Session() as session,
+            self.assertRaises(TypeSafeRequestFailed) as raised,
+        ):
+            system_one(
+                state="hello",
+                questions=_QUESTIONS,
+                source="test",
+                api_key="fake-customer-key",
+                base_url="https://decisions.example.com/v1",
+                session=session,
+            )
+        assert raised.exception.status_code == 302
+        read.assert_not_called()
+
     @parameterized.expand(
         [
             ("no_configured_key", "", "https://api.typesafe.ai/v1", Priority.NORMAL, TypeSafeNotConfigured),
