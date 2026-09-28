@@ -293,7 +293,11 @@ class AlertDestinationAction:
 
 
 class AlertIncidentRole(StrEnum):
-    """What an event kind does to the incident an on-call destination keeps for the alert."""
+    """What an event kind does to the incident an on-call destination keeps for the alert.
+
+    An event kind without a role cannot go to an on-call destination, because PostHog cannot tell
+    whether it opens or resolves the incident.
+    """
 
     OPEN = "open"
     RESOLVE = "resolve"
@@ -307,7 +311,6 @@ class EventKindSpec:
 
     event_id: str
     display_kind: str
-    incident_role: AlertIncidentRole
     header: str
     details: tuple[tuple[str, str], ...]
     primary_action_url: str
@@ -316,6 +319,7 @@ class EventKindSpec:
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
     additional_actions: tuple[AlertDestinationAction, ...] = ()
+    incident_role: AlertIncidentRole | None = None
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'

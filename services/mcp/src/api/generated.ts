@@ -56827,22 +56827,6 @@ export namespace Schemas {
       enabled: boolean;
     }
 
-    /**
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     * * `pagerduty` - pagerduty
-     */
-    export type LogsAlertDestinationTypeEnum = typeof LogsAlertDestinationTypeEnum[keyof typeof LogsAlertDestinationTypeEnum];
-
-
-    export const LogsAlertDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-      Teams: 'teams',
-      Pagerduty: 'pagerduty',
-    } as const;
-
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -56927,7 +56911,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
+      readonly destination_types: readonly NotificationDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -56943,44 +56927,20 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    /**
-     * * `critical` - critical
-     * * `error` - error
-     * * `warning` - warning
-     * * `info` - info
-     */
-    export type PagerdutySeverityEnum = typeof PagerdutySeverityEnum[keyof typeof PagerdutySeverityEnum];
-
-
-    export const PagerdutySeverityEnum = {
-      Critical: 'critical',
-      Error: 'error',
-      Warning: 'warning',
-      Info: 'info',
-    } as const;
-
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams
-       * * `pagerduty` - pagerduty */
-      type: LogsAlertDestinationTypeEnum;
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
-      /** PagerDuty severity for the incidents this destination opens. The routing key is never returned.
-       *
-       * * `critical` - critical
-       * * `error` - error
-       * * `warning` - warning
-       * * `info` - info */
-      pagerduty_severity?: PagerdutySeverityEnum;
     }
 
     /**
@@ -57071,7 +57031,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
+      readonly destination_types: readonly NotificationDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -57094,9 +57054,8 @@ export namespace Schemas {
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams
-       * * `pagerduty` - pagerduty */
-      type: LogsAlertDestinationTypeEnum;
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -57105,18 +57064,6 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
-      /**
-         * Integration key of an Events API v2 integration on the PagerDuty service. Required when type=pagerduty. PostHog stores it encrypted and never returns it.
-         * @maxLength 64
-         */
-      pagerduty_routing_key?: string;
-      /** PagerDuty severity for the incidents this destination opens. Used when type=pagerduty. Defaults to error.
-       *
-       * * `critical` - critical
-       * * `error` - error
-       * * `warning` - warning
-       * * `info` - info */
-      pagerduty_severity?: PagerdutySeverityEnum;
     }
 
     export interface LogsAlertDeleteDestination {
@@ -74730,7 +74677,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
+      readonly destination_types?: readonly NotificationDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable

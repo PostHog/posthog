@@ -69,16 +69,6 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
-        const pagerDutyHf = (id: string, severity: string): HogFunctionType =>
-            ({
-                id,
-                name: `pagerduty-${id}`,
-                enabled: true,
-                template: { id: 'template-pagerduty' },
-                inputs: { routing_key: { secret: true }, severity: { value: severity } },
-                filters: {},
-            }) as unknown as HogFunctionType
-
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -126,20 +116,6 @@ describe('logsAlertUtils', () => {
                 label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
-        })
-
-        it('groups PagerDuty HogFunctions by severity because the routing key is secret', () => {
-            const groups = groupLogsAlertDestinations(
-                [pagerDutyHf('hf-1', 'critical'), pagerDutyHf('hf-2', 'critical'), pagerDutyHf('hf-3', 'warning')],
-                resolveSlack
-            )
-
-            expect(groups.map(({ key, type, label, hogFunctions }) => [key, type, label, hogFunctions.length])).toEqual(
-                [
-                    ['pagerduty:critical', 'pagerduty', 'PagerDuty (critical)', 2],
-                    ['pagerduty:warning', 'pagerduty', 'PagerDuty (warning)', 1],
-                ]
-            )
         })
 
         it('keeps distinct slack channels and webhook urls as separate groups', () => {

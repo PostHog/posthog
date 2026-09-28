@@ -175,17 +175,12 @@ describe('logsAlertNotificationLogic', () => {
                 slackChannelId: 'C456',
                 slackChannelName: 'alerts',
             })
-            logic.actions.addPendingNotification({
-                type: 'pagerduty',
-                routingKey: 'abcdef0123456789abcdef0123456789',
-                severity: 'critical',
-            })
 
             await expectLogic(logic, () => {
                 logic.actions.createPendingHogFunctions('alert-1')
             }).toFinishAllListeners()
 
-            expect(mockCreate).toHaveBeenCalledTimes(3)
+            expect(mockCreate).toHaveBeenCalledTimes(2)
             expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
                 type: 'webhook',
                 webhook_url: 'https://a.com',
@@ -196,12 +191,7 @@ describe('logsAlertNotificationLogic', () => {
                 slack_channel_id: 'C456',
                 slack_channel_name: 'alerts',
             })
-            expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
-                type: 'pagerduty',
-                pagerduty_routing_key: 'abcdef0123456789abcdef0123456789',
-                pagerduty_severity: 'critical',
-            })
-            expect(lemonToast.success).toHaveBeenCalledWith('3 notification destination(s) created.')
+            expect(lemonToast.success).toHaveBeenCalledWith('2 notification destination(s) created.')
             expect(logic.values.pendingNotifications).toHaveLength(0)
 
             logic.unmount()

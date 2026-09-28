@@ -7510,7 +7510,6 @@ export type HogFunctionSubTemplateIdType =
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
-    | 'error-tracking-issue-resolved'
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'

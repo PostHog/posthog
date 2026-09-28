@@ -4,15 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from products.alerts.backend.facade.contracts import AlertIncidentRole, DestinationType, EventKindSpec
+from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
-LOGS_DESTINATION_TYPES = (
-    DestinationType.SLACK,
-    DestinationType.WEBHOOK,
-    DestinationType.TEAMS,
-    DestinationType.PAGERDUTY,
-)
+LOGS_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
 
 
 _PRODUCT_LABEL = "logs alert"
@@ -43,7 +38,6 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$logs_alert_firing",
         display_kind="firing",
-        incident_role=AlertIncidentRole.OPEN,
         header="🔴 Log alert '{event.properties.alert_name}' is firing",
         details=(
             (
@@ -65,7 +59,6 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
         display_kind="resolved",
-        incident_role=AlertIncidentRole.RESOLVE,
         header="🟢 Log alert '{event.properties.alert_name}' has resolved",
         details=(
             (
@@ -87,7 +80,6 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",
         display_kind="auto-disabled",
-        incident_role=AlertIncidentRole.CHECK_FAILURE,
         header="⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
         details=(
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
@@ -109,7 +101,6 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "errored": EventKindSpec(
         event_id="$logs_alert_errored",
         display_kind="errored",
-        incident_role=AlertIncidentRole.CHECK_FAILURE,
         header="🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
         details=(
             ("Reason", "{event.properties.error_message}"),

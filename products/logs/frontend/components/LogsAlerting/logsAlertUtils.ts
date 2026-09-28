@@ -16,8 +16,7 @@ import {
     SlackChannelType,
 } from '~/types'
 
-import { AlertNotificationPagerDutySeverity } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
-import { LogsAlertConfigurationApi, LogsAlertCreateDestinationApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
 
@@ -101,12 +100,10 @@ export const SNOOZE_DURATIONS = [
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
-export const LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
 export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-    | typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
 export type PendingLogsAlertNotification =
     | {
@@ -123,38 +120,6 @@ export type PendingLogsAlertNotification =
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
           webhookUrl: string
       }
-    | {
-          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-          routingKey: string
-          severity: AlertNotificationPagerDutySeverity
-      }
-
-export function buildLogsAlertDestinationPayload(
-    notification: PendingLogsAlertNotification
-): LogsAlertCreateDestinationApi {
-    switch (notification.type) {
-        case LOGS_ALERT_NOTIFICATION_TYPE_SLACK:
-            return {
-                type: notification.type,
-                slack_workspace_id: notification.slackWorkspaceId,
-                slack_channel_id: notification.slackChannelId,
-                slack_channel_name: notification.slackChannelName,
-            }
-        case LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY:
-            return {
-                type: notification.type,
-                pagerduty_routing_key: notification.routingKey,
-                pagerduty_severity: notification.severity,
-            }
-        case LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK:
-        case LOGS_ALERT_NOTIFICATION_TYPE_TEAMS:
-            return { type: notification.type, webhook_url: notification.webhookUrl }
-        default: {
-            const exhaustiveCheck: never = notification
-            return exhaustiveCheck
-        }
-    }
-}
 
 // Filter used to list every HogFunction tied to a given alert, regardless of which
 // event kind it handles. Deliberately omits the `events` array: the backend
@@ -252,12 +217,6 @@ export function groupLogsAlertDestinations(
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
             key = `teams:${destinationWebhookUrl ?? hf.id}`
             label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
-        } else if (templateId === 'template-pagerduty') {
-            // The routing key is a secret input, so the severity is the only readable part of the config.
-            const severity = hf.inputs?.severity?.value as string | undefined
-            type = LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-            key = `pagerduty:${severity ?? hf.id}`
-            label = severity ? `PagerDuty (${severity})` : 'PagerDuty'
         } else if (templateId === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`

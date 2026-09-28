@@ -34,12 +34,6 @@ class TestDestinationValidation(SimpleTestCase):
                 "webhook_url",
                 "webhook_url is required for Microsoft Teams destinations.",
             ),
-            (
-                "pagerduty_routing_key",
-                {"type": DestinationType.PAGERDUTY},
-                "pagerduty_routing_key",
-                "pagerduty_routing_key is required for PagerDuty destinations.",
-            ),
         ]
     )
     def test_reports_missing_destination_fields(
@@ -63,8 +57,7 @@ class TestDestinationValidation(SimpleTestCase):
 
         assert error.exception.field == "type"
         assert error.exception.message == (
-            "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams), "
-            "PagerDuty (pagerduty)."
+            "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams)."
         )
 
 
@@ -72,10 +65,6 @@ SLACK_DATA = cast(
     AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"}
 )
 TEAMS_DATA = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/hook"})
-PAGERDUTY_DATA = cast(
-    AlertDestinationData,
-    {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "abcdef0123456789abcdef0123456789"},
-)
 
 
 def destination_inputs(kind: EventKind, data: AlertDestinationData) -> dict[str, Any]:
@@ -114,20 +103,3 @@ class TestRenderedDestinationContent(SimpleTestCase):
         assert "*" not in text.replace("**", "")
         # Its paragraphs need exactly one blank line between them; a stacked one renders as a gap.
         assert "\n\n\n" not in text
-
-    @parameterized.expand(
-        [
-            ("firing", "trigger", "posthog-alert-{event.properties.alert_id}"),
-            ("resolved", "resolve", "posthog-alert-{event.properties.alert_id}"),
-            ("broken", "trigger", "posthog-alert-{event.properties.alert_id}-check-failure"),
-            ("errored", "trigger", "posthog-alert-{event.properties.alert_id}-check-failure"),
-        ]
-    )
-    def test_pagerduty_resolves_the_incident_that_firing_opened(
-        self, kind: EventKind, event_action: str, dedup_key: str
-    ) -> None:
-        inputs = destination_inputs(kind, PAGERDUTY_DATA)
-
-        assert inputs["event_action"]["value"] == event_action
-        assert inputs["dedup_key"]["value"] == dedup_key
-        assert EVENT_KIND_CONFIG[kind].header in inputs["summary"]["value"]

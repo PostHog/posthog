@@ -8,17 +8,12 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
-import {
-    AlertNotificationPagerDutySeverity,
-    AlertNotificationUrlInput,
-} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { AlertNotificationUrlInput } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
 
 import {
-    buildLogsAlertDestinationPayload,
     buildLogsAlertFilterConfig,
     groupLogsAlertDestinations,
-    LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
@@ -31,7 +26,6 @@ export const LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: LOGS_ALERT_NOTIFICATION_TYPE_SLACK },
     { label: 'Microsoft Teams', value: LOGS_ALERT_NOTIFICATION_TYPE_TEAMS },
     { label: 'Webhook', value: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK },
-    { label: 'PagerDuty', value: LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY },
 ]
 
 export interface LogsAlertNotificationLogicProps {
@@ -49,8 +43,6 @@ export interface logsAlertNotificationLogicValues {
     existingHogFunctionsLoading: boolean
     firstSlackIntegration: IntegrationType | undefined
     integrationsFailed: boolean
-    pagerdutyRoutingKey: string
-    pagerdutySeverity: AlertNotificationPagerDutySeverity
     pendingNotifications: PendingLogsAlertNotification[]
     selectedType: LogsAlertNotificationType
     slackChannelValue: string | null
@@ -111,12 +103,6 @@ export interface logsAlertNotificationLogicActions {
     removePendingNotification: (index: number) => {
         index: number
     }
-    setPagerdutyRoutingKey: (pagerdutyRoutingKey: string) => {
-        pagerdutyRoutingKey: string
-    }
-    setPagerdutySeverity: (pagerdutySeverity: AlertNotificationPagerDutySeverity) => {
-        pagerdutySeverity: AlertNotificationPagerDutySeverity
-    }
     setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => {
         notifications: PendingLogsAlertNotification[]
     }
@@ -141,8 +127,7 @@ export interface logsAlertNotificationLogicMeta {
             selectedType: LogsAlertNotificationType,
             firstSlackIntegration: IntegrationType | undefined,
             slackChannelValue: string | null,
-            webhookUrl: string,
-            pagerdutyRoutingKey: string
+            webhookUrl: string
         ) => string | undefined
         destinationGroups: (existingHogFunctions: HogFunctionType[]) => LogsAlertDestinationGroup[]
     }
@@ -177,8 +162,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         setSelectedType: (selectedType: LogsAlertNotificationType) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
-        setPagerdutyRoutingKey: (pagerdutyRoutingKey: string) => ({ pagerdutyRoutingKey }),
-        setPagerdutySeverity: (pagerdutySeverity: AlertNotificationPagerDutySeverity) => ({ pagerdutySeverity }),
     }),
 
     reducers({
@@ -209,18 +192,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             '' as string,
             {
                 setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
-            },
-        ],
-        pagerdutyRoutingKey: [
-            '' as string,
-            {
-                setPagerdutyRoutingKey: (_, { pagerdutyRoutingKey }) => pagerdutyRoutingKey,
-            },
-        ],
-        pagerdutySeverity: [
-            'error' as AlertNotificationPagerDutySeverity,
-            {
-                setPagerdutySeverity: (_, { pagerdutySeverity }) => pagerdutySeverity,
             },
         ],
         selectedType: [
@@ -273,17 +244,13 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             },
         ],
         addDisabledReason: [
-            (s) => [s.selectedType, s.firstSlackIntegration, s.slackChannelValue, s.webhookUrl, s.pagerdutyRoutingKey],
+            (s) => [s.selectedType, s.firstSlackIntegration, s.slackChannelValue, s.webhookUrl],
             (
                 selectedType: LogsAlertNotificationType,
                 firstSlackIntegration: IntegrationType | undefined,
                 slackChannelValue: string | null,
-                webhookUrl: string,
-                pagerdutyRoutingKey: string
+                webhookUrl: string
             ): string | undefined => {
-                if (selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                    return pagerdutyRoutingKey.trim() ? undefined : 'Enter a PagerDuty routing key'
-                }
                 if (selectedType !== LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
                     return webhookUrl ? undefined : 'Enter a webhook URL'
                 }
@@ -315,19 +282,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                     slackChannelName: channelLabel?.replace('#', '') ?? channelId,
                 })
                 actions.setSlackChannelValue(null)
-                return
-            }
-            if (values.selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                const routingKey = values.pagerdutyRoutingKey.trim()
-                if (!routingKey) {
-                    return
-                }
-                actions.addPendingNotification({
-                    type: LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
-                    routingKey,
-                    severity: values.pagerdutySeverity,
-                })
-                actions.setPagerdutyRoutingKey('')
                 return
             }
             if (!values.webhookUrl) {
@@ -371,9 +325,21 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
             const projectId = String(values.currentProjectId)
             const results = await Promise.allSettled(
-                pending.map((notification) =>
-                    logsAlertsDestinationsCreate(projectId, alertId, buildLogsAlertDestinationPayload(notification))
-                )
+                pending.map((notification) => {
+                    const payload =
+                        notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK
+                            ? {
+                                  type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+                                  slack_workspace_id: notification.slackWorkspaceId,
+                                  slack_channel_id: notification.slackChannelId,
+                                  slack_channel_name: notification.slackChannelName,
+                              }
+                            : {
+                                  type: notification.type,
+                                  webhook_url: notification.webhookUrl,
+                              }
+                    return logsAlertsDestinationsCreate(projectId, alertId, payload)
+                })
             )
 
             const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')

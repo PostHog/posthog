@@ -6,7 +6,6 @@ export const ERROR_TRACKING_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'error-tracking-issue-created',
     'error-tracking-issue-reopened',
     'error-tracking-issue-spiking',
-    'error-tracking-issue-resolved',
 ]
 
 export const ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
@@ -24,11 +23,6 @@ export const ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
         key: 'error-tracking-issue-spiking',
         name: 'Issue spiking',
         description: 'Get notified when an issue starts occurring more frequently than usual',
-    },
-    {
-        key: 'error-tracking-issue-resolved',
-        name: 'Issue resolved',
-        description: 'Resolve the PagerDuty incident when the issue is resolved',
     },
 ]
 
@@ -74,12 +68,5 @@ export const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
         description: 'Create an issue in a project',
         icon: '/static/services/linear.png',
         templateId: 'template-linear',
-    },
-    {
-        key: 'pagerduty',
-        name: 'PagerDuty',
-        description: 'Page the on-call responder',
-        icon: '/static/services/pagerduty.png',
-        templateId: 'template-pagerduty',
     },
 ]

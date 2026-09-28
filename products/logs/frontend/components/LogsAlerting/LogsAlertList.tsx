@@ -20,12 +20,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
-import IconPagerDuty from 'public/services/pagerduty.svg'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
 import {
-    LogsAlertDestinationTypeEnumApi,
+    NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     LogsAlertConfigurationThresholdOperatorEnumApi,
@@ -37,10 +36,9 @@ import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 const DESTINATION_TAGS = [
-    { type: LogsAlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
-    { type: LogsAlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
-    { type: LogsAlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
-    { type: LogsAlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
+    { type: NotificationDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
 ] as const
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
@@ -51,7 +49,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 export function LogsAlertDestinationTags({
     types,
 }: {
-    types: readonly LogsAlertDestinationTypeEnumApi[]
+    types: readonly NotificationDestinationTypeEnumApi[]
 }): JSX.Element {
     return (
         <div className="flex gap-1">

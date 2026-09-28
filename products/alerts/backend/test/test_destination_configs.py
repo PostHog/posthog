@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates.fixtures import template_pagerduty
 
 from products.alerts.backend.facade.contracts import (
     AlertDestinationAction,
@@ -108,7 +109,9 @@ class TestSpecVocabularyRendering:
 
 _TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
 
-_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook", "template-pagerduty"}
+
+_STAND_IN_TEMPLATES_BY_ID = {template_pagerduty.id: template_pagerduty}
 
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
@@ -135,7 +138,8 @@ class TestDestinationTemplateContract:
     def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
         self, destination_type: DestinationType
     ) -> None:
-        template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
+        template_id = DESTINATION_SPECS[destination_type].template_id
+        template = _TEMPLATES_BY_ID.get(template_id) or _STAND_IN_TEMPLATES_BY_ID[template_id]
         data = _DESTINATION_DATA[destination_type]
         config = build_alert_destination_config(
             spec=DEFAULT_SPEC,
@@ -179,6 +183,16 @@ class TestDestinationTemplateContract:
         assert inputs["event_action"]["value"] == event_action
         assert inputs["dedup_key"]["value"] == dedup_key
         assert inputs["severity"]["value"] == "warning"
+
+    def test_pagerduty_refuses_an_event_kind_without_an_incident_role(self) -> None:
+        with pytest.raises(ValueError, match="has no incident_role"):
+            build_alert_destination_config(
+                spec=replace(DEFAULT_SPEC, incident_role=None),
+                alert_id="alert-1",
+                alert_name="Signups",
+                data=_DESTINATION_DATA[DestinationType.PAGERDUTY],
+                slack_context_elements=(),
+            )
 
     @pytest.mark.parametrize(
         "spec,summary,links",

@@ -288,6 +288,10 @@ class PagerDutyDestination(DestinationSpec):
         slack_context_elements: tuple[str, ...],
     ) -> dict[str, Any]:
         role = event_kind_spec.incident_role
+        if role is None:
+            raise ValueError(
+                f"Event kind {event_kind_spec.event_id} has no incident_role, so it cannot go to PagerDuty."
+            )
         # Every row of one destination stores the same severity, because grouping reads it back.
         severity = data.get("pagerduty_severity", PagerDutySeverity.ERROR)
         return {
