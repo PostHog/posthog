@@ -1064,6 +1064,7 @@ export interface featureFlagLogicValues {
     rowVersionToken: {
         version?: number
     }
+    rulesV2DraftDirty: boolean
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
@@ -1724,6 +1725,9 @@ export interface featureFlagLogicActions {
     setRepeatsValue: (value: RecurrenceInterval | 'cron' | 'none') => {
         value: RecurrenceInterval | 'cron' | 'none'
     }
+    setRulesV2DraftDirty: (dirty: boolean) => {
+        dirty: boolean
+    }
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
     }
@@ -2227,6 +2231,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        // The rules v2 editor keeps its draft in its own logic; this mirrors whether it has unsaved edits.
+        setRulesV2DraftDirty: (dirty: boolean) => ({ dirty }),
         resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
@@ -2352,6 +2358,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     reducers({
+        rulesV2DraftDirty: [false, { setRulesV2DraftDirty: (_, { dirty }) => dirty }],
         // Read by the refresh loader, which samples it around its request to tell whether newer
         // state landed while the request was open.
         flagMutationCount: [
@@ -5166,7 +5173,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // because its listener calls `loadFeatureFlag()` whenever `editing === true` —
             // which would wipe the form on any re-push carrying `?edit=true`.
             // The `initial` mount must still run so first-load setup happens.
-            if (method === 'PUSH' && values.isFormDirty) {
+            if (method === 'PUSH' && (values.isFormDirty || values.rulesV2DraftDirty)) {
                 return
             }
 

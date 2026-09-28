@@ -1,6 +1,20 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 
 import { isApprovalRequiredError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,6 +40,7 @@ import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 export interface FeatureFlagRulesV2Draft {
     key: string
     name: string
+    tags: string[]
     config: FeatureFlagRulesV2DraftConfig
     /** The row version the draft was loaded from, so a save never pairs old rules with a newer version. */
     version: number | null
@@ -40,6 +55,7 @@ export interface RulesV2SaveError {
 export interface RulesV2WriteBody {
     key: string
     name: string
+    tags: string[]
     filters: FeatureFlagRulesV2DraftConfig
     version?: number
 }
@@ -47,6 +63,7 @@ export interface RulesV2WriteBody {
 export const NEW_RULES_V2_DRAFT: FeatureFlagRulesV2Draft = {
     key: '',
     name: '',
+    tags: [],
     config: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
     version: null,
 }
@@ -111,6 +128,7 @@ export function rulesV2DraftFromFlag(flag: FeatureFlagType): FeatureFlagRulesV2D
     return {
         key: flag.key,
         name: flag.name ?? '',
+        tags: flag.tags ?? [],
         config: { ...flag.filters, rules: flag.filters.rules.map(toDraftRule) },
         version: flag.version,
     }
@@ -121,13 +139,14 @@ export function rulesV2WriteBody(draft: FeatureFlagRulesV2Draft): RulesV2WriteBo
     return {
         key: draft.key,
         name: draft.name,
+        tags: draft.tags,
         filters: draft.config,
         ...(draft.version != null ? { version: draft.version } : {}),
     }
 }
 
 function editorField(path: string): string | null {
-    if (path === 'key' || path === 'name' || path === 'filters.default_value') {
+    if (path === 'key' || path === 'name' || path === 'tags' || path === 'filters.default_value') {
         return path
     }
     const rule = /^filters\.rules\[(\d+)\](?:\.(\w+))?/.exec(path)
@@ -204,6 +223,9 @@ export interface featureFlagRulesV2EditorLogicActions {
     setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => {
         draft: Partial<FeatureFlagRulesV2Draft>
     }
+    setRulesV2DraftDirty: (dirty: boolean) => {
+        dirty: boolean
+    } // featureFlagLogic
     updateRule: (
         index: number,
         rule: FeatureFlagRulesV2DraftRule
@@ -235,7 +257,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
     key(({ id }) => id),
     connect((props: FeatureFlagLogicProps) => ({
         values: [featureFlagLogic(props), ['featureFlag'], projectLogic, ['currentProjectId']],
-        actions: [featureFlagLogic(props), ['editFeatureFlag', 'loadFeatureFlag']],
+        actions: [featureFlagLogic(props), ['editFeatureFlag', 'loadFeatureFlag', 'setRulesV2DraftDirty']],
     })),
     actions({
         loadDraft: (draft: FeatureFlagRulesV2Draft) => ({ draft }),
@@ -386,6 +408,11 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
             actions.loadFeatureFlag()
         },
     })),
+    // featureFlagLogic resets the page on a same-URL navigation unless it knows the draft is dirty.
+    subscriptions(({ actions }) => ({
+        hasUnsavedChanges: (dirty: boolean) => actions.setRulesV2DraftDirty(dirty),
+    })),
+    beforeUnmount(({ actions }) => actions.setRulesV2DraftDirty(false)),
     beforeUnload(({ values }) => ({
         // In-page URL updates such as opening the side panel keep the pathname and the draft.
         enabled: (newLocation?: CombinedLocation) =>

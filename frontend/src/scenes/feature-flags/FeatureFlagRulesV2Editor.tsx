@@ -11,11 +11,13 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
@@ -25,6 +27,8 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const logic = featureFlagRulesV2EditorLogic({ id })
     const { draft, ruleKeys, featureFlag, saving, saveError, saveDisabledReason, fieldError } = useValues(logic)
     const { setDraft, setConfig, addRule, saveRulesV2Flag, editFeatureFlag } = useActions(logic)
+    const { tags } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const isNew = id === 'new'
 
     return (
@@ -86,6 +90,15 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                             value={draft.name}
                             onChange={(name) => setDraft({ name })}
                             className="ph-ignore-input"
+                        />
+                    </LemonField.Pure>
+                    <LemonField.Pure label="Tags" showOptional error={fieldError('tags')}>
+                        <ObjectTags
+                            tags={draft.tags}
+                            onChange={(tags) => setDraft({ tags })}
+                            onEdit={loadTagsIfNeeded}
+                            tagsAvailable={tags.filter((tag: string) => !draft.tags.includes(tag))}
+                            data-attr="rules-v2-flag-tags"
                         />
                     </LemonField.Pure>
                     <div className="flex flex-wrap gap-4">

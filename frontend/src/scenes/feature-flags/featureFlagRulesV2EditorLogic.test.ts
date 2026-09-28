@@ -117,6 +117,11 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'filters.rules[2].id: Rule ids are server-assigned.',
             ],
             [
+                { attr: 'tags', detail: 'Add at least one tag. This project requires new feature flags to be tagged.' },
+                'tags',
+                'Add at least one tag. This project requires new feature flags to be tagged.',
+            ],
+            [
                 { attr: 'active', detail: 'A flag with this configuration format is created disabled.' },
                 null,
                 'A flag with this configuration format is created disabled.',
@@ -136,7 +141,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
         logic.mount()
 
-        logic.actions.setDraft({ key: 'new-checkout' })
+        logic.actions.setDraft({ key: 'new-checkout', tags: ['checkout'] })
         logic.actions.addRule()
         await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
             .toDispatchActions(['saveRulesV2FlagSuccess'])
@@ -145,6 +150,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         const body = create.mock.calls[0][1] as Record<string, any>
         expect(body).not.toHaveProperty('version')
         expect(body).not.toHaveProperty('active')
+        expect(body.tags).toEqual(['checkout'])
         expect(body.filters.rules).toEqual([NEW_TARGETED_RELEASE_RULE])
         expect(router.values.location.pathname).toContain(urls.featureFlag(8))
     })
@@ -202,6 +208,19 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 .toDispatchActions(['saveRulesV2FlagSuccess'])
                 .toFinishAllListeners()
             expect(logic.values.hasUnsavedChanges).toBe(false)
+        })
+
+        it('keeps unsaved edits when the flag page URL is pushed again', async () => {
+            const pageLogic = featureFlagLogic({ id: 7 })
+            router.actions.push(urls.featureFlag(7))
+            await expectLogic(pageLogic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
+            pageLogic.actions.editFeatureFlag(true)
+
+            logic.actions.setConfig({ default_value: null })
+            await expectLogic(pageLogic, () => router.actions.push(urls.featureFlag(7)))
+                .toFinishAllListeners()
+                .toMatchValues({ isEditingFlag: true })
+            expect(logic.values.draft.config.default_value).toBeNull()
         })
 
         it('shows a validation error against its field and clears it on the next edit', async () => {
