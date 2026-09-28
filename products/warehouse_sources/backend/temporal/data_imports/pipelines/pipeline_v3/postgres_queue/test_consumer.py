@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -3729,6 +3729,12 @@ class TestCoalesceGroup:
         assert self._sets(_run_batches(count, **overrides)) == expected
 
 
+class _BatchStatus(NamedTuple):
+    batch_id: str
+    job_state: str
+    attempt: int
+
+
 class TestProcessGroupCoalescing:
     _CONSUMER_QUEUE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue"
 
@@ -3739,11 +3745,11 @@ class TestProcessGroupCoalescing:
         consumer._recovery_conn = _make_healthy_conn()
         return consumer
 
-    async def _run_group(self, consumer: BatchConsumer, batches: list[PendingBatch]) -> list[tuple[str, str, int]]:
-        statuses: list[tuple[str, str, int]] = []
+    async def _run_group(self, consumer: BatchConsumer, batches: list[PendingBatch]) -> list[_BatchStatus]:
+        statuses: list[_BatchStatus] = []
 
         async def record_status(conn, *, batch_id, job_state, attempt, **kwargs):
-            statuses.append((batch_id, job_state, attempt))
+            statuses.append(_BatchStatus(batch_id, job_state, attempt))
             return True
 
         with (

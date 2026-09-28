@@ -3,7 +3,7 @@ import time
 import asyncio
 from collections.abc import Coroutine
 from datetime import timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import pytest
@@ -1475,14 +1475,20 @@ class TestCountBatchesForRun:
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0
 
 
-async def _batch_state(conn: psycopg.AsyncConnection[Any], batch_id: str) -> tuple[str, int, Any]:
+class _BatchState(NamedTuple):
+    state: str
+    attempt: int
+    changed_at: Any
+
+
+async def _batch_state(conn: psycopg.AsyncConnection[Any], batch_id: str) -> _BatchState:
     cur = await conn.execute(
         f"SELECT latest_state, latest_attempt, state_changed_at FROM {BATCH_TABLE} WHERE id = %s",
         (batch_id,),
     )
     row = await cur.fetchone()
     assert row is not None
-    return row[0], row[1], row[2]
+    return _BatchState(row[0], row[1], row[2])
 
 
 @pytest.mark.django_db(transaction=True)
