@@ -12,6 +12,7 @@ import { Text, Tooltip } from "@radix-ui/themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isSendMessageSubmitKey } from "../../../utils/sendMessageKey";
 import { sendPromptToAgent } from "../../sessions/sendPromptToAgent";
+import { useCommentText } from "../hooks/useCommentState";
 import { useReviewDraftsStore } from "../reviewDraftsStore";
 
 function getSubmitTooltip(state: {
@@ -51,6 +52,7 @@ export function CommentAnnotation({
   onSubmitText,
 }: CommentAnnotationProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { text, setText } = useCommentText(taskId, filePath);
   const addDraft = useReviewDraftsStore((s) => s.addDraft);
   const updateDraft = useReviewDraftsStore((s) => s.updateDraft);
   const setBatchEnabled = useReviewDraftsStore((s) => s.setBatchEnabled);
@@ -61,22 +63,16 @@ export function CommentAnnotation({
   const [batch, setBatch] = useState(
     editingDraftId ? true : initialBatchEnabled,
   );
-  const [isEmpty, setIsEmpty] = useState(!initialText?.trim());
+  const [isEmpty, setIsEmpty] = useState(!(text ?? initialText)?.trim());
 
-  const setTextareaRef = useCallback(
-    (el: HTMLTextAreaElement | null) => {
-      (
-        textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>
-      ).current = el;
-      if (el) {
-        if (initialText !== undefined) {
-          el.value = initialText;
-        }
-        requestAnimationFrame(() => el.focus());
-      }
-    },
-    [initialText],
-  );
+  const setTextareaRef = useCallback((el: HTMLTextAreaElement | null) => {
+    (
+      textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>
+    ).current = el;
+    if (el) {
+      requestAnimationFrame(() => el.focus());
+    }
+  }, []);
 
   useEffect(() => {
     if (editingDraftId) return;
@@ -155,9 +151,13 @@ export function CommentAnnotation({
       <InputGroup>
         <InputGroupTextarea
           ref={setTextareaRef}
+          defaultValue={text ?? initialText}
           placeholder="Describe the changes you'd like..."
           onKeyDown={handleKeyDown}
-          onChange={(e) => setIsEmpty(!e.currentTarget.value.trim())}
+          onChange={(e) => {
+            setIsEmpty(!e.currentTarget.value.trim());
+            setText(e.currentTarget.value);
+          }}
           className="min-h-[48px] resize-none text-[13px]"
         />
         <InputGroupAddon align="block-end">

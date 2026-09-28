@@ -188,6 +188,7 @@ function PatchDiffView({
     () => new Set(),
   );
 
+  const filePath = patchFileDiff.name ?? patchFileDiff.prevName ?? "";
   const {
     selectedRange,
     commentAnnotation,
@@ -197,13 +198,12 @@ function PatchDiffView({
     handleLineSelectionChange,
     handleLineSelectionEnd,
     openCommentForEdit,
-  } = useCommentState();
+  } = useCommentState(taskId, filePath);
 
   const [lastPatch, setLastPatch] = useState(patchFileDiff);
   if (patchFileDiff !== lastPatch) {
     setLastPatch(patchFileDiff);
     setRevertingHunks(new Set());
-    reset();
   }
 
   const [lastInitial, setLastInitial] = useState(initialFileDiff);
@@ -354,6 +354,7 @@ function FilesDiffView({
   prUrl,
   commentThreads,
 }: FilesDiffProps) {
+  const filePath = newFile.name || oldFile.name;
   const {
     selectedRange,
     commentAnnotation,
@@ -363,9 +364,7 @@ function FilesDiffView({
     handleLineSelectionChange,
     handleLineSelectionEnd,
     openCommentForEdit,
-  } = useCommentState();
-
-  const filePath = newFile.name || oldFile.name;
+  } = useCommentState(taskId, filePath);
 
   const fileDrafts = useFileDrafts(taskId, filePath);
   const handleEditDraft = useEditDraftHandler(fileDrafts, openCommentForEdit);

@@ -4,7 +4,8 @@ import type {
   SelectedLineRange,
 } from "@pierre/diffs";
 import type { AnnotationMetadata } from "@posthog/ui/features/code-review/types";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+import { create } from "zustand";
 
 export interface CommentEditSeed {
   draftId: string;
@@ -15,35 +16,84 @@ export interface CommentEditSeed {
   side: AnnotationSide;
 }
 
-export function useCommentState() {
-  const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(
-    null,
+interface CommentState {
+  selectedRange: SelectedLineRange | null;
+  commentAnnotation: DiffLineAnnotation<AnnotationMetadata> | null;
+  editSeed: CommentEditSeed | null;
+}
+
+const emptyCommentState: CommentState = {
+  selectedRange: null,
+  commentAnnotation: null,
+  editSeed: null,
+};
+
+const useOpenComments = create<{
+  comments: Record<string, CommentState>;
+  texts: Record<string, string>;
+  update: (key: string, changes: Partial<CommentState>) => void;
+  clear: (key: string) => void;
+  setText: (key: string, text: string) => void;
+}>()((set) => ({
+  comments: {},
+  texts: {},
+  update: (key, changes) =>
+    set((state) => ({
+      comments: {
+        ...state.comments,
+        [key]: { ...(state.comments[key] ?? emptyCommentState), ...changes },
+      },
+    })),
+  clear: (key) =>
+    set((state) => {
+      const comments = { ...state.comments };
+      delete comments[key];
+      const texts = { ...state.texts };
+      delete texts[key];
+      return { comments, texts };
+    }),
+  setText: (key, text) =>
+    set((state) => ({ texts: { ...state.texts, [key]: text } })),
+}));
+
+export function useCommentText(taskId: string, filePath: string) {
+  const key = JSON.stringify([taskId, filePath]);
+  const text = useOpenComments((store) => store.texts[key]);
+  const update = useOpenComments((store) => store.setText);
+  const setText = useCallback(
+    (value: string) => update(key, value),
+    [key, update],
   );
-  const [commentAnnotation, setCommentAnnotation] =
-    useState<DiffLineAnnotation<AnnotationMetadata> | null>(null);
-  const [editSeed, setEditSeed] = useState<CommentEditSeed | null>(null);
+  return { text, setText };
+}
+
+export function useCommentState(taskId: string | undefined, filePath: string) {
+  const key = JSON.stringify([taskId, filePath]);
+  const state = useOpenComments(
+    (store) => store.comments[key] ?? emptyCommentState,
+  );
+  const update = useOpenComments((store) => store.update);
+  const clear = useOpenComments((store) => store.clear);
+  const updateText = useOpenComments((store) => store.setText);
+  const { selectedRange, commentAnnotation, editSeed } = state;
 
   const hasOpenComment = commentAnnotation !== null;
 
   const reset = useCallback(() => {
-    setCommentAnnotation(null);
-    setSelectedRange(null);
-    setEditSeed(null);
-  }, []);
+    clear(key);
+  }, [clear, key]);
 
   const handleLineSelectionChange = useCallback(
     (range: SelectedLineRange | null) => {
-      setSelectedRange(range);
+      update(key, { selectedRange: range });
     },
-    [],
+    [key, update],
   );
 
   const handleLineSelectionEnd = useCallback(
     (range: SelectedLineRange | null) => {
-      setSelectedRange(range);
-      setEditSeed(null);
       if (range == null) {
-        setCommentAnnotation(null);
+        clear(key);
         return;
       }
       const derivedSide = range.endSide ?? range.side;
@@ -52,34 +102,45 @@ export function useCommentState() {
       const startLine = Math.min(range.start, range.end);
       const endLine = Math.max(range.start, range.end);
 
-      setCommentAnnotation({
-        side,
-        lineNumber: endLine,
-        metadata: { kind: "comment", startLine, endLine, side },
+      updateText(key, "");
+      update(key, {
+        selectedRange: range,
+        editSeed: null,
+        commentAnnotation: {
+          side,
+          lineNumber: endLine,
+          metadata: { kind: "comment", startLine, endLine, side },
+        },
       });
     },
-    [],
+    [clear, key, update, updateText],
   );
 
-  const openCommentForEdit = useCallback((seed: CommentEditSeed) => {
-    setSelectedRange({
-      start: seed.startLine,
-      end: seed.endLine,
-      side: seed.side,
-      endSide: seed.side,
-    });
-    setCommentAnnotation({
-      side: seed.side,
-      lineNumber: seed.endLine,
-      metadata: {
-        kind: "comment",
-        startLine: seed.startLine,
-        endLine: seed.endLine,
-        side: seed.side,
-      },
-    });
-    setEditSeed(seed);
-  }, []);
+  const openCommentForEdit = useCallback(
+    (seed: CommentEditSeed) => {
+      updateText(key, seed.text);
+      update(key, {
+        selectedRange: {
+          start: seed.startLine,
+          end: seed.endLine,
+          side: seed.side,
+          endSide: seed.side,
+        },
+        commentAnnotation: {
+          side: seed.side,
+          lineNumber: seed.endLine,
+          metadata: {
+            kind: "comment",
+            startLine: seed.startLine,
+            endLine: seed.endLine,
+            side: seed.side,
+          },
+        },
+        editSeed: seed,
+      });
+    },
+    [key, update, updateText],
+  );
 
   return {
     selectedRange,
