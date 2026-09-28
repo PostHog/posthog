@@ -8,6 +8,8 @@ interface TooltipProps<Meta> {
     context: TooltipContext<Meta>
     renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
     placement?: 'follow-data' | 'top' | 'cursor'
+    /** Keeps the tooltip inside this element (and the viewport) instead of the viewport alone. */
+    boundaryRef?: React.RefObject<HTMLElement | null>
 }
 
 const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
@@ -17,6 +19,7 @@ export function Tooltip<Meta = unknown>({
     context,
     renderTooltip,
     placement = 'follow-data',
+    boundaryRef,
 }: TooltipProps<Meta>): React.ReactElement {
     const { theme } = useChartLayout()
     const zIndex = theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
@@ -63,10 +66,19 @@ export function Tooltip<Meta = unknown>({
         [anchorX, anchorY, anchorWidth]
     )
 
+    const middleware = useMemo(() => {
+        if (!boundaryRef) {
+            return TOOLTIP_MIDDLEWARE
+        }
+        // floating-ui intersects the boundary with the viewport, so the tooltip stays on screen too.
+        const boundary = (): { boundary?: Element } => ({ boundary: boundaryRef.current ?? undefined })
+        return [offset(12), flip(boundary), shift(() => ({ ...boundary(), padding: 8 }))]
+    }, [boundaryRef])
+
     const { refs, floatingStyles } = useFloating({
         placement: placement === 'follow-data' ? 'right' : 'right-start',
         strategy: 'fixed',
-        middleware: TOOLTIP_MIDDLEWARE,
+        middleware,
         // Re-run the middleware (notably `flip`/`shift`) once the portaled tooltip reaches its
         // real `max-content` size and whenever the page scrolls/resizes — without this the first
         // position is computed against a still-zero-width element, so `flip` never kicks in and

@@ -33,7 +33,7 @@ import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { EMBEDDED_INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
@@ -341,7 +341,7 @@ export function TrendsLineChart({
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: embedded ? EMBEDDED_INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
@@ -367,6 +367,7 @@ export function TrendsLineChart({
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
+            embedded,
         ]
     )
 

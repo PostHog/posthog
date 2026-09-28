@@ -180,6 +180,34 @@ export const HoveringMultiSeries: Story = {
     },
 }
 
+/** Two tiles side by side, as on a dashboard. `boundary: 'chart'` flips the tooltip of the last
+ *  point back over its own chart, so it does not cover the chart on the right. */
+export const HoveringInDashboardTile: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', gap: 16, padding: 16 }}>
+                <Stage width={360}>
+                    <LineChart
+                        series={PAIR}
+                        labels={DAYS}
+                        config={{ ...HOVER, tooltip: { boundary: 'chart' } }}
+                        theme={theme}
+                    />
+                </Stage>
+                <Stage width={360}>
+                    <LineChart series={PAIR} labels={DAYS} config={HOVER} theme={theme} />
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.97)
+    },
+}
+
 /** Demonstrates each series-visibility flag side by side. */
 export const VisibilityFlags: Story = {
     render: () => {

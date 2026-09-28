@@ -36,7 +36,7 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { EMBEDDED_INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
@@ -243,7 +243,7 @@ export function TrendsBarChart({
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: embedded ? EMBEDDED_INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG,
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -265,6 +265,7 @@ export function TrendsBarChart({
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
+            embedded,
         ]
     )
 
@@ -289,7 +290,7 @@ export function TrendsBarChart({
         }
         return {
             showGrid: true,
-            tooltip: AGGREGATED_TOOLTIP_CONFIG,
+            tooltip: embedded ? { ...AGGREGATED_TOOLTIP_CONFIG, boundary: 'chart' } : AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',

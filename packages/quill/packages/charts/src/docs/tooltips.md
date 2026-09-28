@@ -6,9 +6,10 @@ Other charts, such as scatter and pie, provide specialized tooltips; check their
 
 ## Behavior: `config.tooltip`
 
-`TooltipConfig` (see the JSDoc in `core/types.ts`) sets `enabled`, `pinnable`, `placement`, `resolveClickToNearestSeries`, and `hitArea`.
+`TooltipConfig` (see the JSDoc in `core/types.ts`) sets `enabled`, `pinnable`, `placement`, `boundary`, `resolveClickToNearestSeries`, and `hitArea`.
 
 - `placement: 'cursor'` is the library default through `DEFAULT_CHART_CONFIG`; `follow-data` tracks the highest point at the hovered x and `top` pins the panel to the top edge.
+- `boundary: 'chart'` keeps the panel inside the chart as well as the viewport. Use it where charts sit side by side, such as dashboard tiles, so the panel flips back over its own chart and does not cover the next one. The default `viewport` lets the panel extend past the chart.
 - `pinnable` lets a click pin the panel. An unpinned tooltip is `pointer-events: none`, so row clicks only land once it is pinned.
 - `resolveClickToNearestSeries` (default false) makes a click on a pinnable multi-series chart resolve the series nearest the cursor and fire `onPointClick` directly instead of pinning first. Use it only where the target series is visually unambiguous by position (funnel breakdown areas, one per breakdown value). Leave it off where series overlap and a wrong guess is costly (trend lines).
 - `hitArea` applies to bar charts. `bar` (default) needs the cursor over the painted bar, so the empty space above a short bar shows nothing. `band` accepts anywhere in the hovered band. `Sparkline` uses `band` because a sparkline bar can be one pixel tall and a zero bucket has no bar to aim at.

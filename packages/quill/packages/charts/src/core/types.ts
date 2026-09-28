@@ -387,6 +387,10 @@ export interface TooltipConfig {
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
+    /** What the tooltip must stay inside when it flips and shifts. `viewport` (default) uses the
+     *  window only. `chart` also keeps it inside the chart, so a chart in a grid of charts (a
+     *  dashboard tile) does not show its tooltip over the next chart. */
+    boundary?: 'viewport' | 'chart'
     // Built-in DefaultTooltip content, applied only when no `tooltip` render prop is given. See
     // DefaultTooltipProps for semantics — these mirror it.
     /** Second arg is the row's `seriesData` entry, for per-series formatting. */

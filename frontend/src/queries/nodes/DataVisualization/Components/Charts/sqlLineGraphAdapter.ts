@@ -280,10 +280,12 @@ export function hasAxisTickFormatting(settings?: AxisSeriesSettings): boolean {
 }
 
 /** Built-in tooltip for the line + combo SQL charts: each row formatted by its column's settings
- *  (from `series.meta`), plus an optional total row. */
+ *  (from `series.meta`), plus an optional total row. An embedded chart keeps its tooltip inside the
+ *  chart, so the tooltip does not cover the next tile on a dashboard. */
 export function buildSqlTooltipConfig(
     chartSettings: ChartSettings,
-    ySeriesData?: SqlLineYSeries[] | null
+    ySeriesData?: SqlLineYSeries[] | null,
+    embedded?: boolean
 ): TooltipConfig {
     // The total sums the non-percent columns (percent columns are excluded via
     // `visibility.total` in buildSeries), so it must format with a column that's actually in the
@@ -294,6 +296,7 @@ export function buildSqlTooltipConfig(
         enabled: true,
         pinnable: true,
         placement: 'cursor',
+        boundary: embedded ? 'chart' : 'viewport',
         sortedByValue: true,
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
@@ -437,6 +440,7 @@ export function buildLineChartConfig({
     goalLines,
     ySeriesData,
     legendRenderItem,
+    embedded,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
@@ -467,7 +471,7 @@ export function buildLineChartConfig({
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),
         tooltip: {
-            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData, embedded),
             ...(labelFormatter ? { labelFormatter } : {}),
         },
     }
@@ -481,6 +485,7 @@ export function buildBarChartConfig({
     visualizationType,
     ySeriesData,
     legendRenderItem,
+    embedded,
 }: BuildBarConfigArgs): SqlBarGraphConfig {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
@@ -519,7 +524,7 @@ export function buildBarChartConfig({
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
-            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData, embedded),
             ...(labelFormatter ? { labelFormatter } : {}),
         },
     }
@@ -574,7 +579,7 @@ export function buildBarValueChartConfig({
         },
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         tooltip: {
-            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData, embedded),
             labelFormatter: categoryLabelFormatter,
         },
     }
@@ -588,6 +593,7 @@ export function buildComboChartConfig({
     visualizationType,
     ySeriesData,
     legendRenderItem,
+    embedded,
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig & { yAxis?: YAxisConfig } {
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
@@ -628,7 +634,7 @@ export function buildComboChartConfig({
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
-            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData, embedded),
             ...(labelFormatter ? { labelFormatter } : {}),
         },
     }

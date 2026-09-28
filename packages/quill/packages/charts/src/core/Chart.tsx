@@ -171,6 +171,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
+        boundary: tooltipBoundary = 'viewport',
         valueFormatter: tooltipValueFormatter,
         labelFormatter: tooltipLabelFormatter,
         showTotal: tooltipShowTotal,
@@ -463,7 +464,12 @@ export function Chart<Meta = unknown>({
                     {children}
 
                     {tooltipCtx && showTooltip && (
-                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement={tooltipPlacement} />
+                        <Tooltip
+                            context={tooltipCtx}
+                            renderTooltip={renderTooltip}
+                            placement={tooltipPlacement}
+                            boundaryRef={tooltipBoundary === 'chart' ? wrapperRef : undefined}
+                        />
                     )}
                 </ChartShell>
             </ChartHoverContext.Provider>
