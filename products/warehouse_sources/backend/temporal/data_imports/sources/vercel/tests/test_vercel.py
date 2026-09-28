@@ -235,7 +235,7 @@ class TestValidateCredentials:
         assert "418" in str(capture.call_args.args[0])
 
 
-def _status_response(status_code: int, body: dict | None = None) -> MagicMock:
+def _status_response(status_code: int, body: dict[str, Any] | None = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.ok = status_code < 400
@@ -248,7 +248,7 @@ def _status_response(status_code: int, body: dict | None = None) -> MagicMock:
 
 class TestFetchPageRetry:
     @pytest.fixture(autouse=True)
-    def _instant_retry(self, monkeypatch: Any) -> None:
+    def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Zero the tenacity backoff so retry tests don't actually sleep.
         monkeypatch.setattr(vercel._fetch_page.retry, "wait", lambda *a, **k: 0)  # type: ignore[attr-defined]
 
@@ -278,6 +278,26 @@ class TestFetchPageRetry:
         with pytest.raises(requests.HTTPError):
             vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class TestOpenBillingStreamRetry:
+    # billing_charges streams via _open_billing_stream, a separate retry wrapper from _fetch_page;
+    # the fix must cover both or a 408 on the billing endpoint stays fatal.
+    @pytest.fixture(autouse=True)
+    def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(vercel._open_billing_stream.retry, "wait", lambda *a, **k: 0)  # type: ignore[attr-defined]
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        session = MagicMock()
+        timeout_response = _status_response(408)
+        ok_response = _status_response(200)
+        session.get.side_effect = [timeout_response, ok_response]
+
+        result = vercel._open_billing_stream(session, "https://api.vercel.com/v1/billing/charges", {}, MagicMock())
+
+        assert result is ok_response
+        assert session.get.call_count == 2
+        timeout_response.close.assert_called_once()
 
 
 class TestGetRows:
