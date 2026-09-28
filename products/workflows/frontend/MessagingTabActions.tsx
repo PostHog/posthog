@@ -46,12 +46,7 @@ function NewTemplateButton(): JSX.Element {
             resourceType={AccessControlResourceType.Workflow}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <LemonButton
-                data-attr="new-message-button"
-                onClick={startNewTemplate}
-                type="primary"
-                size="small"
-            >
+            <LemonButton data-attr="new-message-button" onClick={startNewTemplate} type="primary" size="small">
                 New template
             </LemonButton>
         </AccessControlAction>
