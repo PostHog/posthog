@@ -7,11 +7,19 @@ import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import type { ScheduleRestriction } from '../types'
 
 function calendarTime(localDate: Dayjs, hour: number, minute: number, timezone: string): Dayjs {
-    return dayjs.tz(
-        `${localDate.format('YYYY-MM-DD')} ${hour}:${String(minute).padStart(2, '0')}`,
-        'YYYY-MM-DD H:mm',
-        timezone
-    )
+    const wallTime = `${localDate.format('YYYY-MM-DD')} ${hour}:${String(minute).padStart(2, '0')}`
+    const run = dayjs.tz(wallTime, 'YYYY-MM-DD H:mm', timezone)
+    // When a DST change repeats this wall time, dayjs picks either occurrence depending on the browser's
+    // timezone. The backend uses the first occurrence, which has the larger UTC offset.
+    const shiftMinutes = run.subtract(3, 'hours').tz(timezone).utcOffset() - run.utcOffset()
+    const firstOccurrence = run.subtract(shiftMinutes, 'minutes').tz(timezone)
+    return shiftMinutes > 0 && firstOccurrence.format('YYYY-MM-DD H:mm') === wallTime ? firstOccurrence : run
+}
+
+// Compare instants, because dayjs re-reads the wall time inside `isAfter` and can pick the other occurrence of a
+// repeated local time.
+function isLater(time: Dayjs, than: Dayjs): boolean {
+    return time.valueOf() > than.valueOf()
 }
 
 function parseScheduleStartTime(scheduleStartTime: string | null | undefined): { hour: number; minute: number } | null {
@@ -43,7 +51,7 @@ export function approximateNextAlertRun(
         }
 
         let candidate = localNow.startOf('hour').minute(scheduleStart.minute).second(0).millisecond(0)
-        while (!candidate.isAfter(localNow)) {
+        while (!isLater(candidate, localNow)) {
             candidate = candidate.add(cadenceMinutes, 'minutes')
         }
         return candidate
@@ -87,7 +95,7 @@ export function approximateNextAlertRun(
         }
         let steps = 0
         let run = calendarTime(firstDate, scheduleStart.hour, scheduleStart.minute, timezone)
-        while (!run.isAfter(localNow)) {
+        while (!isLater(run, localNow)) {
             steps += 1
             run = calendarTime(firstDate.add(steps, unit), scheduleStart.hour, scheduleStart.minute, timezone)
         }

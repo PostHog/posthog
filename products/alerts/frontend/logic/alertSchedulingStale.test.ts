@@ -33,6 +33,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:30:00.000Z',
                 '2026-07-24T16:55:00.000Z',
                 '2026-07-24T16:55:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.EVERY_15_MINUTES,
@@ -40,6 +41,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:55:00.000Z',
                 '2026-07-24T17:10:00.000Z',
                 '2026-07-24T17:10:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.HOURLY,
@@ -47,6 +49,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:30:00.000Z',
                 '2026-07-24T16:55:00.000Z',
                 '2026-07-24T16:55:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.HOURLY,
@@ -54,6 +57,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:30:00.000Z',
                 '2026-07-24T17:02:00.000Z',
                 '2026-07-24T17:13:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.DAILY,
@@ -61,6 +65,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T08:00:00.000Z',
                 '2026-07-24T09:35:00.000Z',
                 '2026-07-24T09:35:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.WEEKLY,
@@ -68,6 +73,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:30:00.000Z',
                 '2026-07-27T09:35:00.000Z',
                 '2026-07-27T09:35:00.000Z',
+                'UTC',
             ],
             [
                 AlertCalculationInterval.MONTHLY,
@@ -75,14 +81,28 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T16:30:00.000Z',
                 '2026-08-01T09:35:00.000Z',
                 '2026-08-01T09:35:00.000Z',
+                'UTC',
             ],
-        ])('uses %s schedule start time %s', (interval, scheduleStartTime, nowValue, expected, expectedLatest) => {
-            const now = dayjs.utc(nowValue)
+            // Lord Howe repeats 01:30 to 02:00 on 5 April. At 15:05 UTC the first 01:45 (14:45 UTC) has passed,
+            // so the backend runs the next day.
+            [
+                AlertCalculationInterval.DAILY,
+                '01:45',
+                '2026-04-04T15:05:00.000Z',
+                '2026-04-05T15:15:00.000Z',
+                '2026-04-05T15:15:00.000Z',
+                'Australia/Lord_Howe',
+            ],
+        ])(
+            'uses %s schedule start time %s',
+            (interval, scheduleStartTime, nowValue, expected, expectedLatest, timezone) => {
+                const now = dayjs.utc(nowValue)
 
-            const result = approximateNextAlertRun(interval, 'UTC', scheduleStartTime, now)
-            expect(result.earliest.toISOString()).toBe(expected)
-            expect(result.latest.toISOString()).toBe(expectedLatest)
-        })
+                const result = approximateNextAlertRun(interval, timezone, scheduleStartTime, now)
+                expect(result.earliest.toISOString()).toBe(expected)
+                expect(result.latest.toISOString()).toBe(expectedLatest)
+            }
+        )
     })
 
     describe('normalizeScheduleRestrictionForCompare', () => {
