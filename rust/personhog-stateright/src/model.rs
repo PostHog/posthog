@@ -68,18 +68,6 @@ fn production_quorum(h: &Handoff) -> Vec<String> {
     h.quorum.iter().map(|r| router_name(*r)).collect()
 }
 
-/// Which produce-path protection the model runs with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Variant {
-    /// The shipped protocol: leases + self-fencing bound the zombie
-    /// window but nothing rejects a zombie's produce at the broker.
-    Current,
-    /// The proposed fix: per-partition Kafka transactional producers.
-    /// Warming bumps the broker's producer epoch (`init_transactions`),
-    /// and the broker rejects produces bearing a stale epoch.
-    EpochFenced,
-}
-
 /// How promptly a pod learns that its lease is gone.
 ///
 /// The keepalive only finds out on its next round, so a revoked lease
@@ -95,10 +83,8 @@ pub enum ClaimDetection {
     Delayed,
 }
 
-/// Which side of the warm read acquires the broker fence, under
-/// `Variant::EpochFenced`. `warm_partition` ships `FenceFirst`;
-/// `ReadFirst` is the rejected ordering, kept checkable as the machine
-/// record of why the fence must precede the read.
+/// Which side of the warm read takes the broker fence. `warm_partition`
+/// ships `FenceFirst`; `ReadFirst` is kept as the record of why.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WarmOrder {
     FenceFirst,
@@ -115,18 +101,15 @@ pub struct HandoffModel {
     /// they exist only to `RouterJoin` mid-run.
     pub late_routers: u8,
     pub partitions: u8,
-    pub variant: Variant,
     /// Fence-vs-read ordering of the decomposed warm; ignored under
-    /// `Variant::Current`, whose warm is a single atomic step.
+    /// a warm that is a single atomic step.
     pub warm_order: WarmOrder,
     /// How promptly a pod notices its lease is gone; only meaningful
-    /// with `lease_gated_reads`, since nothing else consults the claim.
+    /// since the read gate is the only thing that consults the claim.
     pub claim_detection: ClaimDetection,
-    /// Whether a pod consults its lease before serving a strong read
-    /// (production: the leader's `LEASE_GATED_AUTHORITY`). Without it a
-    /// pod that has lost its registration keeps answering out of a cache
-    /// the new owner is already changing.
-    pub lease_gated_reads: bool,
+    /// Whether a registered pod's claim may lapse. Only the read gate and
+    /// `converges_to_stable` read the claim, so off is safe elsewhere.
+    pub claim_lapses: bool,
     /// Whether a lapsed claim can come back without the session ending
     /// (production: the keepalive confirming a renewal again). Turning it
     /// off is what makes the black hole permanent, which is the only way
@@ -293,14 +276,11 @@ impl HandoffModel {
         if pod.fenced.contains(&partition) {
             return false;
         }
-        match self.variant {
-            Variant::Current => true,
-            // The broker accepts one producer per partition — whichever
-            // acquired the fence most recently. A warmed pod that is no
-            // longer the holder would be producing under a fenced-out
-            // producer, and the broker rejects it before any client ack.
-            Variant::EpochFenced => state.changelogs[&partition].epoch_holder == Some(x),
-        }
+        // The broker accepts one producer per partition, whichever
+        // acquired the fence most recently. A warmed pod that is no
+        // longer the holder would be producing under a fenced-out
+        // producer, and the broker rejects it before any client ack.
+        state.changelogs[&partition].epoch_holder == Some(x)
     }
 
     /// One step of `warm_partition` for pod `x` on `partition`. Under
@@ -333,14 +313,11 @@ impl HandoffModel {
         // enumeration. If the no-observable-gap argument ever stops
         // holding (an append path that does not require an installed
         // warm), this collapse is the assumption to revisit first.
-        let observable_gap =
-            self.variant == Variant::EpochFenced && self.warm_order == WarmOrder::ReadFirst;
+        let observable_gap = self.warm_order == WarmOrder::ReadFirst;
         if !observable_gap {
             let warm = {
                 let log = state.changelogs.get_mut(&partition).unwrap();
-                if self.variant == Variant::EpochFenced {
-                    log.epoch_holder = Some(x);
-                }
+                log.epoch_holder = Some(x);
                 WarmState {
                     for_handoff,
                     visible: log.len,
@@ -436,7 +413,7 @@ impl HandoffModel {
         // that window, and the property holding here does not cover it —
         // it is recorded as a residual in the coordination README rather
         // than claimed as closed.
-        if self.lease_gated_reads && !pod.claims_authority {
+        if !pod.claims_authority {
             return false;
         }
         let Some(warm) = pod.warmed.get(&partition) else {
@@ -988,15 +965,12 @@ impl HandoffModel {
                     mutate(last, |state| self.warm_step(state, x, p, None))
                 } else if pod.fenced.contains(&p) {
                     mutate(last, |state| {
-                        // `resume_partition`. Under EpochFenced the
-                        // cancelled handoff's target may have taken the
-                        // broker fence from this pod's producer;
-                        // production re-acquires it before re-admitting
-                        // writes, or every write would fail as fenced
-                        // until the next handoff.
-                        if self.variant == Variant::EpochFenced {
-                            state.changelogs.get_mut(&p).unwrap().epoch_holder = Some(x);
-                        }
+                        // `resume_partition`. The cancelled handoff's
+                        // target may have taken the broker fence from
+                        // this pod's producer; production re-acquires it
+                        // before re-admitting writes, or every write
+                        // would fail as fenced until the next handoff.
+                        state.changelogs.get_mut(&p).unwrap().epoch_holder = Some(x);
                         state.pods.get_mut(&x).unwrap().fenced.remove(&p);
                     })
                 } else {
@@ -1302,10 +1276,7 @@ impl Model for HandoffModel {
             if self.claim_detection == ClaimDetection::Delayed {
                 offer(Action::NoticeLeaseLoss(pod));
             }
-            // Only meaningful when something consults the claim, and the
-            // state space is expensive enough that exploring it in
-            // configurations that ignore the claim would buy nothing.
-            if self.lease_gated_reads {
+            if self.claim_lapses {
                 offer(Action::AuthorityLapse(pod));
                 if self.claim_recovers {
                     offer(Action::AuthorityRenew(pod));
@@ -1502,10 +1473,8 @@ impl Model for HandoffModel {
 
     fn properties(&self) -> Vec<Property<Self>> {
         let mut props = vec![
-            // The acked-write-loss invariant the drain/fence/HWM
-            // machinery exists to uphold. Expected to FAIL under
-            // Variant::Current with a zombie window (the documented
-            // residual) and PASS under Variant::EpochFenced.
+            // The acked-write-loss invariant the drain, fence and HWM
+            // machinery exists to uphold.
             Property::<Self>::always("no_lost_acked_write", |_, s| !s.lost_acked_write),
             // Rebalancing is enabled concurrently with in-flight handoffs;
             // pinning must keep it from ever planning one of their
@@ -1622,7 +1591,7 @@ impl Model for HandoffModel {
                                 // reads is a black hole the coordinator
                                 // will not reassign, because it still
                                 // looks alive.
-                                && (!m.lease_gated_reads || pod.claims_authority)
+                                && pod.claims_authority
                         })
                     });
                 owners_converged

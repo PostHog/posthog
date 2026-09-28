@@ -54,6 +54,8 @@ export interface KnowledgeSearchResultApi {
     readonly heading_path: string
     /** The chunk's text content. */
     readonly content: string
+    /** True when this chunk comes from a generated source learned from a past support ticket. */
+    readonly is_generated: boolean
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -112,6 +114,140 @@ export interface GapTopicActionResultApi {
     readonly normalized_topic: string
     /** Number of gap rows whose status changed. */
     readonly updated: number
+}
+
+export interface PlaygroundChatListApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type SandboxPollStatusEnumApi = (typeof SandboxPollStatusEnumApi)[keyof typeof SandboxPollStatusEnumApi]
+
+export const SandboxPollStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface SandboxSourceApi {
+    /** Source reference the reply relies on. */
+    ref: string
+    /** Short excerpt that supports the reply. */
+    excerpt: string
+}
+
+/**
+ * * `business-knowledge-documents-search` - Search
+ * * `business-knowledge-document-window-retrieve` - Window
+ */
+export type SandboxToolNameEnumApi = (typeof SandboxToolNameEnumApi)[keyof typeof SandboxToolNameEnumApi]
+
+export const SandboxToolNameEnumApi = {
+    BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+    BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+} as const
+
+export interface SandboxSearchApi {
+    /** Business knowledge tool the agent called.
+     *
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window */
+    tool: SandboxToolNameEnumApi
+    /** Tool input the agent sent. */
+    input: string
+}
+
+export interface SandboxRunApi {
+    /** Sandbox task id. */
+    task_id: string
+    /** Latest run id for this task. */
+    run_id: string
+    /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    status: SandboxPollStatusEnumApi
+    /**
+     * Answer text when status is completed. Null otherwise.
+     * @nullable
+     */
+    reply: string | null
+    /** Sources cited in a completed answer. Empty when the run has not completed. */
+    sources: SandboxSourceApi[]
+    /** Business knowledge search and window calls observed in the run log. */
+    searches: SandboxSearchApi[]
+    /**
+     * Why the run did not produce an answer. Null while running and on a completed answer.
+     * @nullable
+     */
+    error: string | null
+    /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+    docs_search_called: boolean
+}
+
+export interface PlaygroundTurnApi {
+    /** Turn id. */
+    id: string
+    /** Question that started this turn's sandbox run. */
+    question: string
+    /** Sandbox task id for this turn. */
+    task_id: string
+    /** Order of this turn in the chat, starting at 0. */
+    position: number
+    /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+    run: SandboxRunApi | null
+    /**
+     * Why this turn could not be loaded. Null when run is present.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PlaygroundChatApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+    /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+    turns: PlaygroundTurnApi[]
+}
+
+export interface SandboxQuestionApi {
+    /**
+     * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+     * @maxLength 4000
+     */
+    question: string
+}
+
+export interface SandboxRunStartedApi {
+    /** Sandbox task id. Poll this id until the run finishes. */
+    task_id: string
+    /** Run id for this question. */
+    run_id: string
 }
 
 export interface BusinessKnowledgeSettingsApi {
@@ -294,6 +430,43 @@ export interface PatchedUpdateTextSourceApi {
     always_include?: boolean
 }
 
+/**
+ * * `unknown` - Unknown
+ * * `safe` - Safe
+ * * `unsafe` - Unsafe
+ */
+export type SafetyVerdictEnumApi = (typeof SafetyVerdictEnumApi)[keyof typeof SafetyVerdictEnumApi]
+
+export const SafetyVerdictEnumApi = {
+    Unknown: 'unknown',
+    Safe: 'safe',
+    Unsafe: 'unsafe',
+} as const
+
+export interface KnowledgeSourceDocumentApi {
+    /** Document id. */
+    readonly id: string
+    /** Fetched page URL after redirects. Empty for text and file documents. */
+    readonly url: string
+    /** Page title extracted while indexing. Falls back to empty when the page had none. */
+    readonly title: string
+    /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+     *
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe */
+    readonly safety_verdict: SafetyVerdictEnumApi
+}
+
+export interface PaginatedKnowledgeSourceDocumentListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeSourceDocumentApi[]
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
@@ -336,6 +509,46 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
 }
 
 export type BusinessKnowledgeSourcesListParams = {
+    /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
+}
+
+export type BusinessKnowledgeSourcesListAddedBy =
+    (typeof BusinessKnowledgeSourcesListAddedBy)[keyof typeof BusinessKnowledgeSourcesListAddedBy]
+
+export const BusinessKnowledgeSourcesListAddedBy = {
+    Human: 'human',
+    Learned: 'learned',
+} as const
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
+
+export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
      */

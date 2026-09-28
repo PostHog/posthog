@@ -307,7 +307,7 @@ class TestCallRailSourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
         # Never partition on a mutable field; only stable creation/start timestamps are allowed.
         if config.partition_key:
-            assert config.partition_key in {"start_time", "submitted_at", "created_at"}
+            assert config.partition_key in {"start_time", "submitted_at", "created_at", "event_date"}
 
     @pytest.mark.parametrize("config", list(CALLRAIL_ENDPOINTS.values()))
     def test_incremental_endpoints_have_a_sort_field(self, config: Any) -> None:
@@ -315,3 +315,175 @@ class TestCallRailSourceResponse:
         if config.supports_incremental:
             assert config.sort_field is not None
             assert config.incremental_fields
+
+
+class TestAccountsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_accounts_needs_no_account_resolution(self, MockSession: mock.MagicMock) -> None:
+        _, snapshots, _ = _collect("accounts", [_page("accounts", [{"id": "ACC1"}], total_pages=1)], MockSession)
+
+        # /a.json is the one endpoint not nested under an account, so the listing is the only request.
+        assert len(snapshots) == 1
+        assert snapshots[0]["url"].endswith("/a.json")
+        assert snapshots[0]["params"]["sort"] == "name"
+
+
+class TestLeadsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_leads_sorts_ascending_and_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
+        _, snapshots, _ = _collect(
+            "leads",
+            [_page("leads", [{"id": "L1"}], total_pages=1)],
+            MockSession,
+            account_id="ACC",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert snapshots[0]["params"]["sort"] == "created_at"
+        assert snapshots[0]["params"]["order"] == "asc"
+        # CallRail's date filters cover calls, the call summary, and conversations only.
+        assert "start_date" not in snapshots[0]["params"]
+
+
+def _page_view(page_url: str, created_at: str) -> dict[str, Any]:
+    return {"referrer_url": "https://example.com/", "page_url": page_url, "created_at": created_at}
+
+
+_CALLS_PARENT = [{"id": "C1"}, {"id": "C2"}]
+_C1_PATH = "/a/ACC/calls/C1/page_views.json"
+_C2_PATH = "/a/ACC/calls/C2/page_views.json"
+
+
+class TestFanoutEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_views_fan_out_injects_the_parent_call_id(self, MockSession: mock.MagicMock) -> None:
+        batches, snapshots, _ = _collect(
+            "page_views",
+            [
+                _page("calls", _CALLS_PARENT, total_pages=1),
+                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
+                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+        )
+
+        rows = [row for batch in batches for row in batch]
+        assert [row["call_id"] for row in rows] == ["C1", "C2"]
+        # Page-view rows carry no id, so call_id is part of the primary key and must not stay
+        # under the framework's `_{parent}_{field}` prefix.
+        assert not any(key.startswith("_calls_") for row in rows for key in row)
+        assert _C1_PATH in snapshots[1]["url"]
+        assert _C2_PATH in snapshots[2]["url"]
+        assert snapshots[1]["params"]["per_page"] == 250
+        # The parent listing walks ascending by its own cursor field so its pagination is stable.
+        assert snapshots[0]["params"]["sort"] == "start_time"
+        # The endpoint takes no sort param of its own.
+        assert "sort" not in snapshots[1]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_child_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
+        # The child endpoints take no date filter, so an incremental sync bounds its requests
+        # through the parent listing and relies on the merge to keep earlier rows.
+        _, snapshots, _ = _collect(
+            "page_views",
+            [
+                _page("calls", [{"id": "C1"}], total_pages=1),
+                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert "start_date" not in snapshots[1]["params"]
+        assert "created_at" not in snapshots[1]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lead_timelines_fan_out_reads_the_timeline_key(self, MockSession: mock.MagicMock) -> None:
+        batches, snapshots, _ = _collect(
+            "lead_timelines",
+            [
+                _page("leads", [{"id": "L1"}], total_pages=1),
+                _response(
+                    {
+                        "lead": {"customer_name": "Ignored summary"},
+                        "timeline": [{"type": "call", "id": "CALL1", "event_date": "2026-01-01T00:00:00Z"}],
+                        "total_pages": 1,
+                    }
+                ),
+            ],
+            MockSession,
+            account_id="ACC",
+        )
+
+        rows = [row for batch in batches for row in batch]
+        # The envelope's `lead` summary object is not the row grain; the timeline events are.
+        assert rows == [
+            {"type": "call", "id": "CALL1", "event_date": "2026-01-01T00:00:00Z", "lead_id": "L1"},
+        ]
+        assert "/a/ACC/leads/L1/timeline.json" in snapshots[1]["url"]
+        assert snapshots[1]["params"]["sort"] == "event_date"
+        assert snapshots[1]["params"]["order"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_checkpoints_each_completed_parent(self, MockSession: mock.MagicMock) -> None:
+        _, _, manager = _collect(
+            "page_views",
+            [
+                _page("calls", _CALLS_PARENT, total_pages=1),
+                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
+                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+        )
+
+        states = [call.args[0] for call in manager.save_state.call_args_list]
+        assert all(state.account_id == "ACC" and state.page is None for state in states)
+        assert states[-1].fanout_state == {"completed": [_C1_PATH, _C2_PATH], "current": None, "child_state": None}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_resume_skips_completed_parents(self, MockSession: mock.MagicMock) -> None:
+        resume = CallRailResumeConfig(
+            account_id="ACC",
+            fanout_state={"completed": [_C1_PATH], "current": None, "child_state": None},
+        )
+        batches, snapshots, _ = _collect(
+            "page_views",
+            [
+                _page("calls", _CALLS_PARENT, total_pages=1),
+                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            manager=_make_manager(resume),
+            account_id="OTHER",
+        )
+
+        # The parent listing is always re-walked, but C1 is already done, so only C2 is fetched —
+        # against the account pinned in the saved state, not the one passed in.
+        assert [row["call_id"] for batch in batches for row in batch] == ["C2"]
+        assert len(snapshots) == 2
+        assert _C2_PATH in snapshots[1]["url"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_404_does_not_sink_the_fan_out(self, MockSession: mock.MagicMock) -> None:
+        # Page views only exist for calls placed to a session tracker, and a call can be deleted
+        # between the parent listing and this fetch.
+        missing = Response()
+        missing.status_code = 404
+        missing._content = b"{}"
+        batches, _, _ = _collect(
+            "page_views",
+            [
+                _page("calls", _CALLS_PARENT, total_pages=1),
+                missing,
+                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+        )
+
+        assert [row["call_id"] for batch in batches for row in batch] == ["C2"]

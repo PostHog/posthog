@@ -1,4 +1,11 @@
-import { ChatCircleIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleIcon,
+  ChatTeardropTextIcon,
+  type Icon,
+  PulseIcon,
+  SidebarSimpleIcon,
+  SquaresFourIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
   Empty,
@@ -6,18 +13,19 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Tabs,
-  TabsList,
-  TabsTrigger,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
+import { CanvasBlocksPanel } from "@posthog/ui/features/canvas/blocks/CanvasBlocksPanel";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
+import { CanvasTimeline } from "@posthog/ui/features/canvas/freeform/CanvasTimeline";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import {
+  type CanvasPanelTab,
+  useCanvasChatPanelStore,
+} from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -25,6 +33,55 @@ import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
+
+const PANEL_TABS: Record<CanvasPanelTab, { label: string; Icon: Icon }> = {
+  chat: { label: "Chat", Icon: ChatTeardropTextIcon },
+  blocks: { label: "Blocks", Icon: SquaresFourIcon },
+  comments: { label: "Comments", Icon: ChatCircleIcon },
+  timeline: { label: "Timeline", Icon: PulseIcon },
+};
+
+const TAB_ORDER: readonly CanvasPanelTab[] = [
+  "chat",
+  "blocks",
+  "comments",
+  "timeline",
+];
+
+function PanelTabButton({
+  tab,
+  active,
+  disabled,
+  onSelect,
+}: {
+  tab: CanvasPanelTab;
+  active: boolean;
+  disabled: boolean;
+  onSelect: (tab: CanvasPanelTab) => void;
+}) {
+  const { label, Icon } = PANEL_TABS[tab];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={label}
+            aria-pressed={active}
+            data-selected={active || undefined}
+            disabled={disabled}
+            onClick={() => onSelect(tab)}
+            className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+          >
+            <Icon size={16} />
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 // The canvas's right-hand dock. It shows the chat of this person's run on the
 // canvas (steering/queue included) when they have one; otherwise it shows the
@@ -40,12 +97,14 @@ export function CanvasSidePanel({
   channelName,
   name,
   displayedVersionId,
+  liveVersionId,
   commentVersionLabel,
   onCommentOpen,
   templateId,
   isEdit,
   editorRef,
   onStarted,
+  onAskAgent,
 }: {
   /** The run whose chat the panel shows: the current person's own run on this
    * canvas, or null when they have none. Another person's run never shows
@@ -61,6 +120,7 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   displayedVersionId: string | null;
+  liveVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
   templateId?: string;
@@ -70,6 +130,7 @@ export function CanvasSidePanel({
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
+  onAskAgent: (message: string) => void;
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
@@ -82,50 +143,70 @@ export function CanvasSidePanel({
     previousTaskId.current = chatTaskId;
   }, [chatTaskId, setTab]);
 
+  const firstBuildRunning = !!chatTaskId && !isEdit;
+  const visibleTab: CanvasPanelTab =
+    tab === "blocks" && (!interactive || firstBuildRunning) ? "chat" : tab;
+
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ChromeBar
         className="bg-chrome"
         actions={
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon"
-                  variant="default"
-                  aria-label="Minimize panel"
-                  onClick={onMinimize}
-                >
-                  <SidebarSimpleIcon size={16} />
-                </Button>
-              }
-            />
-            <TooltipContent>Minimize panel</TooltipContent>
-          </Tooltip>
+          <TooltipProvider delay={400}>
+            <div className="flex items-center gap-0.5">
+              {TAB_ORDER.filter(
+                (option) => option !== "blocks" || interactive,
+              ).map((option) => (
+                <PanelTabButton
+                  key={option}
+                  tab={option}
+                  active={visibleTab === option}
+                  disabled={
+                    (option === "comments" && !commentTaskId) ||
+                    (option === "blocks" && firstBuildRunning)
+                  }
+                  onSelect={setTab}
+                />
+              ))}
+              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="default"
+                      aria-label="Minimize panel"
+                      onClick={onMinimize}
+                      className="text-muted-foreground"
+                    >
+                      <SidebarSimpleIcon size={16} />
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom">Minimize panel</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         }
       >
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as "chat" | "comments")}
-        >
-          <TabsList variant="line" className="h-10 gap-1 p-0">
-            <TabsTrigger value="chat" className="px-2.5">
-              Chat
-            </TabsTrigger>
-            <TabsTrigger
-              value="comments"
-              disabled={!commentTaskId}
-              className="px-2.5"
-            >
-              Comments
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
+          {PANEL_TABS[visibleTab].label}
+        </span>
       </ChromeBar>
 
       <div className="min-h-0 flex-1">
-        {tab === "comments" && commentTaskId ? (
-          <CanvasCommentsLoader
+        {visibleTab === "blocks" ? (
+          <CanvasBlocksPanel canvasId={dashboardId} onAskAgent={onAskAgent} />
+        ) : visibleTab === "timeline" ? (
+          <CanvasTimeline
+            dashboardId={dashboardId}
+            liveVersionId={liveVersionId}
+            viewingVersionId={displayedVersionId}
+            versionLabel={commentVersionLabel}
+            onOpen={onCommentOpen}
+          />
+        ) : visibleTab === "comments" && commentTaskId ? (
+          <CanvasComments
             taskId={commentTaskId}
             dashboardId={dashboardId}
             name={name}
@@ -180,7 +261,7 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   return <EmbeddedSessionView task={task} />;
 }
 
-function CanvasCommentsLoader({
+function CanvasComments({
   taskId,
   dashboardId,
   name,
@@ -195,46 +276,9 @@ function CanvasCommentsLoader({
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
 }) {
-  const { data: task } = useQuery(taskDetailQuery(taskId));
-
-  if (!task) {
-    return <LoadingState />;
-  }
-
-  return (
-    <CanvasTaskComments
-      task={task}
-      dashboardId={dashboardId}
-      name={name}
-      displayedVersionId={displayedVersionId}
-      commentVersionLabel={commentVersionLabel}
-      onCommentOpen={onCommentOpen}
-    />
-  );
-}
-
-function CanvasTaskComments({
-  task,
-  dashboardId,
-  name,
-  displayedVersionId,
-  commentVersionLabel,
-  onCommentOpen,
-}: {
-  task: Task;
-  dashboardId: string;
-  name: string;
-  displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string | null;
-  onCommentOpen: (versionId: string | null) => void;
-}) {
-  const { timeline } = useThreadConversation(task, {
-    surface: "activity_panel",
-  });
   return (
     <TaskCommentsList
-      task={task}
-      timeline={timeline}
+      taskId={taskId}
       onlySource={{
         kind: "canvas",
         name,

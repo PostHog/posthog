@@ -415,7 +415,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         TaskRun = apps.get_model("tasks", "TaskRun")
         pr_urls = ["https://github.com/example/app/pull/1", "https://github.com/example/app/pull/2"]
-        with patch("products.signals.backend.receivers.link_report_tracker_issues.delay") as link_tracker:
+        with patch("products.signals.backend.tasks.link_report_tracker_issues.delay") as link_tracker:
             with self.captureOnCommitCallbacks(execute=True):
                 TaskRun.objects.create(
                     team=self.team,

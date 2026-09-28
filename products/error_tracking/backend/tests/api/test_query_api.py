@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -20,10 +22,13 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    MAX_STACK_FRAMES,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
+    dedupe_repeated_stacktraces,
+    normalize_stacktrace,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -69,6 +74,51 @@ def test_release_filter_adds_substring_prefilter() -> None:
 
 def test_build_sparkline_accepts_float_values() -> None:
     assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
+
+
+def test_normalize_stacktrace_keeps_the_frames_closest_to_the_error() -> None:
+    frames = [{"mangled_name": f"frame_{index}", "in_app": True} for index in range(MAX_STACK_FRAMES + 20)]
+
+    stacktrace = normalize_stacktrace({"frames": frames}, only_app_frames=True)
+
+    assert stacktrace is not None
+    kept = cast(list[dict[str, object]], stacktrace["frames"])
+    assert len(kept) == MAX_STACK_FRAMES
+    assert kept[0]["mangled_name"] == "frame_20"
+    assert kept[-1]["mangled_name"] == f"frame_{MAX_STACK_FRAMES + 19}"
+    assert stacktrace["frames_omitted"] == 20
+
+
+def test_normalize_stacktrace_does_not_mark_a_short_stack() -> None:
+    stacktrace = normalize_stacktrace({"frames": [{"mangled_name": "main", "in_app": True}]}, only_app_frames=True)
+
+    assert stacktrace is not None
+    assert "frames_omitted" not in stacktrace
+
+
+def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() -> None:
+    def exception(line: int) -> dict[str, object]:
+        frame = {"mangled_name": "submitOrder", "line": line, "in_app": True}
+        return {"type": "TypeError", "stacktrace": {"frames": [frame]}}
+
+    def event(uuid: str, *lines: int) -> dict[str, object]:
+        return {"uuid": uuid, "properties": {"$exception_list": [exception(line) for line in lines]}}
+
+    events = dedupe_repeated_stacktraces(
+        [
+            # Two exceptions with different stacks, then an exception that repeats the first stack in the same event.
+            event("event-1", 42, 43, 42),
+            event("event-2", 43),
+            event("event-3", 44),
+        ]
+    )
+
+    stacks = [[exception["stacktrace"] for exception in cast(Any, e["properties"])["$exception_list"]] for e in events]
+    assert stacks[0][0]["frames"][0]["line"] == 42
+    assert stacks[0][1]["frames"][0]["line"] == 43
+    assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
+    assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
+    assert stacks[2][0]["frames"][0]["line"] == 44
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -269,22 +319,49 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
-    def test_issues_list_normalizes_volume_resolution(self) -> None:
-        observed_volume_resolutions: list[int] = []
+    @parameterized.expand(
+        [
+            ("counts_only", {"volumeResolution": 0}, 1, False),
+            ("with_volume", {"volumeResolution": 1}, 1, True),
+        ]
+    )
+    def test_issues_list_returns_compact_rows(
+        self, _name: str, data: dict[str, object], expected_resolution: int, expect_volume: bool
+    ) -> None:
+        observed_queries: list[tuple[int, int | None]] = []
 
         def calculate(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
-            observed_volume_resolutions.append(runner.query.volumeResolution)
-            return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
+            observed_queries.append((runner.query.volumeResolution, runner.query.limit))
+            issue = {
+                "id": self.issue_id,
+                "name": "TypeError",
+                "description": "x" * 2000,
+                "status": "active",
+                "aggregations": {
+                    "occurrences": 3,
+                    "users": 2,
+                    "sessions": 1,
+                    "volumeRange": [3],
+                    "volume_buckets": [{"label": "2026-04-17T12:00:00+00:00", "value": 3}],
+                },
+            }
+            return FakeQueryResponse({"results": [issue], "hasMore": False, "limit": 10, "offset": 0})
 
         with patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
-                data={"volumeResolution": 0},
+                data=data,
                 format="json",
             )
 
         assert response.status_code == 200
-        assert observed_volume_resolutions == [1]
+        assert observed_queries == [(expected_resolution, 10)]
+        row = response.json()["results"][0]
+        assert len(row["description"]) == 300
+        assert row["description"].endswith("[truncated from 2000 chars]")
+        assert row["aggregations"]["occurrences"] == 3
+        assert ("volumeRange" in row["aggregations"]) is expect_volume
+        assert ("volume_buckets" in row["aggregations"]) is expect_volume
 
     def test_issue_detail_tags_clickhouse_queries(self) -> None:
         self.create_issue()
@@ -635,6 +712,39 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert summary_event["properties"]["$session_id"] == "session-id-1"
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_returns_a_repeated_stack_trace_once(self) -> None:
+        self.create_issue()
+        exception_list = [
+            {
+                "type": "TypeError",
+                "value": "Cannot read properties of undefined",
+                "stacktrace": {"frames": [{"mangled_name": "submitOrder", "line": 42, "in_app": True}]},
+            }
+        ]
+        for _ in range(2):
+            self.create_exception_event(properties={"$exception_list": exception_list})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["stacktrace"],
+                "limit": 2,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        first, second = response.json()["results"]
+        assert first["properties"]["$exception_list"][0]["stacktrace"]["frames"][0]["line"] == 42
+        assert second["properties"]["$exception_list"][0]["stacktrace"] == {
+            "same_as_event": first["uuid"],
+            "same_as_exception": 0,
+        }
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_only_requested_context_groups(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -660,7 +770,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                                     "source": "src/checkout.ts",
                                     "line": 42,
                                     "in_app": True,
-                                    "code_variables": {"order": {"customer": None}},
+                                    "code_variables": {"order": {"customer": None, "total": 42}},
                                 }
                             ]
                         },
@@ -696,7 +806,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
-        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        # The native-JSON table does not store a null leaf, so the null variable is absent there.
+        expected_variables = (
+            {"order": {"total": 42}}
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else {"order": {"customer": None, "total": 42}}
+        )
+        assert variables_frame["code_variables"] == expected_variables
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}

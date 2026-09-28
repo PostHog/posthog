@@ -111,6 +111,12 @@ the end of the header row and navigates to the `?from=` source, leaving the list
 standing and the pane on its empty state, the way Activity closes an item. A
 report with no source draws no button, because there is no list beside it.
 
+Resolving or archiving the open report closes it the same way, through `useCloseReportWhenTerminal` in `ReportPage`: the report has ended, so the list comes back instead of a terminal report with its actions gone.
+Only the transition into a terminal status closes.
+A report read out of the Archive is already terminal and stays, because its read-only detail is the destination.
+Both surfaces take the navigation from `useCloseReport`, so the source and triage's place in the queue are resolved in one place.
+Triage keeps its own advance-to-next behavior, since the focus view renders the queue rather than this page.
+
 `InboxDetailFrameView` draws one header row, and only its container changes: on
 the report's own page it goes to the app header bar through the header store,
 and in a pane (Activity) the frame draws its own `ChromeBar` at the top. There

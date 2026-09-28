@@ -29,6 +29,7 @@ import {
 } from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
+  codexCloudAuthTerminalCommand,
   hasCodexChatgptLogin,
   signOutCodexChatgpt,
   startCodexChatgptLogin,
@@ -44,7 +45,6 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -58,7 +58,9 @@ import {
 import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
   BUNDLED_RESOURCES_SERVICE,
@@ -106,6 +108,8 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
+  getCodexCloudAuthFilePath,
+  getCodexCloudHomeDir,
   getCodexHomeDir,
   prepareCodexHome,
 } from "./codex-home";
@@ -128,10 +132,12 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
-  type ClaudeAuthTerminal,
+  type AuthTerminal,
   type ClaudeSubscriptionStatus,
+  type CodexCloudAuthTokens,
   type CodexSubscriptionStatus,
   type Credentials,
+  codexCloudAuthTokensOutput,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
@@ -530,6 +536,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
+  private codexCloudAttemptId: string | null = null;
   private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
@@ -558,9 +565,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     };
   }
 
-  async getClaudeAuthTerminal(
-    action: ClaudeAuthAction,
-  ): Promise<ClaudeAuthTerminal> {
+  async getClaudeAuthTerminal(action: ClaudeAuthAction): Promise<AuthTerminal> {
     if (action === "logout") {
       await this.prepareClaudeAccountChange();
     }
@@ -607,11 +612,92 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return { authUrl: login.authUrl };
   }
 
+  async getCodexCloudAuthTerminal(attemptId: string): Promise<AuthTerminal> {
+    if (this.codexCloudAttemptId !== null) {
+      throw new Error(
+        "Another ChatGPT login is in progress. Wait for it to finish.",
+      );
+    }
+    this.codexCloudAttemptId = attemptId;
+    try {
+      const codexHome = getCodexCloudHomeDir();
+      await fs.promises.mkdir(codexHome, { recursive: true });
+      await this.removeCodexCloudAuthFile(attemptId);
+      const { command, env } = codexCloudAuthTerminalCommand(
+        this.getCodexBinaryPath(),
+        codexHome,
+      );
+      return {
+        command,
+        cwd: homedir(),
+        additionalEnv: env.set,
+        unsetEnv: env.unset,
+      };
+    } catch (error) {
+      this.finishCodexCloudAuth(attemptId);
+      throw error;
+    }
+  }
+
+  finishCodexCloudAuth(attemptId: string): void {
+    if (this.codexCloudAttemptId === attemptId) this.codexCloudAttemptId = null;
+  }
+
+  private requireCodexCloudAttempt(attemptId: string): void {
+    if (this.codexCloudAttemptId !== attemptId) {
+      throw new Error("This ChatGPT login attempt is no longer active.");
+    }
+  }
+
   async signOutCodexSubscription(): Promise<void> {
     await this.prepareCodexAccountChange();
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  /**
+   * Reads the `auth.json` that `CODEX_HOME=~/.codex-posthog codex login` wrote,
+   * so the user can hand its tokens to PostHog. Only the Desktop-only home is
+   * read: the user's own `~/.codex` login stays on this machine.
+   */
+  async readCodexCloudAuthFile(
+    attemptId: string,
+  ): Promise<CodexCloudAuthTokens> {
+    this.requireCodexCloudAttempt(attemptId);
+    const authPath = getCodexCloudAuthFilePath();
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(authPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          `No ChatGPT login found at ${authPath}. Run the login command first.`,
+        );
+      }
+      throw error;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`The file at ${authPath} is not valid JSON.`);
+    }
+    const tokens = codexCloudAuthTokensOutput.safeParse(
+      (parsed as { tokens?: unknown } | null)?.tokens,
+    );
+    if (!tokens.success) {
+      throw new Error(
+        `The file at ${authPath} has no ChatGPT tokens. Log in with ChatGPT, not with an API key.`,
+      );
+    }
+    return tokens.data;
+  }
+
+  /** PostHog rotated the refresh token on connect, so the local copy is stale and only a liability. */
+  async removeCodexCloudAuthFile(attemptId: string): Promise<void> {
+    this.requireCodexCloudAttempt(attemptId);
+    await fs.promises.rm(getCodexCloudAuthFilePath(), { force: true });
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -778,7 +864,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   private async mountContextWiki(
     credentials: Credentials,
-  ): Promise<AgentTypes.ContextWikiEnv | null> {
+  ): Promise<ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return null;

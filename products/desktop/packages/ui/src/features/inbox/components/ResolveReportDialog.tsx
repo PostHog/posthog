@@ -93,7 +93,13 @@ export function ResolveReportDialog({
             <Textarea
               autoFocus={initialReason != null}
               value={note}
-              onChange={(event) => setNote(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setNote(value);
+                if (reason === null && value.trim()) {
+                  setReason("other");
+                }
+              }}
               placeholder="Optional: link to the fix or explain what changed"
               rows={3}
               maxLength={4000}

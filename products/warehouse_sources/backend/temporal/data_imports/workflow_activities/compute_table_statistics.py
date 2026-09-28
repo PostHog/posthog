@@ -9,13 +9,15 @@ Stats come from the Delta transaction log's per-file statistics (`num_records`, 
 exact, whole-table, correct for full-refresh/append/incremental-upsert (live add-actions reflect the
 current files), and scales to any table size. Results land in `WarehouseColumnStatistics`, fully
 system-owned and overwritten on each run. To avoid re-profiling an hourly-syncing table every hour,
-a row computed within `MIN_RECOMPUTE_INTERVAL` is left alone.
+a row computed within `MIN_RECOMPUTE_INTERVAL` is left alone, and a table whose Delta version has not
+moved since the last computation is left alone until `MAX_RECOMPUTE_INTERVAL` has passed.
 """
 
 import os
 import json
 import uuid
 import dataclasses
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -41,6 +43,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +53,10 @@ STATISTICS_FEATURE_FLAG = "data-warehouse-column-statistics"
 # Cap profiling to once a day per table — an hourly-syncing table doesn't need re-profiling every hour,
 # and Delta-log stats only move materially over longer windows. Env-overridable for ops.
 MIN_RECOMPUTE_INTERVAL = timedelta(hours=int(os.getenv("WAREHOUSE_STATS_MIN_RECOMPUTE_INTERVAL_HOURS", "24")))
+# Stats derive from the Delta log at one version, so an unchanged version means unchanged stats and the
+# Add-action scan (the expensive step) can be skipped. The cap still forces a recompute so a change in
+# the table's registered columns, or in how stats are derived, reaches every table eventually.
+MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOMPUTE_INTERVAL_DAYS", "7")))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -159,9 +168,59 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
     return row_count, result
 
 
-def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> Any | None:
-    times = [s.computed_at for s in existing.values() if s.computed_at is not None]
-    return max(times) if times else None
+def _most_recent_computed_at(
+    existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]
+) -> Any | None:
+    """Oldest `computed_at` among currently-registered columns, not the newest.
+
+    `_upsert_statistics` writes one column at a time and only retries the whole batch on a transient
+    DB error (`OperationalError`/`InterfaceError`); any other failure partway through a run leaves some
+    columns stamped with a fresh `computed_at` while others still carry an earlier one. Taking the max
+    would read that mixed, partially-written state as "computed recently" and skip the columns that are
+    actually still stale; the min only reports fresh once every currently-registered column agrees.
+    Scoped to `current_columns` so a column dropped from the table doesn't hold a stale row open
+    forever and block this gate on a time that can never be reached again.
+    """
+    times = [s.computed_at for name, s in existing.items() if name in current_columns and s.computed_at is not None]
+    return min(times) if times else None
+
+
+def _most_recent_computed_version(
+    existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]
+) -> int | None:
+    """Oldest `computed_for_delta_version` among currently-registered columns, not the newest.
+
+    Same partial-write hazard as `_most_recent_computed_at`, and the same fix: a recompute that aborts
+    after updating only some columns must not read as "version unchanged" just because the columns it
+    did reach now carry the current version. Scoped to `current_columns` for the same reason — a column
+    dropped from the table keeps its old row, which the maximum used to rely on to avoid it; the
+    minimum has to exclude it explicitly instead, or a dropped column's stale version would hold this
+    gate open indefinitely.
+    """
+    versions = [
+        s.computed_for_delta_version
+        for name, s in existing.items()
+        if name in current_columns and s.computed_for_delta_version is not None
+    ]
+    return min(versions) if versions else None
+
+
+def _all_columns_have_stats(existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]) -> bool:
+    """Whether every currently-registered column has a statistics row at all.
+
+    The min-based staleness checks above only compare columns that already have a row; a column
+    whose very first computation never landed (its upsert failed before any row was written, not
+    just before its version caught up) is invisible to them entirely, so a table with such a gap
+    would read as fully fresh off the other columns' timestamps and versions alone. Both skip gates
+    require this to be true first, so a never-computed column always forces a recompute rather than
+    waiting out the interval.
+    """
+    return set(current_columns) <= existing.keys()
+
+
+@retry_on_operational_error
+def _get_team(team_id: int) -> Team:
+    return Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
 
 
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
@@ -176,7 +235,16 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
+    # A plain read, so it's safe to retry outright on the Team/Organization join losing a
+    # Postgres deadlock race against an unrelated writer of either table. The team can also be
+    # legitimately gone by the time this fire-and-forget child workflow runs (deleted between the
+    # post-import gate check and now) — that's not a bug, so skip like the other not-found cases
+    # below rather than let DoesNotExist reach the activity's except block and error tracking.
+    try:
+        team = _get_team(team_id)
+    except Team.DoesNotExist:
+        log.info("warehouse_statistics.skipped", reason="team_deleted")
+        return {"status": "skipped", "reason": "team_deleted"}
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
 
     def emit_completed(status: str, **props: Any) -> None:
@@ -198,12 +266,16 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         emit_completed("skipped", reason="no_table")
         return {"status": "skipped", "reason": "no_table"}
     event_props["table_id"] = str(table.id)
+    columns = table.columns or {}
 
     existing = {
         stat.column_name: stat for stat in WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id)
     }
-    latest = _most_recent_computed_at(existing)
-    if latest is not None and timezone.now() - latest < MIN_RECOMPUTE_INTERVAL:
+    latest = _most_recent_computed_at(existing, columns)
+    # Gates every skip below: a column missing a row entirely (see _all_columns_have_stats) is
+    # invisible to the min-based checks, so it must not let a table with such a gap read as fresh.
+    all_columns_have_stats = _all_columns_have_stats(existing, columns)
+    if latest is not None and all_columns_have_stats and timezone.now() - latest < MIN_RECOMPUTE_INTERVAL:
         emit_completed("skipped", reason="computed_recently")
         return {"status": "skipped", "reason": "computed_recently"}
 
@@ -229,15 +301,33 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         return {"status": "skipped", "reason": "no_delta_table"}
 
     delta_version = delta_table.version()
+    stored_version = _most_recent_computed_version(existing, columns)
+    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
+    # so a stored version ahead of the table's current one means the table was recreated since the
+    # last computation. Treat that stored version as stale rather than a match, or a table whose
+    # refresh always produces the same low version number would skip recomputation indefinitely.
+    version_is_stale = stored_version is not None and stored_version > delta_version
+    if (
+        latest is not None
+        and all_columns_have_stats
+        and not version_is_stale
+        and stored_version == delta_version
+        and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL
+    ):
+        emit_completed("skipped", reason="version_unchanged", delta_version=delta_version)
+        return {"status": "skipped", "reason": "version_unchanged"}
+
+    # Checked before the Add-action scan: a table with no registered columns writes no rows, so
+    # nothing would stop the scan from repeating on every sync.
+    if not columns:
+        emit_completed("skipped", reason="no_columns")
+        return {"status": "skipped", "reason": "no_columns"}
+
     add_actions = delta_table.get_add_actions(flatten=True)
     if add_actions.num_rows == 0:
         emit_completed("skipped", reason="no_files")
         return {"status": "skipped", "reason": "no_files"}
-
-    columns = table.columns or {}
-    if not columns:
-        emit_completed("skipped", reason="no_columns")
-        return {"status": "skipped", "reason": "no_columns"}
 
     row_count, stats_by_column = _aggregate_add_action_stats(add_actions, columns)
 

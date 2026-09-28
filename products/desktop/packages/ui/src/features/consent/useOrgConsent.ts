@@ -38,7 +38,7 @@ function useDesktopBetaTerms(
     queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
     queryFn: async () => {
       if (!client || !organizationId) throw new Error("Not authenticated");
-      return await client.areDesktopBetaTermsAccepted(organizationId);
+      return await client.areDesktopBetaTermsAccepted();
     },
     enabled: enabled && !!client && !!organizationId,
     staleTime: 5 * 60 * 1000,

@@ -1,5 +1,7 @@
 Run a trends query to analyze metrics over time. Trends insights visualize events over time using time series. They're useful for finding patterns in historical data.
 
+Use this tool for native trends with supported aggregations, series, breakdowns, formulas, and period comparisons. Use `execute-sql` for record inspection or custom SQL calculations. When both tools preserve the requested calculation and output, prefer this tool for a new query, including simple aggregates. Keep valid existing queries when they fit the task.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters and breakdowns.
 
 The trends insights have the following features:
@@ -20,7 +22,7 @@ Examples of use cases include:
 
 # Input shape
 
-Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter, and a wrapped payload is rejected for a missing `series`.
+Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter.
 
 `series` is the only required field. Every other field is optional.
 

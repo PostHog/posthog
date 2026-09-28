@@ -1,15 +1,48 @@
 import os
+import asyncio
 from collections.abc import Iterable
 from dataclasses import field
-from time import time
+from time import sleep, time
 
 import grpc
 import structlog
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.usage_ingestion.generated.usage_ingestion.v1 import service_pb2, service_pb2_grpc
 
 logger = structlog.get_logger(__name__)
+
+USAGE_INGESTION_RECORDS_SENT_TOTAL = Counter(
+    "usage_ingestion_records_sent_total",
+    "Usage records accepted by the usage-ingestion service.",
+    labelnames=["producer_id", "usage_key"],
+)
+
+USAGE_INGESTION_RECORDS_FAILED_TOTAL = Counter(
+    "usage_ingestion_records_failed_total",
+    "Usage records dropped after the client exhausted its retries.",
+    labelnames=["producer_id", "usage_key", "error_code"],
+)
+
+USAGE_INGESTION_RETRIES_TOTAL = Counter(
+    "usage_ingestion_retries_total",
+    "Ingest calls retried after a transient error.",
+    labelnames=["producer_id", "error_code"],
+)
+
+RETRYABLE_CODES = frozenset(
+    {
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        grpc.StatusCode.ABORTED,
+        grpc.StatusCode.CANCELLED,
+        grpc.StatusCode.INTERNAL,
+    }
+)
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.1
 
 
 @frozen
@@ -59,6 +92,46 @@ def _request(records: list[UsageRecord]) -> service_pb2.IngestBillingUsageReques
     )
 
 
+def _error_code(error: Exception) -> tuple[grpc.StatusCode | None, str]:
+    if isinstance(error, grpc.RpcError):
+        try:
+            code = error.code()
+            return code, code.name.replace("_", " ").title().replace(" ", "")
+        except Exception:
+            pass
+    return None, "Unknown"
+
+
+def _record_response(records: list[UsageRecord], response: service_pb2.IngestBillingUsageResponse) -> None:
+    accepted = set(response.accepted_record_ids)
+    for record in records:
+        counter = (
+            USAGE_INGESTION_RECORDS_SENT_TOTAL if record.record_id in accepted else USAGE_INGESTION_RECORDS_FAILED_TOTAL
+        )
+        labels = {"producer_id": record.producer_id, "usage_key": record.usage_key}
+        if record.record_id not in accepted:
+            labels["error_code"] = "rejected"
+        counter.labels(**labels).inc()
+
+
+def _record_failure(records: list[UsageRecord], error_code: str) -> None:
+    for record in records:
+        USAGE_INGESTION_RECORDS_FAILED_TOTAL.labels(
+            producer_id=record.producer_id,
+            usage_key=record.usage_key,
+            error_code=error_code,
+        ).inc()
+
+
+def _retry_delay_seconds(records: list[UsageRecord], attempt: int, error: Exception) -> float:
+    status, error_code = _error_code(error)
+    if attempt + 1 < MAX_ATTEMPTS and status in RETRYABLE_CODES:
+        USAGE_INGESTION_RETRIES_TOTAL.labels(producer_id=records[0].producer_id, error_code=error_code).inc()
+        return RETRY_BACKOFF_SECONDS * 2**attempt
+    _record_failure(records, error_code)
+    raise error
+
+
 # Every producer calls these after committing work of its own, and the nightly report is still
 # the billing source of truth, so a record is worth less than the caller it runs in. Nothing
 # escapes either function — not a bad address, not an unencodable field, not an RPC error.
@@ -66,15 +139,24 @@ def _request(records: list[UsageRecord]) -> service_pb2.IngestBillingUsageReques
 
 
 def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
-    enabled, address = _to_send(records)
-    if not enabled or not address:
-        return
-
+    enabled: list[UsageRecord] = []
     try:
+        enabled, address = _to_send(records)
+        if not enabled or not address:
+            return
         with grpc.insecure_channel(address) as channel:
-            service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(
-                _request(enabled), timeout=_timeout_seconds()
-            )
+            stub = service_pb2_grpc.UsageIngestionStub(channel)
+            for attempt in range(MAX_ATTEMPTS):
+                try:
+                    response = stub.IngestBillingUsage(
+                        _request(enabled),
+                        timeout=_timeout_seconds(),
+                        metadata=(("x-client-name", enabled[0].producer_id),),
+                    )
+                    _record_response(enabled, response)
+                    return
+                except Exception as error:
+                    sleep(_retry_delay_seconds(enabled, attempt, error))
     except Exception:
         logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled), exc_info=True)
 
@@ -85,14 +167,23 @@ async def areport_usage(records: Iterable[UsageRecord], *, site: str) -> None:
     Prefer this to `asyncio.to_thread(report_usage, ...)`: that borrows a worker from the default
     executor, which a hot loop of `to_thread` calls has exhausted before.
     """
-    enabled, address = _to_send(records)
-    if not enabled or not address:
-        return
-
+    enabled: list[UsageRecord] = []
     try:
+        enabled, address = _to_send(records)
+        if not enabled or not address:
+            return
         async with grpc.aio.insecure_channel(address) as channel:
-            await service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(
-                _request(enabled), timeout=_timeout_seconds()
-            )
+            stub = service_pb2_grpc.UsageIngestionStub(channel)
+            for attempt in range(MAX_ATTEMPTS):
+                try:
+                    response = await stub.IngestBillingUsage(
+                        _request(enabled),
+                        timeout=_timeout_seconds(),
+                        metadata=(("x-client-name", enabled[0].producer_id),),
+                    )
+                    _record_response(enabled, response)
+                    return
+                except Exception as error:
+                    await asyncio.sleep(_retry_delay_seconds(enabled, attempt, error))
     except Exception:
         logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled), exc_info=True)

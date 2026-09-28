@@ -304,10 +304,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # Both replay gate columns embed feature flag IDs in their containment probes, the linked
+    # flag directly and a trigger group nested inside `conditions.flag`. Normalize every one.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 
@@ -711,9 +712,11 @@ class PostHogTestCase(SimpleTestCase):
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm
         # (60s TTL), and counting the cold reads would make every exact-count test depend
-        # on which events-schema mode CI is running.
+        # on which events-schema mode CI is running. The deferred-revenue-views gate is read
+        # on the same database-build path, so it is warmed for the same reason.
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
+        get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -1498,6 +1501,13 @@ class QueryMatchingTest:
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
+
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):

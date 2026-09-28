@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,7 +43,7 @@ class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.VENDR,
+            name=ExternalDataSourceType.VENDR,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Vendr (OpenPrice API)",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -53,6 +51,7 @@ class VendrSource(ResumableSource[VendrSourceConfig, VendrResumeConfig]):
             "families, and categories. Access is partnership-gated - email "
             "[developers@vendr.com](mailto:developers@vendr.com) to request an API key.",
             iconPath="/static/services/vendr.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/vendr",
             fields=cast(
                 list[FieldType],
                 [

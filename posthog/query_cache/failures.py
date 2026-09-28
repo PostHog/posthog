@@ -54,6 +54,10 @@ class QueryFailureRecord:
     last_failed_at: datetime
     open_until: Optional[datetime]
     budget: Budget = BUDGET_INTERACTIVE
+    # The pointer to the stored query scan the runner put on the original failure, so a replay
+    # carries it the way the first failure did.
+    cache_key: Optional[str] = None
+    query_scan: Optional[dict[str, Any]] = None
 
     @property
     def is_open(self) -> bool:
@@ -86,7 +90,13 @@ class QueryFailureCache:
         return record if record is not None and record.is_open else None
 
     def record_failure(
-        self, kind: FailureKind, detail: str, budget: Budget = BUDGET_INTERACTIVE
+        self,
+        kind: FailureKind,
+        detail: str,
+        budget: Budget = BUDGET_INTERACTIVE,
+        *,
+        cache_key: Optional[str] = None,
+        query_scan: Optional[dict[str, Any]] = None,
     ) -> Optional[QueryFailureRecord]:
         """Count a deterministic failure. The detail is shown to users verbatim when the
         remembered failure is served, so callers must only ever pass user-safe copy."""
@@ -117,6 +127,8 @@ class QueryFailureCache:
                 last_failed_at=datetime.now(UTC),
                 open_until=open_until,
                 budget=record_budget,
+                cache_key=cache_key,
+                query_scan=query_scan,
             )
             caches[QUERY_CACHE_ALIAS].set(self.key, self._serialize(record), RECORD_TTL.total_seconds())
             QUERY_FAILURE_CACHE_COUNTER.labels(action="opened" if open_until else "recorded", kind=kind).inc()
@@ -148,6 +160,8 @@ class QueryFailureCache:
                 last_failed_at=datetime.fromisoformat(data["last_failed_at"]),
                 open_until=datetime.fromisoformat(data["open_until"]) if data["open_until"] else None,
                 budget=data.get("budget", BUDGET_INTERACTIVE),
+                cache_key=data.get("cache_key"),
+                query_scan=data.get("query_scan"),
             )
         except Exception:
             logger.exception("query_failure_cache_read_failed", key=self.key)
@@ -162,4 +176,6 @@ class QueryFailureCache:
             "last_failed_at": record.last_failed_at.isoformat(),
             "open_until": record.open_until.isoformat() if record.open_until else None,
             "budget": record.budget,
+            "cache_key": record.cache_key,
+            "query_scan": record.query_scan,
         }

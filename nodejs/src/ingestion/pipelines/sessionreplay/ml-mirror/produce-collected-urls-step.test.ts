@@ -10,7 +10,7 @@ import { CollectedUrl } from './parse-and-anonymize-step'
 import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {
-    const PSEUDO_TEAM = 'a'.repeat(32)
+    const TEAM_ID = '42'
     const CAPTURED_AT = 1_700_000_000_000
     let queued: { key: string; value: Buffer }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
@@ -31,7 +31,32 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, pseudoTeam: PSEUDO_TEAM, url, host, domain }
+        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, teamId: TEAM_ID, url, host, domain }
+    }
+
+    function collectedV3(hash: string, url: string): CollectedUrl {
+        const host = new URL(url).host
+        return {
+            ref: `imageurl:v3:${TEAM_ID}:2026-09:${hash.padEnd(22, 'x')}`,
+            teamId: TEAM_ID,
+            url,
+            host,
+            domain: host,
+        }
+    }
+
+    function v3SessionInput(sessionId: string, collectedUrls: CollectedUrl[]) {
+        const key = {
+            identity: { teamId: Number(TEAM_ID), sessionId, sessionMonth: '2026-09' },
+            plaintext: Buffer.alloc(32),
+            wrapped: Buffer.alloc(0),
+        }
+        return {
+            message: { timestamp: CAPTURED_AT },
+            headers: { session_id: sessionId },
+            mlKeys: { session: key, image: key },
+            collectedUrls,
+        }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
@@ -128,6 +153,44 @@ describe('produceCollectedUrlsStep', () => {
         expect(
             queued.map((batch) => decode(batch).map((message) => message.value.jobs.map((job) => job.currentUrl)))
         ).toEqual([[[first.url]], [[replacement.url]]])
+    })
+
+    it('dedups an identical transport URL that another session of the team collected', async () => {
+        const step = createProduceCollectedUrlsStep(outputs, topHog)
+        const url = collectedV3('h1', 'https://cdn.example.com/a.jpg')
+
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [url]))
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000002', [url]))
+
+        expect(queued).toHaveLength(1)
+    })
+
+    it('skips a v3 ref whose crawl history is fresh', async () => {
+        const fresh = collectedV3('h1', 'https://cdn.example.com/fresh.jpg')
+        const missing = collectedV3('h2', 'https://cdn.example.com/missing.jpg')
+        const read = jest.fn<
+            ReturnType<Pick<CrawlHistoryStore, 'read'>['read']>,
+            Parameters<Pick<CrawlHistoryStore, 'read'>['read']>
+        >()
+        read.mockResolvedValue(
+            new Map([
+                [
+                    fresh.ref,
+                    {
+                        kind: 'url' as const,
+                        key: fresh.ref,
+                        nextFetchAtMs: Number.MAX_SAFE_INTEGER,
+                        storageExpiresAtMs: Number.MAX_SAFE_INTEGER,
+                        outcome: 'ok',
+                    },
+                ],
+            ])
+        )
+        const step = createProduceCollectedUrlsStep(outputs, topHog, { crawlHistory: { read } })
+
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [fresh, missing]))
+
+        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([missing.ref])
     })
 
     it('produces an identical transport URL again after the dedup window', async () => {
@@ -233,8 +296,8 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     test.each([
-        ['inline image', `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
-        ['legacy team-scoped URL', `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['inline image', `image:${TEAM_ID}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['legacy team-scoped URL', `imageurl:${'a'.repeat(32)}:h1xxxxxxxxxxxxxxxxxxxx`],
     ])('refuses to produce a %s ref', async (_name, ref) => {
         const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
 
@@ -243,7 +306,7 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 {
                     ref,
-                    pseudoTeam: PSEUDO_TEAM,
+                    teamId: TEAM_ID,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -263,8 +326,8 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
-                    ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
-                    pseudoTeam: PSEUDO_TEAM,
+                    ref: `image:${TEAM_ID}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    teamId: TEAM_ID,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -338,7 +401,7 @@ describe('produceCollectedUrlsStep', () => {
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
                     ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
-                    pseudoTeam: otherTeam,
+                    teamId: otherTeam,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
                     domain: 'img.example.com',

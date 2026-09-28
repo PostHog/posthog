@@ -9,13 +9,17 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Comment
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+
+def is_task_preview_item(task_id: UUID, item_id: str) -> bool:
+    prefix, _, port = item_id.rpartition(":")
+    return prefix == str(task_id) and port.isascii() and port.isdigit() and 0 < int(port) <= 65535
 
 
 def _visible_tasks(team_id: int, user_id: int | None):
@@ -31,10 +35,14 @@ def target_is_accessible(
         return False
 
     task = _visible_tasks(team_id, user_id).filter(id=parsed_task_id).first()
-    if task is None or not item_id or scope not in COMMENT_ACTIVITY_SCOPES:
+    if task is None or not item_id or scope not in DESKTOP_COMMENT_SCOPES:
         return False
     if scope == "task":
         return str(task.id) == str(item_id)
+    if scope == "task_browser":
+        return str(item_id) == f"{task.id}:browser"
+    if scope == "task_preview":
+        return is_task_preview_item(task.id, item_id)
     if scope != "task_artifact":
         return False
 
@@ -63,7 +71,7 @@ def notifications_allowed(*, team_id: int, task_id: str | UUID) -> bool:
 
 
 def comment_task_id(comment: Comment) -> UUID | None:
-    if comment.scope not in COMMENT_ACTIVITY_SCOPES:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES:
         return None
     raw_task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
     if not isinstance(raw_task_id, str):
@@ -89,7 +97,10 @@ def project_comment_activity(
     task_id = comment_task_id(comment)
     if task_id is None:
         return
-    task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
+    if comment.scope == "desktop_canvas":
+        task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
+    else:
+        task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
     if task is None:
         return
 
@@ -119,12 +130,26 @@ def project_comment_activity(
                     )
                 except (ValueError, DjangoValidationError):
                     pass
-            owner_id = owner_id or task.created_by_id
+            if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
+                from products.canvas.backend.comment_access import canvas_owner_id
+
+                owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
+            if comment.scope != "desktop_canvas":
+                owner_id = owner_id or task.created_by_id
             if owner_id:
                 recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
 
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
+    if comment.scope == "desktop_canvas":
+        from products.canvas.backend.comment_access import visible_canvas_user_ids
+
+        visible_user_ids = visible_canvas_user_ids(
+            team_id=team_id,
+            canvas_id=comment.item_id,
+            user_ids=recipients,
+        )
+        recipients = {user_id: kind for user_id, kind in recipients.items() if user_id in visible_user_ids}
     TaskCommentActivity.record_many(
         team_id=team_id,
         task_id=task_id,

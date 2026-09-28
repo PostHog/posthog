@@ -430,7 +430,11 @@ class MetricQueryRunner:
         self.metric_type = metric_type
 
     def run(self) -> list[dict[str, Any]]:
-        """Return bucketed rows with time, value, and group labels."""
+        """Bucketed rows: `{"time", "value", "labels", "series_fingerprints"}`.
+        `labels` carries one entry per group_by key (always `{}` without
+        group_by). `series_fingerprints` lists the physical series the bucket
+        aggregated, so the facade can resolve per-series attributes (unit)
+        honestly even when the bucket merged several series."""
         if self.aggregation == "histogram_quantile":
             return self._run_histogram_quantile()
         if self.aggregation in ("rate", "increase"):
@@ -455,6 +459,7 @@ class MetricQueryRunner:
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                    "series_fingerprints": row[2 + group_count],
                 }
             )
         return rows
@@ -492,6 +497,7 @@ class MetricQueryRunner:
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                    "series_fingerprints": row[4 + group_count],
                 }
             )
         return rows
@@ -546,7 +552,8 @@ class MetricQueryRunner:
             """
                 SELECT
                     time AS time,
-                    {aggregation} AS value
+                    {aggregation} AS value,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         toStartOfInterval(timestamp, {interval}) AS time,
@@ -591,7 +598,8 @@ class MetricQueryRunner:
             """
                 SELECT
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    sum(contribution) / {divisor} AS value
+                    sum(contribution) / {divisor} AS value,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
@@ -650,7 +658,8 @@ class MetricQueryRunner:
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
                     any(histogram_bounds) AS bounds,
                     groupUniqArray(histogram_bounds) AS bounds_variants,
-                    sumForEach(contribution_counts) AS counts
+                    sumForEach(contribution_counts) AS counts,
+                    groupUniqArray(s.series_fingerprint) AS series_fingerprints
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,

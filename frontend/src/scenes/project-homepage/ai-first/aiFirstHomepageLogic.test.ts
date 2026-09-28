@@ -1,18 +1,20 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import type { DashboardBasicApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { pinnedDashboardsModel } from '~/models/pinnedDashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardBasicType } from '~/types'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -82,28 +84,29 @@ describe('aiFirstHomepageLogic', () => {
 
     it('shares the rail row budget between pinned and recents, and fills suggestions to four', () => {
         const createFileSystemEntries = (prefix: string): FileSystemEntry[] =>
-            Array.from({ length: 9 }, (_, index) => ({
+            Array.from({ length: 4 }, (_, index) => ({
                 id: `${prefix}-${index}`,
                 path: `${prefix} ${index}`,
                 type: 'insight',
             }))
 
-        dashboardsModel.actions.loadDashboardsSuccess({
-            count: 9,
-            next: null,
-            previous: null,
-            results: Array.from({ length: 9 }, (_, index) => ({
+        pinnedDashboardsModel.actions.loadPinnedDashboardsSuccess(
+            Array.from({ length: 4 }, (_, index) => ({
                 id: index,
                 name: `Dashboard ${index}`,
                 pinned: true,
-            })) as DashboardBasicType[],
-        })
+            })) as DashboardBasicApi[]
+        )
         recentItemsModel.actions.loadRecentsSuccess(createFileSystemEntries('Recent'))
 
         const dashboards = logic.values.gridItems.filter((item) => item.kind === 'dashboard')
         expect(dashboards).toHaveLength(4)
-        // Nine pinned dashboards render as three rows plus a link to the rest
-        expect(dashboards[3]).toMatchObject({ id: 'dashboard-overflow', label: 'And 6 more', href: urls.dashboards() })
+        // A full capped response renders three dashboards and a link to the complete list.
+        expect(dashboards[3]).toMatchObject({
+            id: 'dashboard-overflow',
+            label: 'View all dashboards',
+            href: urls.dashboards(),
+        })
         // A full pinned section leaves two of the rail's six budgeted rows for recents
         expect(logic.values.gridItems.filter((item) => item.kind === 'recent')).toHaveLength(2)
         const suggestions = logic.values.gridItems.filter((item) => item.kind === 'suggestion')
@@ -170,5 +173,64 @@ describe('aiFirstHomepageLogic', () => {
         })
         await expectLogic(logic).delay(1).toMatchValues({ mode: 'ai' })
         expect(maxLogic({ panelId: HOMEPAGE_TAB_ID }).values.conversationId).toEqual('conv-1')
+    })
+
+    it('suggests continuing the newest web sandbox task when it is newer than the last conversation', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/conversations/': {
+                    results: [
+                        {
+                            id: 'conv-1',
+                            title: 'Retention dip investigation',
+                            type: 'assistant',
+                            status: 'idle',
+                            created_at: '2026-01-01T00:00:00Z',
+                            updated_at: '2026-01-01T00:00:00Z',
+                        },
+                    ],
+                },
+                '/api/projects/:team_id/tasks/': {
+                    results: [
+                        {
+                            id: 'task-1',
+                            slug: 'TASK-1',
+                            title: 'Find semantic layer users',
+                            origin_product: 'posthog_ai',
+                            last_activity_at: '2026-02-01T00:00:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
+        logic.unmount()
+        logic = aiFirstHomepageLogic()
+        logic.mount()
+        maxGlobalLogic.actions.loadConversationHistory()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ latestWebTaskLoading: false })
+        await expectLogic(maxGlobalLogic).toFinishAllListeners()
+
+        expect(logic.values.suggestionItems[0]).toMatchObject({ source: 'continue', taskId: 'task-1' })
+    })
+
+    it('activating a continue suggestion for a sandbox task opens that task on /ai', async () => {
+        router.actions.push(urls.projectHomepage())
+
+        logic.actions.activateGridItem({
+            id: 'suggestion-continue-task-1',
+            label: 'Continue your last conversation',
+            kind: 'suggestion',
+            source: 'continue',
+            taskId: 'task-1',
+        })
+        await expectLogic(logic).delay(1)
+
+        expect(router.values.location.pathname).toEqual('/project/997/ai')
+        expect(router.values.searchParams.task).toEqual('task-1')
+        expect(logic.values.mode).toEqual('idle')
     })
 })

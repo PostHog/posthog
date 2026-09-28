@@ -382,6 +382,12 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
+// Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
+// unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
+// unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
+pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
+    "flags_flag_definitions_not_modified_billing_total";
+
 // Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
 // 0 on the shared one. Every emission carries a `reason` label, so
 // `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
@@ -430,6 +436,9 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Conditions skipped during evaluation because required context was absent.
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
+
+// V2 ingress outcomes use fixed labels and never include configuration values.
+pub const FLAG_V2_PARSE_COUNTER: &str = "flags_v2_config_parse_total";
 
 // Incremented once per flag left out of a team's payload because its `filters` JSON
 // does not deserialize into FlagFilters. A property filter with no `"type"` key is

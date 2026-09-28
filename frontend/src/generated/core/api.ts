@@ -15,14 +15,25 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    DataDeletionPreviewApi,
+    DataDeletionRequestApi,
+    DataDeletionRequestCreateApi,
+    DataDeletionRequestInputApi,
+    DataDeletionRequestsListParams,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
+    EmojiSearchResponseApi,
+    EmojiSearchSuggestRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
+    EventMatchRequestApi,
+    EventMatchResponseApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
     FileSystemApi,
+    FileSystemDestroyParams,
+    FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -47,6 +58,7 @@ import type {
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
+    PaginatedDataDeletionRequestListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -73,13 +85,18 @@ import type {
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
+    ProjectApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
+    SearchIntentRequestApi,
+    SearchIntentResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
+    TwoFactorStatusApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -88,6 +105,8 @@ import type {
     UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
+    UserCodexConnectRequestApi,
+    UserCodexIntegrationApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserGitHubPrepareCallbackRequestApi,
@@ -957,6 +976,24 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsCancelDeletionCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled project deletion and restore access to the project.
+ */
+export const organizationsProjectsCancelDeletionCreate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectApi> => {
+    return apiMutator<ProjectApi>(getOrganizationsProjectsCancelDeletionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
@@ -1300,6 +1337,30 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl = (
+    organizationId: string,
+    id: number
+) => {
+    return `/api/organizations/${organizationId}/projects/${id}/rotate_heatmaps_screenshot_secret/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+        }
+    )
+}
+
 export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
 }
@@ -1415,6 +1476,124 @@ export const dashboardsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getDataDeletionRequestsListUrl = (projectId: string, params?: DataDeletionRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_deletion_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_deletion_requests/`
+}
+
+/**
+ * List self-service event deletion requests for this project.
+ */
+export const dataDeletionRequestsList = async (
+    projectId: string,
+    params?: DataDeletionRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataDeletionRequestListApi> => {
+    return apiMutator<PaginatedDataDeletionRequestListApi>(getDataDeletionRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataDeletionRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/`
+}
+
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const dataDeletionRequestsCreate = async (
+    projectId: string,
+    dataDeletionRequestCreateApi: DataDeletionRequestCreateApi,
+    options?: RequestInit
+): Promise<DataDeletionRequestApi> => {
+    return apiMutator<DataDeletionRequestApi>(getDataDeletionRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataDeletionRequestCreateApi),
+    })
+}
+
+export const getDataDeletionRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/${id}/`
+}
+
+/**
+ * Get one self-service event deletion request for this project.
+ */
+export const dataDeletionRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataDeletionRequestApi> => {
+    return apiMutator<DataDeletionRequestApi>(getDataDeletionRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataDeletionRequestsPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/preview/`
+}
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const dataDeletionRequestsPreviewCreate = async (
+    projectId: string,
+    dataDeletionRequestInputApi: DataDeletionRequestInputApi,
+    options?: RequestInit
+): Promise<DataDeletionPreviewApi> => {
+    return apiMutator<DataDeletionPreviewApi>(getDataDeletionRequestsPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataDeletionRequestInputApi),
+    })
+}
+
+export const getEmojiSearchSuggestRetrieveUrl = (projectId: string, params: EmojiSearchSuggestRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/emoji_search/suggest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/emoji_search/suggest/`
+}
+
+/**
+ * @summary Suggest emojis for an unmatched search
+ */
+export const emojiSearchSuggestRetrieve = async (
+    projectId: string,
+    params: EmojiSearchSuggestRetrieveParams,
+    options?: RequestInit
+): Promise<EmojiSearchResponseApi> => {
+    return apiMutator<EmojiSearchResponseApi>(getEmojiSearchSuggestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1583,12 +1762,29 @@ export const fileSystemPartialUpdate = async (
     })
 }
 
-export const getFileSystemDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/file_system/${id}/`
+export const getFileSystemDestroyUrl = (projectId: string, id: string, params?: FileSystemDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id), {
+export const fileSystemDestroy = async (
+    projectId: string,
+    id: string,
+    params?: FileSystemDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
     })
@@ -1668,6 +1864,20 @@ export const fileSystemCountByPathCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system/home_folder/`
+}
+
+export const fileSystemHomeFolderCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<FileSystemHomeFolderApi> => {
+    return apiMutator<FileSystemHomeFolderApi>(getFileSystemHomeFolderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2372,6 +2582,48 @@ export const sessionRecordingsSharingRefreshCreate = async (
     })
 }
 
+export const getTaxonomicSearchIntentClassifyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/classify/`
+}
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const taxonomicSearchIntentClassifyCreate = async (
+    projectId: string,
+    searchIntentRequestApi: SearchIntentRequestApi,
+    options?: RequestInit
+): Promise<SearchIntentResponseApi> => {
+    return apiMutator<SearchIntentResponseApi>(getTaxonomicSearchIntentClassifyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchIntentRequestApi),
+    })
+}
+
+export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
+}
+
+/**
+ * Guess which PostHog core events a search that matched no event name describes.
+ * @summary Match an events search to core events
+ */
+export const taxonomicSearchIntentMatchEventsCreate = async (
+    projectId: string,
+    eventMatchRequestApi: EventMatchRequestApi,
+    options?: RequestInit
+): Promise<EventMatchResponseApi> => {
+    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventMatchRequestApi),
+    })
+}
+
 export const getUploadedMediaListUrl = (projectId: string, params: UploadedMediaListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2492,6 +2744,17 @@ export const revokeLeakedKeyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2675,6 +2938,60 @@ export const usersIntegrationsList = async (
     return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsCodexRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Show the ChatGPT account connected for Codex cloud tasks
+ */
+export const usersIntegrationsCodexRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserCodexIntegrationApi> => {
+    return apiMutator<UserCodexIntegrationApi>(getUsersIntegrationsCodexRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsCodexCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const usersIntegrationsCodexCreate = async (
+    uuid: string,
+    userCodexConnectRequestApi: UserCodexConnectRequestApi,
+    options?: RequestInit
+): Promise<UserCodexIntegrationApi> => {
+    return apiMutator<UserCodexIntegrationApi>(getUsersIntegrationsCodexCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userCodexConnectRequestApi),
+    })
+}
+
+export const getUsersIntegrationsCodexDestroyUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/codex/`
+}
+
+/**
+ * Revokes the refresh token at OpenAI and deletes the stored tokens. Idempotent.
+ * @summary Disconnect the ChatGPT account used for Codex cloud tasks
+ */
+export const usersIntegrationsCodexDestroy = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsCodexDestroyUrl(uuid), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -3228,10 +3545,13 @@ export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
 }
 
 /**
- * Get current 2FA status including backup codes if enabled
+ * Get current 2FA status, including how many backup codes are left.
  */
-export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
+export const usersTwoFactorStatusRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<TwoFactorStatusApi> => {
+    return apiMutator<TwoFactorStatusApi>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })

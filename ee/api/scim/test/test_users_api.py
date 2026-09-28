@@ -187,6 +187,28 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert scim_user.active is True
         assert scim_user.identity_provider == SCIMProvisionedUser.IdentityProvider.OTHER
 
+    def test_create_resolves_an_address_that_folds_onto_an_existing_account(self):
+        # Postgres LOWER folds `İ` onto a plain `i`, so provisioning this address must reach the
+        # account already holding the ASCII spelling instead of standing up a second row that
+        # competes with it for every login.
+        existing = User.objects.create_user(
+            email="iuser@example.com", password=None, first_name="Existing", is_email_verified=True
+        )
+        user_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "İuser@example.com",
+            "name": {"givenName": "New", "familyName": "User"},
+            "emails": [{"value": "İuser@example.com", "primary": True}],
+            "active": True,
+        }
+
+        self.client.post(
+            f"/scim/v2/{self.config.scim_slug}/Users", data=user_data, content_type="application/scim+json"
+        )
+
+        assert User.objects.filter(email__in=["iuser@example.com", "İuser@example.com"]).count() == 1
+        assert User.objects.get(pk=existing.pk).email == "iuser@example.com"
+
     def test_existing_user_is_added_to_org(self):
         # Create user in different org
         other_org = Organization.objects.create(name="Other Org")

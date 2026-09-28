@@ -42,6 +42,7 @@ from products.growth.backend.enrichment import (
     icp_lists as icp_lists_module,
 )
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
+from products.growth.backend.enrichment.context import FIT_EVALUATION_KIND_BACKFILL
 from products.growth.backend.enrichment.core import latest_matched_payload
 from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
@@ -240,7 +241,11 @@ class Command(BaseCommand):
             return "written"
 
         write_organization_enrichment(
-            organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+            organization_id=str(fetch.organization_id),
+            fields=None,
+            pha_client=pha_client,
+            fit=result,
+            fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
         )
         self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
         if delay:

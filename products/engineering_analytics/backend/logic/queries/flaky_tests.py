@@ -29,6 +29,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
+    query_setup_breaks,
     run_evidence,
     scan_placeholders,
     selector_from_nodeid,
@@ -79,7 +80,12 @@ def query_flaky_tests(
     if not repository:
         return FlakyTestList(items=[], truncated=False, limit=limit)
 
-    placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to)
+    placeholders = scan_placeholders(
+        repository=repository,
+        date_from=date_from,
+        date_to=date_to,
+        setup_breaks=query_setup_breaks(curated=curated, date_from=date_from, date_to=date_to),
+    )
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     runner_filter = ""
     if runner is not None:

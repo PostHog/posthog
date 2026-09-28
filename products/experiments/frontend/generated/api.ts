@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
@@ -20,6 +22,7 @@ import type {
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
+    ExperimentMatchingIdsResponseApi,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
@@ -29,9 +32,12 @@ import type {
     ExperimentSessionContextsRequestApi,
     ExperimentSessionContextsResponseApi,
     ExperimentSessionEventDeltaResponseApi,
+    ExperimentSetupContextInputApi,
+    ExperimentSetupContextResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
+    ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
@@ -80,6 +86,9 @@ export const getExperimentHoldoutsListUrl = (projectId: string, params?: Experim
         : `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsList = async (
     projectId: string,
     params?: ExperimentHoldoutsListParams,
@@ -95,6 +104,9 @@ export const getExperimentHoldoutsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsCreate = async (
     projectId: string,
     experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
@@ -112,6 +124,9 @@ export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: number) 
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsRetrieve = async (
     projectId: string,
     id: number,
@@ -127,6 +142,9 @@ export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) =>
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsUpdate = async (
     projectId: string,
     id: number,
@@ -145,6 +163,9 @@ export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: num
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -163,6 +184,9 @@ export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: number) =
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsDestroy = async (
     projectId: string,
     id: number,
@@ -793,6 +817,38 @@ export const experimentsMetricsRecalculationLatestRetrieve = async (
     )
 }
 
+export const getExperimentsMigrateCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/migrate/`
+}
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. The legacy experiment is left untouched and
+ * keeps its results, so the project ends up with two experiments. Both point at
+ * the same feature flag, so no new rollout is needed and users keep the variant
+ * they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const experimentsMigrateCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsMigrateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/pause/`
 }
@@ -1083,6 +1139,42 @@ export const experimentsUnfreezeExposureCreate = async (
     })
 }
 
+export const getExperimentsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const experimentsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getExperimentsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
 export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/calculate_running_time/`
 }
@@ -1130,6 +1222,41 @@ export const experimentsCreateFromPromptCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
+export const getExperimentsMatchingIdsRetrieveUrl = (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/matching_ids/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/matching_ids/`
+}
+
+/**
+ * Get IDs of all experiments matching the current list filters.
+ * Accepts the same query params as the list endpoint and returns only
+ * IDs of experiments the user has permission to edit.
+ */
+export const experimentsMatchingIdsRetrieve = async (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams,
+    options?: RequestInit
+): Promise<ExperimentMatchingIdsResponseApi> => {
+    return apiMutator<ExperimentMatchingIdsResponseApi>(getExperimentsMatchingIdsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1213,6 +1340,32 @@ export const experimentsSessionContextsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentSessionContextsRequestApi),
+    })
+}
+
+export const getExperimentsSetupContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/setup_context/`
+}
+
+/**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const experimentsSetupContextCreate = async (
+    projectId: string,
+    experimentSetupContextInputApi?: ExperimentSetupContextInputApi,
+    options?: RequestInit
+): Promise<ExperimentSetupContextResponseApi> => {
+    return apiMutator<ExperimentSetupContextResponseApi>(getExperimentsSetupContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSetupContextInputApi),
     })
 }
 

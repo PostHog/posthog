@@ -6,6 +6,7 @@ mod logs;
 mod pg;
 mod scheduler;
 mod sink;
+mod tags;
 
 use anyhow::Result;
 use clap::Parser;

@@ -31,5 +31,5 @@ export function mainFocusUrl({ isNewView, activeCreation, conversationId }: Main
         return null
     }
     // The panel keeps streaming the run it opened, while the task page otherwise defaults to the newest.
-    return combineUrl(urls.taskDetail(activeCreation.taskId), { runId: activeCreation.runId }).url
+    return combineUrl(urls.aiTask(activeCreation.taskId), { runId: activeCreation.runId }).url
 }

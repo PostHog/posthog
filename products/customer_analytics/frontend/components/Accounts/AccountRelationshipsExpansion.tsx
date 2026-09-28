@@ -14,11 +14,22 @@ import {
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipApi,
+    AccountRelationshipSourceEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 
 const PAGE_SIZE = 10
+
+const SOURCE_LABELS: Record<AccountRelationshipSourceEnumApi, string> = {
+    human: 'Person',
+    workflow: 'Workflow',
+    ai: 'AI',
+    salesforce_claim: 'Salesforce',
+    migration: 'Migration',
+}
 
 export function AccountRelationshipsExpansion({
     accountId,
@@ -70,6 +81,17 @@ export function AccountRelationshipsExpansion({
                 ),
         },
         {
+            title: 'Assigned by',
+            key: 'source',
+            width: 110,
+            render: (_, relationship) =>
+                relationship.source ? (
+                    SOURCE_LABELS[relationship.source]
+                ) : (
+                    <span className="text-muted">Not recorded</span>
+                ),
+        },
+        {
             title: 'Started',
             key: 'started_at',
             width: 140,
@@ -78,7 +100,7 @@ export function AccountRelationshipsExpansion({
         {
             title: 'Ended',
             key: 'ended_at',
-            width: 140,
+            width: 160,
             render: (_, relationship) =>
                 relationship.ended_at ? (
                     <TZLabel time={relationship.ended_at} />

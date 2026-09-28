@@ -1,6 +1,7 @@
+import re
 import json
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -13,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -25,6 +29,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads
     OPENAI_ADS_BASE_URL,
     OPENAI_ADS_ENDPOINTS,
     OpenAIAdsEndpointConfig,
+)
+
+# Shared with the source's 401 and 403 entries in `get_non_retryable_errors` so a rejected key reads
+# the same whether it surfaces while the source is being set up or during a later sync.
+INVALID_CREDENTIALS_ERROR = (
+    "Your OpenAI Ads API key is invalid or has been revoked. Create a new API key in the Settings "
+    "tab of OpenAI Ads Manager, then reconnect."
+)
+NO_ACCESS_ERROR = (
+    "Your OpenAI Ads API key does not have access to this ad account. Create a key for this ad "
+    "account in the Settings tab of OpenAI Ads Manager, then reconnect."
+)
+UNREACHABLE_ERROR = (
+    "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
 )
 
 # Floor for the insights window on a full refresh. OpenAI Ads launched to advertisers in 2026, so
@@ -104,17 +122,23 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # One cheap probe against the campaigns list confirms the key is genuine. 200 => valid.
     # 403 => a real key the API recognizes but with restricted access; accept it at create time
     # (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    ok, _status = validate_via_probe(
+    ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{OPENAI_ADS_BASE_URL}/v1/campaigns?limit=1",
         headers={"Authorization": f"Bearer {api_key}", **_headers()},
         ok_statuses=(200, 403),
     )
-    return ok
+    if ok:
+        return True, None
+    if status == 401:
+        return False, INVALID_CREDENTIALS_ERROR
+    # Anything else — a timeout, connection error, rate limit, or 5xx — says nothing about the key,
+    # so point at retrying rather than sending the user off to replace a key that works.
+    return False, UNREACHABLE_ERROR
 
 
 def _to_utc_date(value: Any) -> date:
@@ -161,6 +185,17 @@ def _make_client(api_key: str) -> RESTClient:
         headers=_headers(),
         auth=BearerTokenAuth(api_key),
     )
+
+
+def _account_currency(api_key: str) -> str:
+    for page in _make_client(api_key).paginate(
+        path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$"
+    ):
+        for account in page:
+            currency = account.get("currency_code")
+            if isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency):
+                return currency
+    raise ValueError("OpenAI Ads did not return an account currency. Check the account settings, then sync again.")
 
 
 def _list_pages(client: RESTClient, path: str, params: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
@@ -234,6 +269,7 @@ def openai_ads_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
         if resume is not None and resume.since and resume.until:
             window: SyncWindow[str] = SyncWindow(start=resume.since, end=resume.until)
@@ -251,13 +287,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
-        data_map = _convert_insights_times
+        currency = _account_currency(api_key)
+
+        def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
+            return {**_convert_insights_times(row), "currency_code": currency}
+
+        data_map = enrich_insights
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
         # full campaign list.
         params = {"limit": LIST_PAGE_SIZE, "order": "asc"}
-        data_map = None
 
     rest_config: RESTAPIConfig = {
         "client": {

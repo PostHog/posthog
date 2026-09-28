@@ -48,6 +48,17 @@ describe('HogFlow step previews', () => {
         expect(previewLabels(workflowAction)).toEqual(expected)
     })
 
+    it.each([
+        [action('conditional_branch', {}), ['0 conditions']],
+        [action('random_cohort_branch', {}), ['0 cohorts']],
+        [action('function', { template_id: 'template-webhook' }), ['POST']],
+        [action('function_email', {}), ['Email']],
+        [action('function_sms', {}), ['SMS']],
+        [action('function_push', {}), ['Push notification']],
+    ])('falls back to a generic label when the config carries no inputs', (workflowAction, expected) => {
+        expect(previewLabels(workflowAction)).toEqual(expected)
+    })
+
     it('adds the number of action conditions', () => {
         const workflowAction = {
             ...action('function', {

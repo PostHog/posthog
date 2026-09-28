@@ -4,10 +4,12 @@ import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTas
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
+import { NewSessionHeading } from "@posthog/ui/features/canvas/components/work/NewSessionHeading";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
@@ -39,9 +41,9 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const channelName = channel?.name;
   const contextLayerEnabled = useContextLayerFlag();
   const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
+  const workLayout = useWorkLayout();
 
   // Surface the channel breadcrumb in the shared header, same as the other
-  // channel scenes ("# channel / New session").
   useSetHeaderContent(
     useMemo(
       () => (
@@ -53,6 +55,7 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
       ),
       [channelName, channelId, spacesLayout],
     ),
+    !workLayout,
   );
   // The channel's CONTEXT.md, passed to the agent as optional background so
   // tasks created here start with the shared context. Absent/empty is fine.
@@ -137,13 +140,25 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           // Beside the Cloud/Local chip: which space the task files into.
           // Arriving from a space's own "+" this is pre-filled; the global
           // new-task entry points land on #me.
-          spaceSelector={({ disabled }) => (
-            <SpaceSelect
-              value={channelId}
-              onChange={handleSpaceChange}
-              disabled={disabled}
-            />
-          )}
+          spaceSelector={
+            workLayout
+              ? undefined
+              : ({ disabled }) => (
+                  <SpaceSelect
+                    value={channelId}
+                    onChange={handleSpaceChange}
+                    disabled={disabled}
+                  />
+                )
+          }
+          heading={
+            workLayout ? (
+              <NewSessionHeading
+                channelId={channelId}
+                onChangeSpace={handleSpaceChange}
+              />
+            ) : undefined
+          }
           onTaskCreatedEffect={onTaskCreatedEffect}
           channelContext={channelContext}
           channelContextPath={wiki.path}

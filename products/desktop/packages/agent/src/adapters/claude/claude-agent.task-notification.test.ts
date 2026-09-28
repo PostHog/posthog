@@ -142,6 +142,7 @@ function taskNotificationUserMessage(sessionId: string, event: string) {
       role: "user",
       content: `<task-notification>\n<event>${event}</event>\n</task-notification>`,
     },
+    origin: { kind: "task-notification" },
   };
 }
 
@@ -205,6 +206,80 @@ describe("ClaudeAcpAgent — task-notification results", () => {
         "_posthog/turn_complete",
       ),
     ).toHaveLength(0);
+  });
+
+  it("acks a steer sent during a background turn only once the model acts on it", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-task-notification-steer";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_1", "hello"));
+    await send(query, resultSuccess(sessionId, "result-1"));
+    await promptPromise;
+
+    await send(query, taskNotificationUserMessage(sessionId, "ping 1"));
+    let steerSettled = false;
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "wrap up now" }],
+      _meta: { steer: true },
+    });
+    void steerPromise.then(() => {
+      steerSettled = true;
+    });
+    await tick();
+
+    await send(query, assistantMessage(sessionId, "msg_2", "ping 1 received."));
+    await send(query, taskNotificationResult(sessionId, "result-2"));
+    expect(steerSettled).toBe(false);
+
+    await echoUserMessage(query, input);
+    expect(steerSettled).toBe(false);
+    await send(query, assistantMessage(sessionId, "msg_3", "wrapping up"));
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: true },
+    });
+  });
+
+  it("declines a background steer the SDK never echoes after the background turn ends", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { agent } = makeAgent();
+      const sessionId = "s-task-notification-steer-lost";
+      const { query, input } = installFakeSession(agent, sessionId);
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "hi" }],
+      });
+      await tick();
+      await echoUserMessage(query, input);
+      await send(query, assistantMessage(sessionId, "msg_1", "hello"));
+      await send(query, resultSuccess(sessionId, "result-1"));
+      await promptPromise;
+
+      await send(query, taskNotificationUserMessage(sessionId, "ping 1"));
+      const steerPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "wrap up now" }],
+        _meta: { steer: true },
+      });
+      await tick();
+      await send(query, taskNotificationResult(sessionId, "result-2"));
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(steerPromise).resolves.toMatchObject({
+        _meta: { steer: false, steerDeclineCause: "turn_ended_first" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("emits background_turn_complete with a refusal stop reason on a task-notification refusal", async () => {

@@ -192,6 +192,54 @@ class TestRequestParams:
 
         assert snapshots[0]["params"]["since"] == "2026-06-15T12:00:00Z"
 
+    @parameterized.expand(
+        [
+            ("boards", "boards", {"status": "all"}),
+            ("stages", "stages", {"status": "all", "includeOnDeletedBoard": "true"}),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_lookup_endpoints_request_archived_records(
+        self, endpoint: str, data_key: str, expected: dict[str, Any], MockSession
+    ) -> None:
+        # Capsule defaults these to active-only, which would drop the boards and stages that
+        # historic projects still point at.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({data_key: []})])
+
+        _rows(_source(_make_manager(), endpoint=endpoint))
+
+        assert snapshots[0]["params"] == {"perPage": 100, **expected}
+
+    @mock.patch(SESSION_PATCH)
+    def test_entries_embeds_its_associations(self, MockSession) -> None:
+        # Without the embeds an entry cannot be joined back to the record it belongs to.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"entries": []})])
+
+        _rows(_source(_make_manager(), endpoint="entries"))
+
+        assert snapshots[0]["params"]["embed"] == "party,kase,opportunity,creator,activityType"
+
+    @parameterized.expand(
+        [
+            ("party_tags", f"{CAPSULE_CRM_BASE_URL}/parties/tags"),
+            ("opportunity_tags", f"{CAPSULE_CRM_BASE_URL}/opportunities/tags"),
+            ("kase_tags", f"{CAPSULE_CRM_BASE_URL}/kases/tags"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_tag_endpoints_are_entity_scoped(self, endpoint: str, expected_url: str, MockSession) -> None:
+        # Capsule has no top-level /tags collection; tag definitions hang off each entity type and
+        # all three nest under the same "tags" wrapper key.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tags": [{"id": 3, "name": "VIP"}]})])
+
+        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+
+        assert snapshots[0]["url"] == expected_url
+        assert rows == [{"id": 3, "name": "VIP"}]
+
     @mock.patch(SESSION_PATCH)
     def test_since_ignored_for_full_refresh_only_endpoint(self, MockSession) -> None:
         # tasks has no server-side `since` filter, so a watermark must not produce a `since` param.
@@ -416,9 +464,31 @@ class TestSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.sort_mode == "asc"
 
-    @parameterized.expand([("users",), ("milestones",), ("pipelines",), ("categories",), ("lost_reasons",)])
+    def test_entries_partitions_on_created_at_and_sorts_desc(self) -> None:
+        # `entryAt` is user-editable, so partitioning follows `createdAt`. Capsule serves this
+        # endpoint most-recent-first, which the pipeline has to be told about.
+        response = _source(_make_manager(), endpoint="entries")
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["createdAt"]
+        assert response.sort_mode == "desc"
+
+    @parameterized.expand(
+        [
+            ("users",),
+            ("milestones",),
+            ("pipelines",),
+            ("categories",),
+            ("lost_reasons",),
+            ("boards",),
+            ("stages",),
+            ("party_tags",),
+            ("opportunity_tags",),
+            ("kase_tags",),
+        ]
+    )
     def test_metadata_endpoints_are_unpartitioned(self, endpoint: str) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None
+        assert response.sort_mode == "asc"

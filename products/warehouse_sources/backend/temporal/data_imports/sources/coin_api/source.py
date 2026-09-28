@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.coin_api import (
     CoinApiResumeConfig,
     coin_api_source,
@@ -45,7 +43,7 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COIN_API,
+            name=ExternalDataSourceType.COINAPI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinAPI",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -53,7 +51,9 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
 
 Create a key in the [CoinAPI customer portal](https://customer.coinapi.io/). CoinAPI uses a credit/quota-based (pay-as-you-go) model with a daily credit limit, so large time-series tables can consume significant credits.
 
-The **reference** tables (assets, exchanges, symbols) and **exchange rates** sync with just an API key. The **OHLCV** and **trades** history tables are scoped to a single market, so set the **Symbol ID** field (and, for OHLCV, the **Period ID**) to enable them.""",
+The **reference** tables (assets, exchanges, symbols, metrics listing) and **exchange rates** sync with just an API key.
+
+The history tables each cover one series, so they need a bit more setup. Set the **Symbol ID** field (and the **Period ID**) for OHLCV, trades, quotes and symbol metrics history. Symbol metrics history also needs a **Metric ID**, which you can pick from the metrics listing table. Exchange rates history needs an **Exchange rate quote asset** to pair with the base asset.""",
             iconPath="/static/services/coin_api.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coin-api",
             fields=cast(
@@ -76,6 +76,14 @@ The **reference** tables (assets, exchanges, symbols) and **exchange rates** syn
                         secret=False,
                     ),
                     SourceFieldInputConfig(
+                        name="exchange_rate_quote_asset",
+                        label="Exchange rate quote asset",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="BTC",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
                         name="symbol_id",
                         label="Symbol ID",
                         type=SourceFieldInputConfigType.TEXT,
@@ -89,6 +97,14 @@ The **reference** tables (assets, exchanges, symbols) and **exchange rates** syn
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="1DAY",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="metric_id",
+                        label="Metric ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="FUNDING_RATE",
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -131,9 +147,16 @@ The **reference** tables (assets, exchanges, symbols) and **exchange rates** syn
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = COIN_API_ENDPOINTS[endpoint]
             is_timeseries = endpoint_config.kind == "timeseries"
-            description = None
+            requirements = []
             if endpoint_config.requires_symbol:
-                description = "Requires a Symbol ID on the source. Only syncs the configured symbol."
+                requirements.append("a Symbol ID")
+            if endpoint_config.requires_metric:
+                requirements.append("a Metric ID")
+            if endpoint_config.requires_quote_asset:
+                requirements.append("an Exchange rate quote asset")
+            description = None
+            if requirements:
+                description = f"Requires {' and '.join(requirements)} on the source. Only syncs the configured series."
             # CoinAPI's time-series endpoints filter server-side on `time_start`, so they're genuinely
             # incremental. Reference/snapshot endpoints expose no such filter — full refresh only.
             return SourceSchema(
@@ -184,7 +207,9 @@ The **reference** tables (assets, exchanges, symbols) and **exchange rates** syn
             resumable_source_manager=resumable_source_manager,
             symbol_id=config.symbol_id or "",
             period_id=config.period_id or "1DAY",
+            metric_id=config.metric_id or "",
             exchange_rate_base_asset=config.exchange_rate_base_asset or "USD",
+            exchange_rate_quote_asset=config.exchange_rate_quote_asset or "",
             start_date=config.start_date or "",
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

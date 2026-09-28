@@ -136,6 +136,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         if self.query.includeSentiment and results and columns:
             sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
+                user=self.user,
                 trace_ids=self._trace_ids_from_results(columns, results),
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -276,10 +277,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         return cast(ast.SelectQuery, query)
 
     def get_cache_payload(self) -> dict[str, Any]:
-        return {
-            **super().get_cache_payload(),
-            "schema_version": 2,
-        }
+        payload = {**super().get_cache_payload(), "schema_version": 2}
+        # An evaluation read has a bounded window and no events fallback, so it must not share a result
+        # with a plain read. Keyed only when on, so plain reads keep their cache entries.
+        if self.for_evaluation:
+            payload["for_evaluation"] = True
+        return payload
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:

@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db import IntegrityError, connections, transaction
-from django.db.models import Manager, Prefetch
+from django.db.models import Field, Manager, Prefetch
 from django.http import Http404
 from django.utils import timezone
 
@@ -45,6 +45,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -146,7 +147,7 @@ def create_event_definitions_sql(
     event_definition_fields = {
         f'"{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
+        if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
@@ -472,10 +473,12 @@ class EventDefinitionViewSet(
                 search_query
                 + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
                 + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
-                + " WHERE posthog_taggeditem.event_definition_id = posthog_eventdefinition.id"
+                + " WHERE posthog_taggeditem.content_type_id = %(tagged_content_type_id)s"
+                + " AND posthog_taggeditem.object_uuid = posthog_eventdefinition.id"
                 + " AND posthog_tag.name = ANY(%(tags)s))"
             )
             params["tags"] = tags_list
+            params["tagged_content_type_id"] = content_type_for(EventDefinition).id
 
         sql = create_event_definitions_sql(
             event_type,

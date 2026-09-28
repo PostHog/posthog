@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,10 +54,10 @@ class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CONFLUENCE,
+            name=ExternalDataSourceType.CONFLUENCE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Confluence",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Atlassian Confluence Cloud credentials to pull your Confluence content into the PostHog Data warehouse.
 
 Create an API token from your [Atlassian account settings](https://id.atlassian.com/manage-profile/security/api-tokens), then connect using the email address tied to that account.

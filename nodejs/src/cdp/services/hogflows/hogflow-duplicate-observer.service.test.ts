@@ -30,7 +30,7 @@ const dupCounterValue = async (workflowId: string): Promise<number> => {
 }
 
 describe('HogFlowDuplicateObserverService', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2

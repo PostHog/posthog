@@ -7,8 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
@@ -28,6 +30,9 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
+import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
@@ -44,6 +49,9 @@ import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
+import type { PendingAttachment } from '../../utils/attachments'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -59,6 +67,7 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
+    seedContextItems?: AttachedContextItem[]
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -78,9 +87,24 @@ export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' |
 // `urlToAction` cleanup (main-app navigation must never release a side panel's in-flight creation).
 export interface TaskTrackerSceneLogicProps {
     panelId?: string
+    /** Context exclusive to an embedded runner. */
+    contextItems?: AttachedContextItem[]
+    composerOverride?: ComposerOverride
+    welcomeHeadlines?: string[]
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
+
+/**
+ * The page a pending creation belongs to, before the created task has an id to compare against.
+ *
+ * `/ai` selects a task or a chat through the query string, so the pathname alone can't tell that the user
+ * opened a different one. `ask` is deliberately left out: the composer seed strips it from the URL as the
+ * seeded creation starts, and reading that as navigation would release the creation it just opened.
+ */
+function creationRouteKey(pathname: string, searchParams: Record<string, any>): string {
+    return `${pathname}|${searchParams.task ?? ''}|${searchParams.chat ?? ''}`
+}
 
 /**
  * The warm request for the current composer selection, or `null` when this selection can't be warmed.
@@ -147,6 +171,8 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
+    composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
@@ -169,6 +195,8 @@ export interface taskTrackerSceneLogicValues {
     displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
     displayModel: string
+    effectiveComposerOverride: ComposerOverride | null
+    effectiveRepositoryConfig: RepositoryConfig
     hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
@@ -186,6 +214,12 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     consumeSeed: () => {
         value: true
     } // composerSeedLogic
@@ -316,7 +350,11 @@ export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
-        displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
+        displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number, arg: string[] | undefined) => string
+        effectiveComposerOverride: (
+            composerOverride: ComposerOverride | null,
+            arg: ComposerOverride | undefined
+        ) => ComposerOverride | null
         displayModel: (newTaskData: TaskCreateForm, defaultModel: string | null) => string
         displayEffort: (
             newTaskData: TaskCreateForm,
@@ -330,6 +368,10 @@ export interface taskTrackerSceneLogicMeta {
             defaultRuntimeAdapter: string | null,
             catalogue: ModelChoiceApi[]
         ) => string
+        effectiveRepositoryConfig: (
+            newTaskData: TaskCreateForm,
+            effectiveComposerOverride: ComposerOverride | null
+        ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
@@ -365,6 +407,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
+            composerOverrideLogic,
+            ['composerOverride'],
             welcomeOverrideLogic,
             ['overrideHeadlines'],
             modelCatalogueLogic,
@@ -374,6 +418,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // the resume endpoint for a task that doesn't exist yet.
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['stagedAttachments'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
         ],
@@ -392,6 +438,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['removeAttachments', 'setUploading'],
         ],
     })),
 
@@ -420,7 +468,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
             },
         ],
@@ -484,9 +541,19 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Contextual headlines registered by the active scene (welcomeOverrideLogic) win over the
         // generic defaults; the seed keeps the pick stable across re-renders.
         displayHeadline: [
-            (s) => [s.overrideHeadlines, s.headlineSeed],
-            (overrideHeadlines: string[] | null, headlineSeed: number): string =>
-                pickHeadline(overrideHeadlines ?? DEFAULT_HEADLINES, headlineSeed),
+            (s) => [s.overrideHeadlines, s.headlineSeed, (_, p: TaskTrackerSceneLogicProps) => p.welcomeHeadlines],
+            (
+                overrideHeadlines: string[] | null,
+                headlineSeed: number,
+                welcomeHeadlines: string[] | undefined
+            ): string => pickHeadline(welcomeHeadlines ?? overrideHeadlines ?? DEFAULT_HEADLINES, headlineSeed),
+        ],
+        effectiveComposerOverride: [
+            (s) => [s.composerOverride, (_, p: TaskTrackerSceneLogicProps) => p.composerOverride],
+            (
+                globalOverride: ComposerOverride | null,
+                localOverride: ComposerOverride | undefined
+            ): ComposerOverride | null => localOverride ?? globalOverride,
         ],
     }),
 
@@ -522,6 +589,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 newTaskData.model || !defaultRuntimeAdapter
                     ? getRuntimeAdapterForModel(catalogue, displayModel)
                     : defaultRuntimeAdapter,
+        ],
+        // The shared form may still hold a remembered repo while the picker is hidden. Drop it here, not from the form.
+        effectiveRepositoryConfig: [
+            (s) => [s.newTaskData, s.effectiveComposerOverride],
+            (newTaskData: TaskCreateForm, composerOverride: ComposerOverride | null): RepositoryConfig =>
+                composerOverride?.hideRepositorySelector ? {} : newTaskData.repositoryConfig,
         ],
         // Neither picker touched: submit omits the triple so the backend resolves it, which also
         // lets a warm run provisioned under the default match.
@@ -559,7 +632,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // accepts AI data processing.
             if (!values.activeCreation && values.dataProcessingAccepted) {
                 const request = buildWarmRequest(
-                    values.newTaskData,
+                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                     values.catalogue,
                     values.displayModel,
                     values.displayEffort
@@ -599,7 +672,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
         applySuggestion: ({ item }) => {
-            actions.setNewTaskData({ description: item.content })
+            actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
                 actions.submitNewTask()
             }
@@ -613,9 +686,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, repositoryConfig, permissionMode } = values.newTaskData
+            // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
+            // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
+            const description = values.newTaskData.description.trim()
+            const { permissionMode } = values.newTaskData
+            const repositoryConfig = values.effectiveRepositoryConfig
 
-            if (!description.trim()) {
+            if (!description) {
                 lemonToast.error('Description is required')
                 actions.submitNewTaskFailure('Description is required')
                 return
@@ -628,6 +705,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.submittingTask = disposables
             const projectId = String(values.currentProjectId)
             const warmSubmission: WarmSubmission = { projectId, lease: null }
+            let warmConsumed = false
             actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
@@ -636,7 +714,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = values.contextItems
+            const seededContext = [
+                ...(props.contextItems ?? values.contextItems),
+                ...(values.newTaskData.seedContextItems ?? []),
+            ]
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -649,6 +730,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 currentMode: permissionMode,
                 currentRuntimeAdapter:
                     values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
+                contextItems: props.contextItems,
             })
             cache.disposables.add(
                 () => {
@@ -664,11 +746,34 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 'active-creation',
                 { pauseOnPageHidden: false }
             )
-            cache.creationPath = router.values.location.pathname
+            cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
-            stream.actions.startOptimisticRun(description)
+            const sending = values.stagedAttachments
+            stream.actions.startOptimisticRun(
+                description,
+                sending.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+            )
 
             try {
+                // Files can only be uploaded against something that already exists. A warm lease names a task
+                // and a run, so they go onto that run and ride its activation. Without one there is nothing
+                // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
+                const attachedFiles = sending.map(({ file }) => file)
+                const warmLease = warmSubmission.lease
+                const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
+                let pendingUserArtifactIds: string[] = []
+                if (attachedFiles.length > 0) {
+                    actions.setUploading(true)
+                    if (warmLease) {
+                        pendingUserArtifactIds = await uploadRunAttachments(
+                            projectId,
+                            warmLease.taskId,
+                            warmLease.runId,
+                            attachedFiles
+                        )
+                    }
+                }
+
                 const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
                 const runPayload = {
                     branch: repositoryConfig.branch ?? null,
@@ -705,9 +810,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
-                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
-                    // the selection is untouched, so the backend resolves it for warm matching too.
-                    branch: runPayload.branch,
+                    // (even `null`) or reuse is never attempted at all — which is how lease-less attachments
+                    // opt out. The model triple is left off when the selection is untouched, so the backend
+                    // resolves it for warm matching too.
+                    ...(suppressWarmReuse ? {} : { branch: runPayload.branch }),
+                    ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
                               runtime_adapter: pinnedRequest.runtime_adapter,
@@ -724,6 +831,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     disposables
                 )
                 actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
+                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -742,8 +850,23 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 let createdRun = newTask.latest_run
                 let runId = createdRun?.id
                 if (!runId) {
+                    // Also covers a warm miss: reaching here after a lease upload means the create did not
+                    // activate that warm run, and a cold create drops its warm hints — including the artifact
+                    // ids — so the files are staged again rather than left on a run nothing will read.
+                    const stagedArtifactIds =
+                        attachedFiles.length > 0
+                            ? await uploadStagedTaskAttachments(projectId, newTask.id, attachedFiles)
+                            : []
                     const runResponse = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                newTask.id,
+                                stagedArtifactIds.length > 0
+                                    ? { ...runRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : runRequest,
+                                options
+                            ),
                         disposables
                     )
                     createdRun = runResponse.latest_run
@@ -792,7 +915,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // An embedded instance (`panelId` set) keeps the run in place because the host renders
                     // `activeCreation` instead of navigating the main app to the `/tasks/:id` detail page.
                     if (!props.panelId) {
-                        router.actions.push(`/tasks/${newTask.id}`)
+                        router.actions.push(
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+                                ? urls.aiTask(newTask.id)
+                                : urls.taskDetail(newTask.id)
+                        )
                     }
                 } else {
                     actions.releaseApplyBackTargets(streamKey)
@@ -800,9 +927,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 // Reset before signaling success: the success listener applies any seed held during this
                 // submission, and resetting afterwards would wipe that seed's prefill.
-                if (creationIsActive || values.newTaskData.description === description) {
+                if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
+                // Only what this send took. A failure leaves them staged, since the restored draft is resent.
+                actions.removeAttachments(sending.map(({ id }) => id))
                 cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
@@ -812,6 +941,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
+                // `prepareSubmit` took the lease out of `taskWarmLogic`, so only `consumeWarm` releases it,
+                // and a run that never got a message would hold a warm slot until its idle timeout.
+                if (!warmConsumed) {
+                    actions.consumeWarm(warmSubmission, null)
+                    warmConsumed = true
+                }
                 if (values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
                     const unsent = [
@@ -822,6 +957,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()
@@ -835,9 +971,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (cache.submittingTask === disposables) {
                     cache.submittingTask = null
                 }
+                // Drops the spinners off chips that outlived a failed send.
+                actions.setUploading(false)
             }
         },
         openExistingTask: ({ task }) => {
+            actions.setNewTaskData({ seedContextItems: undefined })
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
                 actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
@@ -883,7 +1022,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({ description: seed.prompt })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }
@@ -897,10 +1036,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDesktopAccess()
-            actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for
             // stable snapshots regardless of seed).
@@ -926,7 +1064,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 activeCreation &&
                 (activeCreation.taskId
                     ? activeCreation.taskId !== taskId
-                    : router.values.location.pathname !== cache.creationPath)
+                    : creationRouteKey(router.values.location.pathname, router.values.searchParams) !==
+                      cache.creationRoute)
             ) {
                 actions.clearActiveCreation()
             }
@@ -935,6 +1074,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            [urls.ai()]: (_, search) =>
+                props.panelId
+                    ? undefined
+                    : clearIfLeftCreatedTask(typeof search.task === 'string' ? search.task : undefined),
             '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),

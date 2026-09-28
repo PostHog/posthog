@@ -51,7 +51,14 @@ _SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_rea
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.generate_embedding"
-_EXECUTE_HOGQL_PATH = "products.replay_vision.backend.search.execute_hogql_query"
+_SYNC_EXECUTE_PATH = "products.replay_vision.backend.search.sync_execute"
+
+
+def _two_pass(rows: list[tuple]):
+    def _side_effect(query: str, *_args, **_kwargs):
+        return rows if "cosineDistance" in query else [(timezone.now(),)]
+
+    return _side_effect
 
 
 class TestDraftReplayVisionScannerPromptTool(BaseTest):
@@ -110,7 +117,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         with (
             patch("products.replay_vision.backend.max_tools.is_ai_data_processing_approved", return_value=False),
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock) as mock_embed,
-            patch(_EXECUTE_HOGQL_PATH) as mock_execute,
+            patch(_SYNC_EXECUTE_PATH) as mock_execute,
         ):
             content, artifact = await self._tool()._arun_impl(query="anything", scanner_id=str(scanner.id))
         assert artifact["error"] == "ai_consent_required"
@@ -168,36 +175,31 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
     @staticmethod
     def _ch_stub(ranked: list[tuple[ReplayObservation, float]]):
         """Simulate the ClickHouse ranking, honoring the structured metadata filters (verdict/tags/score) the
-        real query applies — so a row only survives if its model_output matches the filter placeholders."""
+        real query applies — so a row only survives if its model_output matches the filter parameters."""
 
-        def _matches(output: dict, placeholders: dict) -> bool:
-            if "verdict" in placeholders and output.get("verdict") not in placeholders["verdict"].value:
+        def _matches(output: dict, params: dict) -> bool:
+            if "verdict" in params and output.get("verdict") not in params["verdict"]:
                 return False
-            if "tags" in placeholders:
-                # Mirror the real query: it slugifies the stored metadata tags before `hasAny`, and the tool
-                # passes already-slugified values in the placeholder.
+            if "tags" in params:
                 obs_tags = {slugify_tag(t) for t in (*(output.get("tags") or []), *(output.get("tags_freeform") or []))}
-                if not any(tag in obs_tags for tag in placeholders["tags"].value):
+                if not any(tag in obs_tags for tag in params["tags"]):
                     return False
             score = output.get("score")
-            if "min_score" in placeholders and (
-                not isinstance(score, int | float) or score < placeholders["min_score"].value
-            ):
+            if "min_score" in params and (not isinstance(score, int | float) or score < params["min_score"]):
                 return False
-            if "max_score" in placeholders and (
-                not isinstance(score, int | float) or score > placeholders["max_score"].value
-            ):
+            if "max_score" in params and (not isinstance(score, int | float) or score > params["max_score"]):
                 return False
             return True
 
-        def _side_effect(*_args, **kwargs):
-            placeholders = kwargs.get("placeholders", {})
+        def _side_effect(query: str, params: dict, **_kwargs):
+            if "cosineDistance" not in query:
+                return [(timezone.now(),)]
             rows = [
                 (str(obs.id), distance, "")
                 for obs, distance in ranked
-                if _matches(obs.scanner_result["model_output"], placeholders)
+                if _matches(obs.scanner_result["model_output"], params)
             ]
-            return MagicMock(results=rows)
+            return rows
 
         return _side_effect
 
@@ -208,13 +210,13 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         obs_far = await self._observation(scanner, "sess-far", "user smoothly completed checkout", score=5)
         obs_near = await self._observation(scanner, "sess-near", "user rage-clicked the broken submit button", score=0)
         # ClickHouse returns ids ordered by ascending cosine distance (nearest first).
-        hogql_results = MagicMock(results=[(str(obs_near.id), 0.1, ""), (str(obs_far.id), 0.4, "")])
+        rows = [(str(obs_near.id), 0.1, ""), (str(obs_far.id), 0.4, "")]
 
         with (
             patch(
                 _GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1, 0.2, 0.3])
             ) as mock_embed,
-            patch(_EXECUTE_HOGQL_PATH, return_value=hogql_results),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass(rows)),
         ):
             content, artifact = await self._tool()._arun_impl(query="broken submit button", scanner_id=str(scanner.id))
 
@@ -234,7 +236,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([(str(obs.id), 0.1, "")])),
         ):
             _, artifact = await self._tool(context={"scanner_id": str(scanner.id)})._arun_impl(query="button")
 
@@ -249,7 +251,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([(str(obs.id), 0.1, "")])),
         ):
             _, artifact = await self._tool(context={"scanner_id": str(context_scanner.id)})._arun_impl(
                 query="button", scanner_id=str(target_scanner.id)
@@ -264,7 +266,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         scanner = await self._scanner()
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([])),
         ):
             content, artifact = await self._tool()._arun_impl(query="anything", scanner_id=str(scanner.id))
 
@@ -290,10 +292,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(
-                _EXECUTE_HOGQL_PATH,
-                return_value=MagicMock(results=[(str(obs_a.id), 0.1, ""), (str(obs_b.id), 0.2, "")]),
-            ),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([(str(obs_a.id), 0.1, ""), (str(obs_b.id), 0.2, "")])),
         ):
             content, artifact = await self._tool()._arun_impl(query="checkout problems")
 
@@ -313,7 +312,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
             # Both would rank highly; filter-first restricts the ClickHouse ranking to the YES result only.
-            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_no, 0.1), (obs_yes, 0.2)])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=self._ch_stub([(obs_no, 0.1), (obs_yes, 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(
                 query="broken button", scanner_id=str(scanner.id), verdict=["yes"]
@@ -332,7 +331,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_yes, 0.1)])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=self._ch_stub([(obs_yes, 0.1)])),
         ):
             _, artifact = await self._tool()._arun_impl(
                 query="broken button", scanner_id=str(scanner.id), verdict=["Yes"]
@@ -357,7 +356,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_completed, 0.1), (obs_abandoned, 0.2)])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=self._ch_stub([(obs_completed, 0.1), (obs_abandoned, 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(
                 query="left mid-flow", scanner_id=str(scanner.id), tags=["abandoned"]
@@ -385,7 +384,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs, 0.1)])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=self._ch_stub([(obs, 0.1)])),
         ):
             content, artifact = await self._tool()._arun_impl(
                 query="lost users", scanner_id=str(scanner.id), tags=["Frustrated Or Confused"]
@@ -403,7 +402,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_five, 0.1), (obs_zero, 0.2)])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=self._ch_stub([(obs_five, 0.1), (obs_zero, 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(query="checkout", scanner_id=str(scanner.id), max_score=0)
 
@@ -420,7 +419,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([(str(obs.id), 0.1, "")])),
         ):
             content, _ = await self._tool()._arun_impl(query="x", scanner_id=str(scanner.id))
 

@@ -87,6 +87,7 @@ export function createHogFlowInvocation(
         state: {
             event: globals.event,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: mergedVariables,
             // Seeded at run start and persisted with the state, because the flow itself isn't: the
             // job is re-loaded by functionId on every resume, so by the time a conversion lands the
@@ -206,6 +207,7 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: trigger.filters,
                 filterGlobals,
+                caller: 'build_hogflow_invocations',
             })
 
             // Add any generated metrics and logs to our collections. These are queued straight by the
@@ -341,6 +343,7 @@ export class HogFlowExecutorService {
             fn: hogFlow,
             filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
             filterGlobals: invocation.filterGlobals,
+            caller: 'hogflow_conversion',
         })
         if (!filterResult.match) {
             return null
@@ -459,12 +462,14 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals: invocation.filterGlobals,
+                caller: 'hogflow_exit_condition',
             })
             triggerMatch = filterResult.match
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
                 const filterResult = await filterFunctionInstrumented({
+                    caller: 'hogflow_exit_condition',
                     fn: hogFlow,
                     filters: {
                         bytecode: hogFlow.conversion.bytecode || [],
@@ -780,7 +785,8 @@ export class HogFlowExecutorService {
     }
 
     /**
-     * If the action has on_error set to 'continue' then we continue to the next action instead of failing the flow
+     * Unless the action has on_error set to 'abort' we continue to the next action instead of failing the flow.
+     * An action without on_error gets the default, which is to continue.
      */
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
@@ -794,9 +800,10 @@ export class HogFlowExecutorService {
             if (invocation.state.currentAction?.delayUntilUnresolved) {
                 return
             }
-            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            // Unless the current action's on_error is set to 'abort', we move to the next action instead of
+            // failing the flow. 'continue' is the default, so an action that never had on_error set gets it too.
             const currentAction = ensureCurrentAction(invocation)
-            if (currentAction?.on_error === 'continue') {
+            if (currentAction?.on_error !== 'abort') {
                 const nextAction = findContinueAction(invocation)
                 if (nextAction) {
                     this.logAction(

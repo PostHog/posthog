@@ -5,7 +5,10 @@ import { useEffect, useState } from 'react'
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+import {
+    ExternalDataSourceTypeEnumApi,
+    SourceConfigResponseApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
@@ -16,7 +19,7 @@ import { SourceIcon } from './SourceIcon'
 export type InlineSourceSetupView = 'selection' | 'connecting'
 
 interface SourceItem {
-    id: ExternalDataSourceType
+    id: ExternalDataSourceTypeEnumApi
     label: string
 }
 
@@ -37,8 +40,8 @@ export interface InlineSourceSetupProps {
 
 interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
     currentView: InlineSourceSetupView
-    selectedSource: ExternalDataSourceType | null
-    onSourceSelect: (sourceId: ExternalDataSourceType) => void
+    selectedSource: ExternalDataSourceTypeEnumApi | null
+    onSourceSelect: (sourceId: ExternalDataSourceTypeEnumApi) => void
     onBack: () => void
     onFormSuccess: () => void
 }
@@ -63,7 +66,7 @@ function InternalInlineSourceSetup({
     const [searchQuery, setSearchQuery] = useState('')
 
     // Filter out unreleased sources
-    const availableConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
+    const availableConnectors = connectors.filter((c: SourceConfigResponseApi) => !c.unreleasedSource)
 
     // Resume an OAuth round-trip: an OAuth source redirects the whole page to the provider and
     // back to this onboarding URL with ?kind=<source>. On mount, re-open the wizard for that
@@ -84,20 +87,22 @@ function InternalInlineSourceSetup({
         replace(location.pathname, restParams)
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-    const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)
-    const hiddenSources = availableConnectors.filter((c: SourceConfig) => !c.featured)
+    const featuredSources = availableConnectors.filter((c: SourceConfigResponseApi) => c.featured)
+    const hiddenSources = availableConnectors.filter((c: SourceConfigResponseApi) => !c.featured)
 
     const trimmedQuery = searchQuery.trim().toLowerCase()
     const isSearching = trimmedQuery.length > 0
     // While searching, match across every source — the featured/expand split only applies
     // to the default (unsearched) view.
     const sourcesToShow = isSearching
-        ? availableConnectors.filter((c: SourceConfig) => (c.label ?? c.name).toLowerCase().includes(trimmedQuery))
+        ? availableConnectors.filter((c: SourceConfigResponseApi) =>
+              (c.label ?? c.name).toLowerCase().includes(trimmedQuery)
+          )
         : expanded
           ? availableConnectors
           : featuredSources
 
-    const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfig) => ({
+    const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfigResponseApi) => ({
         id: source.name,
         label: source.label ?? source.name,
     }))
@@ -179,7 +184,7 @@ function InternalInlineSourceSetup({
                         <NewSourcesWizard
                             hideBackButton
                             onComplete={onFormSuccess}
-                            allowedSources={availableConnectors.map((c: SourceConfig) => c.name)}
+                            allowedSources={availableConnectors.map((c: SourceConfigResponseApi) => c.name)}
                             initialSource={selectedSource}
                             autoConfigureTables={autoConfigureTables}
                         />
@@ -195,7 +200,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { onClear } = useActions(sourceWizardLogic)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
-    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
+    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceTypeEnumApi | null>(null)
 
     // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
     // completion listener always sees this same callback — never the logic's unbound default —
@@ -208,7 +213,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
         props.onComplete?.()
     }
 
-    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
+    const handleSourceSelect = (sourceId: ExternalDataSourceTypeEnumApi): void => {
         setSelectedSource(sourceId)
         setCurrentView('connecting')
     }

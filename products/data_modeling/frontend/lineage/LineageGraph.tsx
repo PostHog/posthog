@@ -10,9 +10,10 @@ import {
     PanelPosition,
     ReactFlow,
     ReactFlowProvider,
+    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -36,6 +37,7 @@ export interface LineageGraphProps {
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
     fitViewOptions?: FitViewOptions
+    focusNodeIds?: Set<string>
     showMinimap?: boolean
     minimapPosition?: PanelPosition
     showControls?: boolean
@@ -54,8 +56,9 @@ export interface LineageGraphProps {
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
+    const { fitView, viewportInitialized } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
-    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick } = props
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds } = props
     const { layout } = useValues(
         lineageGraphLogic({
             nodes: props.nodes,
@@ -64,6 +67,23 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             direction: props.direction ?? 'RIGHT',
         })
     )
+
+    useEffect(() => {
+        if (!viewportInitialized || !focusNodeIds || !layout) {
+            return
+        }
+        // Keep the match readable when a search term identifies one or a few nodes. When the
+        // search is cleared, fit the whole graph again instead of leaving the viewport stranded.
+        const nodes = focusNodeIds.size > 0 ? layout.nodes.filter((node) => focusNodeIds.has(node.id)) : layout.nodes
+        if (nodes.length > 0) {
+            void fitView({
+                nodes,
+                padding: 0.2,
+                duration: 400,
+                maxZoom: focusNodeIds.size > 0 ? 2 : undefined,
+            })
+        }
+    }, [fitView, viewportInitialized, focusNodeIds, layout])
 
     if (!layout) {
         return (
@@ -96,6 +116,9 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={false}
             nodesConnectable={false}
+            // The card inside each node is the focus target and carries the key handler. A focusable
+            // wrapper would add a second tab stop per node that only selects and never navigates.
+            nodesFocusable={false}
             fitView
             fitViewOptions={props.fitViewOptions}
             minZoom={0.1}

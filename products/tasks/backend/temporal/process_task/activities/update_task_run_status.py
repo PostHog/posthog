@@ -54,6 +54,7 @@ class UpdateTaskRunStatusInput:
     end_of_turn_received: Optional[bool] = None
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
+    sandbox_backend: Optional[str] = None
 
 
 @activity.defn
@@ -211,15 +212,10 @@ def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool
     """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
 
     A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
-    separates a new conversation from a continued one. Two kinds of earlier history do not count:
-
-    - A prewarm nobody typed into. It idles out on its own and the next message resumes into a
-      successor, so counting it would report the user's first real chat as a continuation.
-    - The LangGraph half of a converted conversation. That conversation already counted once on
-      the legacy runtime, and its sandbox side starts on a fresh task with no earlier run.
+    separates a new conversation from a continued one. One kind of earlier history does not count:
+    a prewarm nobody typed into. It idles out on its own and the next message resumes into a
+    successor, so counting it would report the user's first real chat as a continuation.
     """
-    if state.get("converted_from_langgraph"):
-        return False
     # Match the prewarm on the key's absence rather than with `exclude`. A queryset `exclude` on a
     # JSON key compares NULL for every row that lacks the key, so it would drop exactly the earlier
     # runs that did hold a chat and report every conversation as new.
@@ -256,6 +252,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },
             )
@@ -268,6 +265,11 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
                     **relay_state,
+                    **(
+                        {"sandbox_backend": input.sandbox_backend}
+                        if input.sandbox_backend in ("modal", "hogland")
+                        else task_run.failure_sandbox_backend_properties()
+                    ),
                 },
             )
 

@@ -2,9 +2,10 @@
 name: reviewing-with-coderabbit
 description: >
   Run a CodeRabbit review over the branch from the terminal, with the `coderabbit` CLI, and record the
-  pass in the PR description. Use before `gh pr create`, and whenever a review of a branch is asked for:
-  a local review, a self-review, a CodeRabbit review, or a pre-PR review. Run it once per branch. When the
-  CLI is unavailable, the PR opens without a local pass, and no agent review takes its place.
+  pass in the PR description. Before `gh pr create` or a requested branch review, first check
+  `POSTHOG_TASK_RUN_ID` and `CI`: a cloud or CI task skips this skill without a CLI probe or user message.
+  Otherwise, use this skill to check `cr` and its authentication, and offer setup or skip when a person can answer.
+  Run the review once per branch. Never substitute an agent review.
   Trigger terms: coderabbit, cr review, local review, self-review, review my branch, pre-PR review.
 ---
 
@@ -19,16 +20,14 @@ It still takes time and rate limits still apply, so run it once per branch, afte
 
 ## Never substitute an agent review
 
-If the CLI is absent, signed out, or rate limited, **say so and continue to `gh pr create`**.
-The PR opens without a local pass.
+In cloud and CI tasks, skip the CLI probe and local review without an announcement. Otherwise, offer setup or a skip only if a person can answer. If nobody can answer, the person declines, or the CLI is rate limited, continue without a local pass.
 
 Do not run `/code-review`, review subagents, or a fan-out over the diff in its place.
 The CodeRabbit run is covered by our plan; an agent review of a large diff bills a person's tokens and can reach hundreds of dollars on one branch.
 
 ## Setup
 
-For a person at the terminal, once per machine.
-An agent never runs these commands: sign-in opens a browser.
+For a person at the terminal, once per machine. An agent does not run the sign-in command: it opens a browser.
 
 Flox activation installs the pinned CLI and puts `coderabbit` and `cr` on PATH.
 Outside flox, install it with `brew install coderabbit`.
@@ -43,29 +42,65 @@ cr auth status                   # confirms the session and the organization
 
 ## The flow
 
-1. Finish the work and commit.
+1. Check for a cloud or CI task before loading this skill:
+
+   ```sh
+   test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"
+   ```
+
+   If the check succeeds, skip the local review and continue the task. Do not probe `cr`, load this skill, or announce the skip.
+   `POSTHOG_TASK_RUN_ID` is set in PostHog cloud tasks. Absence of these markers does not prove that a person can answer.
+   In any other run, check the CLI and sign-in state:
+
+   ```sh
+   command -v cr >/dev/null 2>&1 && cr auth status --agent
+   ```
+
+   The status command prints one JSON line and never opens anything. Continue when it succeeds and the JSON status is `authenticated`.
+   If the CLI is missing or signed out and a person can answer, ask whether they want to set it up or skip this review.
+   The person runs `cr auth login` themselves; the agent can tell them how to install `cr` from Setup.
+   After setup, check `cr auth status --agent` again. If they decline or cannot answer, skip to step 6.
+   Do not run `cr review` while signed out. It opens an OAuth browser tab and waits for sign-in.
+
+2. Finish the work and commit.
    The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
-2. Run the review, scoped to the branch's base:
+3. Run the review, scoped to the branch's base:
 
    ```sh
    cr review --agent --base master
    ```
 
+   Decide whether to add `--deep` before you run it, because the branch gets one run.
+   `--deep` applies the full pull request review policy, so the findings match what the bot would post, except the PR-only pre-merge checks.
+   Without it the CLI applies a narrower policy, and it does less work.
+
+   - **Add `--deep`** when the diff changes behavior a mistake would hurt: auth, permissions, tenant scoping, migrations, raw SQL or HogQL, money, data deletion, concurrency, or a public API contract.
+     Add it too for a large or cross-cutting diff, or when the person asks for a thorough or full review.
+   - **Leave it off** for docs, comments, skill text, config bumps, renames, generated files, and other small mechanical diffs.
+   - When you cannot tell, add it.
+
+   Record the choice with the findings in step 6.
    `--agent` emits structured findings for an agent to read.
    Drop it when a person reads the output.
    `cr review findings` reprints the last run's findings, so re-reading them costs no review.
    On a stacked branch, pass the layer's own base rather than `master`, so the review covers this layer alone.
 
-3. Verify each finding's premise against the code before you act on it.
+4. Verify each finding's premise against the code before you act on it.
    Findings can be false positives, and rejecting one with a reason is a valid outcome.
-4. Fix what holds, and commit the fixes.
-5. Record the pass under Agent context in the PR description, as the PR template asks: that the CLI ran, and each finding's disposition.
-6. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
+5. Fix what holds, and commit the fixes.
+6. Record the outcome under Agent context in the PR description, as the PR template asks.
+   After a run, that is whether it ran with `--deep`, and each finding's disposition.
+   After a local skip, record why: CLI missing, signed out with no person available, setup declined, or rate limited. Cloud and CI skips need no entry.
+7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
 
-## After `@coderabbitai review`
+## After the PR opens
 
-`auto_review` is off in `.coderabbit.yaml`, so no review posts when a PR opens.
-Comment `@coderabbitai review` on the PR to ask for one, then handle its threads like CLI findings:
+`auto_review` is on in `.coderabbit.yaml`, so a review posts when the PR opens, drafts included.
+`base_branches` is set to every branch, so a stacked layer gets one too, not only a PR into master.
+`auto_incremental_review` is on, so each later push gets a review of the commits since the last one.
+To force a full re-review of the whole pull request, comment `@coderabbitai full review`.
+
+Handle the posted threads like CLI findings:
 
 - List the unresolved, non-outdated threads whose root comment is by `coderabbitai[bot]`.
   `gh api graphql` over `pullRequest.reviewThreads` returns `isResolved`, `isOutdated`, `path`, and `line`.

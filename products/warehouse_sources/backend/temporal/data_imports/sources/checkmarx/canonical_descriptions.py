@@ -2,6 +2,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+_API_REFERENCE = "https://checkmarx.stoplight.io/docs/checkmarx-one-api-reference-guide"
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "projects": {
         "description": "A Checkmarx One project, the unit that groups scans of a single code repository or component.",
@@ -94,6 +96,61 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "scaContainersCounters": "Aggregated SCA container image finding counters.",
             "apiSecCounters": "Aggregated API security finding counters.",
             "microEnginesCounters": "Aggregated micro-engine (e.g. secrets) finding counters.",
+        },
+    },
+    "application_rules": {
+        "description": "A rule on a Checkmarx One application that assigns projects to it, by project name or project tag.",
+        "docs_url": f"{_API_REFERENCE}/b893e178b7eee-retrieve-list-of-application-rules",
+        "columns": {
+            "id": "Unique identifier (UUID) of the rule.",
+            "application_id": "Identifier of the application the rule belongs to. Added by PostHog.",
+            "application_created_at": "Creation timestamp of the application the rule belongs to. Added by PostHog.",
+            "type": "What the rule matches on (e.g. project.name.contains, project.tag.key-value.exists).",
+            "value": "Value the rule matches against, interpreted according to the rule type. Key/value pairs and id lists are separated by a semicolon.",
+        },
+    },
+    "sast_predicates_changelog": {
+        "description": "A change made while triaging a project's findings: the state, severity, and comment edits applied to results, with who made each one.",
+        "docs_url": f"{_API_REFERENCE}/gmnw4cuhobl2z-retrieve-bulk-predicates",
+        "columns": {
+            "change_id": "Identifier of the change, derived from the change's own fields because Checkmarx One does not return one. Added by PostHog.",
+            "project_id": "Identifier of the project whose findings were triaged. Added by PostHog.",
+            "project_created_at": "Creation timestamp of the project whose findings were triaged. Added by PostHog.",
+            "change": "Description of the change that was made.",
+            "date": "Timestamp when the change was made.",
+            "user": "User who made the change.",
+            "origin": "Where the change was made from (e.g. the web UI or an integration).",
+        },
+    },
+    "result_states": {
+        "description": "The built-in triage states a finding can be assigned, which decode the state column on scan_results.",
+        "docs_url": f"{_API_REFERENCE}/h9ryi6k6wcz24-lists-enum-values-rest-api",
+        "columns": {
+            "value": "The state (e.g. TO_VERIFY, NOT_EXPLOITABLE, PROPOSED_NOT_EXPLOITABLE, CONFIRMED, URGENT).",
+        },
+    },
+    "result_statuses": {
+        "description": "The statuses a finding can carry relative to the previous scan, which decode the status column on scan_results.",
+        "docs_url": f"{_API_REFERENCE}/h9ryi6k6wcz24-lists-enum-values-rest-api",
+        "columns": {
+            "value": "The status (e.g. NEW, RECURRENT, FIXED).",
+        },
+    },
+    "result_severities": {
+        "description": "The severities a finding can carry, which decode the severity column on scan_results.",
+        "docs_url": f"{_API_REFERENCE}/h9ryi6k6wcz24-lists-enum-values-rest-api",
+        "columns": {
+            "value": "The severity (e.g. CRITICAL, HIGH, MEDIUM, LOW, INFO).",
+        },
+    },
+    "custom_states": {
+        "description": "A triage state defined by your tenant, in addition to the built-in states in result_states. Includes states that have since been deleted, so findings left in one still resolve to a name.",
+        "docs_url": "https://checkmarx.com/resource/documents/en/34965-378909-custom-states.html",
+        "columns": {
+            "id": "Unique identifier of the custom state.",
+            "name": "Display name of the custom state.",
+            "type": "Whether the state is a built-in or a custom one.",
+            "isAllowed": "Whether the API key's user has permission to move findings into this state.",
         },
     },
 }

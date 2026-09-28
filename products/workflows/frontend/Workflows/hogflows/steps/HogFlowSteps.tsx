@@ -111,7 +111,7 @@ function getFunctionPreviews(
 ): HogFlowStepPreview[] {
     const destination = getNotificationDescription({ inputs: action.config.inputs })
     if (action.config.template_id === 'template-webhook') {
-        const method = String(action.config.inputs.method?.value || 'POST').toUpperCase()
+        const method = String(action.config.inputs?.method?.value || 'POST').toUpperCase()
         return [{ label: destination ? `${method} ${destination}` : method }]
     }
 
@@ -126,11 +126,10 @@ const HogFlowStepConfigs: Partial<{
         type: 'conditional_branch',
         icon: () => <IconDecisionTree />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
-        getPreviews: (action) => [
-            {
-                label: `${action.config.conditions.length} ${action.config.conditions.length === 1 ? 'condition' : 'conditions'}`,
-            },
-        ],
+        getPreviews: (action) => {
+            const count = action.config.conditions?.length ?? 0
+            return [{ label: `${count} ${count === 1 ? 'condition' : 'conditions'}` }]
+        },
         renderConfiguration: (node) => <StepConditionalBranchConfiguration key={node.id} node={node} />,
     },
     delay: {
@@ -152,11 +151,10 @@ const HogFlowStepConfigs: Partial<{
         type: 'random_cohort_branch',
         icon: () => <IconPercentage />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
-        getPreviews: (action) => [
-            {
-                label: `${action.config.cohorts.length} ${action.config.cohorts.length === 1 ? 'cohort' : 'cohorts'}`,
-            },
-        ],
+        getPreviews: (action) => {
+            const count = action.config.cohorts?.length ?? 0
+            return [{ label: `${count} ${count === 1 ? 'cohort' : 'cohorts'}` }]
+        },
         renderConfiguration: (node) => <StepRandomCohortBranchConfiguration key={node.id} node={node} />,
     },
     trigger: {
@@ -198,7 +196,7 @@ const HogFlowStepConfigs: Partial<{
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#2F80FA' : '#2F80FA'),
         getPreviews: (action) => [
             {
-                label: action.config.inputs.email?.value?.to?.email
+                label: action.config.inputs?.email?.value?.to?.email
                     ? `To ${action.config.inputs.email.value.to.email}`
                     : 'Email',
             },
@@ -210,7 +208,11 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconTwilio />,
         color: () => '#f22f46',
         getPreviews: (action) => [
-            { label: action.config.inputs.phoneNumber?.value ? `To ${action.config.inputs.phoneNumber.value}` : 'SMS' },
+            {
+                label: action.config.inputs?.phoneNumber?.value
+                    ? `To ${action.config.inputs.phoneNumber.value}`
+                    : 'SMS',
+            },
         ],
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
@@ -220,7 +222,7 @@ const HogFlowStepConfigs: Partial<{
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#F8BE2A' : '#F44D01'),
         getPreviews: (action) => [
             {
-                label: action.config.inputs.title?.value
+                label: action.config.inputs?.title?.value
                     ? String(action.config.inputs.title.value)
                     : 'Push notification',
             },

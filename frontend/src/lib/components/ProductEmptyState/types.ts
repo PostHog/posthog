@@ -1,6 +1,7 @@
 import type { LogicWrapper } from 'kea'
-import type { ComponentType, CSSProperties, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
+import type { HoggiePngProps } from 'lib/brand/hoggies'
 import type { RestrictionScope } from 'lib/components/RestrictedArea'
 import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
@@ -113,7 +114,7 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'style' | 'loading'>>
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,
@@ -158,6 +159,23 @@ export interface ProductEmptyStateConfig {
      * has nothing to reveal and the primary action is the only next step.
      */
     skippable?: boolean
+    /**
+     * Overrides applied while a feature flag is on, to roll out a change to this screen (a new
+     * wizard subcommand, a different call to action) without a second config. Each field
+     * replaces the base value, so `primaryAction: undefined` removes the action. `text` merges
+     * per mode, so a field left out keeps its base value. When several flags are on, later
+     * entries win.
+     */
+    featureFlagOverrides?: Partial<Record<FeatureFlagKey, ProductEmptyStateOverride>>
+}
+
+/** Per-mode text fields to replace; fields left out keep the base value. */
+export type ProductEmptyStateTextOverride = Partial<Record<ProductEmptyStateMode, Partial<ProductEmptyStateText>>>
+
+export type ProductEmptyStateOverride = Partial<
+    Omit<ProductEmptyStateConfig, 'productKey' | 'text' | 'featureFlagOverrides'>
+> & {
+    text?: ProductEmptyStateTextOverride
 }
 
 /**

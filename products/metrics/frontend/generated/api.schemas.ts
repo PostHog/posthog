@@ -40,10 +40,12 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
+    /** Number of distinct values for this attribute in recent series metadata. */
+    value_count: number
 }
 
 export interface _MetricAttributeKeysResponseApi {
-    /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+    /** Distinct attribute keys (datapoint and resource attributes merged), ordered by distinct value count descending. */
     results: _MetricAttributeKeyApi[]
     /** Number of keys returned. */
     count: number
@@ -808,6 +810,32 @@ export interface _MetricNamesResponseApi {
     results: _MetricNameApi[]
 }
 
+export interface _MetricCatalogValuesParamsApi {
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
+     */
+    value?: string
+    /**
+     * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
+    /**
+     * Exact metric names to load as a batch. Overrides value and limit.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 255
+     */
+    names: string[]
+}
+
 export type MetricsAttributeValuesRetrieveParams = {
     /**
      * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
@@ -855,6 +883,11 @@ export type MetricsAttributesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Exact metric name to limit attribute keys to. Omit to list keys across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
     /**
      * Substring filter (case-insensitive) applied to attribute keys.
      * @maxLength 255

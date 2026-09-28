@@ -11,13 +11,13 @@ from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_capture import (
     TOKEN_CACHE_TTL_SECONDS,
     TeamNotFound,
-    capture_internal_for_team,
+    capture_ai_internal_for_team,
     get_team_api_token,
 )
 
 
 def _emit(team_id: int) -> None:
-    capture_internal_for_team(
+    capture_ai_internal_for_team(
         team_id=team_id,
         event_name="$ai_evaluation",
         event_source="llm_analytics_evaluation",
@@ -51,14 +51,14 @@ class TestTeamCapture(BaseTest):
     def test_auth_rejection_invalidates_the_cached_token(self):
         get_team_api_token(self.team.id)
         with patch(
-            "posthog.temporal.ai_observability.team_capture.capture_internal",
+            "posthog.temporal.ai_observability.team_capture.capture_ai_internal",
             side_effect=CaptureInternalError("unauthorized", status_code=401),
         ):
             with self.assertRaises(CaptureInternalError):
                 _emit(self.team.id)
 
         with patch(
-            "posthog.temporal.ai_observability.team_capture.capture_internal",
+            "posthog.temporal.ai_observability.team_capture.capture_ai_internal",
             return_value=MagicMock(raise_for_status=MagicMock()),
         ) as mock_capture:
             with self.assertNumQueries(1):
@@ -75,14 +75,14 @@ class TestTeamCapture(BaseTest):
     def test_non_auth_capture_failure_keeps_the_cached_token(self, _name, error):
         get_team_api_token(self.team.id)
         with patch(
-            "posthog.temporal.ai_observability.team_capture.capture_internal",
+            "posthog.temporal.ai_observability.team_capture.capture_ai_internal",
             side_effect=error,
         ):
             with self.assertRaises(CaptureInternalError):
                 _emit(self.team.id)
 
         with patch(
-            "posthog.temporal.ai_observability.team_capture.capture_internal",
+            "posthog.temporal.ai_observability.team_capture.capture_ai_internal",
             return_value=MagicMock(raise_for_status=MagicMock()),
         ):
             with self.assertNumQueries(0):

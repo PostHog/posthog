@@ -5,6 +5,7 @@ lookup by email, and display-name / message validation.
 
 import re
 import html
+import string
 import hashlib
 import unicodedata
 from collections.abc import Callable
@@ -17,8 +18,8 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import F, Func, QuerySet, Value
-from django.db.models.functions import Lower
+from django.db.models import CharField, F, Func, Q, QuerySet, Value
+from django.db.models.functions import Lower, Replace
 
 import requests
 import structlog
@@ -239,13 +240,24 @@ def sanitize_email_string(value: str) -> str:
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 
+_ASCII_UPPER_TO_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
 class EmailNormalizer:
     @staticmethod
     def normalize(email: str) -> str:
+        """Fold an address into the form `User.email` stores.
+
+        Only `A-Z` folds. Every lookup resolves an address through Postgres `LOWER`, and `A-Z` is
+        the range where Python and Postgres agree. `str.lower()` maps `İ` (U+0130) to `i` plus a
+        combining dot, where Postgres maps it to a plain `i`, so folding it here would store an
+        address that no string a person can type folds onto. Postgres still folds the untouched
+        characters at lookup time, so an address stays resolvable from any case it is typed in.
+        """
         if not email:
             return email
 
-        return email.lower()
+        return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
 def strip_email_alias(email: str) -> str:
@@ -270,6 +282,22 @@ def _stripped_email(expression: "str | Value") -> Func:
 # index on `User` that makes it an index lookup — Postgres only uses a functional index when
 # the query filters on the identical expression, so these must not drift apart.
 STRIPPED_EMAIL_EXPRESSION = _stripped_email("email")
+
+GMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+
+
+def gmail_canonical_local_part(email: str) -> str | None:
+    local, _, domain = strip_email_alias(EmailNormalizer.normalize(email)).rpartition("@")
+    if domain not in GMAIL_DOMAINS:
+        return None
+    return local.replace(".", "")
+
+
+GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
+    Func(STRIPPED_EMAIL_EXPRESSION, Value("@"), Value(1), function="split_part", output_field=CharField()),
+    Value("."),
+    Value(""),
+)
 
 
 def reject_plus_addressed_email(value: str) -> None:
@@ -402,6 +430,23 @@ class EmailValidationHelper:
         if exclude_user_id is not None:
             candidates = candidates.exclude(pk=exclude_user_id)
         return candidates.exists()
+
+    @staticmethod
+    def user_exists_with_gmail_canonical(email: str) -> bool:
+        from posthog.models.user import User
+
+        canonical_local = gmail_canonical_local_part(email)
+        if canonical_local is None:
+            return False
+        gmail_domains = Q()
+        for domain in GMAIL_DOMAINS:
+            gmail_domains |= Q(email__iendswith=f"@{domain}")
+        return (
+            User.objects.filter(gmail_domains, is_active=True)
+            .annotate(gmail_canonical_local=GMAIL_CANONICAL_LOCAL_EXPRESSION)
+            .filter(gmail_canonical_local=canonical_local)
+            .exists()
+        )
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day

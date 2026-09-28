@@ -26,6 +26,8 @@ from rest_framework import status
 
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
@@ -102,14 +104,19 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
+
         # Auth/team/membership/instance-setting lookups, plus the HogQL pipeline's per-probe
         # access-control checks (the progressive-window loop probes several windows on this
         # sparse dataset; the schema is built once and shared). Group-type-mapping is read via
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build.
-        with self.assertNumQueries(15):
+        # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
+        # TTL-cached per worker in production.
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -134,14 +141,19 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
+
         # Auth/team/membership/access-control/instance-setting lookups, plus the HogQL
         # pipeline's per-probe access-control checks. The progressive-window loop probes several
         # windows on this sparse dataset; the HogQL schema is built once and shared across them.
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        # +1 for the saved-expressions fetch in the HogQL database build.
-        expected_queries = 22 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 23
+        # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
+        # TTL instance setting, cold-cache here but TTL-cached per worker in production.
+        expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

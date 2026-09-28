@@ -115,7 +115,7 @@ const sourceMegapixels = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
     registers: [register],
 })
-// The scrub is a privacy control, so its OUTCOME signals matter as much as its error signals: a
+// The scrub is an anonymization control, so its OUTCOME signals matter as much as its error signals: a
 // runaway NSFW gate irreversibly blanking everything, or a detector flatlining at zero (persisting
 // un-redacted screenshots), must be distinguishable from healthy operation.
 const blanked = new Counter({

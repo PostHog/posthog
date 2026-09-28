@@ -21,5 +21,30 @@ Event deletion is available only with `TEST`.
 The Temporal codec endpoint is registered once when either setting is enabled.
 These conditions control registration, not only view behavior.
 
-Product DRF routes continue to register through `products/<product>/backend/routes.py`.
-Root-level product routes remain explicit in `posthog/urls.py`.
+## Product root routes
+
+A product declares its root paths in `products/<product>/backend/routes.py`, beside `register_routes`, in up to two lists:
+
+- `api_urlpatterns`, mounted at `api/<product>/`
+- `webhook_urlpatterns`, mounted at `webhooks/<product>/`
+
+`<product>` is the product directory name, underscores included.
+Routes in each list are relative to the mount, so `path("vapi_webhook/", ...)` in `products/user_interviews/` serves `/api/user_interviews/vapi_webhook/`.
+
+`posthog/product_urls.py` turns each list into a `path(<prefix>, include(<list>))` mount, and `posthog/urls.py` splices every product's mounts into one slot: after every core `api/` route, and before the `^api.+` fallback and the frontend catch-all.
+Precedence stays one list to read, and a product that adds a path does not touch core.
+
+The prefix holds by construction: a route inside the mount cannot address anything outside it, so a product cannot shadow a core route outside its own prefix.
+Inside its prefix, a core route listed above the slot still wins, which is how `api/user_interviews/share/<token>/start_call/` stays in core.
+`include()` receives the list, not the module, so Django sets no application namespace and `reverse("<name>")` keeps working unchanged.
+A routes module that declares any other url patterns list raises `ImproperlyConfigured` when the URL conf loads, rather than having its routes dropped silently. That covers the old flat `urlpatterns` and a near miss such as `webhooks_urlpatterns`, and the error names both valid lists.
+
+`register_routes(routers)` stays the way to add DRF routes.
+Use these two lists only for a plain Django path that no router can carry, such as an inbound webhook endpoint.
+
+### Who owns a webhook route
+
+The owner of the third-party App registration owns the route.
+The customer-facing GitHub App is shared: one endpoint fans out to several products, so core mounts it.
+An App a single product registers, such as Stamphog's GitHub App, is mounted by that product.
+A topic a single product owns works the same way: `webhooks/workflows/ses-events` is mounted from `products/workflows/backend/routes.py`.

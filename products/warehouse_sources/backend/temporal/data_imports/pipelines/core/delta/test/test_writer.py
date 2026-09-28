@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +11,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
+from pytest_mock import MockerFixture
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import ensure_table_properties
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     decimal_array,
@@ -105,6 +107,25 @@ _COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
 
 def _make_writer() -> DeltaWriter:
     return DeltaWriter(DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger()))
+
+
+# `deltalite` is a real dependency here (unlike a flag-off rollout, its import always succeeds),
+# so every primary-keyed `write()` call below would otherwise drive the real package instead of
+# the delta-rs MERGE path most of these tests are actually about. Default it off; the classes that
+# exist specifically to exercise deltalite opt back in (`TestDeltaliteWritePath` drives the real
+# method directly / fakes the `deltalite` module itself, and `TestNullabilityDriftGuardOrder`
+# already sets this mock explicitly in both directions).
+_DELTALITE_OPT_IN_CLASSES = {"TestDeltaliteWritePath", "TestNullabilityDriftGuardOrder"}
+
+
+@pytest.fixture(autouse=True)
+def _default_deltalite_to_merge_fallback(request: pytest.FixtureRequest):
+    cls = request.node.cls
+    if cls is not None and cls.__name__ in _DELTALITE_OPT_IN_CLASSES:
+        yield
+        return
+    with patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=False)):
+        yield
 
 
 class TestHasCommitWithMetadata:
@@ -264,10 +285,14 @@ class TestNullabilityDriftGuardOrder:
         self._seed_non_nullable_table(delta_path)
         helper = make_local_table_ref(delta_path)
 
-        # deltalite is off (the flag evaluation fails closed in tests), so the write falls
-        # through to the MERGE, which would silently store the nulls under a schema that
-        # denies them -- the guard must stop it with the reset signal instead.
-        with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+        # Force the delta-rs MERGE fallback. deltalite now handles every keyed incremental
+        # merge, so this path is only reached when deltalite declines or fails -- and the
+        # MERGE would silently store the nulls under a schema that denies them, so the
+        # guard must stop it with the reset signal instead.
+        with (
+            patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=False)),
+            pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"),
+        ):
             await DeltaWriter(helper).write(
                 data=self._null_carrying_batch(),
                 write_type="incremental",
@@ -654,7 +679,7 @@ class TestSchemaEvolutionNullability:
         status_field = next(f for f in result.schema().fields if f.name == "status")
         assert status_field.nullable is True
 
-        await DeltaMaintenance(helper).compact_table()
+        assert await DeltaMaintenance(helper).compact_if_fragmented(partition_count=None, threshold=0) is True
 
         final = result.to_pyarrow_table()
         by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
@@ -723,6 +748,91 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+def _commit_operations(delta_path: str) -> list[str]:
+    return [commit["operation"] for commit in deltalake.DeltaTable(delta_path).history()]
+
+
+class TestCheckpointIntervalProperty:
+    """Opening a table replays every commit after the last checkpoint, so a table left on delta-rs's
+    default interval pays a long replay on every open. Every table has to carry the short interval:
+    new ones from creation, existing ones from their next write."""
+
+    @pytest.mark.parametrize(
+        "write_type,primary_keys", [("incremental", ["id"]), ("append", None), ("full_refresh", None)]
+    )
+    @pytest.mark.asyncio
+    async def test_first_sync_creates_the_table_with_the_property(
+        self,
+        write_type: Literal["incremental", "append", "full_refresh"],
+        primary_keys: list[str] | None,
+        tmp_path: Path,
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+
+        await DeltaWriter(make_local_table_ref(delta_path)).write(
+            data=pa.table({"id": [1, 2]}),
+            write_type=write_type,
+            should_overwrite_table=False,
+            primary_keys=primary_keys,
+        )
+
+        stored = deltalake.DeltaTable(delta_path)
+        assert stored.metadata().configuration.get("delta.checkpointInterval") == "25"
+        # Set at creation, so no separate metadata commit was needed.
+        assert "SET TBLPROPERTIES" not in _commit_operations(delta_path)
+
+    @pytest.mark.asyncio
+    async def test_existing_table_gets_the_property_once(self, tmp_path: Path) -> None:
+        # A table created before the property existed must pick it up, and a second write must not
+        # spend another commit on it: each metadata commit is one more entry in the tail every open replays.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table_ref = make_local_table_ref(delta_path)
+
+        for value in (2, 3):
+            await DeltaWriter(table_ref).write(
+                data=pa.table({"id": [value]}),
+                write_type="append",
+                should_overwrite_table=False,
+                primary_keys=None,
+            )
+
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
+        assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
+
+    @pytest.mark.asyncio
+    async def test_a_persistently_failing_commit_is_swallowed_not_propagated(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        # The data write has already committed by the time this runs, so a property commit that can
+        # never succeed (an incompatible backend, an unexpected metadata shape, any bug in this path)
+        # must not fail the write call it's attached to.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table = deltalake.DeltaTable(delta_path)
+        mocker.patch.object(type(table.alter), "set_table_properties", side_effect=RuntimeError("boom"), create=True)
+
+        result = await ensure_table_properties(table, make_logger())
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_a_metadata_read_failure_is_swallowed_not_propagated(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        # The metadata read that decides whether a commit is even needed is in the same best-effort
+        # boundary as the commit itself: the data write has already landed either way, so a failure
+        # reading metadata must not propagate any more than a failed property commit does above.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table = deltalake.DeltaTable(delta_path)
+        mocker.patch.object(type(table), "metadata", side_effect=RuntimeError("boom"))
+
+        result = await ensure_table_properties(table, make_logger())
+
+        assert result is False
 
 
 class TestCreateRaceWithExistingTable:
@@ -945,13 +1055,8 @@ class TestNullSafeMergePredicate:
 
 
 class TestDeltaliteWritePath:
-    """Phase 2: deltalite performs the real incremental merge, gated solely by a per-schema flag, with
-    a hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
-
-    _FLAG = (
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
-        "deltalite_write.is_deltalite_write_enabled"
-    )
+    """deltalite performs every keyed incremental merge, with a hard fallback to the delta-rs MERGE
+    so a deltalite failure can never fail a sync."""
 
     @pytest.fixture(autouse=True)
     def _preload_write_metrics(self):
@@ -980,28 +1085,21 @@ class TestDeltaliteWritePath:
 
     @pytest.mark.asyncio
     async def test_skips_without_primary_keys(self):
-        # No primary keys => nothing to key an upsert on; fall back without even evaluating the flag.
-        with patch(self._FLAG) as flag:
-            wrote = await DeltaWriter(self._helper())._write_via_deltalite(
-                existing_delta_table=MagicMock(),
-                data=pa.table({"id": pa.array([1], pa.int64())}),
-                normalized_primary_keys=[],
-                use_partitioning=False,
-                commit_metadata=None,
-            )
+        # No primary keys => nothing to key an upsert on; fall back to the delta-rs MERGE.
+        wrote = await DeltaWriter(self._helper())._write_via_deltalite(
+            existing_delta_table=MagicMock(),
+            data=pa.table({"id": pa.array([1], pa.int64())}),
+            normalized_primary_keys=[],
+            use_partitioning=False,
+            commit_metadata=None,
+        )
         assert wrote is False
-        flag.assert_not_called()
 
     def test_write_stats_flattens_scalar_getters_only(self):
         # Enumerates scalar attributes (so future crate fields flow through) and drops methods/non-scalars.
         stats = SimpleNamespace(version=7, rows_inserted=2, files_added=1, _private=9)
         stats.helper = lambda: None  # callable attribute must be ignored
         assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
-
-    @pytest.mark.asyncio
-    async def test_falls_back_when_flag_disabled(self):
-        with patch(self._FLAG, return_value=False):
-            assert await self._call(self._helper()) is False
 
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(self):
@@ -1017,7 +1115,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
@@ -1051,7 +1148,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
@@ -1076,7 +1172,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),

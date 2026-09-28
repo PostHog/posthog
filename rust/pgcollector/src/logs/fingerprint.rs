@@ -38,6 +38,16 @@ pub fn redact_literals(sql: &str) -> String {
     STRING.replace_all(sql, "'?'").into_owned()
 }
 
+/// The representative text for a fingerprint. Comments are dropped like the
+/// fingerprint drops them: they do not change the shape, so any client could
+/// otherwise rewrite the text shown for every statement of that shape.
+pub fn representative_text(sql: &str) -> String {
+    COMMENT
+        .replace_all(&redact_literals(sql), " ")
+        .trim()
+        .to_string()
+}
+
 /// Bump when `normalize` changes so stored query fingerprints are recomputed.
 pub const FINGERPRINT_VERSION: u32 = 2;
 
@@ -54,6 +64,15 @@ pub fn fingerprint(sql: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn representative_text_redacts_literals_that_contain_comment_markers() {
+        assert_eq!(
+            representative_text("select 'sk-secret--suffix', 'x /* y */ z' from t -- note"),
+            "select '?', '?' from t"
+        );
+    }
+
     #[test]
     fn literals_params_and_lists_normalise_together() {
         let a = fingerprint("SELECT * FROM t WHERE id = 42 AND name = 'bob' AND x IN (1, 2, 3)");

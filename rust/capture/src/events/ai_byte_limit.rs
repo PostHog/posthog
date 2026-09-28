@@ -1,6 +1,6 @@
 //! The AI lane's per-project byte budget. The lane is the whole gate: every
-//! event on the `AI_EVENT_NAMES` allowlist is bound for the AI Kafka topic on
-//! every deployment, stamped `DataType::AiEvents` in v0 and
+//! event the deployment's `AiLanePredicate` accepts is bound for the AI Kafka
+//! topic on every deployment, stamped `DataType::AiEvents` in v0 and
 //! `Destination::AiEvents` in v1. Import deployments are exempt — backfills
 //! are never throttled, matching the other limiters — which setup enforces by
 //! not building the limiter at all in import mode.

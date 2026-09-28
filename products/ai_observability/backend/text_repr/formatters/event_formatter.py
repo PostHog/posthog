@@ -122,7 +122,10 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.extend(input_lines)
 
     # Output messages
-    output_lines = format_output_messages(props.get("$ai_output"), props.get("$ai_output_choices"), options)
+    output_options: FormatterOptions | None = (
+        {**options, "truncated": False} if options and options.get("preserve_generation_output") else options
+    )
+    output_lines = format_output_messages(props.get("$ai_output"), props.get("$ai_output_choices"), output_options)
     if output_lines:
         if lines:
             lines.append("")
@@ -202,6 +205,10 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     # Result line
     if applicable is False or applicable == "false":
         result_str = "N/A"
+    elif (
+        props.get("$ai_evaluation_result_type") == "numeric" and props.get("$ai_evaluation_numeric_result") is not None
+    ):
+        result_str = str(props["$ai_evaluation_numeric_result"])
     elif result is True or result == "true":
         result_str = "true"
     elif result is False or result == "false":

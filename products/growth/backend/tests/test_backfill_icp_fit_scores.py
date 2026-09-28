@@ -106,3 +106,17 @@ class TestBackfillIcpFitScores(BaseTest):
         record.refresh_from_db()
         assert record.data == {"signup_role": "engineering"}
         pha_client.group_identify.assert_not_called()
+
+    def test_writes_the_backfill_evaluation_kind(self):
+        record = self._record({})
+
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=MagicMock()),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_evaluation_kind"] == "backfill"
+        assert record.data["icp_fit_evaluated_at"]

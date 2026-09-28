@@ -21,19 +21,12 @@ export const visionAlertsCreateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsCreateBodySelectionOneTagsMax = 20
 
-export const visionAlertsCreateBodyMetricDefault = `count`
-export const visionAlertsCreateBodyDirectionDefault = `above`
-export const visionAlertsCreateBodyWindowDaysDefault = 1
-export const visionAlertsCreateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsCreateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsCreateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsCreateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsCreateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsCreateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsCreateBodyCooldownMinutesDefault = 0
 export const visionAlertsCreateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
@@ -73,14 +66,14 @@ export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsCreateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsCreateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -92,29 +85,29 @@ export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsCreateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsCreateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyEvaluationPeriodsMax)
-        .default(visionAlertsCreateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsCreateBodyDatapointsToAlarmMax)
-        .default(visionAlertsCreateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsCreateBodyCooldownMinutesMin)
-        .default(visionAlertsCreateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -162,19 +155,12 @@ export const visionAlertsUpdateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsUpdateBodySelectionOneTagsMax = 20
 
-export const visionAlertsUpdateBodyMetricDefault = `count`
-export const visionAlertsUpdateBodyDirectionDefault = `above`
-export const visionAlertsUpdateBodyWindowDaysDefault = 1
-export const visionAlertsUpdateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsUpdateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsUpdateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsUpdateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsUpdateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsUpdateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsUpdateBodyCooldownMinutesDefault = 0
 export const visionAlertsUpdateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
@@ -214,14 +200,14 @@ export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsUpdateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsUpdateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -233,29 +219,29 @@ export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsUpdateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsUpdateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsUpdateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsUpdateBodyEvaluationPeriodsMax)
-        .default(visionAlertsUpdateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsUpdateBodyDatapointsToAlarmMax)
-        .default(visionAlertsUpdateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsUpdateBodyCooldownMinutesMin)
-        .default(visionAlertsUpdateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -303,19 +289,12 @@ export const visionAlertsPartialUpdateBodySelectionOneTagsItemMax = 200
 
 export const visionAlertsPartialUpdateBodySelectionOneTagsMax = 20
 
-export const visionAlertsPartialUpdateBodyMetricDefault = `count`
-export const visionAlertsPartialUpdateBodyDirectionDefault = `above`
-export const visionAlertsPartialUpdateBodyWindowDaysDefault = 1
-export const visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault = 60
 export const visionAlertsPartialUpdateBodyCheckIntervalMinutesMin = 15
 
-export const visionAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
 export const visionAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
 
-export const visionAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
 export const visionAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
-export const visionAlertsPartialUpdateBodyCooldownMinutesDefault = 0
 export const visionAlertsPartialUpdateBodyCooldownMinutesMin = 0
 
 export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -359,14 +338,14 @@ export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     metric: zod
         .enum(['count', 'avg_score'])
         .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
-        .default(visionAlertsPartialUpdateBodyMetricDefault)
+        .optional()
         .describe(
             "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
         ),
     direction: zod
         .enum(['above', 'below'])
         .describe('\* `above` - At or above\n\* `below` - At or below')
-        .default(visionAlertsPartialUpdateBodyDirectionDefault)
+        .optional()
         .describe(
             'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
         ),
@@ -378,29 +357,29 @@ export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_days: zod
         .number()
-        .default(visionAlertsPartialUpdateBodyWindowDaysDefault)
+        .optional()
         .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
     check_interval_minutes: zod
         .number()
         .min(visionAlertsPartialUpdateBodyCheckIntervalMinutesMin)
-        .default(visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault)
+        .optional()
         .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
     evaluation_periods: zod
         .number()
         .min(1)
         .max(visionAlertsPartialUpdateBodyEvaluationPeriodsMax)
-        .default(visionAlertsPartialUpdateBodyEvaluationPeriodsDefault)
+        .optional()
         .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
     datapoints_to_alarm: zod
         .number()
         .min(1)
         .max(visionAlertsPartialUpdateBodyDatapointsToAlarmMax)
-        .default(visionAlertsPartialUpdateBodyDatapointsToAlarmDefault)
+        .optional()
         .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
     cooldown_minutes: zod
         .number()
         .min(visionAlertsPartialUpdateBodyCooldownMinutesMin)
-        .default(visionAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .optional()
         .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
     schedule_restriction: zod
         .union([
@@ -486,8 +465,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
- * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+ * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod
@@ -796,6 +775,17 @@ export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
             .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
             .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
             .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        verdict: zod
+            .union([
+                zod
+                    .enum(['yes', 'no', 'inconclusive'])
+                    .describe('\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
+            ),
         tag: zod
             .string()
             .max(visionScannersAffectedCohortCreateBodyTagMax)
@@ -856,6 +846,8 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
  * billing-relevant, so the authoritative value is computed server-side at creation time. New
  * settled sessions between estimate and confirm can nudge total_count slightly.
  */
+export const visionScannersBackfillsCreateBodyMaxTotalCreditsMin = 0
+
 export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
     window_start: zod.iso
         .datetime({ offset: true })
@@ -863,6 +855,12 @@ export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
     window_end: zod.iso
         .datetime({ offset: true })
         .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+    max_total_credits: zod
+        .number()
+        .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
+        .describe(
+            'The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.'
+        ),
 })
 
 /**
@@ -944,9 +942,23 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
 /**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
+export const visionScannersScoutsCreateBodyDisplayNameMax = 200
+
 export const visionScannersScoutsCreateBodyNameMax = 64
 
 export const visionScannersScoutsCreateBodyDescriptionMax = 1024
+
+export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
+
+export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
+
+export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
+
+export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
+
+export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
+
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 8
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -963,21 +975,21 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
-export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
-
-export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
-
-export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
-
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 7
-
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -990,6 +1002,47 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             ),
         config: zod
             .object({
+                model: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOneModelMax)
+                    .nullish()
+                    .describe(
+                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                    ),
+                tags: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
+                mcp_gateway_server_ids: zod
+                    .array(zod.uuid())
+                    .max(visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax)
+                    .optional()
+                    .describe(
+                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+                repositories: zod
+                    .array(zod.string().max(visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax))
+                    .max(visionScannersScoutsCreateBodyConfigOneRepositoriesMax)
+                    .optional()
+                    .describe(
+                        "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+                    ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                    ),
                 enabled: zod
                     .boolean()
                     .optional()
@@ -1097,40 +1150,6 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .nullish()
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
-                    ),
-                model: zod
-                    .string()
-                    .max(visionScannersScoutsCreateBodyConfigOneModelMax)
-                    .nullish()
-                    .describe(
-                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
-                    ),
-                tags: zod
-                    .array(zod.string())
-                    .max(visionScannersScoutsCreateBodyConfigOneTagsMax)
-                    .optional()
-                    .describe(
-                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
-                    ),
-                structured_output_schema: zod
-                    .record(zod.string(), zod.unknown())
-                    .nullish()
-                    .describe(
-                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
-                    ),
-                mcp_gateway_server_ids: zod
-                    .array(zod.uuid())
-                    .max(visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax)
-                    .optional()
-                    .describe(
-                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
-                    ),
-                write_scopes: zod
-                    .array(zod.string())
-                    .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
-                    .optional()
-                    .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
@@ -1245,6 +1264,10 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
 
@@ -1276,7 +1299,7 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
             ),
         scanner_config: zod
             .unknown()

@@ -57,14 +57,23 @@ describe('InsightSelector', () => {
         expect(checkboxes[2]).not.toBeChecked() // Users (103)
     })
 
-    it('shows selection count', () => {
+    it.each([
+        ['fewer insights than the limit', 3, '2 of 3 insights selected'],
+        ['more insights than the limit', MAX_INSIGHTS + 1, `2 of ${MAX_INSIGHTS} insights selected`],
+    ])('shows selection count with %s', (_name, tileCount, expected) => {
+        const tiles = Array.from({ length: tileCount as number }, (_, i) => ({
+            id: i + 1,
+            insight: { id: 101 + i, name: `Insight ${i}` } as any,
+            layouts: { sm: { x: 0, y: i } } as any,
+        }))
+
         renderInsightSelector({
-            tiles: createMockTiles() as DashboardTile[],
+            tiles: tiles as DashboardTile[],
             selectedInsightIds: [101, 102],
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`2 of ${MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
+        expect(screen.getByText(expected as string)).toBeInTheDocument()
     })
 
     it('calls onChange when selecting an insight', async () => {

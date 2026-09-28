@@ -153,7 +153,7 @@ class TestSendRequest:
         credentials = Credentials("AKIAEXAMPLE", "secret")
 
         with time_machine.travel("2026-08-07T10:00:00Z", tick=False):
-            send_request(session, credentials, "eu-west-1", "/v2/email/account")
+            send_request(session, credentials, "eu-west-1", "account", "/v2/email/account")
 
         assert session.get.call_args[0][0] == "https://email.eu-west-1.amazonaws.com/v2/email/account"
         headers = session.get.call_args[1]["headers"]
@@ -170,6 +170,7 @@ class TestSendRequest:
             session,
             Credentials("key", "secret"),
             "us-east-1",
+            "suppressed_destinations",
             "/v2/email/suppression/addresses",
             {"StartDate": "2026-08-01T00:00:00Z", "PageSize": 1000},
         )
@@ -182,7 +183,9 @@ class TestSendRequest:
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = make_response(200, {})
 
-        send_request(session, Credentials("key", "secret", "session-token"), "us-east-1", "/v2/email/account")
+        send_request(
+            session, Credentials("key", "secret", "session-token"), "us-east-1", "account", "/v2/email/account"
+        )
 
         assert session.get.call_args[1]["headers"]["X-Amz-Security-Token"] == "session-token"
 
@@ -195,19 +198,54 @@ class TestErrorClassification:
             headers={"x-amzn-ErrorType": "AccessDeniedException:http://internal.amazon.example/coral/"},
         )
 
-        assert str(error_for_response(response)) == "Amazon SES request failed: AccessDeniedException - denied"
+        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+            "Amazon SES request failed: AccessDeniedException - denied (table account, GET /v2/email/account)"
+        )
 
     def test_the_namespaced_body_type_is_stripped_to_the_bare_code(self) -> None:
         response = make_response(400, {"__type": "com.amazonaws.ses#BadRequestException", "message": "bad"})
 
-        assert str(error_for_response(response)) == "Amazon SES request failed: BadRequestException - bad"
+        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+            "Amazon SES request failed: BadRequestException - bad (table account, GET /v2/email/account)"
+        )
+
+    # A zero-member exception model constrains the members, not the wire body, so SES can answer
+    # with an empty JSON object or with no bytes at all.
+    @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
+    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self, content: bytes) -> None:
+        response = requests.Response()
+        response.status_code = 400
+        response.headers["x-amzn-ErrorType"] = "BadRequestException:http://internal.amazon.example/coral/"
+        response._content = content
+
+        message = str(error_for_response(response, "multi_region_endpoints", "/v2/email/multi-region-endpoints"))
+
+        assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
+        assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
+
+    def test_a_bodyless_error_that_is_not_a_bad_request_reports_its_status(self) -> None:
+        response = requests.Response()
+        response.status_code = 502
+        response._content = b""
+
+        assert "Amazon SES returned HTTP 502 with no message." in str(
+            error_for_response(response, "account", "/v2/email/account")
+        )
+
+    def test_an_email_identity_in_the_path_is_masked(self) -> None:
+        response = make_response(400, {"message": "bad"})
+
+        message = str(error_for_response(response, "email_identities", "/v2/email/identities/user%40example.com"))
+
+        assert message.endswith("(table email_identities, GET /v2/email/identities/{email})")
+        assert "example.com" not in message
 
     def test_a_non_json_error_body_still_produces_a_usable_message(self) -> None:
         response = requests.Response()
         response.status_code = 503
         response._content = b"<html>gateway</html>"
 
-        assert "HTTP 503" in str(error_for_response(response))
+        assert "HTTP 503" in str(error_for_response(response, "account", "/v2/email/account"))
 
 
 class TestResolveStartDate:
@@ -261,7 +299,7 @@ class TestGetRows:
 
         assert batches == [[{"sending_enabled": True, "enforcement_status": "HEALTHY"}]]
         assert send.call_count == 1
-        assert send.call_args[0][3] == "/v2/email/account"
+        assert send.call_args[0][4] == "/v2/email/account"
 
     def test_pagination_follows_next_token_until_aws_stops_returning_one(self) -> None:
         batches, send, _ = self._run(
@@ -273,8 +311,8 @@ class TestGetRows:
 
         assert [row["email_address"] for batch in batches for row in batch] == ["a@example.com", "b@example.com"]
         assert batches[0][0]["last_update_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert "NextToken" not in send.call_args_list[0][0][4]
-        assert send.call_args_list[1][0][4]["NextToken"] == "page-2"
+        assert "NextToken" not in send.call_args_list[0][0][5]
+        assert send.call_args_list[1][0][5]["NextToken"] == "page-2"
 
     def test_state_is_saved_after_each_page_and_cleared_once_the_walk_completes(self) -> None:
         _, _, manager = self._run(
@@ -294,20 +332,20 @@ class TestGetRows:
         )
 
         assert send.call_count == 1
-        assert send.call_args[0][4]["NextToken"] == "page-7"
+        assert send.call_args[0][5]["NextToken"] == "page-7"
 
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing_the_job(self) -> None:
         batches, send, manager = self._run(
             [
-                AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
+                AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
                 suppression_page(["a@example.com"]),
             ],
             manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
         )
 
         assert [row["email_address"] for batch in batches for row in batch] == ["a@example.com"]
-        assert send.call_args_list[0][0][4].get("NextToken") == "stale"
-        assert "NextToken" not in send.call_args_list[1][0][4]
+        assert send.call_args_list[0][0][5].get("NextToken") == "stale"
+        assert "NextToken" not in send.call_args_list[1][0][5]
         assert manager.cleared is True
 
     def test_an_invalid_token_from_aws_itself_is_not_swallowed(self) -> None:
@@ -316,10 +354,48 @@ class TestGetRows:
         with pytest.raises(AwsSesError, match="InvalidNextTokenException"):
             self._run(
                 [
-                    AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
-                    AwsSesError("Amazon SES request failed: InvalidNextTokenException - expired"),
+                    AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
+                    AwsSesError("InvalidNextTokenException", "expired", "suppressed_destinations", "/path"),
                 ],
                 manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
+            )
+
+    def test_a_saved_token_rejected_as_a_bad_request_restarts_the_walk(self) -> None:
+        # Only ListSuppressedDestinations models a rejected token as InvalidNextTokenException.
+        # Every other list operation answers one with BadRequestException, which is otherwise
+        # classified as permanent and would disable a healthy table.
+        batches, send, manager = self._run(
+            [
+                AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                {"MultiRegionEndpoints": [{"EndpointId": "e-1"}]},
+            ],
+            manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
+            endpoint="multi_region_endpoints",
+        )
+
+        assert [row["endpoint_id"] for batch in batches for row in batch] == ["e-1"]
+        assert send.call_args_list[0][0][5].get("NextToken") == "stale"
+        assert "NextToken" not in send.call_args_list[1][0][5]
+        assert manager.cleared is True
+
+    def test_a_bad_request_that_outlives_the_restart_still_fails_the_job(self) -> None:
+        # The region genuinely cannot serve the table: page 1 fails the same way, and the error
+        # has to reach the non-retryable classification that disables the schema.
+        with pytest.raises(AwsSesError, match="BadRequestException"):
+            self._run(
+                [
+                    AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                    AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path"),
+                ],
+                manager=FakeResumeManager(AwsSesResumeConfig(next_token="stale")),
+                endpoint="multi_region_endpoints",
+            )
+
+    def test_a_bad_request_with_no_saved_token_fails_without_a_retry(self) -> None:
+        with pytest.raises(AwsSesError, match="BadRequestException"):
+            self._run(
+                [AwsSesError("BadRequestException", "invalid", "multi_region_endpoints", "/path")],
+                endpoint="multi_region_endpoints",
             )
 
     def test_an_incremental_run_asks_aws_only_for_updates_since_the_watermark(self) -> None:
@@ -329,12 +405,12 @@ class TestGetRows:
             db_incremental_field_last_value=dt.datetime(2026, 8, 7, 12, 0, tzinfo=dt.UTC),
         )
 
-        assert send.call_args[0][4]["StartDate"] == "2026-08-06T12:00:00Z"
+        assert send.call_args[0][5]["StartDate"] == "2026-08-06T12:00:00Z"
 
     def test_a_full_refresh_walks_the_list_unbounded(self) -> None:
         _, send, _ = self._run([suppression_page([])])
 
-        assert "StartDate" not in send.call_args[0][4]
+        assert "StartDate" not in send.call_args[0][5]
 
     def test_configuration_sets_fan_out_from_bare_names_to_full_rows(self) -> None:
         batches, send, _ = self._run(
@@ -351,7 +427,7 @@ class TestGetRows:
             endpoint="configuration_sets",
         )
 
-        assert send.call_args_list[1][0][3] == "/v2/email/configuration-sets/transactional"
+        assert send.call_args_list[1][0][4] == "/v2/email/configuration-sets/transactional"
         first, second = batches[0][0], batches[1][0]
         assert first["configuration_set_name"] == "transactional"
         assert first["sending_options_sending_enabled"] is True
@@ -379,7 +455,7 @@ class TestGetRows:
             endpoint="email_identities",
         )
 
-        assert send.call_args_list[1][0][3] == "/v2/email/identities/user%40example.com"
+        assert send.call_args_list[1][0][4] == "/v2/email/identities/user%40example.com"
         row = batches[0][0]
         assert row["identity_name"] == "user@example.com"
         assert row["sending_enabled"] is True
@@ -390,13 +466,81 @@ class TestGetRows:
         batches, _, _ = self._run(
             [
                 {"EmailIdentities": [{"IdentityName": "gone.example.com"}, {"IdentityName": "kept.example.com"}]},
-                AwsSesError("Amazon SES request failed: NotFoundException - not found"),
+                AwsSesError("NotFoundException", "not found", "email_identities", "/path"),
                 {"IdentityType": "DOMAIN"},
             ],
             endpoint="email_identities",
         )
 
         assert [row["identity_name"] for batch in batches for row in batch] == ["kept.example.com"]
+
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_an_item_aws_refuses_to_describe_is_reported_from_the_list_response_alone(self, pool_name: str) -> None:
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": [pool_name, "marketing-pool"]},
+                AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
+                {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {"pool_name": pool_name},
+                {
+                    "pool_name": "marketing-pool",
+                    "dedicated_ip_pool_pool_name": "marketing-pool",
+                    "dedicated_ip_pool_scaling_mode": "MANAGED",
+                },
+            ]
+        ]
+
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_reserved_pool_details_are_kept_when_aws_returns_them(self, pool_name: str) -> None:
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": [pool_name]},
+                {"DedicatedIpPool": {"PoolName": pool_name, "ScalingMode": "STANDARD"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {
+                    "pool_name": pool_name,
+                    "dedicated_ip_pool_pool_name": pool_name,
+                    "dedicated_ip_pool_scaling_mode": "STANDARD",
+                }
+            ]
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint,page,code",
+        [
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool-custom"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "AccessDeniedException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-default-dedicated-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "HTTP 503"),
+            ("configuration_sets", {"ConfigurationSets": ["ses-shared-pool"]}, "BadRequestException"),
+            ("contact_lists", {"ContactLists": [{"ContactListName": "ses-shared-pool"}]}, "BadRequestException"),
+            (
+                "custom_verification_email_templates",
+                {"CustomVerificationEmailTemplates": [{"TemplateName": "ses-shared-pool"}]},
+                "BadRequestException",
+            ),
+            ("email_identities", {"EmailIdentities": [{"IdentityName": "example.com"}]}, "BadRequestException"),
+            ("email_templates", {"TemplatesMetadata": [{"TemplateName": "ses-shared-pool"}]}, "BadRequestException"),
+        ],
+    )
+    def test_a_detail_failure_the_table_cannot_absorb_still_fails_the_job(
+        self, endpoint: str, page: dict[str, Any], code: str
+    ) -> None:
+        with pytest.raises(AwsSesError, match=code):
+            self._run([page, AwsSesError(code, "rejected", endpoint, "/path")], endpoint=endpoint)
 
     def test_an_empty_page_yields_no_batch_but_still_completes_the_walk(self) -> None:
         batches, _, manager = self._run([suppression_page([])])
@@ -557,7 +701,7 @@ class TestGetRows:
         for key_column in primary_key:
             assert expected_row[key_column]
         if detail_path is not None:
-            assert send.call_args_list[1][0][3] == detail_path
+            assert send.call_args_list[1][0][4] == detail_path
 
     def test_an_account_with_no_dedicated_ips_yields_an_empty_table_and_stays_reachable(self) -> None:
         batches, _, manager = self._run([{"DedicatedIps": []}], endpoint="dedicated_ips")
@@ -594,17 +738,17 @@ class TestValidateCredentials:
         with mock.patch.object(aws_ses, "send_request", return_value={"SendingEnabled": True}) as send:
             assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
 
-        assert send.call_args[0][3] == "/v2/email/account"
+        assert send.call_args[0][4] == "/v2/email/account"
 
     def test_a_genuine_key_missing_the_account_permission_still_validates_at_create(self) -> None:
         # Scope for each table is reported per endpoint in the schema picker instead.
-        error = AwsSesError("Amazon SES request failed: AccessDeniedException - not authorized")
+        error = AwsSesError("AccessDeniedException", "not authorized", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
             assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
 
     def test_a_rejected_key_is_surfaced_to_the_user(self) -> None:
-        error = AwsSesError("Amazon SES request failed: UnrecognizedClientException - invalid token")
+        error = AwsSesError("UnrecognizedClientException", "invalid token", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
             assert validate_credentials("key", "secret", None, "us-east-1") == (False, str(error))
@@ -618,8 +762,11 @@ class TestValidateCredentials:
 
     def test_validating_a_schema_probes_that_endpoint_and_names_the_missing_permission(self) -> None:
         error = AwsSesError(
-            "Amazon SES request failed: AccessDeniedException - User: arn:aws:iam::123456789012:user/etl "
-            "is not authorized to perform: ses:ListSuppressedDestinations on resource: arn:aws:ses:us-east-1:123456789012:suppression-list"
+            "AccessDeniedException",
+            "User: arn:aws:iam::123456789012:user/etl is not authorized to perform: "
+            "ses:ListSuppressedDestinations on resource: arn:aws:ses:us-east-1:123456789012:suppression-list",
+            "suppressed_destinations",
+            "/v2/email/suppression/addresses",
         )
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
@@ -638,11 +785,11 @@ class TestValidateCredentials:
 
 class TestEndpointPermissions:
     def test_only_the_denied_endpoint_is_reported_unreachable(self) -> None:
-        def respond(session: Any, credentials: Any, region: str, path: str, params: Any = None) -> dict[str, Any]:
+        def respond(
+            session: Any, credentials: Any, region: str, endpoint: str, path: str, params: Any = None
+        ) -> dict[str, Any]:
             if path == "/v2/email/account":
-                raise AwsSesError(
-                    "Amazon SES request failed: AccessDeniedException - not authorized to perform: ses:GetAccount"
-                )
+                raise AwsSesError("AccessDeniedException", "not authorized to perform: ses:GetAccount", endpoint, path)
             return {}
 
         with mock.patch.object(aws_ses, "send_request", side_effect=respond):
@@ -660,7 +807,10 @@ class TestEndpointPermissions:
         responses = [
             {"EmailIdentities": [{"IdentityName": "example.com"}]},
             AwsSesError(
-                "Amazon SES request failed: AccessDeniedException - not authorized to perform: ses:GetEmailIdentity"
+                "AccessDeniedException",
+                "not authorized to perform: ses:GetEmailIdentity",
+                "email_identities",
+                "/v2/email/identities/example.com",
             ),
         ]
 
@@ -671,8 +821,73 @@ class TestEndpointPermissions:
 
     def test_transient_failures_do_not_hide_tables_from_the_schema_picker(self) -> None:
         with mock.patch.object(
-            aws_ses, "send_request", side_effect=AwsSesError("Amazon SES request failed: HTTP 503 - gateway")
+            aws_ses,
+            "send_request",
+            side_effect=AwsSesError(
+                "HTTP 503", "gateway", "suppressed_destinations", "/v2/email/suppression/addresses"
+            ),
         ):
             reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["suppressed_destinations"])
 
         assert reasons == {"suppressed_destinations": None}
+
+    def test_a_table_the_region_cannot_serve_is_reported_instead_of_staying_selectable(self) -> None:
+        # SESv2 answers an operation the region does not support with a bodyless 400.
+        with mock.patch.object(
+            aws_ses,
+            "send_request",
+            side_effect=AwsSesError(
+                "BadRequestException", "no reason", "multi_region_endpoints", "/v2/email/multi-region-endpoints"
+            ),
+        ):
+            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
+
+        assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
+
+    @pytest.mark.parametrize(
+        "pool_name,code,status_code,expected_reason",
+        [
+            ("ses-shared-pool", "BadRequestException", 400, None),
+            ("ses-default-dedicated-pool", "BadRequestException", 400, None),
+            ("marketing-pool", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            ("ses-shared-pool-custom", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            (
+                "ses-shared-pool",
+                "AccessDeniedException",
+                403,
+                "The connected IAM user or role is not allowed to read this table",
+            ),
+        ],
+    )
+    def test_pool_discovery_and_validation_only_allow_known_detail_rejections(
+        self, requests_mock: Any, pool_name: str, code: str, status_code: int, expected_reason: Optional[str]
+    ) -> None:
+        pool_url = "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools"
+        requests_mock.get(pool_url, json={"DedicatedIpPools": [pool_name]})
+        requests_mock.get(
+            f"{pool_url}/{pool_name}", status_code=status_code, headers={"x-amzn-ErrorType": code}, json={}
+        )
+
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": expected_reason
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            expected_reason is None,
+            expected_reason,
+        )
+
+    def test_a_rejected_pool_list_still_blocks_discovery_and_validation(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools",
+            status_code=400,
+            headers={"x-amzn-ErrorType": "BadRequestException"},
+            json={},
+        )
+
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": aws_ses._BAD_REQUEST_EXPLANATION
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            False,
+            aws_ses._BAD_REQUEST_EXPLANATION,
+        )

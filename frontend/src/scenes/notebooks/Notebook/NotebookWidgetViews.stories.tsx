@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -325,9 +326,41 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/runs/:run_id': {
+                    status: 'done',
+                    result: {
+                        columns: ['event', 'count'],
+                        types: [
+                            ['event', 'String'],
+                            ['count', 'Int64'],
+                        ],
+                        row_count: 1,
+                    },
+                    rows: [['$pageview', 42]],
+                    error: null,
+                },
+                '/api/projects/:team_id/notebooks/kernel/compute_options': {
+                    currency: 'USD',
+                    cpu_rate_per_core_hour: 0.2,
+                    memory_rate_per_gb_hour: 0.025,
+                    default_preset_key: 'small',
+                    presets: [
+                        {
+                            key: 'small',
+                            name: 'Small',
+                            description: 'Exploring data and working with small dataframes.',
+                            cpu_cores: 1,
+                            memory_gb: 2,
+                            hourly_price: 0.25,
+                        },
+                    ],
+                    allowed_cpu_cores: [1],
+                    allowed_memory_gb: [2],
+                    allowed_idle_timeout_seconds: [3600],
+                },
                 '/api/projects/:team_id/notebooks/:short_id': ({ params }) => [
                     200,
-                    notebooks[params.short_id as keyof typeof notebooks],
+                    { ...notebooks[params.short_id as keyof typeof notebooks], short_id: params.short_id },
                 ],
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/`]: featureFlag,
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/status`]: {
@@ -349,6 +382,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/cohorts/${COHORT_ID}/`]: cohort,
                 [`/api/environments/:team_id/insights/${INSIGHT_ID}/`]: insight,
                 [`/api/projects/:team_id/insights/${INSIGHT_ID}/`]: insight,
+                '/api/environments/:team_id/insights/': { results: [insight], count: 1, next: null, previous: null },
                 '/api/environments/:team_id/session_recordings/:id': recording,
                 '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
                     if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
@@ -372,6 +406,7 @@ const meta: Meta = {
                     results: recordings,
                     version: 1,
                 },
+                '/api/projects/:team_id/groups/find': group,
                 '/api/environments/:team_id/groups/find': group,
                 '/api/environments/:team_id/error_tracking/issues/:id/': errorTrackingIssue,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
@@ -403,12 +438,30 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_release_conditions/': [],
             },
             patch: {
+                '/api/projects/:team_id/notebooks/:short_id': async ({ params, request }) => ({
+                    ...notebooks[params.short_id as keyof typeof notebooks],
+                    short_id: params.short_id,
+                    ...((await request.json()) as Record<string, unknown>),
+                }),
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request }) => {
                     const body = (await request.json()) as Record<string, unknown>
                     return { ...playlist, ...body }
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/:short_id/collab/markdown_save': async ({ params, request }) => {
+                    const body = (await request.json()) as Record<string, unknown> & { version: number }
+                    return {
+                        ...notebooks[params.short_id as keyof typeof notebooks],
+                        short_id: params.short_id,
+                        ...body,
+                        version: body.version + 1,
+                    }
+                },
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/run': async ({ request }) => {
+                    const body = (await request.json()) as { node_id: string }
+                    return { run_id: `run-${body.node_id}`, starts_sandbox: false }
+                },
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': { success: true },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as {
@@ -416,6 +469,9 @@ const meta: Meta = {
                     }
                     const query = body.query
 
+                    if (query?.kind === NodeKind.TrendsQuery) {
+                        return { results: insight.result, hogql: 'SELECT event, count() FROM events GROUP BY event' }
+                    }
                     if (query?.kind === NodeKind.TraceQuery) {
                         return { results: [traceWithoutContent] }
                     }
@@ -463,7 +519,10 @@ export const EarlyAccessFeatureViews: Story = {
 }
 export const CohortViews: Story = { parameters: { pageUrl: urls.notebook('cohort-widget-views') } }
 export const InsightViews: Story = {
-    parameters: { pageUrl: urls.notebook('insight-widget-views') },
+    parameters: {
+        pageUrl: urls.notebook('insight-widget-views'),
+        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
+    },
     play: async ({ canvasElement }) => {
         await waitFor(() => {
             expect(
@@ -476,9 +535,29 @@ export const InsightViews: Story = {
     },
 }
 export const RecordingViews: Story = {
+    decorators: [
+        (Story) => {
+            // Skipping inactivity moves the playhead on its own, and this recording resizes its
+            // viewport part way through, so the snapshot caught the page at whichever size the skip
+            // had reached. The setting is persisted, so the story pins it before the player mounts.
+            localStorage.setItem(
+                'scenes.session-recordings.player.playerSettingsLogic.skipInactivitySetting',
+                JSON.stringify(false)
+            )
+            return <Story />
+        },
+    ],
     parameters: {
-        pageUrl: urls.notebook('recording-widget-views'),
-        testOptions: { waitForLoadersToDisappear: false },
+        // `t=0` pins the player to the first frame. Without it the player picks its own start, which
+        // depends on how much of the recording has loaded, and the recording resizes its viewport
+        // five seconds in, so the snapshot caught the page at two different sizes.
+        pageUrl: `${urls.notebook('recording-widget-views')}?t=0`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            // The player mounts rrweb inside its own frame document. Without this wait the snapshot is
+            // taken as soon as the notebook renders, so it catches whichever frame the replay reached.
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+        },
     },
 }
 export const RecordingPlaylistViews: Story = {

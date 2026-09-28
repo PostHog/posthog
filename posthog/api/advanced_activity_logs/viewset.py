@@ -404,7 +404,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=[],
-        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+        help_text="Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
     ip_addresses = JSONTolerantListField(
         child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
@@ -543,7 +543,7 @@ class StaticFiltersSerializer(serializers.Serializer):
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
     clients = serializers.ListField(
         child=serializers.DictField(),
-        help_text="API clients that have generated activity (from x-posthog-client header).",
+        help_text="API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
 
 

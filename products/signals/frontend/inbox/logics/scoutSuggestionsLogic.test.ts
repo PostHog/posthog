@@ -96,10 +96,12 @@ const CONFIG: SignalScoutConfigApi = {
     skill_name: CANONICAL_ITEM.skill_name,
     description: 'Watches web vitals.',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: false,
     status: 'active',
     pause_reason: null,
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
@@ -110,12 +112,14 @@ const CONFIG: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
+    updated_at: '2026-07-22T00:00:00Z',
 }
 
 function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSuggestionSetApi {

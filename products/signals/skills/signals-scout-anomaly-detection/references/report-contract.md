@@ -225,7 +225,7 @@ Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nod
 Prefer embedding the saved insight you scored — it stays in sync with the source and is the thing
 the human will open next. Give each `ph-query` node a distinct `nodeId`.
 
-`content` is a ProseMirror doc (the tool documents no node schema, so use this skeleton). Text is
+`content` is a ProseMirror doc (use this skeleton). Text is
 `paragraph` / `heading` (with `attrs.level`) / `bulletList` → `listItem` → `paragraph`; charts are
 `ph-query` nodes. A minimal working shape:
 

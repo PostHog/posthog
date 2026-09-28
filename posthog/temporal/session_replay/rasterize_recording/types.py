@@ -28,6 +28,9 @@ class RasterizeRecordingInputs(BaseModel, frozen=True):
 
     exported_asset_id: int
     product: Literal["session_replay", "replay_vision"] = "session_replay"
+    # Routes the render activity. None keeps the shared rasterization queue, so histories
+    # recorded before this field existed replay unchanged.
+    task_queue: str | None = None
 
 
 class RasterizationActivityInput(BaseModel, frozen=True):
@@ -84,6 +87,8 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     video_duration_s: float
     playback_speed: float
     show_metadata_footer: bool = False
+    # Rows at the bottom of each frame the footer takes; renders from before this was reported used 32.
+    footer_height_px: int = 0
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
     file_size_bytes: int = 0
@@ -114,8 +119,12 @@ class RecordRasterizationFailureInput(BaseModel, frozen=True):
 _FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix", "recording_api_token"}
 
 
+# Bump when the renderer draws the same inputs differently, so videos cached from the old renderer are not reused.
+_RENDERER_VERSION = 2
+
+
 def compute_params_fingerprint(activity_input: "RasterizationActivityInput") -> str:
-    payload = activity_input.model_dump_json(exclude=_FINGERPRINT_EXCLUDE)
+    payload = f"v{_RENDERER_VERSION}:" + activity_input.model_dump_json(exclude=_FINGERPRINT_EXCLUDE)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 

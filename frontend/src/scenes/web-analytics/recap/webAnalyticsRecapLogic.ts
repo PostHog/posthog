@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -65,6 +65,7 @@ function buildEmailCopy(recap: WebAnalyticsRecapResponseApi): string {
 export interface webAnalyticsRecapLogicValues {
     currentProjectId: number | null // projectLogic
     recap: WebAnalyticsRecapResponseApi | null
+    recapLoadFailed: boolean
     recapLoading: boolean
 }
 
@@ -96,6 +97,9 @@ export interface webAnalyticsRecapLogicActions {
     ) => {
         recap: WebAnalyticsRecapResponseApi | null
         payload?: any
+    }
+    markRecapLoadFailed: () => {
+        value: true
     }
     recordButtonClicked: (button: RecapButton) => {
         button: RecapButton
@@ -131,8 +135,9 @@ export const webAnalyticsRecapLogic = kea<webAnalyticsRecapLogicType>([
         copyRecapForSlack: true,
         copyRecapForEmail: true,
         goToWebAnalytics: (cta: Extract<RecapCta, 'view_dashboard' | 'go_to_web_analytics'>) => ({ cta }),
+        markRecapLoadFailed: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         recap: [
             null as WebAnalyticsRecapResponseApi | null,
             {
@@ -141,11 +146,25 @@ export const webAnalyticsRecapLogic = kea<webAnalyticsRecapLogicType>([
                     if (projectId == null) {
                         return null
                     }
-                    return await webAnalyticsRecap(String(projectId), { days: RECAP_DAYS })
+                    try {
+                        return await webAnalyticsRecap(String(projectId), { days: RECAP_DAYS })
+                    } catch {
+                        actions.markRecapLoadFailed()
+                        return null
+                    }
                 },
             },
         ],
     })),
+    reducers({
+        recapLoadFailed: [
+            false,
+            {
+                loadRecap: () => false,
+                markRecapLoadFailed: () => true,
+            },
+        ],
+    }),
     listeners(({ values, actions }) => {
         const recapProperties = (): RecapEventProperties => {
             const recap = values.recap

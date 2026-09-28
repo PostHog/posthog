@@ -239,6 +239,9 @@ def _check_host(base_url: str, team_id: int) -> None:
         raise LangSmithHostNotAllowedError(scheme_err or INSECURE_SCHEME_ERROR)
 
 
+_LANGSMITH_UNREACHABLE_ERROR = "Couldn't reach LangSmith to validate your API key. Try again in a few minutes."
+
+
 def _get_headers(api_key: str) -> dict[str, str]:
     return {
         "X-API-Key": api_key,
@@ -323,18 +326,39 @@ def validate_credentials(api_key: str, host: str | None, team_id: int | None = N
             status_code = response.status_code
         finally:
             response.close()
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    except requests.exceptions.RequestException:
+        # A network failure or timeout is transient and unrelated to the key; the raw exception
+        # embeds the URL and gives the user nothing actionable.
+        return False, _LANGSMITH_UNREACHABLE_ERROR
 
     if status_code == 200:
         return True, None
     if status_code == 401:
-        return False, "Invalid or revoked LangSmith API key"
+        return (
+            False,
+            "Your LangSmith API key is invalid or has been revoked. Create a new key in your "
+            "LangSmith settings under API keys, then reconnect.",
+        )
     if status_code == 403:
-        return False, "This LangSmith API key does not have access to the workspace"
+        return (
+            False,
+            "Your LangSmith API key can't read this workspace. Create a key in the workspace you "
+            "want to sync, then reconnect.",
+        )
     if status_code == 404:
-        return False, "LangSmith API not found at this host. Check the host field."
-    return False, f"LangSmith API returned status {status_code}"
+        return (
+            False,
+            "PostHog reached this host but found no LangSmith API there. Check the host field, then try again.",
+        )
+    # 429 (rate limit) and 5xx are transient LangSmith-side problems, not a bad key, so surface a
+    # retry hint rather than telling the user to fix credentials they can't fix.
+    if status_code == 429 or status_code >= 500:
+        return False, _LANGSMITH_UNREACHABLE_ERROR
+    return (
+        False,
+        "Couldn't validate your LangSmith API key. Check that it's a valid key from your LangSmith "
+        "settings, then try again.",
+    )
 
 
 @retry(
