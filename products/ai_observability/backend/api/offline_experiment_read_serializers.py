@@ -18,7 +18,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     PayloadState,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
-from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery
+from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineResultCellQuery
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
@@ -68,6 +68,32 @@ class OfflineSummaryQuerySerializer(OfflineResultQuerySerializer):
 
     class Meta(OfflineResultQuerySerializer.Meta):
         fields = [*OfflineResultQuerySerializer.Meta.fields, "scorer_definition_id"]
+
+
+class OfflineResultCellQuerySerializer(DataclassSerializer[OfflineResultCellQuery]):
+    item_ids = serializers.CharField(
+        max_length=1849, help_text="Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment."
+    )
+    scorer_version_ids = serializers.CharField(
+        max_length=739, help_text="Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs."
+    )
+
+    class Meta:
+        dataclass = OfflineResultCellQuery
+        fields = ["item_ids", "scorer_version_ids"]
+
+    def validate_item_ids(self, value: str) -> tuple[UUID, ...]:
+        return tuple(cast(UUID, serializers.UUIDField().run_validation(item)) for item in value.split(","))
+
+    def validate_scorer_version_ids(self, value: str) -> tuple[UUID, ...]:
+        return tuple(cast(UUID, serializers.UUIDField().run_validation(version)) for version in value.split(","))
+
+    def to_internal_value(self, data: object) -> OfflineResultCellQuery:
+        validate_query_parameters(data, self.fields)
+        try:
+            return super().to_internal_value(cast(dict[str, object], data))
+        except OfflineEvaluationValidationError as error:
+            raise serializers.ValidationError(error.errors) from error
 
 
 class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
@@ -227,6 +253,16 @@ class OfflineResultReadSerializer(OfflineResultFieldsSerializer):
 class OfflineResultCellSerializer(OfflineResultFieldsSerializer):
     scorer_version_id = serializers.UUIDField(
         source="scorer.id", help_text="Exact scorer-version UUID in the item page's scorer_versions list."
+    )
+
+
+@extend_schema_serializer(many=False)
+class OfflineResultCellsSerializer(serializers.Serializer):
+    scorer_versions = OfflineScorerVersionReadSerializer(
+        many=True, help_text="Selected authorized versions, including versions with no results for these items."
+    )
+    results = OfflineResultCellSerializer(
+        many=True, help_text="Submitted results for the exact selected items and versions; at most 1,000 cells."
     )
 
 

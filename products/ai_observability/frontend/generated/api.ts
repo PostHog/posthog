@@ -13,6 +13,7 @@ import type {
     AiObservabilityOfflineExperimentsItemsListParams,
     AiObservabilityOfflineExperimentsItemsResultsListParams,
     AiObservabilityOfflineExperimentsListParams,
+    AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
     BatchCheckRequestApi,
@@ -85,6 +86,7 @@ import type {
     OfflineItemPageApi,
     OfflineItemPayloadReadApi,
     OfflineItemReadApi,
+    OfflineResultCellsApi,
     OfflineResultPageApi,
     OfflineResultPayloadReadApi,
     OfflineSummaryPageApi,
@@ -468,6 +470,41 @@ export const aiObservabilityOfflineExperimentsItemsResultsList = async (
 ): Promise<OfflineResultPageApi> => {
     return apiMutator<OfflineResultPageApi>(
         getAiObservabilityOfflineExperimentsItemsResultsListUrl(projectId, id, itemId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultCellsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityOfflineExperimentsResultCellsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/result_cells/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/result_cells/`
+}
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
+    options?: RequestInit
+): Promise<OfflineResultCellsApi> => {
+    return apiMutator<OfflineResultCellsApi>(
+        getAiObservabilityOfflineExperimentsResultCellsRetrieveUrl(projectId, id, params),
         {
             ...options,
             method: 'GET',
