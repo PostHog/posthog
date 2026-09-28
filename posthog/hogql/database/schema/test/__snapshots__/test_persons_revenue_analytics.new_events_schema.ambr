@@ -1081,7 +1081,7 @@
   WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
     or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
   GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   GROUP BY day_start, breakdown_value_1)
   GROUP BY day_start, breakdown_value_1
   ORDER BY day_start ASC, breakdown_value ASC)
@@ -1447,7 +1447,7 @@
   WHERE and(equals(e.team_id,
                    99999), greaterOrEquals(e.timestamp,
                                            toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00',
-                                                                                                   'UTC')), toIntervalDay(1)), 6,
+                                                                                                   'UTC')), toIntervalDay(1)), 9,
                                                                                                                                'UTC')), lessOrEquals(e.timestamp,
                                                                                                                                                      assumeNotNull(toDateTime('2025-05-30 23:59:59',
                                                                                                                                                                               'UTC'))), equals(e.event,
@@ -1594,7 +1594,7 @@
   WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
     or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   GROUP BY day_start, breakdown_value_1)
   GROUP BY day_start, breakdown_value_1
   ORDER BY day_start ASC, breakdown_value ASC)
@@ -1727,7 +1727,7 @@
   WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
     or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
   GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   GROUP BY day_start, breakdown_value_1)
   GROUP BY day_start, breakdown_value_1
   ORDER BY day_start ASC, breakdown_value ASC)
@@ -1815,7 +1815,7 @@
               WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
                            or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
               GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -1958,7 +1958,7 @@
               WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
                            or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
               GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -2108,7 +2108,7 @@
               WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
                            or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
               GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -2265,7 +2265,7 @@
               WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
                            or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
               GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 9, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
