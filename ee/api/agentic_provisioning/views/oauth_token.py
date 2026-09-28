@@ -37,6 +37,7 @@ from ee.api.agentic_provisioning.constants import (
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.tokens import (
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     lock_application,
@@ -339,15 +340,12 @@ class OAuthTokenView(ProvisioningAPIView):
                 capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "User is not active; re-authorize.")
 
-            # base_team_id at refresh: the first team in the prior scope. That is the consent
-            # team, because compute_partner_scoped_teams returns the base team first and teams
-            # added later are appended. This ordering is load-bearing: the helper keeps
-            # base_team_id unconditionally but keeps other teams only when they have a
-            # TeamProvisioningConfig for this app, so a consent team without one would
-            # silently drop out of the refreshed scope if another team sat at [0]. If the
-            # prior token was somehow empty-scoped, fall back to zero so the helper
-            # short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, base_team_id)
 
             # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the

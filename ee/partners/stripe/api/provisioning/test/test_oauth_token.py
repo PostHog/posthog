@@ -135,7 +135,10 @@ class TestOAuthToken(StripeProvisioningTestBase):
         )
         assert detail.status_code == 401
 
-    def test_consented_team_stays_first_across_refreshes_when_a_lower_id_team_is_provisioned(self):
+    @parameterized.expand([("issued", False), ("stored_in_id_order", True)])
+    def test_consented_team_stays_first_across_refreshes_when_a_lower_id_team_is_provisioned(
+        self, _name: str, stored_in_id_order: bool
+    ):
         TeamProvisioningConfig.objects.update_or_create(
             team=self.team, defaults={"stripe_project_id": "proj_earlier", "application": self.stripe_app}
         )
@@ -145,6 +148,10 @@ class TestOAuthToken(StripeProvisioningTestBase):
         self._seed_auth_code("code_consented", team_id=consented.id)
 
         tokens = self._post_token({"grant_type": "authorization_code", "code": "code_consented"}).json()
+        if stored_in_id_order:
+            OAuthRefreshToken.objects.filter(token=tokens["refresh_token"]).update(
+                scoped_teams=[self.team.id, consented.id]
+            )
         for _ in range(2):
             res = self._post_token({"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
             assert res.status_code == 200, res.content

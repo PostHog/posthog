@@ -401,6 +401,26 @@ def compute_partner_scoped_teams(
     return [base_team_id, *sorted(granted - {base_team_id})]
 
 
+def base_team_id_from_scope(application: OAuthApplication | None, scoped_teams: list[int]) -> int:
+    """Pick the ``base_team_id`` for re-deriving a stored scope.
+
+    Every scoped team except the consent team has a TeamProvisioningConfig row for
+    ``application``, so the first team without one is the consent team. Stored order
+    is not enough on its own, because some stored scopes are sorted by id. When every
+    team is attributed, the base does not change the re-derived set.
+    """
+    if not scoped_teams:
+        return 0
+    if application is None:
+        return scoped_teams[0]
+    attributed = set(
+        TeamProvisioningConfig.objects.filter(application=application, team_id__in=scoped_teams).values_list(
+            "team_id", flat=True
+        )
+    )
+    return next((team_id for team_id in scoped_teams if team_id not in attributed), scoped_teams[0])
+
+
 def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
     with transaction.atomic():
         locked_access_token = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
