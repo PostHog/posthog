@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft, IconChevronDown, IconLetter } from '@posthog/icons'
+import { IconChevronDown, IconLetter } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -19,7 +19,8 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -27,6 +28,7 @@ import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { BroadcastPerformance } from './BroadcastPerformance'
+import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -254,7 +256,6 @@ export function BroadcastSummary(): JSX.Element {
     const {
         broadcast,
         broadcastId,
-        name,
         audienceProperties,
         email,
         scheduleSummary,
@@ -310,50 +311,45 @@ export function BroadcastSummary(): JSX.Element {
         },
     ]
 
-    return (
-        <div className="@container min-h-full w-full shrink-0 bg-bg-light">
-            <div className="mx-auto max-w-6xl space-y-4 px-6 py-6">
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
-                    Broadcasts
+    const actionsMenu =
+        canMoveToDraft || canEditContent ? (
+            <LemonMenu
+                items={[
+                    canMoveToDraft
+                        ? {
+                              label: 'Stop and edit',
+                              onClick: confirmMoveToDraft,
+                              'data-attr': 'broadcast-move-to-draft',
+                          }
+                        : null,
+                    canEditContent
+                        ? {
+                              label: 'Send again as a new broadcast',
+                              onClick: duplicateBroadcast,
+                              'data-attr': 'broadcast-send-again',
+                          }
+                        : null,
+                ]}
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    sideIcon={<IconChevronDown />}
+                    loading={movingToDraft || duplicating}
+                    data-attr="broadcast-actions"
+                >
+                    Actions
                 </LemonButton>
+            </LemonMenu>
+        ) : null
 
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <BroadcastStatusTag status={summaryStatus} />
-                        <h1 className="m-0 truncate text-2xl font-semibold">{name}</h1>
-                    </div>
-                    {canMoveToDraft || canEditContent ? (
-                        <LemonMenu
-                            items={[
-                                canMoveToDraft
-                                    ? {
-                                          label: 'Stop and edit',
-                                          onClick: confirmMoveToDraft,
-                                          'data-attr': 'broadcast-move-to-draft',
-                                      }
-                                    : null,
-                                canEditContent
-                                    ? {
-                                          label: 'Send again as a new broadcast',
-                                          onClick: duplicateBroadcast,
-                                          'data-attr': 'broadcast-send-again',
-                                      }
-                                    : null,
-                            ]}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                sideIcon={<IconChevronDown />}
-                                loading={movingToDraft || duplicating}
-                                data-attr="broadcast-actions"
-                            >
-                                Actions
-                            </LemonButton>
-                        </LemonMenu>
-                    ) : null}
-                </div>
-
+    return (
+        <SceneContent className="@container min-h-full w-full shrink-0" data-attr="broadcast-summary">
+            <BroadcastSceneHeader
+                nameSuffix={<BroadcastStatusTag status={summaryStatus} />}
+                actions={actionsMenu ?? undefined}
+            />
+            <div className="mx-auto w-full max-w-6xl space-y-4">
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
                     <LemonBanner
                         type="warning"
@@ -454,7 +450,7 @@ export function BroadcastSummary(): JSX.Element {
                     ]}
                 />
             </div>
-        </div>
+        </SceneContent>
     )
 }
 
