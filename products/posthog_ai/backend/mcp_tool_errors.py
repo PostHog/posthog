@@ -41,7 +41,7 @@ class MCPToolErrorDetails(BaseModel):
     @property
     def retry_hint(self) -> str:
         return {
-            "never": "",
+            "never": " Do not automatically retry this tool call.",
             "once": " You may retry this operation once without changes.",
             "adjusted": " You may retry with adjusted inputs.",
         }[self.retry_strategy]
@@ -55,7 +55,7 @@ class MCPToolErrorDetails(BaseModel):
             "query_capacity_exceeded": "The query service is at capacity. Wait before retrying.",
             "query_memory_limit_exceeded": "The query ran out of memory. Use a shorter date range or narrower filters.",
             "service_unavailable": "The query service could not complete the request.",
-            "internal_error": "The tool raised an internal error. Do not immediately retry the tool call.",
+            "internal_error": "The tool raised an internal error.",
         }[self.code]
 
     @classmethod

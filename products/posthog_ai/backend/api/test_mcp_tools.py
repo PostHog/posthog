@@ -220,6 +220,7 @@ class TestMCPToolsAPI(APIBaseTest):
             self.assertNotIn("retry with adjusted inputs", data["content"])
         elif retry_strategy == "never":
             self.assertNotIn("retry with adjusted inputs", data["content"])
+            self.assertIn("Do not automatically retry", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
