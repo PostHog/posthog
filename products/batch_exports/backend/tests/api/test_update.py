@@ -724,6 +724,7 @@ def test_can_patch_hogql_query(
         },
         "hogql_query": None,
         "user_id": None,
+        "hogql_modifiers": None,
     }
 
     for patch_data, expected_schema in [
@@ -842,6 +843,7 @@ def test_patch_hogql_model_batch_export(
         "schema": None,
         "hogql_query": new_hogql_query,
         "user_id": editor.pk,
+        "hogql_modifiers": None,
     }
 
 

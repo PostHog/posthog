@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { urls } from 'scenes/urls'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
 import { BroadcastContentStep } from './steps/BroadcastContentStep'
@@ -16,37 +15,16 @@ import { BroadcastScheduleStep } from './steps/BroadcastScheduleStep'
 import { useBroadcastAgentPanel } from './useBroadcastAgentPanel'
 
 export function BroadcastWizard(): JSX.Element {
-    const { currentStep, name, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
+    const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
-    const { setStep, prevStep, continueStep, launchBroadcast, setName } = useActions(broadcastWizardLogic)
+    const { setStep, prevStep, continueStep, launchBroadcast } = useActions(broadcastWizardLogic)
     useBroadcastAgentPanel()
 
     return (
-        <div className="min-h-full w-full shrink-0 bg-bg-light">
-            <div className="mx-auto max-w-4xl space-y-5 px-6 py-6">
+        <SceneContent className="min-h-full w-full shrink-0" data-attr="broadcast-wizard">
+            <BroadcastSceneHeader canEdit />
+            <div className="mx-auto w-full max-w-4xl space-y-5">
                 <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
-                            Broadcasts
-                        </LemonButton>
-                    </div>
-                    <div>
-                        <label htmlFor="broadcast-name" className="text-xs font-medium text-muted">
-                            Broadcast name
-                        </label>
-                        <EditableField
-                            name="broadcast-name"
-                            value={name}
-                            onSave={(value) => setName(value)}
-                            placeholder="Untitled broadcast"
-                            saveOnBlur
-                            clickToEdit
-                            compactIcon
-                            showEditIconOnHover
-                            className="text-xl font-semibold"
-                            editingIndication="underlined"
-                        />
-                    </div>
                     <div className="flex justify-center">
                         <BroadcastWizardStepper
                             currentStep={currentStep}
@@ -103,6 +81,6 @@ export function BroadcastWizard(): JSX.Element {
                     </div>
                 </div>
             </div>
-        </div>
+        </SceneContent>
     )
 }
