@@ -17,8 +17,8 @@ runs it, and both engines record a run of the same commit. The engine that did n
 leaves a hand-off shell: a GitHub run whose hand-off job succeeded and whose gate only relays Depot's
 verdict, or a Depot workflow that waited for a hand-off that never came and skipped everything else.
 Neither is a CI execution, so the union leaves out both, with their jobs. A GitHub shell stays when
-Depot holds no execution of its commit, because its relayed verdict is then the only record of that
-push.
+Depot holds no workflow of its commit that took the hand-off, because its relayed verdict is then the
+only record of that push.
 """
 
 import re
@@ -214,22 +214,21 @@ def _jobs(attempts: str) -> str:
     """
 
 
-def _executions(depot: DepotJobAttempts) -> str:
-    # A workflow executed unless it has the wait job and no other job ever started.
-    job_key = "ifNull(job_key, '')"
+def _handoff_workflows(depot: DepotJobAttempts) -> str:
+    # Depot lists no attempt for a skipped job, so a workflow that declined the hand-off holds the wait job alone.
+    is_wait = f"endsWith(ifNull(job_key, ''), '{_DEPOT_WAIT_JOB_KEY_SUFFIX}')"
     return f"""
-        SELECT github_run_id, any(head_sha) AS head_sha
+        SELECT github_run_id, any(head_sha) AS head_sha, countIf(NOT {is_wait}) > 0 AS took_handoff
         FROM {_attempts(depot, pull_requests_table=None)}
         GROUP BY github_run_id
-        HAVING countIf(endsWith({job_key}, '{_DEPOT_WAIT_JOB_KEY_SUFFIX}')) = 0
-            OR countIf(NOT endsWith({job_key}, '{_DEPOT_WAIT_JOB_KEY_SUFFIX}') AND ifNull(attempt_started_at, '') != '') > 0
+        HAVING countIf({is_wait}) > 0
     """
 
 
 def _executed_attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     return f"""(
         SELECT * FROM {_attempts(depot, pull_requests_table)}
-        WHERE github_run_id IN (SELECT github_run_id FROM ({_executions(depot)}))
+        WHERE github_run_id NOT IN (SELECT github_run_id FROM ({_handoff_workflows(depot)}) WHERE NOT took_handoff)
     )"""
 
 
@@ -237,7 +236,7 @@ def _github_shells(jobs_table: str, depot: DepotJobAttempts) -> str:
     return f"""
         SELECT run_id FROM {jobs_table}
         WHERE name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success'
-            AND head_sha IN (SELECT head_sha FROM ({_executions(depot)}))
+            AND head_sha IN (SELECT head_sha FROM ({_handoff_workflows(depot)}) WHERE took_handoff)
     """
 
 

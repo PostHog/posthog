@@ -298,13 +298,14 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             display_name: str = "Product tests (experiments)",
             repo: str = "PostHog/posthog",
             job_key: str = "ci-backend.yml:turbo-tests:matrix-38",
+            head_sha: str = "abc123",
         ) -> dict[str, str | int]:
             return {
                 "run_id": run_id,
                 "run_workflow_count": run_workflow_count,
                 "repo": repo,
                 "ref": ref,
-                "head_sha": "abc123",
+                "head_sha": head_sha,
                 "workflow_id": workflow_id,
                 "workflow_name": workflow_name,
                 "workflow_status": workflow_status,
@@ -322,11 +323,27 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "sandbox_id": "sandbox",
             }
 
-        schedule: dict[str, Any] = {"run_id": "bbbbbbbbbb", "run_workflow_count": 2, "ref": "refs/heads/master"}
+        # A workflow that is not the handed-off one shares shell 902's commit, which must not pair them.
+        schedule: dict[str, Any] = {
+            "run_id": "bbbbbbbbbb",
+            "run_workflow_count": 2,
+            "ref": "refs/heads/master",
+            "head_sha": "def456",
+        }
         depot_table = self._create_table(
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
             [
+                attempt(
+                    "c2d3f4g5h6",
+                    1,
+                    "finished",
+                    "2026-09-24T14:51:20.000Z",
+                    "2026-09-24T14:51:30.000Z",
+                    job_id="j2k3l4m5n6",
+                    display_name="Wait for GitHub Actions to hand off backend tests",
+                    job_key="ci-backend.yml:wait-for-handoff",
+                ),
                 attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
                 attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
                 # A job with no display name falls back to its key.
@@ -364,7 +381,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     **schedule,
                 ),
-                # Depot waited for a hand-off GitHub never made, so the workflow ran nothing else.
+                # Depot waited for a hand-off GitHub never made. It lists no attempt for the jobs it skipped.
                 attempt(
                     "m4n5p6q7r8",
                     1,
@@ -376,18 +393,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_id="6666666666",
                     workflow_status="finished",
                     job_key="ci-backend.yml:wait-for-handoff",
-                ),
-                attempt(
-                    "n4p5q6r7s8",
-                    1,
-                    "skipped",
-                    "",
-                    "2026-09-24T14:52:02.000Z",
-                    job_id="t4v5w6x7z8",
-                    run_id="5555555555",
-                    workflow_id="6666666666",
-                    workflow_status="finished",
-                    job_key="ci-backend.yml:changes",
                 ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
@@ -430,6 +435,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
             f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
         ) == [
+            (80213453736890, 1, "Wait for GitHub Actions to hand off backend tests", "success", 10, 0),
+            (80213453736890, 2, "Wait for GitHub Actions to hand off backend tests", "success", 10, 1),
             (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
             # Listed again under the run's second attempt, like a job GitHub did not re-run.
             (80213453736890, 2, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 1),
