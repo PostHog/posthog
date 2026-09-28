@@ -101,10 +101,11 @@
     th,
     td {
         padding: 0.375rem 0.75rem;
-        // `anywhere` lets a column shrink to one character. `break-word` keeps whole words as the minimum width.
-        overflow-wrap: break-word;
         color: var(--default);
         text-align: left;
+
+        // `anywhere` lets a column shrink to one character. `break-word` keeps whole words as the minimum width.
+        overflow-wrap: break-word;
         vertical-align: top;
         border-right: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
