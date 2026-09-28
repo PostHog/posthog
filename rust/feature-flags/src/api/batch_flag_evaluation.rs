@@ -41,7 +41,7 @@ use common_database::PostgresReader;
 use common_metrics::inc;
 use common_types::PersonId;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{Acquire, FromRow};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -232,9 +232,26 @@ async fn scan_persons_page(
     team_id: i32,
     cursor: i64,
     limit: i64,
+    statement_timeout_ms: u64,
 ) -> Result<Vec<PersonScanRow>, FlagError> {
     let mut conn =
         get_connection_with_metrics(&reader, "persons_reader", "batch_eval_person_scan").await?;
+    let scan_failed = |e: sqlx::Error| {
+        warn!(team_id, cursor, "Batch eval person scan failed: {e}");
+        let message = format!("person scan query failed: {e}");
+        FlagError::internal(anyhow::Error::new(e).context(message))
+    };
+
+    // SET LOCAL lasts only until the transaction ends, so the connection goes back to the
+    // pool with the pool's statement timeout.
+    let mut tx = conn.begin().await.map_err(scan_failed)?;
+    // SET does not accept a bind parameter. The value is a u64, so it cannot inject SQL.
+    sqlx::query(&format!(
+        "SET LOCAL statement_timeout = {statement_timeout_ms}"
+    ))
+    .execute(&mut *tx)
+    .await
+    .map_err(scan_failed)?;
 
     // Sort-free PK range scan on the partitioned persons table; the lateral subquery is
     // covered by the existing person_id index on posthog_persondistinctid.
@@ -257,17 +274,15 @@ async fn scan_persons_page(
         LIMIT $3
     "#;
 
-    sqlx::query_as::<_, PersonScanRow>(query)
+    let rows = sqlx::query_as::<_, PersonScanRow>(query)
         .bind(team_id)
         .bind(cursor)
         .bind(limit)
-        .fetch_all(&mut *conn)
+        .fetch_all(&mut *tx)
         .await
-        .map_err(|e| {
-            warn!(team_id, cursor, "Batch eval person scan failed: {e}");
-            let message = format!("person scan query failed: {e}");
-            FlagError::internal(anyhow::Error::new(e).context(message))
-        })
+        .map_err(scan_failed)?;
+    tx.commit().await.map_err(scan_failed)?;
+    Ok(rows)
 }
 
 /// Fetches the team's flags fresh from Postgres and locates the target flag by key.
@@ -465,6 +480,7 @@ async fn handle_batch_flag_evaluation(
         request.team_id,
         request.cursor,
         limit,
+        state.config.batch_flag_eval_scan_statement_timeout_ms,
     )
     .await
     .map_err(BatchFlagEvaluationError::Upstream)?;
@@ -581,4 +597,48 @@ fn record_person_outcome(result: &str) {
         &[("result".to_string(), result.to_string())],
         1,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DEFAULT_TEST_CONFIG;
+    use crate::utils::test_utils::TestContext;
+    use common_database::{get_pool_with_config, PoolConfig};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_person_scan_outlasts_the_pool_statement_timeout() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        context
+            .insert_person(team.id, "user".to_string(), None)
+            .await
+            .unwrap();
+
+        let reader: PostgresReader = Arc::new(
+            get_pool_with_config(
+                &DEFAULT_TEST_CONFIG.get_persons_read_database_url(),
+                PoolConfig {
+                    statement_timeout_ms: Some(100),
+                    ..PoolConfig::default()
+                },
+            )
+            .unwrap(),
+        );
+
+        let mut lock_conn = context.persons_writer.get_connection().await.unwrap();
+        let mut lock_tx = lock_conn.begin().await.unwrap();
+        sqlx::query("LOCK TABLE posthog_person IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *lock_tx)
+            .await
+            .unwrap();
+
+        let scan = tokio::spawn(scan_persons_page(reader, team.id, 0, 10, 10_000));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        lock_tx.rollback().await.unwrap();
+
+        let rows = scan.await.unwrap().unwrap();
+        assert_eq!(rows.len(), 1);
+    }
 }

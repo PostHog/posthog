@@ -848,6 +848,12 @@ pub struct Config {
     #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
     pub batch_flag_eval_timeout_ms: u64,
 
+    // Statement timeout for the batch evaluation person scan (milliseconds). It replaces the
+    // persons reader pool's timeout, which is sized for /flags. It also bounds how long one
+    // scan holds a persons reader connection that /flags traffic needs.
+    #[envconfig(from = "BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS", default = "10000")]
+    pub batch_flag_eval_scan_statement_timeout_ms: u64,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -1199,6 +1205,7 @@ impl Config {
             internal_request_token: None,
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
+            batch_flag_eval_scan_statement_timeout_ms: 10_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
