@@ -3233,9 +3233,6 @@ def _route_member_joined_channel(
     don't double-post. Externally-shared channels are dropped before any DB
     work — anyone outside the home workspace would see the welcome, and the
     first @PostHog mention there will run the existing approval flow.
-
-    The workspace's channel welcome mode decides where the welcome goes: the
-    whole channel, only the person who added the app, or nowhere.
     """
     joined_user = event.get("user") if isinstance(event.get("user"), str) else None
     channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
