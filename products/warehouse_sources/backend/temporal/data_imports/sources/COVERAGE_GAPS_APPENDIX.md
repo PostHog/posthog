@@ -3224,10 +3224,10 @@ Today (9): `contacts`, `fuel_entries`, `issues`, `meter_entries`, `parts`, `serv
 
 Diffed against: <https://developer.fleetio.com/sitemap.xml>
 
-- [ ] `expense_entries (and expense_entry_types)` — non-service vehicle costs; without them total cost of ownership cannot be computed from the synced tables (high)
-- [ ] `service_entry_line_items (v2)` — line-item detail behind each synced service entry - labor, parts and cost breakdown (high)
-- [ ] `work_order_statuses` — lookup resolving the status ID on every synced work_orders row (high)
-- [ ] `vehicle_statuses` — lookup resolving the status ID on every synced vehicles row (high)
+- [x] `expense_entries (and expense_entry_types)` — non-service vehicle costs; without them total cost of ownership cannot be computed from the synced tables (high)
+- [x] `service_entry_line_items (v2)` — line-item detail behind each synced service entry - labor, parts and cost breakdown (high)
+- [x] `work_order_statuses` — lookup resolving the status ID on every synced work_orders row (high)
+- [x] `vehicle_statuses` — lookup resolving the status ID on every synced vehicles row (high)
 - [ ] `vehicle_types` — lookup resolving vehicle type IDs, the main breakdown dimension for fleet analysis (high)
 - [ ] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
 - [ ] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
