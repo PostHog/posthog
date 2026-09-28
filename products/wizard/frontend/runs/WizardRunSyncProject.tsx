@@ -20,7 +20,7 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
     const logic = wizardRunSyncLogic({ projectId })
     useMountedLogic(logic)
     const { activeCount, visibleRuns, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
-    const { closeRun, dismissRun, expandFab, selectRun: selectSyncRun } = useActions(logic)
+    const { closeRun, dismissRun, dismissAllRuns, expandFab, selectRun: selectSyncRun } = useActions(logic)
     const { sceneKey } = useValues(sceneLogic)
     const [dialogRun, setDialogRun] = useState<{ run: WizardRunApi; source: WizardRunDetailSource } | null>(null)
     const [now, setNow] = useState(Date.now)
@@ -66,6 +66,10 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
                         onHide={() => {
                             dismissRun(run.id)
                             lemonToast.info('You can still follow this run on the Wizard page.')
+                        }}
+                        onHideAll={() => {
+                            dismissAllRuns(visibleRuns.map((visibleRun) => visibleRun.id))
+                            lemonToast.info('You can still follow runs on the Wizard page.')
                         }}
                     />
                 </div>

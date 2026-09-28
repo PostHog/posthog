@@ -29,7 +29,7 @@ function mockRunPages(
 }
 
 function run(id: string): WizardRunApi {
-    return { id, status: 'running', stage: 'executing_wizard' } as WizardRunApi
+    return { id, created_at: '2026-09-28T12:42:00Z', status: 'running', stage: 'executing_wizard' } as WizardRunApi
 }
 
 describe('wizardRunSyncLogic', () => {
@@ -162,6 +162,15 @@ describe('wizardRunSyncLogic', () => {
         expect(MockEventSource.last().readyState).toBe(MockEventSource.CLOSED)
     })
 
+    it('does not show runs created before the FAB release', async () => {
+        mockRunPages({ count: 1, results: [{ ...run('old'), created_at: '2026-09-28T12:41:54Z' }] })
+        logic.actions.checkRuns()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.visibleRuns).toEqual([])
+        expect(logic.values.activeCount).toBe(0)
+    })
+
     it('keeps a dismissed run hidden while polling and streams the next run', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const stream = MockEventSource.last()
@@ -226,6 +235,8 @@ describe('wizardRunSyncLogic', () => {
         logic.actions.expandFab(3)
         logic.actions.closeRun('newer')
         logic.actions.dismissRun('older')
+        logic.actions.dismissAllRuns(['newer'])
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(posthog.capture).toHaveBeenCalledWith('wizard run sync fab expanded', {
             event_source: 'wizard_ui',
@@ -239,5 +250,25 @@ describe('wizardRunSyncLogic', () => {
             'wizard run sync fab closed',
             expect.objectContaining({ wizard_run_id: 'older', type: 'close_forever' })
         )
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run sync fab closed',
+            expect.objectContaining({ runs_count: 1, type: 'dismiss_all' })
+        )
+    })
+
+    it('dismisses every listed run and keeps the choice after reload', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        mockRunPages({ count: 2, results: [run('newer'), run('older')] })
+        logic.actions.checkRuns()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.dismissAllRuns(logic.values.visibleRuns.map((visibleRun) => visibleRun.id))
+        expect(logic.values.visibleRuns).toEqual([])
+
+        logic.unmount()
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.visibleRuns).toEqual([])
     })
 })

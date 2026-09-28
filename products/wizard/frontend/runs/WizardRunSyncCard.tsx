@@ -46,6 +46,7 @@ export function WizardRunSyncCard({
     onExpandIcon,
     onClose,
     onHide,
+    onHideAll,
     runPicker,
 }: {
     run: WizardRunApi
@@ -55,6 +56,7 @@ export function WizardRunSyncCard({
     onExpandIcon: () => void
     onClose: () => void
     onHide: () => void
+    onHideAll: () => void
     runPicker?: ReactNode
 }): JSX.Element {
     const currentTask =
@@ -138,6 +140,7 @@ export function WizardRunSyncCard({
                         items={[
                             { label: 'Close', onClick: onClose },
                             { label: "Don't show this run again", onClick: onHide },
+                            { label: 'Dismiss all runs', onClick: onHideAll },
                         ]}
                         placement="top-end"
                     >

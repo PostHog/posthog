@@ -26,6 +26,7 @@ describe('WizardRunSyncCard', () => {
             onExpandIcon: jest.fn(),
             onClose: jest.fn(),
             onHide: jest.fn(),
+            onHideAll: jest.fn(),
         }
         const { rerender } = render(<WizardRunSyncCard {...props} />)
 
@@ -37,6 +38,27 @@ describe('WizardRunSyncCard', () => {
         rerender(<WizardRunSyncCard {...props} run={{ ...run, status: 'completed', stage: null }} />)
         expect(screen.getByText('Completed successfully')).toBeTruthy()
         expect(screen.queryByText('Install the SDK')).toBeNull()
+    })
+
+    it('dismisses all runs from the close menu', () => {
+        const onHideAll = jest.fn()
+        render(
+            <WizardRunSyncCard
+                run={run}
+                tasks={tasks}
+                elapsedSeconds={10}
+                onExpand={jest.fn()}
+                onExpandIcon={jest.fn()}
+                onClose={jest.fn()}
+                onHide={jest.fn()}
+                onHideAll={onHideAll}
+            />
+        )
+
+        fireEvent.click(screen.getByLabelText('Close options'))
+        fireEvent.click(screen.getByText('Dismiss all runs'))
+
+        expect(onHideAll).toHaveBeenCalledTimes(1)
     })
 
     it('switches to a different run without restarting the selected run', () => {

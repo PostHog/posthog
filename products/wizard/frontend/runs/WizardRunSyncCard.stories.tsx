@@ -66,6 +66,7 @@ const meta: Meta<typeof WizardRunSyncCard> = {
         onExpandIcon: () => {},
         onClose: () => {},
         onHide: () => {},
+        onHideAll: () => {},
     },
 }
 
