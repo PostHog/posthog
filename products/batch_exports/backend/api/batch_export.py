@@ -2014,10 +2014,13 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
+        serializer = BatchExportUnpauseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        backfill = serializer.validated_data["backfill"]
+
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
-        backfill = request.data.get("backfill", False)
 
         batch_export = self.get_object()
         temporal = sync_connect()
