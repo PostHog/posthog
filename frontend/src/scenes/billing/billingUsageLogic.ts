@@ -84,17 +84,39 @@ const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label:
     },
 }
 
+// The billing service names these series "Recordings". The rest of the app calls the product "Session replay".
+const SESSION_REPLAY_SERIES_LABELS: Record<string, string> = {
+    recording_count_in_period: 'Session replay',
+    mobile_billable_recording_count_in_period: 'Mobile session replay',
+    mobile_recording_count_in_period: 'Mobile session replay captured',
+}
+
+type BillingSeries = Pick<BillingUsageResponse['results'][number], 'label' | 'breakdown_value'>
+
+const seriesUsageType = (series: BillingSeries): string | null =>
+    Array.isArray(series.breakdown_value) ? series.breakdown_value[0] : series.breakdown_value
+
+const replaceSeriesProductLabel = (label: string, productLabel: string): string => {
+    const labelSeparatorIndex = label.lastIndexOf('::')
+    const labelPrefix = labelSeparatorIndex === -1 ? '' : label.slice(0, labelSeparatorIndex + 2)
+    return `${labelPrefix}${productLabel}`
+}
+
+export const relabelSessionReplaySeries = <T extends BillingSeries>(series: T): T => {
+    const usageType = seriesUsageType(series)
+    const productLabel = usageType ? SESSION_REPLAY_SERIES_LABELS[usageType] : undefined
+    return productLabel ? { ...series, label: replaceSeriesProductLabel(series.label, productLabel) } : series
+}
+
 export const convertDesktopUsageSeries = (
     series: BillingUsageResponse['results'][number]
 ): BillingUsageResponse['results'][number] => {
-    const usageType = Array.isArray(series.breakdown_value) ? series.breakdown_value[0] : series.breakdown_value
+    const usageType = seriesUsageType(series)
     const conversion = usageType ? DESKTOP_USAGE_SERIES_CONVERSIONS[usageType] : undefined
-    const labelSeparatorIndex = series.label.lastIndexOf('::')
-    const labelPrefix = labelSeparatorIndex === -1 ? '' : series.label.slice(0, labelSeparatorIndex + 2)
     return conversion
         ? {
               ...series,
-              label: `${labelPrefix}${conversion.label}`,
+              label: replaceSeriesProductLabel(series.label, conversion.label),
               data: series.data.map((value) => value / conversion.divisor),
           }
         : series
@@ -673,7 +695,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     return []
                 }
 
-                return response.results.map(convertDesktopUsageSeries)
+                return response.results.map((series) => relabelSessionReplaySeries(convertDesktopUsageSeries(series)))
             },
         ],
         dates: [

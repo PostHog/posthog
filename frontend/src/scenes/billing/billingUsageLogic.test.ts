@@ -17,6 +17,7 @@ import {
     convertDesktopUsageSeries,
     getBillingUsageError,
     billingUsageLogic,
+    relabelSessionReplaySeries,
 } from './billingUsageLogic'
 import type { BillingFilters } from './types'
 
@@ -76,6 +77,17 @@ describe('convertDesktopUsageSeries', () => {
             label: 'my-project::PostHog Desktop token spend (USD)',
             data: [12.34],
         })
+    })
+})
+
+describe('relabelSessionReplaySeries', () => {
+    it.each([
+        ['Recordings', 'recording_count_in_period', 'Session replay'],
+        ['Mobile recordings', 'mobile_billable_recording_count_in_period', 'Mobile session replay'],
+        ['my-project::Recordings', 'recording_count_in_period', 'my-project::Session replay'],
+        ['Events', 'event_count_in_period', 'Events'],
+    ])('labels %s as %s', (label, usageType, expectedLabel) => {
+        expect(relabelSessionReplaySeries(series(label, usageType, [1])).label).toBe(expectedLabel)
     })
 })
 

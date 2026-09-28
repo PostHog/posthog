@@ -199,7 +199,7 @@ test.describe('Billing usage and spend', () => {
 
             const table = page.getByRole('table')
             await expect(table.getByText('Events', { exact: true })).toBeVisible()
-            await expect(table.getByText('Recordings', { exact: true })).toBeVisible()
+            await expect(table.getByText('Session replay', { exact: true })).toBeVisible()
 
             expect(reads.usage).toHaveLength(1)
             const [params] = reads.usage
