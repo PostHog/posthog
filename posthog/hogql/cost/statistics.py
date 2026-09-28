@@ -43,6 +43,12 @@ EVENT_VOLUME_WINDOW_DAYS = USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS - 1
 COUNTED_TABLES: frozenset[str] = frozenset({PERSONS_TABLE, GROUPS_TABLE})
 TABLE_ROWS_CACHE_SECONDS = 24 * 60 * 60
 
+# Every executed query asks for the team's event volume and the distinct counts of its indexed filters, so both
+# are shared across processes. The rollup gains a day at a time and a property's distinct count drifts slowly,
+# so an hour and a day are well inside how precise the estimate is.
+EVENT_VOLUME_CACHE_SECONDS = 60 * 60
+PROPERTY_NDV_CACHE_SECONDS = 24 * 60 * 60
+
 # Tables whose rows arrive over time, sized as a daily rate the estimator scales to the query's range. The
 # column is the one their sort key or partition is on, so the count reads only the window it asks for.
 TIME_ORDERED_TABLES: dict[str, str] = {
@@ -206,6 +212,20 @@ class ClickHouseStatisticsProvider:
         return per_day
 
     def _load_event_volume(self, team_id: int) -> EventVolume | None:
+        cache_key = f"hogql_cost:event_volume:{team_id}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return EventVolume(total=int(cached["total"]), by_event=dict(cached["by_event"]), days=int(cached["days"]))
+        volume = self._query_event_volume(team_id)
+        if volume is not None:
+            cache.set(
+                cache_key,
+                {"total": volume.total, "by_event": dict(volume.by_event), "days": volume.days},
+                timeout=EVENT_VOLUME_CACHE_SECONDS,
+            )
+        return volume
+
+    def _query_event_volume(self, team_id: int) -> EventVolume | None:
         today = self._today or date.today()
         since = today - timedelta(days=EVENT_VOLUME_WINDOW_DAYS)
         try:
@@ -246,6 +266,17 @@ class ClickHouseStatisticsProvider:
         return EventVolume(total=sum(by_event.values()), by_event=by_event, days=len(days))
 
     def _load_property_ndv(self, team_id: int, property_name: str) -> int | None:
+        cache_key = f"hogql_cost:property_ndv:{team_id}:{property_name}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return int(cached) or None
+        distinct_values = self._query_property_ndv(team_id, property_name)
+        if distinct_values is not None:
+            # Zero is cached too: a property nobody sends is asked about on every keystroke otherwise.
+            cache.set(cache_key, distinct_values, timeout=PROPERTY_NDV_CACHE_SECONDS)
+        return distinct_values or None
+
+    def _query_property_ndv(self, team_id: int, property_name: str) -> int | None:
         """Count the values the property-values aggregator recorded for one event property.
 
         Only the number of distinct values is read. ``property_count`` is not a frequency, because the
@@ -278,8 +309,7 @@ class ClickHouseStatisticsProvider:
             logger.warning("hogql_cost_property_ndv_unavailable", team_id=team_id, exc_info=True)
             return None
 
-        distinct_values = int(rows[0][0]) if rows else 0
-        return distinct_values or None
+        return int(rows[0][0]) if rows else 0
 
 
 class FixedStatisticsProvider:

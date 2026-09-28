@@ -81,6 +81,7 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         )
 
     def test_sums_across_libs_and_days_and_counts_distinct_days(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         self._seed(
             [
                 (TODAY - timedelta(days=1), "web", "$pageview", 100),
@@ -102,6 +103,7 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         ]
     )
     def test_window_edges(self, _name, days_ago, expected_total):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         self._seed([(TODAY - timedelta(days=days_ago), "web", "$pageview", 999)])
         self._seed([(TODAY - timedelta(days=1), "web", "$pageview", 1)])
 
@@ -111,6 +113,8 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert volume.total == expected_total
 
     def test_property_ndv_counts_distinct_event_property_values_for_the_team(self):
+        for name in ("plan", "never_sent"):
+            cache.delete(f"hogql_cost:property_ndv:{self.team_id}:{name}")
         sync_execute(
             "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count) VALUES "
             f"({self.team_id}, 'event', 'plan', 'free', 3), "
@@ -167,20 +171,40 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         execute.assert_not_called()
 
     def test_team_without_data_yields_none(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None
 
-    def test_memoizes_per_team_within_one_provider(self):
+    def test_event_volume_is_read_once_and_shared_across_providers(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         self._seed([(TODAY - timedelta(days=1), "web", "$pageview", 7)])
-        provider = ClickHouseStatisticsProvider(today=TODAY)
 
         with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
-            first = provider.event_volume(self.team_id)
-            second = provider.event_volume(self.team_id)
+            first = ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id)
+            # A later request builds its own provider and must not count the rollup again.
+            second = ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id)
 
-        assert first == second
+        assert first == EventVolume(total=7, by_event={"$pageview": 7}, days=1)
+        assert second == first
         assert execute.call_count == 1
 
+    def test_property_ndv_is_cached_including_a_property_nobody_sends(self):
+        for name in ("plan", "never_sent"):
+            cache.delete(f"hogql_cost:property_ndv:{self.team_id}:{name}")
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count) VALUES "
+            f"({self.team_id}, 'event', 'plan', 'free', 1), ({self.team_id}, 'event', 'plan', 'paid', 1)"
+        )
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
+            assert ClickHouseStatisticsProvider(today=TODAY).property_ndv(self.team_id, "plan") == 2
+            assert ClickHouseStatisticsProvider(today=TODAY).property_ndv(self.team_id, "plan") == 2
+            assert ClickHouseStatisticsProvider(today=TODAY).property_ndv(self.team_id, "never_sent") is None
+            assert ClickHouseStatisticsProvider(today=TODAY).property_ndv(self.team_id, "never_sent") is None
+
+        assert execute.call_count == 2
+
     def test_clickhouse_failure_degrades_to_none(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         lookup_tags: QueryTags | None = None
 
         def fail_lookup(*args: object, **kwargs: object) -> None:

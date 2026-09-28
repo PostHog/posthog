@@ -2,6 +2,8 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.conf import settings as django_settings
+
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -589,6 +591,8 @@ class HogQLQueryExecutor:
             return None
 
     def _estimated_rows(self) -> int | None:
+        if not django_settings.HOGQL_SCAN_ESTIMATE_AT_EXECUTION:
+            return None
         try:
             with self.timings.measure("scan_estimate"):
                 context = self.hogql_context or self.context

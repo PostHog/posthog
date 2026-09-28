@@ -7,6 +7,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from pydantic import ValidationError
 
@@ -469,6 +471,24 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         else:
             assert comment["estimated_rows"] == expected_rows
         assert any(key.endswith("/scan_estimate") for key in comment["timings"])
+
+    @override_settings(HOGQL_SCAN_ESTIMATE_AT_EXECUTION=False)
+    def test_execution_estimate_can_be_switched_off(self) -> None:
+        marker = str(uuid.uuid4())
+        sql = f"SELECT count() FROM events WHERE event = '{marker}' LIMIT 100"  # noqa: S608
+        provider = FixedStatisticsProvider(
+            event_volume={self.team.pk: EventVolume(total=1000, by_event={marker: 1000}, days=1)}
+        )
+        reset_query_tags()
+
+        with patch.object(provider, "event_volume", wraps=provider.event_volume) as read_statistics:
+            response = execute_hogql_query(sql, team=self.team, query_type="HogQLQuery", statistics_provider=provider)
+
+        assert response.error is None
+        read_statistics.assert_not_called()
+        comment = self._get_log_comment(marker)
+        assert "plan_fingerprint" in comment
+        assert "estimated_rows" not in comment
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
