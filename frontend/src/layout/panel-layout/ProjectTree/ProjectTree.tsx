@@ -14,6 +14,7 @@ import {
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -72,6 +73,8 @@ interface ProjectTreeBaseProps {
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
      */
     onItemClicked?: (item: TreeDataItem | undefined) => void
+    /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
+    renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -497,6 +500,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 )
             }}
             renderItemTooltip={(item) => {
+                if (props.renderItemTooltip) {
+                    return props.renderItemTooltip(item)
+                }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
                 if (
@@ -516,22 +522,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                             )}
                             {sceneConfigurations[key]?.description || item.name}
 
-                            {item.tags?.length && (
-                                <>
-                                    {item.tags?.map((tag) => (
-                                        <LemonTag
-                                            key={tag}
-                                            type={
-                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
-                                            }
-                                            size="small"
-                                            className="ml-2 relative top-[-1px]"
-                                        >
-                                            {tag.toUpperCase()}
-                                        </LemonTag>
-                                    ))}
-                                </>
-                            )}
+                            {item.tags?.map((tag) => (
+                                <ProductTag key={tag} tag={tag} className="ml-2 relative top-[-1px]" />
+                            ))}
                         </>
                     )
                 }
@@ -540,22 +533,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     return (
                         <>
                             {nameNode}
-                            {item.record?.protocol === 'products://' && item.tags?.length && (
-                                <>
-                                    {item.tags?.map((tag) => (
-                                        <LemonTag
-                                            key={tag}
-                                            type={
-                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
-                                            }
-                                            size="small"
-                                            className="ml-2 relative top-[-1px]"
-                                        >
-                                            {tag.toUpperCase()}
-                                        </LemonTag>
-                                    ))}
-                                </>
-                            )}
+                            {item.record?.protocol === 'products://' &&
+                                item.tags?.map((tag) => (
+                                    <ProductTag key={tag} tag={tag} className="ml-2 relative top-[-1px]" />
+                                ))}
                         </>
                     )
                 }
@@ -600,47 +581,38 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 if (item.type === 'empty-folder') {
                     return item.displayName
                 }
-                const isCustomProduct = root === 'custom-products://'
+                // A shortcut's created_at is when it was starred, not when the item was created.
                 const isNew =
-                    !isCustomProduct &&
+                    root !== 'custom-products://' &&
+                    root !== 'shortcuts://' &&
                     item.record?.created_at &&
                     dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
 
                 return (
-                    <span className="truncate">
-                        <span
-                            className={cn('truncate', {
-                                'font-semibold': item.record?.type === 'folder',
-                            })}
-                        >
-                            {item.displayName}{' '}
-                            {isNew ? (
-                                <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
-                                    New
-                                </LemonTag>
-                            ) : null}
-                        </span>
-
-                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
-                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
-                                {dayjs(item.record?.created_at).fromNow()}
-                            </span>
-                        )}
-
-                        {item.tags?.length && (
-                            <>
-                                {item.tags?.map((tag) => (
-                                    <LemonTag
-                                        key={tag}
-                                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                                        size="small"
-                                        className="ml-2 relative top-[-1px]"
-                                    >
-                                        {tag.toUpperCase()}
+                    <span className="flex w-full min-w-0 items-center gap-1.5">
+                        <span className="flex-1 truncate">
+                            <span
+                                className={cn('truncate', {
+                                    'font-semibold': item.record?.type === 'folder',
+                                })}
+                            >
+                                {item.displayName}{' '}
+                                {isNew ? (
+                                    <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                        New
                                     </LemonTag>
-                                ))}
-                            </>
-                        )}
+                                ) : null}
+                            </span>
+
+                            {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
+                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                    {dayjs(item.record?.created_at).fromNow()}
+                                </span>
+                            )}
+                        </span>
+                        {item.tags?.map((tag) => (
+                            <ProductTag key={tag} tag={tag} className="mr-0.5" />
+                        ))}
                     </span>
                 )
             }}

@@ -51,6 +51,10 @@ const starred: FileSystemEntry[] = [
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
     { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
+    { id: 'star-5', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+    // Starred before the rename, so the saved path still holds the old name.
+    { id: 'star-6', path: 'LLM analytics', type: 'llm_analytics', href: '/ai-observability/dashboard' },
+    { id: 'star-7', path: 'AI gateway', type: 'ai_gateway', href: '/ai-gateway' },
 ]
 
 function SidebarStory({
@@ -60,6 +64,7 @@ function SidebarStory({
     overlay = false,
     empty = false,
     recentsCollapsed = false,
+    allProductsOpen = true,
     folderToOpen,
 }: {
     tab?: NavExperimentTab
@@ -68,12 +73,13 @@ function SidebarStory({
     overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
+    allProductsOpen?: boolean
     folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
-    const { setSearch } = useActions(navProductsTabLogic)
+    const { setSearch, setAllProductsOpen } = useActions(navProductsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
     useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
@@ -82,6 +88,7 @@ function SidebarStory({
         setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        setAllProductsOpen(allProductsOpen)
         if (tab === 'files') {
             projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
         }
@@ -157,12 +164,11 @@ export default meta
 
 type Story = StoryObj<typeof SidebarStory>
 export const Products: Story = {}
-export const ConfigureStarred: Story = {
+export const ProductsClosed: Story = { args: { allProductsOpen: false } }
+export const CustomizeSidebar: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const body = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await canvas.findByLabelText('Starred options'))
-        await userEvent.click(await body.findByText('Configure starred', { exact: true }))
+        await userEvent.click(await canvas.findByLabelText('Customize sidebar'))
     },
 }
 export const Files: Story = { args: { tab: 'files' } }
