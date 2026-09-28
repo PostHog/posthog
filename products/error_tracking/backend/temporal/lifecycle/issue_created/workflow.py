@@ -152,7 +152,7 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         )
 
     async def _with_inferred_severity(self, inputs: IssueCreatedWorkflowInputs) -> IssueCreatedWorkflowInputs:
-        # Patched: executions in flight when this activity shipped replay the old sequence.
+        # The patch preserves deterministic replay for histories that do not contain this activity.
         if not inputs.severity_is_overridable() or not workflow.patched(SEVERITY_INFERENCE_PATCH):
             return inputs
         try:
@@ -166,6 +166,14 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             )
         except ActivityError:
             workflow.logger.warning("Severity inference failed; keeping the ingestion severity")
+            (
+                workflow.metric_meter()
+                .create_counter(
+                    "error_tracking_issue_created_severity_inference_fail_open",
+                    "Issue-created workflows that kept the ingestion severity after inference failed",
+                )
+                .add(1)
+            )
             return inputs
         if not result.resolved or result.stored_severity == inputs.issue.severity:
             return inputs

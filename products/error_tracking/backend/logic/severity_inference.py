@@ -80,13 +80,21 @@ def _mechanism_handled(event_properties: dict[str, object]) -> bool | None:
 
 
 def _page_without_query(current_url: object) -> str | None:
-    # Query strings and fragments can carry tokens or personal data, and the path already names the feature.
+    # URL userinfo, query strings, and fragments can carry secrets or personal data; the path names the feature.
     if not isinstance(current_url, str) or not current_url:
         return None
-    parsed = urlparse(current_url)
-    if not parsed.netloc:
+    try:
+        parsed = urlparse(current_url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
         return None
-    return f"{parsed.netloc}{parsed.path}"
+    if not hostname:
+        return None
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None:
+        authority = f"{authority}:{port}"
+    return f"{authority}{parsed.path}"
 
 
 def infer_severity(team_id: int, state: str) -> ChoiceAnswer | None:
@@ -152,6 +160,7 @@ def _log_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str 
         item_id=str(issue.id),
         scope="ErrorTrackingIssue",
         activity="updated",
+        strict=True,
         detail=Detail(
             name=issue.name,
             changes=[

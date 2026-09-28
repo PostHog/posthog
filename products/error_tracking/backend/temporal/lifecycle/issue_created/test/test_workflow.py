@@ -107,6 +107,14 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
             {"$exception_list": [{"type": "TypeError"}], "$exception_handled": False, "$current_url": "not a url"},
             "TypeError: boom",
         ),
+        (
+            {"$current_url": "https://user:password@app.example.com:8443/checkout?token=secret"},
+            "TypeError: boom\nPage: app.example.com:8443/checkout",
+        ),
+        (
+            {"$current_url": "https://[malformed.example.com/checkout"},
+            "TypeError: boom",
+        ),
     ],
 )
 def test_severity_state(properties: dict[str, object], expected: str) -> None:
@@ -243,6 +251,10 @@ def _decision(choice: str) -> DecisionResult:
     ],
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
+@patch(
+    "products.error_tracking.backend.temporal.lifecycle.issue_created.activities.ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES"
+)
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.logger")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.apply_inferred_severity")
 @patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
@@ -254,6 +266,8 @@ def test_severity_inference_outcomes(
     fetch_event_properties: MagicMock,
     decide: MagicMock,
     apply_inferred_severity: MagicMock,
+    logger: MagicMock,
+    inference_outcomes: MagicMock,
     capture_exception: MagicMock,
     enabled: bool,
     decide_outcome: DecisionResult | Exception,
@@ -279,6 +293,18 @@ def test_severity_inference_outcomes(
             infer_issue_created_severity_activity(inputs)
         assert error.value.type == expected_error_type
         assert not error.value.non_retryable
+    if isinstance(decide_outcome, DecisionGatewayError) and decide_outcome.status_code == 422:
+        warning = logger.warning.call_args
+        assert warning.args[0] == "error_tracking_severity_inference_rejected"
+        assert "detail" not in warning.kwargs
+    if expected_result is None:
+        expected_outcome = "unavailable"
+        expected_severity = inputs.issue.severity or "none"
+    else:
+        expected_outcome = expected_result.skipped_reason or "inferred"
+        expected_severity = expected_result.stored_severity or inputs.issue.severity or "none"
+    inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
+    inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
 
 

@@ -1,10 +1,29 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.db.utils import IntegrityError
 
 from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.logic.severity_inference import apply_inferred_severity
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+
+
+class TestInferredSeverityWrite(APIBaseTest):
+    def test_activity_log_failure_rolls_back_severity(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, severity="medium")
+
+        with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                with pytest.raises(IntegrityError):
+                    apply_inferred_severity(self.team.id, issue.id, expected="medium", inferred="critical")
+
+        issue.refresh_from_db()
+        assert issue.severity == "medium"
 
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):

@@ -205,13 +205,12 @@ def _decision_error_skip_reason(inputs: IssueCreatedWorkflowInputs, error: Excep
             raise ApplicationError(
                 f"Severity model returned status {status_code}", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
             ) from error
-        case DecisionGatewayError(status_code=status_code, detail=detail):
+        case DecisionGatewayError(status_code=status_code):
             logger.warning(
                 "error_tracking_severity_inference_rejected",
                 team_id=inputs.team_id,
                 issue_id=inputs.issue_id,
                 status_code=status_code,
-                detail=detail,
             )
             return SeverityInferenceSkipReason.GATEWAY_REJECTED
     raise error
@@ -258,11 +257,12 @@ def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSe
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+    ingestion_severity = inputs.issue.severity or "none"
     try:
         result = _infer_issue_created_severity(inputs)
     except ApplicationError as error:
         if error.type == SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE:
-            ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES.labels(outcome="unavailable", severity="none").inc()
+            ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES.labels(outcome="unavailable", severity=ingestion_severity).inc()
         elif not is_expected_activity_failure(error):
             posthoganalytics.capture_exception(error)
         raise
@@ -271,7 +271,7 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
             posthoganalytics.capture_exception(error)
         raise
     ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES.labels(
-        outcome=result.skipped_reason or "inferred", severity=result.stored_severity or "none"
+        outcome=result.skipped_reason or "inferred", severity=result.stored_severity or ingestion_severity
     ).inc()
     return result
 
