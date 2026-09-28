@@ -1,4 +1,5 @@
 import os
+import functools
 import subprocess
 from pathlib import Path
 
@@ -41,6 +42,7 @@ def commit_on_master(repo: Path, master: str, name: str, content: str) -> None:
     git(repo, "checkout", "-q", "topic")
 
 
+@functools.cache
 def list_step(engine: str) -> str:
     workflow = yaml.safe_load((ROOT / engine / "workflows/ci-backend.yml").read_text())
     return next(
@@ -53,25 +55,24 @@ def list_step(engine: str) -> str:
 
 @pytest.mark.parametrize("engine,master", [(".github", "origin/master"), (".depot", "upstream/master")])
 @pytest.mark.parametrize(
-    "case,expected_added,expected_changed",
+    "case,expected",
     [
-        ("based on master", [OWN], [OWN]),
-        ("stale base", [OWN], [OWN]),
-        ("stale base carries master's migration", [], []),
-        ("master adds a similar migration later", [OWN], [OWN]),
-        ("master edits a migration the branch carries", [], [f"{MIGRATIONS}/0002_master.py"]),
-        ("edits an existing migration", [], [f"{MIGRATIONS}/0001_base.py"]),
-        ("base missing from the clone", [f"{MIGRATIONS}/0004_own.py"], [f"{MIGRATIONS}/0004_own.py"]),
-        ("unknown base", None, None),
-        ("no master ref", None, None),
+        ("based on master", ([OWN], [OWN])),
+        ("stale base", ([OWN], [OWN])),
+        ("stale base carries master's migration", ([], [])),
+        ("master adds a similar migration later", ([OWN], [OWN])),
+        ("master edits a migration the branch carries", ([], [f"{MIGRATIONS}/0002_master.py"])),
+        ("edits an existing migration", ([], [f"{MIGRATIONS}/0001_base.py"])),
+        ("base missing from the clone", ([f"{MIGRATIONS}/0004_own.py"], [f"{MIGRATIONS}/0004_own.py"])),
+        ("unknown base", None),
+        ("no master ref", None),
     ],
 )
 def test_lists_only_this_prs_migrations(
     engine: str,
     master: str,
     case: str,
-    expected_added: list[str] | None,
-    expected_changed: list[str] | None,
+    expected: tuple[list[str], list[str]] | None,
     tmp_path: Path,
 ) -> None:
     repo = tmp_path / "repo"
@@ -127,9 +128,10 @@ def test_lists_only_this_prs_migrations(
         text=True,
         capture_output=True,
     )
-    if expected_added is None:
+    if expected is None:
         assert result.returncode != 0
         return
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "ch-migrations-added.txt").read_text().splitlines() == expected_added
-    assert (tmp_path / "ch-migrations-changed.txt").read_text().splitlines() == expected_changed
+    added = (tmp_path / "ch-migrations-added.txt").read_text().splitlines()
+    changed = (tmp_path / "ch-migrations-changed.txt").read_text().splitlines()
+    assert (added, changed) == expected
