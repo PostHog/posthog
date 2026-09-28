@@ -177,6 +177,26 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
     })
 
+    it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
+        router.actions.push('/data-management/sources/src-1')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.dataWarehouseSource('src-1', 'schemas')
+        )
+    })
+
+    // The redirect table is keyed on exact paths, so the `:id` entry above must not swallow the
+    // sources list or a source path that already names its tab — the latter would redirect to
+    // itself forever.
+    it.each([
+        ['the sources list', urls.sources()],
+        ['a source that names its tab', urls.dataWarehouseSource('src-1', 'schemas')],
+    ])('leaves %s on its own route', async (_label, path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(path)
+    })
+
     it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
         // `/replay/:id` would otherwise match and read `vision` as a recording id.
         router.actions.push('/replay/vision')

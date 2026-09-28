@@ -142,11 +142,11 @@ def session_age_for_user(user: User) -> int:
     return settings.SESSION_COOKIE_AGE
 
 
-MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS = 60
-MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS = 5
+SIGNED_CLIENT_IP_MAX_AGE_SECONDS = 60
+SIGNED_CLIENT_IP_MAX_CLOCK_SKEW_SECONDS = 5
 
 
-class ManagedProxyClientIPOutcome(StrEnum):
+class SignedClientIPOutcome(StrEnum):
     VALID = "valid"
     # The instance holds no signing key, which is the normal state outside PostHog Cloud.
     NOT_CONFIGURED = "not_configured"
@@ -163,37 +163,69 @@ MANAGED_PROXY_CLIENT_IP_VERIFICATIONS = Counter(
     ["outcome"],
 )
 
+MCP_CLIENT_IP_VERIFICATIONS = Counter(
+    "posthog_mcp_client_ip_verifications",
+    "Verifications of the end user IP that the MCP server signs, by outcome.",
+    ["outcome"],
+)
 
-def verify_managed_proxy_client_ip(
-    ip: str | None, timestamp: str | None, signature: str | None
-) -> ManagedProxyClientIPOutcome:
-    """Report whether the managed reverse proxy signed this client IP.
+MCP_CLIENT_IP_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP"
+MCP_CLIENT_IP_TIMESTAMP_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP"
+MCP_CLIENT_IP_SIGNATURE_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE"
 
-    The proxy Worker sends hex(HMAC-SHA256(key, f"{ip}:{timestamp}")) with the timestamp in unix seconds.
-    A change to this format must also go to the Worker, or Django ignores the signed IP on every request.
+
+def verify_signed_client_ip(
+    ip: str | None, timestamp: str | None, signature: str | None, signing_keys: list[str]
+) -> SignedClientIPOutcome:
+    """Report whether the holder of one of `signing_keys` signed this client IP.
+
+    The signer sends hex(HMAC-SHA256(key, f"{ip}:{timestamp}")) with the timestamp in unix seconds.
+    The managed proxy Worker and the MCP server both sign in this format. A change to it must also go
+    to them, or Django ignores the signed IP on every request.
     """
-    keys = [key for key in settings.MANAGED_PROXY_SIGNING_KEYS if key]
+    keys = [key for key in signing_keys if key]
     if not keys:
-        return ManagedProxyClientIPOutcome.NOT_CONFIGURED
+        return SignedClientIPOutcome.NOT_CONFIGURED
     if not ip or not timestamp or not signature:
-        return ManagedProxyClientIPOutcome.INVALID_INPUT
+        return SignedClientIPOutcome.INVALID_INPUT
     # int() raises ValueError on very long digit strings, so check the length first.
     if len(timestamp) > 12 or not (timestamp.isascii() and timestamp.isdigit()):
-        return ManagedProxyClientIPOutcome.INVALID_INPUT
+        return SignedClientIPOutcome.INVALID_INPUT
     try:
         ip_address(ip)
     except ValueError:
-        return ManagedProxyClientIPOutcome.INVALID_INPUT
+        return SignedClientIPOutcome.INVALID_INPUT
     age_seconds = time.time() - int(timestamp)
-    if not -MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS <= age_seconds <= MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS:
-        return ManagedProxyClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
+    if not -SIGNED_CLIENT_IP_MAX_CLOCK_SKEW_SECONDS <= age_seconds <= SIGNED_CLIENT_IP_MAX_AGE_SECONDS:
+        return SignedClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
 
     message = f"{ip}:{timestamp}".encode()
     provided = signature.lower()
     for key in keys:
         if signatures_match(hmac_sha256_signature(key, message), provided):
-            return ManagedProxyClientIPOutcome.VALID
-    return ManagedProxyClientIPOutcome.BAD_SIGNATURE
+            return SignedClientIPOutcome.VALID
+    return SignedClientIPOutcome.BAD_SIGNATURE
+
+
+def pop_mcp_client_ip(request: HttpRequest) -> str | None:
+    """Remove the MCP server's signed end user IP from the request, and return it when it verifies.
+
+    The MCP server calls the API from inside the cluster, so REMOTE_ADDR is the MCP pod. The signed
+    IP is the one the MCP server received from its own edge. Only the activity log uses it, so the
+    request's X-Forwarded-For does not change.
+    """
+    ip = request.META.pop(MCP_CLIENT_IP_META_KEY, None)
+    timestamp = request.META.pop(MCP_CLIENT_IP_TIMESTAMP_META_KEY, None)
+    signature = request.META.pop(MCP_CLIENT_IP_SIGNATURE_META_KEY, None)
+    if ip is None and timestamp is None and signature is None:
+        return None
+    # request.headers caches a copy of META on first access, and the pops above changed META.
+    # Drop the cache so that a later reader cannot see the unverified values.
+    request.__dict__.pop("headers", None)
+
+    outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
+    MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+    return ip if outcome is SignedClientIPOutcome.VALID else None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -228,9 +260,9 @@ class ManagedProxyClientIPMiddleware:
         if ip is None and timestamp is None and signature is None:
             return self.get_response(request)
 
-        outcome = verify_managed_proxy_client_ip(ip, timestamp, signature)
+        outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MANAGED_PROXY_SIGNING_KEYS)
         MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-        if outcome is ManagedProxyClientIPOutcome.VALID:
+        if outcome is SignedClientIPOutcome.VALID:
             request.META["HTTP_X_FORWARDED_FOR"] = ip
         # request.headers caches a copy of META on first access, and the pops above changed META.
         # Drop the cache so that a later reader sees the change.
@@ -1285,7 +1317,7 @@ class ActivityLoggingMiddleware:
         if client_header:
             activity_storage.set_client(client_from_header(client_header))
 
-        activity_storage.set_ip_address(get_ip_address(request) or None)
+        activity_storage.set_ip_address(pop_mcp_client_ip(request) or get_ip_address(request) or None)
 
         try:
             response = self.get_response(request)

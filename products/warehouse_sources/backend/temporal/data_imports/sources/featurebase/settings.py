@@ -26,7 +26,7 @@ FEATUREBASE_OBJECT_TYPE_TO_TOPICS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FeaturebaseEndpointConfig:
     name: str
     path: str  # Relative to FEATUREBASE_BASE_URL; may carry a {post_id} placeholder for fan-out
@@ -48,8 +48,8 @@ class FeaturebaseEndpointConfig:
     full_refresh_params: dict[str, str] = field(default_factory=dict)
     # Extra query params merged into every request (e.g. privacy=all).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Whether the endpoint paginates with limit/cursor. Boards and post statuses return
-    # everything in one response (boards as a bare JSON array, no `data` envelope).
+    # Whether the endpoint paginates with limit/cursor. Boards, post statuses and ticket
+    # statuses return everything in one response (a bare JSON array, no `data` envelope).
     paginated: bool = True
     partition_key: Optional[str] = None  # Stable creation-time field, never updatedAt
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
@@ -150,6 +150,38 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
         # Default is customers only; pull leads too so the table covers every identity
         # that can author posts and comments.
         extra_params={"contactType": "all"},
+    ),
+    "conversations": FeaturebaseEndpointConfig(
+        name="conversations",
+        path="/conversations",
+        partition_key="createdAt",
+        # The list endpoint takes only limit/cursor/tagIds — no sort and no timestamp filter —
+        # so neither incremental mode applies. The search endpoint can filter on createdAt but
+        # returns a slimmer row, which would make the table's columns depend on the sync mode.
+    ),
+    "tickets": FeaturebaseEndpointConfig(
+        name="tickets",
+        path="/tickets",
+        partition_key="createdAt",
+        incremental_mode="desc_cutoff",
+        # Only `recent` is documented against a timestamp we sync ("most recently updated",
+        # same meaning as on posts). The `date` sort exists too, but which column it orders by
+        # is undocumented, and a cutoff sweep on the wrong column silently skips rows.
+        incremental_params_for_field={"updatedAt": {"sortBy": "recent", "sortOrder": "desc"}},
+        # ticketNumber is the sequential display id, so ascending on it is a stable full-refresh
+        # walk regardless of how rows are edited during the sync.
+        full_refresh_params={"sortBy": "ticketNumber", "sortOrder": "asc"},
+        incremental_fields=[_UPDATED_AT_FIELD],
+    ),
+    "ticket_statuses": FeaturebaseEndpointConfig(
+        name="ticket_statuses",
+        path="/tickets/statuses",
+        # Documented as returning every status at once, as a bare JSON array like boards.
+        paginated=False,
+    ),
+    "conversation_tags": FeaturebaseEndpointConfig(
+        name="conversation_tags",
+        path="/tags",
     ),
     # One request per post: materializes the post<->upvoter many-to-many as
     # {postId, ...contact} rows. Opt-in (off by default) because it costs one paginated

@@ -124,6 +124,34 @@ class TestBuildInitialParams:
                 None,
                 {},
             ),
+            (
+                "tickets_incremental_updated_sweeps_recent_desc",
+                "tickets",
+                True,
+                "updatedAt",
+                {"limit": 100, "sortBy": "recent", "sortOrder": "desc"},
+            ),
+            (
+                "tickets_full_refresh_walks_ticket_number_ascending",
+                "tickets",
+                False,
+                None,
+                {"limit": 100, "sortBy": "ticketNumber", "sortOrder": "asc"},
+            ),
+            (
+                "conversations_have_no_sort_or_filter_param",
+                "conversations",
+                False,
+                None,
+                {"limit": 100},
+            ),
+            (
+                "ticket_statuses_have_no_pagination_params",
+                "ticket_statuses",
+                False,
+                None,
+                {},
+            ),
         ]
     )
     def test_build_initial_params(
@@ -147,6 +175,14 @@ class TestBuildInitialParams:
         assert params["startDate"] == "2026-03-04T02:58:14.000Z"
         assert params["sortBy"] == "date"
         assert params["sortOrder"] == "asc"
+
+    def test_every_advertised_incremental_field_has_sort_params(self) -> None:
+        # A "desc_cutoff" sweep stops once a whole page predates the watermark, which is only
+        # sound while the request sorts descending on that same field. An advertised field with
+        # no entry here would be swept unsorted and silently drop rows.
+        for name, config in FEATUREBASE_ENDPOINTS.items():
+            for incremental_field in config.incremental_fields:
+                assert incremental_field["field"] in config.incremental_params_for_field, name
 
     def test_changelogs_first_incremental_sync_has_no_start_date(self) -> None:
         params = _build_initial_params(
@@ -383,6 +419,8 @@ class TestSourceResponse:
             ("posts_full_refresh", "posts", False, "asc"),
             ("changelogs_incremental_stays_asc", "changelogs", True, "asc"),
             ("boards_full_refresh", "boards", False, "asc"),
+            ("tickets_incremental", "tickets", True, "desc"),
+            ("tickets_full_refresh", "tickets", False, "asc"),
         ]
     )
     def test_sort_mode_matches_emit_order(self, _name: str, endpoint: str, incremental: bool, expected: str) -> None:
@@ -393,6 +431,9 @@ class TestSourceResponse:
             ("posts", ["id"], ["createdAt"]),
             ("post_voters", ["postId", "id"], None),
             ("contacts", ["id"], None),
+            ("tickets", ["id"], ["createdAt"]),
+            ("conversations", ["id"], ["createdAt"]),
+            ("conversation_tags", ["id"], None),
         ]
     )
     def test_primary_and_partition_keys(
