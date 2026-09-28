@@ -77,7 +77,7 @@
   WITH latest_events AS (
     SELECT events.distinct_id AS distinct_id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, %(hogql_val_1)s)) AS latest_os_version 
     FROM events 
-    WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_4)s), toIntervalDay(30)), 6, %(hogql_val_5)s))) 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_4)s), toIntervalDay(30)), 9, %(hogql_val_5)s))) 
     GROUP BY events.distinct_id), major_versions AS (
     SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_6)s, ifNull(latest_events.latest_os_version, %(hogql_val_7)s))[1] AS major_version 
     FROM latest_events) 

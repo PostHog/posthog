@@ -11,7 +11,7 @@
       FROM
           sessions
       WHERE
-          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(sessions.min_timestamp, toDateTime64(minus(%(hogql_val_0)s, toIntervalDay(3)), 6, %(hogql_val_1)s)))
+          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(sessions.min_timestamp, toDateTime64(minus(%(hogql_val_0)s, toIntervalDay(3)), 9, %(hogql_val_1)s)))
       GROUP BY
           sessions.session_id,
           sessions.session_id) AS sessions ON equals(events.properties.`$session_id`, sessions.session_id)
@@ -48,7 +48,7 @@
       FROM
           sessions
       WHERE
-          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(sessions.min_timestamp, toDateTime64(minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3)), 6, %(hogql_val_5)s)), lessOrEquals(sessions.min_timestamp, toDateTime64(plus(assumeNotNull(toDateTime(%(hogql_val_6)s, %(hogql_val_7)s)), toIntervalDay(3)), 6, %(hogql_val_8)s)))
+          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(sessions.min_timestamp, toDateTime64(minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3)), 9, %(hogql_val_5)s)), lessOrEquals(sessions.min_timestamp, toDateTime64(plus(assumeNotNull(toDateTime(%(hogql_val_6)s, %(hogql_val_7)s)), toIntervalDay(3)), 9, %(hogql_val_8)s)))
       GROUP BY
           sessions.session_id,
           sessions.session_id) AS e__session ON equals(e.properties.`$session_id`, e__session.session_id)
@@ -79,7 +79,7 @@
       FROM
           events_json AS events
       WHERE
-          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, toDateTime64(today(), 6, %(hogql_val_0)s)))
+          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, toDateTime64(today(), 9, %(hogql_val_0)s)))
       LIMIT 50000) AS events
       LEFT JOIN (SELECT
           dateDiff(%(hogql_val_1)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
@@ -87,7 +87,7 @@
       FROM
           sessions
       WHERE
-          and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(sessions.min_timestamp, toDateTime64(plus(today(), toIntervalDay(3)), 6, %(hogql_val_4)s)))
+          and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(sessions.min_timestamp, toDateTime64(plus(today(), toIntervalDay(3)), 9, %(hogql_val_4)s)))
       GROUP BY
           sessions.session_id,
           sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)

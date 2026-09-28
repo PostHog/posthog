@@ -145,22 +145,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
 
-    # These always return a DateTime or DateTime64, which ClickHouse compares with the bare column as an instant.
-    # Wrapping them again with toDateTime64(..., 6, tz) would also truncate a bound with more than 6 decimals.
-    _INSTANT_FUNCTIONS: set[str] = {
-        "now",
-        "now64",
-        "toTimeZone",
-        "toDateTime",
-        "toDateTime64",
-        "fromUnixTimestamp",
-        "fromUnixTimestamp64Milli",
-        "parseDateTimeBestEffort",
-        "parseDateTimeBestEffortOrNull",
-        "parseDateTime64BestEffort",
-        "parseDateTime64BestEffortOrNull",
-    }
-
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
     # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
@@ -618,24 +602,28 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap the other side of the comparison with toDateTime64(..., 6, tz) unless it is already a DateTime instant.
+        """Wrap the other side of the comparison with toDateTime64(..., tz) unless it already pins the time zone.
 
         ClickHouse converts a Date or a string compared with a DateTime in the time zone of that DateTime.
         The bare field is UTC, so without the wrap a Date bound such as toStartOfWeek(...) or today() means
-        UTC midnight instead of midnight in the project time zone.
+        UTC midnight instead of midnight in the project time zone. A bound that is already a DateTime keeps
+        its instant through the wrap.
         """
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
         if isinstance(inner, ast.Call):
-            if inner.name in PropertySwapper._INSTANT_FUNCTIONS:
+            # HogQL prints toDateTime and toDateTime64 with the project time zone, so they already pin it.
+            if inner.name in ("toDateTime", "toDateTime64"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
                 wrapped_arg = PropertySwapper._anchor_to_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
-                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
+                    new_call = ast.Call(
+                        name=inner.name, args=[wrapped_arg], type=PropertySwapper._datetime_call_type(inner.name, False)
+                    )
                     if isinstance(expr, ast.Alias):
                         return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
                     return new_call
@@ -652,13 +640,33 @@ class PropertySwapper(CloningVisitor):
                 inner.value = zoned
                 return expr
 
+        # A constant keeps the precision HogQL prints for datetime literals. Any other bound can be a DateTime64
+        # with up to 9 decimals, so it gets the maximum precision and the wrap never truncates it.
+        precision = 6 if isinstance(inner, ast.Constant) else 9
         new_call = ast.Call(
             name="toDateTime64",
-            args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+            args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
+            type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
         )
         if isinstance(expr, ast.Alias):
             return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
         return new_call
+
+    @staticmethod
+    def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
+        # The printer wraps a comparison in ifNull() when it can't tell that both sides are non-null,
+        # and ClickHouse can't use an index through ifNull().
+        return ast.CallType(name=name, arg_types=[], return_type=ast.DateTimeType(nullable=nullable))
+
+    @staticmethod
+    def _is_nullable_bound(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return expr.value is None
+        if isinstance(expr.type, ast.CallType):
+            return expr.type.return_type.nullable
+        if isinstance(expr.type, ast.ConstantType):
+            return expr.type.nullable
+        return True
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):

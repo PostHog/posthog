@@ -1801,6 +1801,21 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone in SELECT for display, got:\n{select_clause}"
 
+    @parameterized.expand(
+        [
+            ("assume_not_null_date_bound", "assumeNotNull(toStartOfWeek(toDateTime('2024-03-03 00:00:00')))"),
+            ("computed_non_null_bound", "plus(assumeNotNull(toDateTime('2024-03-03 00:00:00')), toIntervalSecond(0))"),
+        ]
+    )
+    def test_anchored_non_null_bound_keeps_comparison_unwrapped(self, _name, bound):
+        # An ifNull() around the comparison would stop ClickHouse from using the column's indexes.
+        sql, _ = self._compile_hogql(
+            f"SELECT count() FROM posthog.hog_invocation_results WHERE scheduled_at >= {bound}",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
+        assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
+
     def test_toTimeZone_not_stripped_in_join_on(self):
         """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
         sql, _ = self._compile_hogql(
@@ -1911,13 +1926,19 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
         self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
 
-    def test_nanosecond_bound_keeps_its_precision(self):
+    @parameterized.expand(
+        [
+            ("constructor", "toDateTime64('2024-03-01 12:00:00.000000500', 9)"),
+            ("computed", "toDateTime64('2024-03-01 11:59:59.000000500', 9) + toIntervalSecond(1)"),
+        ]
+    )
+    def test_nanosecond_bound_keeps_its_precision(self, _name, bound):
         # The bound is 500 ns after the first event, so only the second event is at or after it.
         for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
             _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
         flush_persons_and_events()
 
-        hogql = "SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= toDateTime64('2024-03-01 12:00:00.000000500', 9)"
+        hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= {bound}"
         self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
