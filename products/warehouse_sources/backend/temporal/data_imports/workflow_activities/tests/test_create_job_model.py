@@ -4,7 +4,7 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -432,3 +432,44 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 0
+
+    # Nothing locks the rows between the existence check and the job insert, so a hard delete in
+    # that gap fails the insert's foreign keys. That is the same race and must take the same path,
+    # while an IntegrityError with both rows still present stays a reported failure.
+    @parameterized.expand([("source_hard_deleted", True), ("rows_still_present", False)])
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.delete_external_data_schedule")
+    @patch(f"{MODULE}._create_job")
+    def test_foreign_key_failure_on_insert(
+        self,
+        _name: str,
+        hard_delete: bool,
+        mock_create: MagicMock,
+        mock_delete_schedule: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        team = _team()
+        schema = _schema(team, None)
+
+        def hard_delete_then_fail(**_kwargs: object) -> None:
+            if hard_delete:
+                ExternalDataSource.objects.filter(id=schema.source_id).delete()
+            raise IntegrityError("insert violates foreign key constraint")
+
+        mock_create.side_effect = hard_delete_then_fail
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        if hard_delete:
+            with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
+                create_external_data_job_model_activity(inputs)
+            assert is_expected_activity_failure(exc_info.value)
+            mock_delete_schedule.assert_called_once_with(str(schema.id))
+        else:
+            with pytest.raises(IntegrityError):
+                create_external_data_job_model_activity(inputs)
+            mock_delete_schedule.assert_not_called()

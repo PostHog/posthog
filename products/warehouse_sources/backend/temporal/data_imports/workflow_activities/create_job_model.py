@@ -4,7 +4,7 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
-from django.db import close_old_connections
+from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
@@ -324,6 +324,18 @@ class CreateExternalDataJobModelActivityOutputs:
     scheduled_full_refresh: bool = False
 
 
+def _source_and_schema_exist(inputs: CreateExternalDataJobModelActivityInputs) -> bool:
+    source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
+    schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
+    return source_exists and schema_exists
+
+
+def _cancel_schedule_of_deleted_schema(inputs: CreateExternalDataJobModelActivityInputs) -> typing.NoReturn:
+    delete_external_data_schedule(str(inputs.schema_id))
+    LOGGER.info("Source or schema no longer exists, deleted the sync schedule")
+    raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
+
+
 @activity.defn
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
@@ -335,12 +347,8 @@ def create_external_data_job_model_activity(
 
     # Kept out of the try below so the generic handler does not log a stack trace for a
     # deletion race that the activity handles.
-    source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
-    schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
-    if not source_exists or not schema_exists:
-        delete_external_data_schedule(str(inputs.schema_id))
-        logger.info("Source or schema no longer exists, deleted the sync schedule")
-        raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
+    if not _source_and_schema_exist(inputs):
+        _cancel_schedule_of_deleted_schema(inputs)
 
     try:
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
@@ -372,15 +380,22 @@ def create_external_data_job_model_activity(
             schema_snapshot["scheduled_full_refresh"] = True
             logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
 
-        job = _create_job(
-            team_id=inputs.team_id,
-            source_id=inputs.source_id,
-            schema_id=inputs.schema_id,
-            pipeline_version=pipeline_version,
-            billable=inputs.billable,
-            schema_snapshot=schema_snapshot,
-            destination_ids=destination_ids,
-        )
+        try:
+            job = _create_job(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                schema_id=inputs.schema_id,
+                pipeline_version=pipeline_version,
+                billable=inputs.billable,
+                schema_snapshot=schema_snapshot,
+                destination_ids=destination_ids,
+            )
+        except IntegrityError:
+            # Nothing locks the rows after the check above, so a hard delete in between fails the
+            # job's foreign keys. That is the same deletion race, not a defect.
+            if not _source_and_schema_exist(inputs):
+                _cancel_schedule_of_deleted_schema(inputs)
+            raise
         # Persist the Running status only after the job row exists: a Running schema with no job
         # behind it can never be finalized, so it would stay stuck on Running forever. With the job
         # committed first, the workflow's finalizer can always resolve it and repaint the schema.
@@ -446,9 +461,8 @@ def create_external_data_job_model_activity(
             fast_return_eligible=fast_return_eligible,
             scheduled_full_refresh=scheduled_full_refresh,
         )
-    except V3PipelineLockLostError:
-        # The takeover race the guard handles, not a defect — skip the generic handler's
-        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+    except (V3PipelineLockLostError, SourceOrSchemaDeletedError):
+        # Races the activity handles, not defects — skip the generic handler's stack trace log.
         raise
     except Exception as e:
         logger.exception(
