@@ -180,25 +180,31 @@ def set_flag_active(
     return update_flag(flag, {"active": active}, team=team, user=user, request=request)
 
 
-def deactivate_trashed_flag(flag: FeatureFlag) -> None:
-    """Disable a flag that the file system moves to trash. UNGATED on purpose.
+def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> None:
+    """Flip ``active`` on a flag the file system trashes or restores. UNGATED on purpose.
 
-    It sets ``active`` on the instance only, and the file-system soft-delete save persists
-    it, so trash stays one write inside the caller's transaction. The serializer path would
-    add the dependents check, filter validation and the approval gate, and trash never had
-    those.
+    A queryset update, so it emits no signals: the file system mutes them around its own
+    save, and a serializer write here would both fire them and add the dependents check,
+    filter validation and the approval gate. Trash never had any of those.
+
+    The caller reads the row back, because the file system saves the whole instance after
+    this and would otherwise write the stale value over it.
+
+    Restore runs while the row still carries ``deleted``, which the default manager excludes,
+    so this reaches the row through ``objects_including_soft_deleted``.
     """
+    FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
+
+
+def deactivate_trashed_flag(flag_id: int, *, team_id: int) -> None:
+    """Disable a flag that the file system moves to trash. See ``_set_trashed_flag_active``."""
     # TODO: trash disables a flag without passing a feature_flag.disable policy.
-    flag.active = False
+    _set_trashed_flag_active(flag_id, team_id=team_id, active=False)
 
 
-def reactivate_restored_flag(flag: FeatureFlag) -> None:
-    """Enable a flag that the file system restores from trash. UNGATED on purpose.
-
-    It sets ``active`` on the instance only, and the file-system restore save persists it.
-    See ``deactivate_trashed_flag`` for why it bypasses the serializer.
-    """
-    flag.active = True
+def reactivate_restored_flag(flag_id: int, *, team_id: int) -> None:
+    """Enable a flag that the file system restores from trash. See ``_set_trashed_flag_active``."""
+    _set_trashed_flag_active(flag_id, team_id=team_id, active=True)
 
 
 def archive_flag(
