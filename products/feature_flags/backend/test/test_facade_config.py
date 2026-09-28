@@ -115,6 +115,8 @@ class TestDetectConfigFormat:
             ("version_null", {"version": None}, ConfigFormat(kind="unsupported", raw_version=None)),
             ("unknown_future_version", {"version": 3}, ConfigFormat(kind="unsupported", raw_version=3)),
             ("fractional_version", {"version": 1.5}, ConfigFormat(kind="unsupported", raw_version=1.5)),
+            ("list_document", [], ConfigFormat(kind="unsupported", raw_version=None)),
+            ("string_document", "{}", ConfigFormat(kind="unsupported", raw_version=None)),
         ]
     )
     def test_detection(self, _name, filters, expected):
