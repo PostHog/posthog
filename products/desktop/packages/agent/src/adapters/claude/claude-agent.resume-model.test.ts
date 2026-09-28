@@ -8,6 +8,7 @@ import {
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GATEWAY_MODEL } from "../../gateway-models";
+import { getSessionJsonlPath } from "./session/jsonl-hydration";
 
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
@@ -489,49 +490,76 @@ describe("ClaudeAcpAgent session creation", () => {
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
 
-  it("logs diagnostics and closes the query when new-session init times out", async () => {
-    vi.useFakeTimers();
-    try {
-      nextInitPromise = new Promise(() => {});
-      const agent = makeAgent();
-      const errorSpy = vi.spyOn(agent.logger, "error");
+  it.each([
+    {
+      kind: "new",
+      log: "Session initialization failed",
+      message: "Session initialization timed out after 30000ms",
+    },
+    {
+      kind: "resume",
+      log: "Session resumption failed",
+      message: "Session resumption timed out after 30000ms",
+    },
+  ] as const)(
+    "logs diagnostics and closes the query when $kind session init times out",
+    async ({ kind, log, message }) => {
+      vi.useFakeTimers();
+      try {
+        nextInitPromise = new Promise(() => {});
+        const agent = makeAgent();
+        const errorSpy = vi.spyOn(agent.logger, "error");
+        const sessionId = "0197a000-0000-7000-8000-0000000000fd";
+        const transcript = '{"type":"user","message":"test"}\n';
+        if (kind === "resume") {
+          const transcriptPath = getSessionJsonlPath(sessionId, cwd);
+          mkdirSync(path.dirname(transcriptPath), { recursive: true });
+          writeFileSync(transcriptPath, transcript);
+        }
+        const params = {
+          sessionId,
+          cwd,
+          mcpServers: [],
+          _meta: {
+            taskRunId: `run-init-timeout-${kind}`,
+            model: "claude-opus-5",
+          },
+        };
 
-      const promise = agent.newSession({
-        cwd,
-        mcpServers: [],
-        _meta: {
-          taskRunId: "run-init-timeout-new",
-          model: "claude-opus-5",
-        },
-      });
-      promise.catch(() => {});
+        const promise =
+          kind === "new"
+            ? agent.newSession(params)
+            : agent.resumeSession(params);
+        promise.catch(() => {});
 
-      await vi.waitFor(() => {
-        expect(createdQueries[0]?.initializationResult).toHaveBeenCalledTimes(
-          1,
-        );
-      });
-      await vi.advanceTimersByTimeAsync(30_001);
+        await vi.waitFor(() => {
+          expect(createdQueries[0]?.initializationResult).toHaveBeenCalledTimes(
+            1,
+          );
+        });
+        await vi.advanceTimersByTimeAsync(30_001);
 
-      await expect(promise).rejects.toBeInstanceOf(RequestError);
-      expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
-      expect(errorSpy).toHaveBeenCalledWith(
-        "Session initialization failed",
-        expect.objectContaining({
-          initializationPhase: "sdk_initialization",
-          timeoutMs: 30_000,
-          initMs: expect.any(Number),
-          requestedModel: "claude-opus-5",
-          gatewayConfigured: false,
-          errorDetail: expect.objectContaining({
-            message: "Session initialization timed out after 30000ms",
+        await expect(promise).rejects.toBeInstanceOf(RequestError);
+        expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          log,
+          expect.objectContaining({
+            initializationPhase: "sdk_initialization",
+            timeoutMs: 30_000,
+            initMs: expect.any(Number),
+            requestedModel: "claude-opus-5",
+            gatewayConfigured: false,
+            ...(kind === "resume"
+              ? { transcriptBytes: Buffer.byteLength(transcript) }
+              : {}),
+            errorDetail: expect.objectContaining({ message }),
           }),
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it.each([
     {
