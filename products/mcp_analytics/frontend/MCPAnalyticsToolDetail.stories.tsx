@@ -128,7 +128,7 @@ const FAILURE_BUCKETS = [
 ]
 
 interface MockQueryBody {
-    query?: { kind?: string; neighborDirection?: 'before' | 'after' }
+    query?: { kind?: string; toolName?: string; neighborDirection?: 'before' | 'after' }
 }
 
 const meta: Meta = {
@@ -143,6 +143,10 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as MockQueryBody
+                    // Real tool names never match an encoded name, so an encoded name gets no data.
+                    if (body?.query?.toolName?.includes('%')) {
+                        return [200, { results: [] }]
+                    }
                     switch (body?.query?.kind) {
                         case 'MCPToolStatsQuery':
                             return [200, { results: [STATS] }]
@@ -188,4 +192,8 @@ type Story = StoryObj<{}>
 
 export const ToolDetail: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium', 'wide'] } },
+}
+
+export const ToolDetailWithSlashInName: Story = {
+    parameters: { pageUrl: urls.mcpAnalyticsTool('postgres-readonly/pg_readonly_query') },
 }

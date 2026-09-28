@@ -503,8 +503,10 @@ function TrendChart({
     )
 }
 
-export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
+export function MCPAnalyticsToolDetail(): JSX.Element {
+    // Read the name from the bound logic: the raw route param is still URL-encoded.
     const {
+        toolName,
         summary,
         summaryLoading,
         descriptions,
@@ -530,8 +532,8 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         interval,
         pinnedInterval,
         incompleteTail,
-    } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+    } = useValues(mcpAnalyticsToolDetailLogic)
+    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
@@ -797,18 +799,17 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                 />
             </div>
 
-            <FailureOccurrencesModal toolName={toolName} />
+            <FailureOccurrencesModal />
         </SceneContent>
     )
 }
 
 // Drill-down into one failure bucket: the individual errored calls, each with a
 // copyable, paste-ready context block for handing to a coding agent.
-function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Element {
-    const { selectedFailure, failureOccurrences, failureOccurrencesLoading } = useValues(
-        mcpAnalyticsToolDetailLogic({ toolName })
-    )
-    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+function FailureOccurrencesModal(): JSX.Element {
+    const { toolName, selectedFailure, failureOccurrences, failureOccurrencesLoading } =
+        useValues(mcpAnalyticsToolDetailLogic)
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic)
 
     const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPErrorContext => ({
         toolName,
