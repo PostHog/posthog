@@ -36,7 +36,9 @@ export function BroadcastWizard(): JSX.Element {
                                     label: 'Archive',
                                     status: 'danger',
                                     onClick: archiveBroadcast,
-                                    disabledReason: manageDisabledReason(broadcast?.user_access_level),
+                                    disabledReason:
+                                        manageDisabledReason(broadcast?.user_access_level) ??
+                                        (saving || launching ? 'Wait for the broadcast to finish saving' : undefined),
                                     'data-attr': 'broadcast-archive',
                                 },
                             ]}

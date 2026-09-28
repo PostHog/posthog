@@ -4,7 +4,11 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { hogFlowsDestroy, hogFlowsPartialUpdate } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsBatchJobsList,
+    hogFlowsDestroy,
+    hogFlowsPartialUpdate,
+} from 'products/workflows/frontend/generated/api'
 
 export interface ManagedBroadcast {
     id: string
@@ -57,6 +61,13 @@ export function confirmArchiveBroadcast(projectId: string, broadcast: ManagedBro
             'data-attr': 'broadcast-archive-confirm',
             onClick: async () => {
                 try {
+                    // A send can start between opening the menu and confirming, so the runs are checked again here.
+                    const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
+                    const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
+                    if (runningReason) {
+                        lemonToast.error(runningReason)
+                        return
+                    }
                     await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
                     lemonToast.success(`Archived "${label(broadcast)}"`)
                     onDone()
