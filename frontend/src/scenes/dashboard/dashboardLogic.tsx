@@ -41,6 +41,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -337,6 +338,7 @@ export interface dashboardLogicValues {
     dashboardCustomizeMenuOpen: boolean
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
+    internetConnectionIssue: boolean
     dashboardFiltersSaving: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
@@ -892,6 +894,9 @@ export interface dashboardLogicActions {
     setDashboardStreamFailed: () => {
         value: true
     }
+    retryDashboardLoad: () => {
+        value: true
+    }
     setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
@@ -1383,6 +1388,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ['getTheme'],
             dataRetentionBannerLogic,
             ['warningEligible', 'retentionMonths', 'retentionPeriodLabel'],
+            apiStatusLogic,
+            ['internetConnectionIssue'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
@@ -1413,6 +1420,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileStreamingFailure: (error: any) => ({ error }),
         /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
         setDashboardStreamFailed: true,
+        /** Retry a failed load through the same load path as the initial load. */
+        retryDashboardLoad: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
@@ -2088,8 +2097,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFailedToLoad: [
             false,
             {
-                loadDashboard: () => false,
-                loadDashboardStreaming: () => false,
+                // A new load keeps the error state mounted, so a retry shows its loading state
+                // and a failed retry does not flash the error state off and on.
                 loadDashboardSuccess: () => false,
                 // The stream auto-retries after transient errors; delivered metadata means it recovered,
                 // so clear the load-error state instead of leaving it latched over a loaded dashboard.
@@ -3687,6 +3696,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
+        },
+        retryDashboardLoad: () => {
+            if (values.shouldUseStreaming) {
+                actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            } else {
+                actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+            }
+        },
+        [apiStatusLogic.actionTypes.setInternetConnectionIssue]: ({ issue }: { issue: boolean }) => {
+            if (!issue && values.dashboardFailedToLoad && !values.dashboardLoading && !values.dashboardStreaming) {
+                actions.retryDashboardLoad()
+            }
         },
         tileStreamingFailure: ({ error }) => {
             // Only a genuine 404 response means the dashboard is missing. Stream errors can contain

@@ -12,7 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -105,15 +105,18 @@ function DashboardScene({
         tiles,
         itemsLoading,
         dashboardLoading,
+        dashboardStreaming,
         layoutEditMode,
         dashboardFailedToLoad,
+        internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, retryDashboardLoad, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -171,13 +174,13 @@ function DashboardScene({
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState
-                    title="There was an error loading this dashboard"
-                    onRetry={
-                        placement === DashboardPlacement.Export
-                            ? undefined
-                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    title={
+                        internetConnectionIssue
+                            ? "We can't connect to PostHog. This dashboard reloads when your connection is back."
+                            : 'There was an error loading this dashboard'
                     }
-                    retryLoading={dashboardLoading}
+                    onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}
+                    retryLoading={dashboardLoading || dashboardStreaming}
                     placement={placement}
                 />
             ) : !tiles || tiles.length === 0 ? (

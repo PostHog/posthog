@@ -13,6 +13,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -2297,6 +2298,23 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 dashboardFailedToLoad: true,
             })
+        })
+
+        it('keeps the error state during a retry and retries when the connection comes back', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setInternetConnectionIssue(false)
+            })
+                .toDispatchActions(['retryDashboardLoad', 'loadDashboard'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: true })
+                .toDispatchActions(['loadDashboardFailure'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: false })
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+            }).toNotHaveDispatchedActions(['retryDashboardLoad'])
         })
 
         it.each([
