@@ -23,3 +23,9 @@ variable "billing_slack_workspace_id" {
   type        = number
   sensitive   = true
 }
+
+variable "billing_alert_mention_slack_user_ids" {
+  description = "Slack member IDs to mention in alert messages"
+  type        = list(string)
+  default     = []
+}

@@ -12,6 +12,7 @@ generate "variables_team" {
 # Team-level inputs shared across all child modules
 # Secret values should be stored as env vars in the Github project.
 inputs = {
-  billing_slack_channel_id   = "C039XEY25ML" # #alerts-billing
-  billing_slack_workspace_id = 173069
+  billing_slack_channel_id             = "C039XEY25ML" # #alerts-billing
+  billing_slack_workspace_id           = 173069
+  billing_alert_mention_slack_user_ids = ["U0BLTRYPJ3D"]
 }

@@ -14,6 +14,10 @@
 #   https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/hog_function
 # =============================================================================
 
+locals {
+  mentions = join(" ", [for id in var.billing_alert_mention_slack_user_ids : "<@${id}>"])
+}
+
 resource "posthog_hog_function" "community_credit_claim_failure" {
   name        = "Community credit claim failure to Slack"
   description = "Post to Slack on every $exception with campaign_slug = community"
@@ -23,7 +27,7 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
 
   inputs_json = jsonencode({
     "text" = {
-      "value"      = "Community credit claim failed: {substring(event.properties.$exception_values[1], 1, 2700)} | Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
+      "value"      = "${local.mentions} Community credit claim failed: {substring(event.properties.$exception_values[1], 1, 2700)} | Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
       "templating" = "hog"
     }
     "blocks" = {
@@ -35,7 +39,7 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
         {
           "text" = {
             # Slack rejects a section over 3,000 characters, so the exception text is cut short.
-            "text" = "*{substring(event.properties.$exception_types[1], 1, 200)}*: {substring(event.properties.$exception_values[1], 1, 2700)}"
+            "text" = "${local.mentions} *{substring(event.properties.$exception_types[1], 1, 200)}*: {substring(event.properties.$exception_values[1], 1, 2700)}"
             "type" = "mrkdwn"
           }
           "type" = "section"
