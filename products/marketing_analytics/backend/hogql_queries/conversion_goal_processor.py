@@ -45,6 +45,7 @@ from .attribution_weights import (
     build_position_based_weights,
     build_time_decay_weights,
 )
+from .campaign_mapper import CampaignMapper
 from .conversion_goal_conditions import (
     action_match_expr,
     add_conversion_goal_property_filters,
@@ -2057,12 +2058,15 @@ class ConversionGoalProcessor:
             group_by = [utm_expr]
         else:
             # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+            mapped = CampaignMapper(self.team).get_campaign_mapping_expressions(
+                campaign_expr, self._build_organic_default_expr("campaign_id", "-"), source_expr
+            )
             select_columns = [
-                ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
-                ast.Alias(alias=self.config.campaign_field, expr=campaign_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=mapped.match_key),
+                ast.Alias(alias=self.config.campaign_field, expr=ast.Call(name="min", args=[mapped.campaign])),
                 ast.Alias(
                     alias=self.config.id_field,
-                    expr=self._build_organic_default_expr("campaign_id", "-"),
+                    expr=ast.Call(name="min", args=[mapped.campaign_id]),
                 ),
                 ast.Alias(alias=self.config.source_field, expr=source_expr),
                 ast.Alias(
@@ -2070,7 +2074,8 @@ class ConversionGoalProcessor:
                     expr=self._get_aggregation_expr(),
                 ),
             ]
-            group_by = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+            # Map before aggregating so a person present under two aliases counts only once.
+            group_by = [mapped.match_key, source_expr]
 
         return ast.SelectQuery(
             select=select_columns,
@@ -2274,17 +2279,20 @@ class ConversionGoalProcessor:
             ]
             group_by = [utm_expr]
         else:
+            mapped = CampaignMapper(self.team).get_campaign_mapping_expressions(
+                campaign_expr, ast.Constant(value="-"), source_expr
+            )
             select_columns = [
-                ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
-                ast.Alias(alias=self.config.campaign_field, expr=campaign_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=mapped.match_key),
+                ast.Alias(alias=self.config.campaign_field, expr=ast.Call(name="min", args=[mapped.campaign])),
                 ast.Alias(
                     alias=self.config.id_field,
-                    expr=ast.Constant(value="-"),
+                    expr=ast.Call(name="min", args=[mapped.campaign_id]),
                 ),
                 ast.Alias(alias=self.config.source_field, expr=source_expr),
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
-            group_by = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+            group_by = [mapped.match_key, source_expr]
 
         # Build WHERE clause
         where_expr: Optional[ast.Expr] = None

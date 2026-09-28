@@ -6251,6 +6251,10 @@ class MarketingAnalyticsItem(BaseModel):
         extra="forbid",
     )
     changeFromPreviousPct: float | None = None
+    conversionMatchKey: str | None = Field(
+        default=None,
+        description=("Attribution key before the cost row replaces the campaign's display name."),
+    )
     hasComparison: bool | None = None
     isIncreaseBad: bool | None = None
     key: str

@@ -58,6 +58,7 @@ def _coalesce_non_empty(chains: list[list[str | int]], fallback: str | None = No
 class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
     cached_response: CachedMarketingAnalyticsTableQueryResponse
+    _CONVERSION_MATCH_KEY = "__conversion_match_key"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -115,11 +116,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Transform results to MarketingAnalyticsItem objects
         results = self._transform_results_to_marketing_analytics_items(results, columns, has_comparison)
+        visible_indexes = [i for i, column in enumerate(columns) if column != self._CONVERSION_MATCH_KEY]
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
-            columns=columns,
-            types=response.types,
+            columns=[columns[i] for i in visible_indexes],
+            types=[response.types[i] for i in visible_indexes] if response.types else response.types,
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,
@@ -140,6 +142,18 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+
+    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
+        columns = super()._get_filtered_select_columns(query)
+        if self.query.select:
+            columns.extend(
+                column
+                for column in query.select
+                if isinstance(column, ast.Alias)
+                and column.alias == self._CONVERSION_MATCH_KEY
+                and self._CONVERSION_MATCH_KEY not in self.query.select
+            )
+        return columns
 
     def _get_compare_pivot_keys(self) -> list[str]:
         """Columns that uniquely identify a row at the current drill-down level.
@@ -279,6 +293,11 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             include_cost_per = MarketingAnalyticsBaseColumns.COST not in effective_excluded
             conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
             all_columns.update(conversion_columns)
+            if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
+                all_columns[self._CONVERSION_MATCH_KEY] = ast.Alias(
+                    alias=self._CONVERSION_MATCH_KEY,
+                    expr=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)),
+                )
 
         return all_columns
 
@@ -550,10 +569,18 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         )
 
         transformed_results = []
+        match_key_index = columns.index(self._CONVERSION_MATCH_KEY) if self._CONVERSION_MATCH_KEY in columns else None
         for row in results:
+            match_key = row[match_key_index] if match_key_index is not None else None
+            if has_comparison and isinstance(match_key, list | tuple):
+                match_key = match_key[0]
             transformed_row = []
             for i, column_name in enumerate(columns):
+                if column_name == self._CONVERSION_MATCH_KEY:
+                    continue
                 transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
+                if column_name == MarketingAnalyticsBaseColumns.CAMPAIGN and match_key is not None:
+                    transformed_item.conversionMatchKey = str(match_key)
                 transformed_row.append(transformed_item)
             transformed_results.append(transformed_row)
         return transformed_results

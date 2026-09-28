@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
@@ -16,6 +18,7 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
+    PropertyMathType,
 )
 
 from posthog.hogql import ast
@@ -25,6 +28,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.utils import uuid7
+from posthog.test.persons import create_person
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import (
@@ -36,7 +40,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
     MarketingAnalyticsTableQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 _BASE_RUNNER = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
 
@@ -65,6 +70,156 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     def tearDown(self):
         reset_query_tags()
         super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("name_warehouse", "campaign_name", True, False, False),
+            ("id_warehouse", "campaign_id", True, False, False),
+            ("id_warehouse_compare", "campaign_id", True, True, False),
+            ("id_attributed", "campaign_id", False, False, False),
+            ("name_attributed_compare", "campaign_name", False, True, False),
+            ("id_precomputed_compare", "campaign_id", False, True, True),
+        ]
+    )
+    def test_campaign_aliases_join_costs_once_and_preserve_goal_math(
+        self, _name: str, match_field: str, warehouse: bool, compare: bool, precompute: bool
+    ) -> None:
+        ads_source = ExternalDataSource.objects.create(
+            team=self.team, source_id="example-ads", connection_id="example-connection", source_type="GoogleAds"
+        )
+        for table_name, columns in [
+            (
+                "campaign",
+                {"campaign_id": "String", "campaign_name": "String", "campaign_advertising_channel_type": "String"},
+            ),
+            (
+                "campaign_stats",
+                {
+                    "campaign_id": "String",
+                    "segments_date": "Date",
+                    "metrics_impressions": "Int64",
+                    "metrics_clicks": "Int64",
+                    "metrics_cost_micros": "Int64",
+                    "metrics_conversions": "Int64",
+                    "metrics_conversions_value": "Int64",
+                },
+            ),
+        ]:
+            *_, cleanup = create_data_warehouse_table_from_csv(
+                Path(__file__).parent / f"test/google_ads/campaign_aliases_{table_name}.csv",
+                f"googleads_{table_name}",
+                columns,
+                "test_storage_bucket-posthog.marketing_analytics.campaign_aliases",
+                self.team,
+                source=ads_source,
+            )
+            self.addCleanup(cleanup)
+        for distinct_id in ["repeat-buyer", "second-buyer"]:
+            create_person(team=self.team, distinct_ids=[distinct_id])
+        for distinct_id, campaign, day in [
+            ("repeat-buyer", "winter-sale", 10),
+            ("repeat-buyer", "winter_sale", 11),
+            ("second-buyer", "winter_sale", 11),
+        ]:
+            session_id = str(uuid7(f"2023-01-{day}T12:00:00Z"))
+            for event, minute in [("$pageview", 0), ("purchase", 10)]:
+                _create_event(
+                    team=self.team,
+                    distinct_id=distinct_id,
+                    event=event,
+                    timestamp=f"2023-01-{day}T12:{minute:02d}:00Z",
+                    properties={
+                        "$session_id": session_id,
+                        "$current_url": "https://example.com/",
+                        "utm_campaign": campaign,
+                        "utm_source": "google",
+                        "amount": 20,
+                    },
+                )
+        flush_persons_and_events()
+        config = self.team.marketing_analytics_config
+        config.attribution_window_days = 30
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind=NodeKind.EVENTS_NODE,
+                event="purchase",
+                name=name,
+                conversion_goal_id=name.lower(),
+                conversion_goal_name=name,
+                math=math,
+                math_property="amount" if math == PropertyMathType.SUM else None,
+                schema_map={},
+            ).model_dump()
+            for name, math in [
+                ("Purchases", BaseMathType.TOTAL),
+                ("Customers", BaseMathType.DAU),
+                ("Revenue", PropertyMathType.SUM),
+            ]
+        ]
+        if warehouse:
+            table, _, _, _, cleanup = create_data_warehouse_table_from_csv(
+                Path(__file__).parent / "test/external/campaign_aliases_conversions.csv",
+                "campaign_alias_conversions",
+                {
+                    "user_id": "String",
+                    "event_timestamp": "DateTime",
+                    "campaign_name": "String",
+                    "source_name": "String",
+                    "amount": "Int64",
+                },
+                "test_storage_bucket-posthog.marketing_analytics.campaign_aliases",
+                self.team,
+            )
+            self.addCleanup(cleanup)
+            config.conversion_goals = [
+                ConversionGoalFilter3(
+                    kind=NodeKind.DATA_WAREHOUSE_NODE,
+                    name=name,
+                    id=table.name,
+                    table_name=table.name,
+                    conversion_goal_id=name.lower(),
+                    conversion_goal_name=name,
+                    math=math,
+                    math_property="amount" if math == PropertyMathType.SUM else None,
+                    distinct_id_field="user_id",
+                    id_field="user_id",
+                    timestamp_field="event_timestamp",
+                    schema_map={
+                        "utm_campaign_name": "campaign_name",
+                        "utm_source_name": "source_name",
+                        "distinct_id_field": "user_id",
+                        "timestamp_field": "event_timestamp",
+                    },
+                ).model_dump()
+                for name, math in [
+                    ("Purchases", BaseMathType.TOTAL),
+                    ("Customers", BaseMathType.DAU),
+                    ("Revenue", PropertyMathType.SUM),
+                ]
+            ]
+        match_key = "10042" if match_field == "campaign_id" else "Winter sale"
+        config.campaign_field_preferences = {"GoogleAds": {"match_field": match_field}}
+        config.campaign_name_mappings = {"GoogleAds": {match_key: ["winter-sale", "winter_sale"]}}
+        config.save()
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True) if compare else None,
+            select=["Campaign", "Source", "Cost", "Purchases", "Customers", "Revenue"],
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+        runner.config.conversion_goal_precomputation_enabled = precompute
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        ):
+            result = runner.calculate()
+        assert result.columns == query.select
+        rows = [row for row in result.results if row[0].value == "Winter sale"]
+        assert len(rows) == 1
+        assert [cell.value for cell in rows[0]] == ["Winter sale", "google", 1, 3, 2, 60]
+        assert rows[0][0].conversionMatchKey == match_key
+        assert not result.precomputeNotReady
 
     def _create_query_runner(
         self, query: MarketingAnalyticsTableQuery | None = None
