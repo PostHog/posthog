@@ -295,6 +295,8 @@ summary = await session.send_followup(
 await session.end()
 ```
 
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
+
 ### Reference implementation
 
 The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
@@ -322,7 +324,6 @@ The follow-up is bounded to 240,000 serialized bytes; an oversized request fails
 Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 Late failure callbacks preserve results from generations that already completed or failed.
 The worker ends the session after success or failure.
-Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Save rubric edits before generating suggestions; generation uses the saved criteria.

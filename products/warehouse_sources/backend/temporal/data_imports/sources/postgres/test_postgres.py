@@ -850,6 +850,23 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # A Neon-style proxy refuses the connection because the compute endpoint has been
+            # disabled (distinct from the quota entries above, which describe a still-enabled
+            # database). Host/IP and port are volatile and excluded from the match.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  '
+            "The endpoint has been disabled. Enable it using the API and retry.",
+            "OperationalError: The endpoint has been disabled. Enable it using the API and retry.",
+        ],
+    )
+    def test_endpoint_disabled_is_non_retryable_with_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, f"Disabled-endpoint error should surface an actionable message: {error_msg}"
+        assert "endpoint" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)). The leading
             # "pg_readonly:" prefix and trailing docs URL are volatile; "cluster is read-only" is stable.
             "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
