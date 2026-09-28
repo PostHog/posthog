@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import timedelta
 from typing import TypedDict
-from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -22,6 +21,7 @@ from products.conversations.backend.models import (
     EmailThreadParticipantKind,
 )
 from products.conversations.backend.models.ticket import Ticket
+from products.customer_analytics.backend.logic.channel_summaries import get_last_closed_period
 from products.customer_analytics.backend.models import Account, AccountChannelSummary, Meeting, MeetingParticipant
 from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 from products.customer_analytics.backend.models.meeting import MeetingResponseStatus, MeetingStatus
@@ -86,7 +86,6 @@ def seed_widget_data(
     *,
     team: Team,
     accounts: list[Account],
-    created_account_ids: set[UUID],
     user_pool: list[User],
     output: Callable[[str], None],
     account_count: int = WIDGET_ACCOUNT_COUNT,
@@ -100,8 +99,7 @@ def seed_widget_data(
     selected_accounts = accounts[:account_count]
     for index, account in enumerate(selected_accounts, start=1):
         manager = user_pool[(index - 1) % len(user_pool)] if user_pool else creator
-        if account.id in created_account_ids:
-            _seed_account_contact_data(account=account, index=index)
+        _seed_account_contact_data(account=account, index=index)
         _seed_meetings(team=team, account=account, manager=manager, index=index)
         _seed_email_thread(team=team, account=account, manager=manager, index=index)
         _seed_support_ticket(team=team, account=account, index=index)
@@ -152,7 +150,7 @@ def _seed_billing_insights(*, team: Team, creator: User | None, accounts: list[A
         "Survey Responses",
     ]
     currency_format = {"style": "number", "prefix": "$", "suffix": "", "decimalPlaces": 2}
-    insight_specs = [
+    insight_specs: list[tuple[str, str, str, dict[str, object]]] = [
         (
             BILLING_INSIGHT_SHORT_IDS["usage"],
             "Billing usage by metric (warehouse)",
@@ -219,15 +217,16 @@ def _seed_billing_insights(*, team: Team, creator: User | None, accounts: list[A
 
 def _seed_account_contact_data(*, account: Account, index: int) -> None:
     domain = f"customer-{index}.example.com"
-    account.properties = account.properties.model_copy(
+    properties = account.properties
+    account.properties = properties.model_copy(
         update={
-            "website_domain": domain,
-            "email_domains": [domain],
-            "known_emails": [f"champion@{domain}", f"finance@{domain}"],
-            "slack_channel_id": f"CSEED{index:04d}",
+            "website_domain": properties.website_domain or domain,
+            "email_domains": properties.email_domains or [domain],
+            "known_emails": properties.known_emails or [f"champion@{domain}", f"finance@{domain}"],
+            "slack_channel_id": properties.slack_channel_id or f"CSEED{index:04d}",
         }
     )
-    account.slack_summary_cadence = SlackSummaryCadence.WEEKLY
+    account.slack_summary_cadence = account.slack_summary_cadence or SlackSummaryCadence.WEEKLY
     account.save(update_fields=["_properties", "slack_summary_cadence", "updated_at"])
 
 
@@ -384,13 +383,12 @@ def _seed_support_ticket(*, team: Team, account: Account, index: int) -> None:
 
 
 def _seed_channel_summary(*, team: Team, account: Account, index: int) -> None:
-    period_end = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    period_start = period_end - timedelta(days=7)
+    period = get_last_closed_period(SlackSummaryCadence.WEEKLY, timezone.now(), team.timezone_info)
+    period_start = period.start
     values = {
         "slack_channel_id": account.properties.slack_channel_id or f"CSEED{index:04d}",
-        "cadence": SlackSummaryCadence.WEEKLY,
-        "period_start": period_start,
-        "period_end": period_end,
+        "model_name": "customer-analytics-dev-seed",
+        "period_end": period.end,
         "content": "The team reviewed adoption, rollout timing, and next steps for the account.",
         "message_count": 3,
         "messages": [
@@ -414,6 +412,7 @@ def _seed_channel_summary(*, team: Team, account: Account, index: int) -> None:
     AccountChannelSummary.objects.for_team(team.id).get_or_create(
         team=team,
         account=account,
-        model_name="customer-analytics-dev-seed",
+        cadence=SlackSummaryCadence.WEEKLY,
+        period_start=period_start,
         defaults=values,
     )
