@@ -79,6 +79,9 @@ class CopperEndpointConfig:
     sort_mode: SortMode = "asc"
     # Set when the response wraps rows in an envelope instead of returning a bare array.
     data_selector: str | None = None
+    # Rows come from a custom iterator in `copper.py`; `path` is then a template that iterator
+    # formats per request, not a complete request path.
+    custom_iterator: bool = False
 
 
 def _searchable(name: str, path: str) -> CopperEndpointConfig:
@@ -105,6 +108,28 @@ def _reference(name: str, path: str) -> CopperEndpointConfig:
         full_refresh_sort=None,
     )
 
+
+FIELD_LAYOUTS_ENDPOINT = "field_layouts"
+RELATED_ITEMS_ENDPOINT = "related_items"
+
+# Entity types Copper lets users configure field layouts for, spelled as the path wants them.
+FIELD_LAYOUT_ENTITIES: tuple[str, ...] = ("people", "companies", "leads", "opportunities", "projects", "tasks")
+# Only opportunity layouts are pipeline-specific.
+FIELD_LAYOUT_PIPELINED_ENTITY = "opportunities"
+# Stands in for "this layout is not pipeline-specific". A null would leave the column all-null on an
+# account with no pipelines, and the next sync that found one would change the column's type.
+FIELD_LAYOUT_NO_PIPELINE = 0
+
+# Entity types Copper can relate to each other, as (the singular name it reports in a related row,
+# the endpoint whose records we walk to collect those rows).
+RELATED_ITEM_PARENTS: tuple[tuple[str, str], ...] = (
+    ("lead", "leads"),
+    ("person", "people"),
+    ("company", "companies"),
+    ("opportunity", "opportunities"),
+    ("project", "projects"),
+    ("task", "tasks"),
+)
 
 COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
     # Core CRM records: POST `/search`, page-based pagination, server-side timestamp filtering.
@@ -162,6 +187,39 @@ COPPER_ENDPOINTS: dict[str, CopperEndpointConfig] = {
         primary_keys=[ID, "category"],
         full_refresh_sort=None,
         data_selector="$.*[*]",
+    ),
+    "custom_field_definitions": _reference("custom_field_definitions", "/custom_field_definitions"),
+    # Tags carry no id — the name is the identity, and Copper returns them sorted by name already.
+    "tags": CopperEndpointConfig(
+        name="tags",
+        path="/tags",
+        method="GET",
+        paginated=False,
+        primary_keys=["name"],
+        full_refresh_sort=None,
+    ),
+    # Field layouts: one GET per entity type, plus one per pipeline for opportunities, whose layout
+    # Copper varies by pipeline and refuses to return without a `pipeline_id`.
+    FIELD_LAYOUTS_ENDPOINT: CopperEndpointConfig(
+        name=FIELD_LAYOUTS_ENDPOINT,
+        path="/field_layouts/by_entity/{entity}",
+        method="GET",
+        paginated=False,
+        custom_iterator=True,
+        primary_keys=["entity_type", "pipeline_id", "field_id"],
+        full_refresh_sort=None,
+    ),
+    # Related items: the cross-object junction. Copper exposes it per record only, so this walks
+    # every relatable record and asks for its edges. Relationships are bidirectional, so each edge
+    # arrives twice, once from each end.
+    RELATED_ITEMS_ENDPOINT: CopperEndpointConfig(
+        name=RELATED_ITEMS_ENDPOINT,
+        path="/{entity}/{record_id}/related",
+        method="GET",
+        paginated=False,
+        custom_iterator=True,
+        primary_keys=["parent_type", "parent_id", "type", "id"],
+        full_refresh_sort=None,
     ),
 }
 

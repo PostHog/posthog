@@ -6,7 +6,10 @@ use crate::{
         flag_group_type_mapping::{
             GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
         },
-        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow},
+        flag_models::{
+            EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+            HypercacheFlagsWrapper,
+        },
     },
     properties::property_models::PropertyType,
     team::team_models::Team,
@@ -16,7 +19,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
-use common_redis::{Client as RedisClientTrait, RedisClient};
+use common_redis::{Client as RedisClientTrait, MockRedisClient, MockRedisValue, RedisClient};
 use common_types::{Person, PersonId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
@@ -273,6 +276,51 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
 /// A dummy S3 client (always NotFound) for injecting into the test server.
 pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)
+}
+
+pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
+    for (key, filters) in [
+        (
+            "v1-flag",
+            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+        ),
+        (
+            "v2-flag",
+            json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+        ),
+        ("v3-flag", json!({"version": 3})),
+    ] {
+        context
+            .insert_flag(
+                team_id,
+                Some(FeatureFlagRow {
+                    team_id,
+                    key: key.to_string(),
+                    name: Some(String::new()),
+                    filters,
+                    active: true,
+                    evaluation_runtime: Some("all".to_string()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("Failed to insert flag");
+    }
+}
+
+pub fn published_flag_keys(redis: &MockRedisClient) -> Vec<String> {
+    let written = redis
+        .get_calls()
+        .into_iter()
+        .find(|call| call.op == "pipeline_setex" && call.key.ends_with("/flags.json"))
+        .expect("payload write");
+    let MockRedisValue::StringWithTTLAndFormat(payload, _, _) = written.value else {
+        panic!("unexpected write {:?}", written.value)
+    };
+    let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&payload).unwrap();
+    let mut keys: Vec<String> = wrapper.flags.into_iter().map(|flag| flag.key).collect();
+    keys.sort();
+    keys
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.
@@ -1847,6 +1895,19 @@ impl TestContext {
             .await
     }
 
+    /// Populate cache for a team with the given flags payload and an ETag.
+    pub async fn populate_cache_for_team_with_flags_and_etag(
+        &self,
+        team_id: i32,
+        flags_data: serde_json::Value,
+        etag: &str,
+    ) -> Result<(), Error> {
+        self.populate_cache_for_team_with_flags(team_id, flags_data)
+            .await?;
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
+
     /// Populate cache for a team and store an ETag alongside it, on the given Redis.
     /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
     /// matching Django's HyperCache behavior.
@@ -1858,7 +1919,15 @@ impl TestContext {
     ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
 
+    async fn set_etag_for_team(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         let etag_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
         let pickled_etag =

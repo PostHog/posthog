@@ -4,6 +4,12 @@ import typing
 
 import pytest
 
+from django.test import override_settings
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import PropertyDefinition
+from posthog.sync import database_sync_to_async
+
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -117,6 +123,67 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
         == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
     )
     assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
+
+
+def test_compose_filters_clause_reads_flags_from_the_native_map(ateam):
+    result_clause, result_values = compose_filters_clause(
+        [
+            {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
+            {"key": "properties.`$feature/other-feature` = 'control'", "type": "hogql"},
+        ],
+        team_id=ateam.id,
+        native_events_source=True,
+    )
+
+    def map_read(flag_key: int, flag_name: int) -> str:
+        return f"""replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_{flag_key})s, %(hogql_val_{flag_name})s), ''), 'null'), '^"|"$', '')"""
+
+    assert result_clause == (
+        f"""and(ifNull(equals(if(ifNull(equals({map_read(0, 1)}, %(hogql_val_2)s), 0), %(hogql_val_3)s, {map_read(4, 5)}), %(hogql_val_6)s), 0), """
+        f"""ifNull(equals(if(ifNull(equals({map_read(7, 8)}, %(hogql_val_9)s), 0), %(hogql_val_10)s, {map_read(11, 12)}), %(hogql_val_13)s), 0))"""
+    )
+    assert result_values == {
+        "hogql_val_0": "$feature_flags",
+        "hogql_val_1": "some-feature",
+        "hogql_val_2": "$false",
+        "hogql_val_3": "false",
+        "hogql_val_4": "$feature_flags",
+        "hogql_val_5": "some-feature",
+        "hogql_val_6": "true",
+        "hogql_val_7": "$feature_flags",
+        "hogql_val_8": "other-feature",
+        "hogql_val_9": "$false",
+        "hogql_val_10": "false",
+        "hogql_val_11": "$feature_flags",
+        "hogql_val_12": "other-feature",
+        "hogql_val_13": "control",
+    }
+
+
+@pytest.mark.parametrize(
+    "property_type,document,predicate",
+    [
+        ("Numeric", '{"value":2.5}', "properties.value > 2"),
+        ("Numeric", '{"value":2.5}', "round(properties.value) = 2"),
+        ("Boolean", '{"value":true}', "properties.value = true"),
+    ],
+)
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_filters_preserve_property_types(ateam, property_type, document, predicate, use_new_events_schema):
+    await database_sync_to_async(PropertyDefinition.objects.create)(
+        team=ateam, name="value", type=PropertyDefinition.Type.EVENT, property_type=property_type
+    )
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        clause, values = await database_sync_to_async(compose_filters_clause)(
+            [{"key": predicate, "type": "hogql"}], team_id=ateam.id
+        )
+
+    result = await database_sync_to_async(sync_execute)(
+        f"SELECT {clause} FROM (SELECT %(document)s AS properties) AS events",
+        {**values, "document": document},
+    )
+
+    assert result == [(1,)]
 
 
 @pytest.mark.parametrize(

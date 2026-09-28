@@ -197,6 +197,16 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SLACK_DEV_APP_CLIENT_ID": (
+        get_from_env("SLACK_DEV_APP_CLIENT_ID", default=""),
+        "OAuth client ID for the project-restricted Slack MCP connection",
+        str,
+    ),
+    "SLACK_DEV_APP_CLIENT_SECRET": (
+        get_from_env("SLACK_DEV_APP_CLIENT_SECRET", default=""),
+        "OAuth client secret for the project-restricted Slack MCP connection",
+        str,
+    ),
     "SUPPORT_SLACK_APP_CLIENT_ID": (
         get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
@@ -429,6 +439,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SLACK_DEV_APP_CLIENT_ID",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
@@ -465,6 +477,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",

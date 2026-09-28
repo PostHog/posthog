@@ -147,6 +147,7 @@ def run_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -162,6 +163,7 @@ def run_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
     )
 
@@ -175,6 +177,7 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -387,6 +390,7 @@ async def arun_signals_scout(
             service_tier=service_tier,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -696,6 +700,7 @@ async def _spawn_and_run(
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -844,6 +849,7 @@ async def _spawn_and_run(
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1049,6 +1055,7 @@ def _create_run_row(
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1120,6 +1127,10 @@ def _create_run_row(
     # because the note is deliberately never stored as a scout note.
     if run_note:
         metadata["run_note"] = run_note
+    # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
+    # `scout-report-check-list` read it to tie the check to this run.
+    if check_id:
+        metadata["check_id"] = check_id
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1583,8 +1594,11 @@ def _capture_run_finished(
 
 def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
-    # by the agent's close-out, and `update()` skips the full model refresh.
-    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
+    # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
+    # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
+    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(
+        summary=summary, updated_at=timezone.now()
+    )
     # Stamped here rather than at each emit/edit site so the flags are computed once, from the
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.

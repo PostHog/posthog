@@ -1,17 +1,20 @@
 # Fixing the `$process_person_profile` warnings
 
-`$process_person_profile: false` marks an event as anonymous — cheaper, no person profile. Two different mistakes around that flag produce two warnings:
+`$process_person_profile: false` marks an event as anonymous — cheaper, no person profile. Three warnings surface around that flag: two are customer mistakes, one is a PostHog-side setting.
 
 | Type                                                 | Severity | What happened                                                                                                                                                                        |
 | ---------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `invalid_process_person_profile`                     | warning  | The value wasn't a boolean (`"false"`, `"yes"`, `0`, …) — PostHog **ignored it and defaulted to `true`**. The event was ingested and person processing ran anyway                    |
 | `invalid_event_when_process_person_profile_is_false` | error    | An `$identify`/`$create_alias`/`$merge_dangerously`/`$groupidentify` carried a valid `false` — but these operations exist to modify person/group state, so the event was **dropped** |
+| `event_dropped_person_processing_disabled`           | info     | The same drop, but the customer sent no flag at all: person processing is turned off for the whole project, so PostHog set `false` itself. Their payload is not at fault             |
 
-Both failure modes are silent from the SDK's side. The first quietly opts you back **into** person processing (and its cost); the second makes identity operations no-ops.
+All three are silent from the SDK's side. The first quietly opts you back **into** person processing (and its cost); the other two make identity operations no-ops.
+
+Check the third before diagnosing a payload: if `event_dropped_person_processing_disabled` is the type, no SDK change will bring the events back, because the drop is the configured outcome of the project's person processing opt-out.
 
 ## Diagnose
 
-1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). For the non-boolean variant, the `details` JSON shows the exact value received — its type names the bug (`"false"` = stringified config/env value, `0` = numeric flag). For the dropped variant, the `details` show which identity event was dropped and for which distinct IDs.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false', 'event_dropped_person_processing_disabled') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). For the non-boolean variant, the `details` JSON shows the exact value received — its type names the bug (`"false"` = stringified config/env value, `0` = numeric flag). For the dropped variant, the `details` show which identity event was dropped and for which distinct IDs.
 2. Find where the flag gets attached: SDK config, a shared capture wrapper, or the callsite. Env vars and JSON configs are the usual source of stringified booleans; a global "mark everything anonymous" wrapper is the usual source of the identity-event contradiction.
 
 ## Fix
@@ -22,7 +25,8 @@ Decide which intent is real, then make the flag match it:
 - **You want person profiles for identified users** → in posthog-js use the supported config, `person_profiles: 'identified_only'`, instead of hand-setting the property per event or using `'never'` — identity events then process persons while plain events stay anonymous until identify.
 - **A wrapper stamps `false` on everything** → exempt the identity events (`$identify`, `$create_alias`, `$groupidentify`) from it.
 - **You truly want no person processing** → stop calling `identify`/`alias`/`group` at all; they cannot work in that mode.
+- **The warning is `event_dropped_person_processing_disabled`** → person processing is off for the project, so there is no payload fix. Either remove the `identify`/`alias`/`group` calls, or ask PostHog support to turn person processing back on. Only a staff member can change that setting.
 
 ## Verify
 
-Re-run the flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false')`, `timestamp` after your fix) — no new occurrences of either type — and confirm the intended behavior: anonymous events stop creating person profiles, and persons/groups update again where they should.
+Re-run the flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false', 'event_dropped_person_processing_disabled')`, `timestamp` after your fix) — no new occurrences of either type — and confirm the intended behavior: anonymous events stop creating person profiles, and persons/groups update again where they should.

@@ -86,7 +86,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 ),
                 parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
                 execution_timeout=timedelta(hours=15),
-                run_timeout=timedelta(hours=6),
+                run_timeout=timedelta(hours=15),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=10),

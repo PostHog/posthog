@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
@@ -36,6 +39,56 @@ function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceC
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    it.each<{
+        name: SourceConfigResponseApi['name']
+        category: SourceConfigResponseApi['category']
+        marketingIntent: boolean
+    }>([
+        { name: 'AdRoll', category: 'Advertising', marketingIntent: true },
+        { name: 'AppLovin', category: 'Advertising', marketingIntent: true },
+        { name: 'Outbrain', category: 'Advertising', marketingIntent: true },
+        { name: 'Taboola', category: 'Advertising', marketingIntent: true },
+        { name: 'AmazonAds', category: 'Advertising', marketingIntent: true },
+        { name: 'AppleSearchAds', category: 'Advertising', marketingIntent: true },
+        { name: 'OpenAIAds', category: 'Advertising', marketingIntent: true },
+        { name: 'RoktAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: null, marketingIntent: false },
+        { name: 'BigQuery', category: 'Databases', marketingIntent: false },
+        { name: 'Postgres', category: 'Databases', marketingIntent: false },
+        { name: 'Hubspot', category: 'CRM', marketingIntent: false },
+        { name: 'Mailchimp', category: 'Marketing & email', marketingIntent: false },
+    ])('records expected intents for $name ($category)', async ({ name, category, marketingIntent }) => {
+        const source = buildSourceConfig({ name, category })
+        const updateIntent = jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+        const logic = sourceWizardLogic({ availableSources: { [name]: source } })
+        const unmount = logic.mount()
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.selectConnector(source)
+            }).toFinishAllListeners()
+
+            expect(updateIntent.mock.calls.map(([intent]) => intent)).toEqual([
+                {
+                    product_type: ProductKey.DATA_WAREHOUSE,
+                    intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+                },
+                ...(marketingIntent
+                    ? [
+                          {
+                              product_type: ProductKey.MARKETING_ANALYTICS,
+                              intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                          },
+                      ]
+                    : []),
+            ])
+        } finally {
+            unmount()
+            updateIntent.mockRestore()
+        }
     })
 
     it('shares a single wizard instance across references with the same props', () => {
@@ -107,8 +160,15 @@ describe('sourceWizardLogic', () => {
             // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
             // user nothing, and it masked the 5xx branch below.
             const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
-            expect(message).toContain('check your connection details')
+            expect(message).toContain('the details you entered')
             expect(message).not.toContain('A server error occurred.')
+        })
+
+        it('keeps the 5xx guidance free of causes only database sources have', () => {
+            // Every source shares this branch, so wording aimed at a database sent users of
+            // API-backed sources looking for a schema and a host they never configured.
+            const message = resolveConnectErrorMessage({ status: 504 })
+            expect(message).not.toMatch(/database|schema/i)
         })
 
         it('never returns undefined for a 4xx with no message body', () => {
@@ -1297,6 +1357,57 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('connectError', () => {
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps a rejected connection message until the next attempt', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('drops the message when another source is picked', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                logic.actions.selectConnector(null)
+                expect(logic.values.connectError).toBeNull()
             } finally {
                 unmount()
             }

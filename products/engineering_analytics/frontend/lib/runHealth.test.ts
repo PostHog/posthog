@@ -214,7 +214,6 @@ describe('runHealth', () => {
     })
 
     it.each<[string, OrderableWorkflowRow[], string[]]>([
-        // A gating workflow outranks a busier non-gating one: the queue runs it before every merge.
         [
             'merge-queue workflows first, then run count',
             [
@@ -224,7 +223,6 @@ describe('runHealth', () => {
             ],
             ['Frontend CI', 'Backend CI', 'Docs'],
         ],
-        // A repo with no merge queue falls straight through to run count.
         [
             'no gating rows leaves pure run-count order',
             [
@@ -233,7 +231,6 @@ describe('runHealth', () => {
             ],
             ['Backend CI', 'Docs'],
         ],
-        // Equal run counts settle by name, so the table keeps a fixed order between renders.
         [
             'equal run counts settle by name',
             [

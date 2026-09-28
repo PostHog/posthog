@@ -36,6 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     normalize_report_content_payload,
 )
 
+from products.ai_observability.backend.api.evaluations import _OutputConfigField
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.evaluation_configs import OutputType, evaluation_supports_reports
 from products.ai_observability.backend.models.evaluation_reports import (
@@ -235,7 +236,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
-        if not evaluation_supports_reports(value.output_type, value.target):
+        if not evaluation_supports_reports(value.output_type, value.target, value.output_config):
             raise serializers.ValidationError(REPORT_NOT_SUPPORTED_ERROR)
         return value
 
@@ -427,6 +428,10 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
 
 
 class EvaluationReportMetricsSerializer(serializers.Serializer):
+    output_config = _OutputConfigField(
+        required=False,
+        help_text="Numeric score configuration and passing rule used for both report periods.",
+    )
     output_type = serializers.ChoiceField(
         choices=OutputType.choices,
         required=False,
@@ -473,12 +478,13 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     )
     pass_rate = serializers.FloatField(
         required=False,
-        help_text="Boolean pass percentage, excluding results marked not applicable.",
+        allow_null=True,
+        help_text="Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean pass percentage for the previous period, or null when unavailable.",
+        help_text="Boolean or numeric pass percentage for the previous period, or null when unavailable.",
     )
 
 
@@ -652,7 +658,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             report_queryset = report_queryset.filter(evaluation_id__in=visible_evaluation_ids)
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":
-            report_queryset = report_queryset.reportable()
+            # Reading stored reports must not depend on the current passing rule.
+            report_queryset = report_queryset.for_supported_evaluations()
         if self.action not in ("update", "partial_update"):
             report_queryset = report_queryset.filter(deleted=False)
 
@@ -786,7 +793,9 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
         report = self.get_object()
-        if not evaluation_supports_reports(report.evaluation.output_type, report.evaluation.target):
+        if not evaluation_supports_reports(
+            report.evaluation.output_type, report.evaluation.target, report.evaluation.output_config
+        ):
             raise serializers.ValidationError({"evaluation": REPORT_NOT_SUPPORTED_ERROR})
 
         try:

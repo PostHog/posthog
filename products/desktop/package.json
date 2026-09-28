@@ -11,6 +11,7 @@
     "preinstall": "node scripts/enforce-pnpm.mjs",
     "postinstall": "bash scripts/ensure-phrocs.sh --update",
     "bootstrap:cloud-task": "pnpm install --frozen-lockfile --prefer-offline --ignore-scripts && pnpm build:deps",
+    "bootstrap:cloud-task:wait": "sh scripts/wait-cloud-task-bootstrap.sh",
     "dev": "node scripts/dev-with-skills.mjs pnpm dev:app",
     "dev:app": "pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
     "dev:mprocs": "node scripts/dev-with-skills.mjs pnpm dev:app:mprocs",

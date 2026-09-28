@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel so the spy replaces
 // `.error` on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +17,14 @@ const rejection = {
     code: 'invalid_input',
     detail: "Can't refresh every 1 day: a view or endpoint built on this one refreshes every 15 minutes. Pick 15 minutes instead.",
     attr: null,
+}
+
+const deleteRefusal = {
+    type: 'validation_error',
+    code: 'has_dependents',
+    detail: "Can't delete orders yet. These read from it: orders_daily (view). Update or delete them first.",
+    attr: null,
+    extra: { node_id: 'node-7' },
 }
 
 describe('dataWarehouseViewsLogic', () => {
@@ -116,6 +126,29 @@ describe('dataWarehouseViewsLogic', () => {
             .toNotHaveDispatchedActions(['deleteDataWarehouseSavedQueryFailure'])
 
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
+    })
+
+    // Regression: the blocked node's id arrives on the response body's `extra`, which the error
+    // object keeps on `data`. Read off the error's root it was always undefined, so a refused
+    // delete offered no way to see what reads the view.
+    it('points a refused delete at the lineage of the node that blocked it', async () => {
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        useMocks({
+            delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [400, deleteRefusal] },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteDataWarehouseSavedQuery('view-blocked')
+        }).toDispatchActions(['deleteDataWarehouseSavedQueryFailure'])
+
+        const refusalToast = toastErrorSpy.mock.calls.find(([message]) => message === deleteRefusal.detail)?.[1] as
+            | { button?: { label: string; action: () => void } }
+            | undefined
+        expect(refusalToast?.button?.label).toBe('Open lineage')
+
+        refusalToast?.button?.action()
+        expect(router.values.location.pathname).toContain(urls.nodeDetail('node-7', 'lineage'))
+        toastErrorSpy.mockRestore()
     })
 
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual

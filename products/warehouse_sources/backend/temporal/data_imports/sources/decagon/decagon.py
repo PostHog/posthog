@@ -29,9 +29,10 @@ DECAGON_PAGE_SIZE = 100
 # than relying on 429 backoff alone.
 MIN_SECONDS_BETWEEN_REQUESTS = 1.0
 
-# Hard bound on the pages a "page" walk requests when the response gives no total to
-# derive one from. It stops a server that ignores the page param and returns a full page
-# on every request; a real export of this size would still end on its short last page.
+# Hard bound on the requests a "page" or "offset" walk makes when the response gives no
+# total to derive one from. It stops a server that ignores the position param and returns
+# a full page on every request; a real export of this size would still end on its short
+# last page.
 MAX_PAGES_WITHOUT_TOTAL = 10_000
 
 # Maps a conversation row column to the `timestamp_filter` enum value that makes the
@@ -58,6 +59,11 @@ class DecagonRetryableError(Exception):
 # endpoint and the reported total, so `DecagonSource.get_non_retryable_errors` needs a fixed
 # fragment to match the failure on.
 CONTRACT_MISMATCH_ERROR = "Decagon imported no rows against a nonzero reported total"
+
+# Stable opening of the failure raised when the response holds lists but the config can
+# identify none of them as rows. Classified apart from the mismatch above because only two
+# endpoints report a total, so that guard cannot see this failure for the other six.
+UNREADABLE_ENVELOPE_ERROR = "Decagon sent lists this table's config cannot read as rows"
 
 
 class DecagonContractError(Exception):
@@ -106,10 +112,23 @@ class _IncrementalWindow:
 
 
 @dataclasses.dataclass(frozen=True)
+class _ListCandidate:
+    """A list found in a response envelope, with the object that held it."""
+
+    path: str
+    items: list[Any]
+    parent: dict[str, Any]
+
+
+@dataclasses.dataclass(frozen=True)
 class _Batch:
     """One page of a walk: the response envelope, the rows it carried, and the rows to emit."""
 
     data: dict[str, Any]
+    # Where the walk reads its cursor, has_more and total. Rows found one object down take
+    # their pagination fields with them, so reading only the top level ends the walk after
+    # one page; the response itself stays the fallback for fields the wrapper leaves outside.
+    pagination: dict[str, Any]
     items: list[Any]
     fresh: list[dict[str, Any]]
 
@@ -158,32 +177,130 @@ def _incremental_window_value(config: DecagonEndpointConfig, value: Any) -> int 
     return _to_epoch_seconds(value)
 
 
-def _resolve_items(
-    data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
-) -> list[Any]:
-    """Read the row list out of a response envelope.
+def _list_candidates(data: dict[str, Any]) -> list[_ListCandidate]:
+    """Every list in the envelope, at the top level or one object below it."""
+    candidates: list[_ListCandidate] = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            candidates.append(_ListCandidate(path=key, items=value, parent=data))
+        elif isinstance(value, dict):
+            candidates.extend(
+                _ListCandidate(path=f"{key}.{nested}", items=item, parent=value)
+                for nested, item in value.items()
+                if isinstance(item, list)
+            )
+    return candidates
 
-    Decagon renames envelope fields between doc revisions (the conversations export alone
-    documents three names for one cursor field), and a lookup that misses reads as an
-    empty page, which ends the walk and reports success. So fall back to the response's
-    only list when the configured key is absent.
+
+def _looks_like_rows(config: DecagonEndpointConfig, items: list[Any]) -> bool:
+    """Whether a list can hold this endpoint's rows: every item an object carrying its primary keys.
+
+    A keyless endpoint never qualifies. "A list of objects" is not evidence of anything, and
+    its stream appends without a merge, so a wrong pick lands rows no later sync can clean up.
+    """
+    if config.primary_keys is None or not items:
+        return False
+    return all(isinstance(item, dict) and all(key in item for key in config.primary_keys) for item in items)
+
+
+def _describe_shape(data: dict[str, Any]) -> str:
+    """The envelope's keys and value shapes, so the log names what arrived, not what did not."""
+    parts: list[str] = []
+    for key in sorted(data):
+        value = data[key]
+        if isinstance(value, list):
+            parts.append(f"{key}: list[{len(value)}]")
+        elif isinstance(value, dict):
+            parts.append(f"{key}: object({', '.join(sorted(value))})")
+        else:
+            parts.append(f"{key}: {type(value).__name__}")
+    return ", ".join(parts)
+
+
+def _unreadable_reason(
+    config: DecagonEndpointConfig, same_key: list[_ListCandidate], row_like: list[_ListCandidate]
+) -> str:
+    """Why the walk could not choose a row list, in the words the operator has to act on.
+
+    Two lists matching needs a different repair from none matching, and support reads this
+    text without a Decagon credential to check it against. So name the lists that matched
+    rather than report every failure as a response that carries no rows anywhere.
+    """
+    if len(same_key) > 1:
+        paths = ", ".join(f"'{found.path}'" for found in same_key)
+        return f"{len(same_key)} of them are named '{config.data_key}' ({paths})"
+    if len(row_like) > 1:
+        paths = ", ".join(f"'{found.path}'" for found in row_like)
+        return f"{len(row_like)} of them carry this endpoint's primary keys ({paths})"
+    if row_like:
+        return (
+            f"only '{row_like[0].path}' carries this endpoint's primary keys, but an empty list beside it "
+            f"reads the same as this table's rows returning none"
+        )
+    return f"none of them is named '{config.data_key}' or carries this endpoint's primary keys"
+
+
+def _resolve_rows(
+    data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
+) -> _ListCandidate:
+    """Read the row list out of a response envelope, with the object that held it.
+
+    Decagon renames and re-nests envelope fields between doc revisions (the conversations
+    export alone documents three names for one cursor field), and a lookup that misses
+    reads as an empty page, which fails the walk against the reported total. So search the
+    envelope for the list the rows moved to: the same key one object down, or the only
+    list whose items carry this endpoint's primary keys. A response holding lists that
+    match neither fails the sync rather than reading as an empty page.
     """
     items = data.get(config.data_key)
     if isinstance(items, list):
-        return items
+        return _ListCandidate(path=config.data_key, items=items, parent=data)
 
-    list_keys = [key for key, value in data.items() if isinstance(value, list)]
-    if len(list_keys) == 1:
-        logger.warning(
-            f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
-            f"'{list_keys[0]}' instead (response keys: {sorted(data.keys())})"
+    candidates = _list_candidates(data)
+    same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
+    row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
+    # An empty list reads the same as a renamed key that returned no rows, so the primary
+    # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
+    # sibling list of objects carries, and a full refresh would replace the table with that
+    # list. A name match is unaffected: there the response names the rows.
+    inferred = [] if any(not found.items for found in candidates) else row_like
+    # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
+    # only list is not evidence: "the only list" also describes a list of warnings, and
+    # reading that one imports metadata as rows. Anything that leaves more than one
+    # candidate is a guess, so it fails instead.
+    for shortlist in (same_key, inferred):
+        if len(shortlist) == 1:
+            found = shortlist[0]
+            logger.warning(
+                f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
+                f"'{found.path}' instead (response shape: {_describe_shape(data)})"
+            )
+            return found
+
+    if candidates:
+        reason = _unreadable_reason(config, same_key, row_like)
+        # Finalization replaces this message with the fixed operator-facing one, so the
+        # shape only reaches whoever has to act on it through the log.
+        logger.error(
+            f"Decagon: {endpoint} cannot read rows from its response; {reason} "
+            f"(response shape: {_describe_shape(data)}, rows read from '{config.data_key}')"
         )
-        return data[list_keys[0]]
+        # Only `articles` and `admin_logs` report a total, so for every other endpoint the
+        # contract check has nothing to fail on and this would complete as an empty sync.
+        # A full refresh clears the table before extraction, so the populated table would
+        # be gone and the job green. The rows are in one of these lists, so fail instead.
+        raise DecagonContractError(
+            f"{UNREADABLE_ENVELOPE_ERROR}: {endpoint} carries {len(candidates)} list(s) and {reason} "
+            f"(response shape: {_describe_shape(data)})."
+        )
 
+    # No list anywhere can be an endpoint that omits its key instead of sending it empty,
+    # so an empty page stays a warning rather than a failed sync.
     logger.warning(
-        f"Decagon: {endpoint} response carries no '{config.data_key}' list (response keys: {sorted(data.keys())})"
+        f"Decagon: {endpoint} response carries no '{config.data_key}' list and no list to read it from "
+        f"(response shape: {_describe_shape(data)})"
     )
-    return []
+    return _ListCandidate(path=config.data_key, items=[], parent=data)
 
 
 def _next_cursor(data: dict[str, Any], cursor_keys: tuple[str, ...]) -> Optional[str]:
@@ -399,6 +516,7 @@ class _RowWalk:
         self._logger = logger
         self._saw_rows = False
         self._reported_total: Any = None
+        self._envelope_shape = ""
 
     def run(self) -> Iterator[list[dict[str, Any]]]:
         yield from self._walk()
@@ -416,19 +534,40 @@ class _RowWalk:
     def _read(self, position_params: dict[str, str]) -> _Batch:
         params: dict[str, str] = {**self._config.extra_params, **position_params, **self._window_params}
         data = self._fetcher.fetch(params)
-        items = _resolve_items(data, self._config, self._endpoint, self._logger)
-        fresh = self._deduplicator.fresh(items)
+        self._envelope_shape = _describe_shape(data)
+        rows = _resolve_rows(data, self._config, self._endpoint, self._logger)
+        fresh = self._deduplicator.fresh(rows.items)
         self._saw_rows = self._saw_rows or bool(fresh)
-        return _Batch(data=data, items=items, fresh=fresh)
-
-    def _record_total(self, batch: _Batch) -> Any:
-        self._reported_total = batch.data.get(self._config.total_key) if self._config.total_key else None
-        return self._reported_total
+        pagination = data if rows.parent is data else {**data, **rows.parent}
+        # Recorded here rather than in the walk, so the contract check sees the reported
+        # total whichever mode read the response. A later page that omits the total keeps
+        # the one an earlier page reported: dropping it falls the walk back to short-page
+        # termination, which a server-capped page then ends before the total is reached.
+        reported = pagination.get(self._config.total_key) if self._config.total_key else None
+        if _usable_total(reported) is not None or _usable_total(self._reported_total) is None:
+            self._reported_total = reported
+        return _Batch(data=data, pagination=pagination, items=rows.items, fresh=fresh)
 
     def _short_page(self, batch: _Batch) -> bool:
         """Termination signal left when the response carries no usable total."""
         page_size = self._config.page_size
         return not batch.items or (page_size is not None and len(batch.items) < page_size)
+
+    def _request_cap_reached(self, requests_made: int, position_param: str) -> bool:
+        """Constant bound for a walk with no usable total to size one from.
+
+        A server that ignores the position param answers every request with a full page,
+        which short-page termination never ends. With no total to check the kept rows
+        against, the cap can only warn.
+        """
+        if requests_made < MAX_PAGES_WITHOUT_TOTAL:
+            return False
+        self._logger.warning(
+            f"Decagon: {self._endpoint} walk stopped at the cap of {MAX_PAGES_WITHOUT_TOTAL} requests with no "
+            f"usable total (got {self._reported_total!r}). If the synced row count looks truncated, check that "
+            f"the endpoint honors the {position_param} param."
+        )
+        return True
 
     def _check_contract(self) -> None:
         # A walk that read every row of the endpoint and kept none, while the endpoint itself
@@ -441,9 +580,16 @@ class _RowWalk:
             and isinstance(self._reported_total, int | float)
             and self._reported_total > 0
         ):
+            # Finalization replaces the message below with the fixed operator-facing one, so
+            # the shape only reaches whoever has to act on it through the log.
+            self._logger.error(
+                f"Decagon: {self._endpoint} kept no rows against a reported total of {self._reported_total} "
+                f"(response shape: {self._envelope_shape}, rows read from '{self._config.data_key}')"
+            )
             raise DecagonContractError(
                 f"{CONTRACT_MISMATCH_ERROR}: {self._endpoint} reports {self._reported_total} rows and the walk "
-                f"kept none. Check the response envelope against the endpoint config."
+                f"kept none. The last response carried {self._envelope_shape}, and the config reads rows from "
+                f"'{self._config.data_key}'."
             )
 
     def _save_position(self, **position: Any) -> None:
@@ -469,8 +615,8 @@ class _RowWalk:
         while True:
             # An omitted cursor starts the stream at the oldest rows.
             batch = self._read({"cursor": cursor} if cursor else {})
-            next_cursor = _next_cursor(batch.data, config.next_cursor_keys or ())
-            more = batch.data.get(config.has_more_key) if config.has_more_key else None
+            next_cursor = _next_cursor(batch.pagination, config.next_cursor_keys or ())
+            more = batch.pagination.get(config.has_more_key) if config.has_more_key else None
 
             if batch.fresh:
                 yield batch.fresh
@@ -483,7 +629,20 @@ class _RowWalk:
             # server ever returns the cursor we just used, to guard against spinning on
             # one page forever.
             if not next_cursor or next_cursor == cursor:
-                if config.has_more_key is None and not next_cursor and len(batch.items) >= DECAGON_PAGE_SIZE:
+                if more:
+                    # The walk has to stop here, but the response says rows remain, so this
+                    # is a truncated stream rather than an exhausted one. The endpoints that
+                    # send has_more append with no merge and walk desc, so a completed run
+                    # advances the watermark past the newest rows this page held and every
+                    # later sync skips the pages this walk never reached.
+                    stopped = "repeated the cursor just used" if next_cursor else "carried no next-page cursor"
+                    self._logger.warning(
+                        f"Decagon: {self._endpoint} stopped after a page that {stopped} while "
+                        f"'{config.has_more_key}' reports {more!r} (response keys: {sorted(batch.data.keys())}, "
+                        f"cursor read from {list(config.next_cursor_keys or ())}). The rows past this page did "
+                        f"not sync; check the export pagination contract."
+                    )
+                elif config.has_more_key is None and not next_cursor and len(batch.items) >= DECAGON_PAGE_SIZE:
                     # A full page that ends the walk is legitimate only when the total row
                     # count happens to be a multiple of the page size; far more often it means
                     # Decagon renamed the pagination field again and rows were truncated.
@@ -514,7 +673,7 @@ class _RowWalk:
                 params["page_size"] = str(config.page_size)
 
             batch = self._read(params)
-            total = self._record_total(batch)
+            total = self._reported_total
             rows_walked += len(batch.fresh)
             page_rows = max(page_rows, len(batch.items))
             exhausted = self._page_walk_exhausted(page, rows_walked, page_rows, total, batch)
@@ -539,19 +698,9 @@ class _RowWalk:
             return True
 
         if total is None:
-            # A missing or malformed total falls back to short-page termination and a
-            # constant cap. With nothing to check the kept rows against, the cap can only
-            # warn.
-            if self._short_page(batch):
-                return True
-            if page < MAX_PAGES_WITHOUT_TOTAL:
-                return False
-            self._logger.warning(
-                f"Decagon: {self._endpoint} walk stopped at the page cap of {MAX_PAGES_WITHOUT_TOTAL} with no "
-                f"usable total (got {reported!r}). If the synced row count looks truncated, check that the "
-                f"endpoint honors the page param."
-            )
-            return True
+            # A missing or malformed total falls back to short-page termination, bounded by
+            # the constant cap.
+            return self._short_page(batch) or self._request_cap_reached(page, "page")
 
         # One page more than the total needs at the server's page size, so rows that shift
         # pages mid-walk (arriving twice, kept once) do not push the last unique rows past
@@ -571,6 +720,7 @@ class _RowWalk:
     def _walk_offset(self) -> Iterator[list[dict[str, Any]]]:
         config = self._config
         offset = self._resume.offset or 0
+        requests_made = 0
 
         while True:
             params = {"offset": str(offset)}
@@ -578,16 +728,19 @@ class _RowWalk:
                 params["limit"] = str(config.page_size)
 
             batch = self._read(params)
-            total = self._record_total(batch)
+            requests_made += 1
+            total = _usable_total(self._reported_total)
 
             # Advance by the rows actually received rather than by page_size, so a server that
             # caps `limit` below what we asked still walks every row. The offset itself is the
             # cumulative row count, so the total check needs no separate counter.
             next_offset = offset + len(batch.items)
-            if isinstance(total, int | float):
+            if total is not None:
                 exhausted = not batch.items or next_offset >= total
             else:
-                exhausted = self._short_page(batch)
+                # A server that ignores `offset` sends a full page to every request and never
+                # the short page this would otherwise end on.
+                exhausted = self._short_page(batch) or self._request_cap_reached(requests_made, "offset")
 
             if batch.fresh:
                 yield batch.fresh

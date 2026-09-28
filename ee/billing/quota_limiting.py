@@ -26,6 +26,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    billable_feature_flag_requests,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -355,20 +356,10 @@ def org_quota_limited_until(
         return None
     usage = summary.get("usage") or 0
     todays_usage = summary.get("todays_usage") or 0
+    current_usage = usage + todays_usage
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-
-    # Credited-path signals PR refunds free the org's quota slot posthog-side (billing's stored
-    # usage still contains the refunded units). Consulted only when the raw comparison is already
-    # at/over the limit, so the DB query fires for the handful of orgs that would otherwise be
-    # limited. Surfaced on every quota event below for debuggability of refund-affected decisions.
-    refund_offset = _signals_credited_refund_offset(
-        organization,
-        resource,
-        limit is not None and usage + todays_usage >= limit + OVERAGE_BUFFER[resource],
-    )
-    refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
 
     if limit is None:
         if quota_limiting_suspended_until is not None or quota_limited_until is not None:
@@ -377,8 +368,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "limit removed",
-                    "current_usage": usage + todays_usage,
-                    **refund_offset_properties,
+                    "current_usage": current_usage,
                     "resource": resource.value,
                     "quota_limited_until": quota_limited_until,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -389,7 +379,46 @@ def org_quota_limited_until(
             )
         return None
 
-    is_over_limit = usage + todays_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
+    # Credited-path signals PR refunds free the org's quota slot posthog-side (billing's stored
+    # usage still contains the refunded units). Consulted only when the raw comparison is already
+    # at/over the limit, so the DB query fires for the handful of orgs that would otherwise be
+    # limited. Surfaced on every quota event below for debuggability of refund-affected decisions.
+    refund_offset = _signals_credited_refund_offset(
+        organization,
+        resource,
+        limit is not None and current_usage >= limit + OVERAGE_BUFFER[resource],
+    )
+    if resource == QuotaResource.SIGNALS_CREDITS and current_usage - refund_offset < limit:
+        active_persisted_limit = quota_limited_until is not None and quota_limited_until > timezone.now().timestamp()
+        if team_tokens is None and previously_quota_limited_team_tokens and not active_persisted_limit:
+            team_tokens = get_team_attribute_by_quota_resource(organization)
+        was_limited = active_persisted_limit or any(
+            token in previously_quota_limited_team_tokens for token in (team_tokens or [])
+        )
+        if was_limited:
+            # Midnight resets today's count before billing necessarily includes yesterday's PRs.
+            # Verify the whole period before releasing a block; keep billing-owned counters intact.
+            period_start = dateutil.parser.isoparse(organization.usage["period"][0])
+            period_end = dateutil.parser.isoparse(organization.usage["period"][1])
+            try:
+                period_usage = get_self_driving_credits_used_in_period_for_org(
+                    organization.id, period_start, period_end
+                )
+            except Exception as error:
+                capture_exception(error, {"organization_id": str(organization.id)})
+                return {
+                    "quota_limited_until": (
+                        quota_limited_until if active_persisted_limit else round(period_end.timestamp())
+                    ),
+                    "quota_limiting_suspended_until": None,
+                }
+            current_usage = max(current_usage, period_usage)
+
+            refund_offset = _signals_credited_refund_offset(organization, resource, current_usage >= limit)
+
+    refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
+
+    is_over_limit = current_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
@@ -420,7 +449,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspension removed",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -438,7 +467,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "ignored",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "never_drop_data": organization.never_drop_data,
@@ -462,7 +491,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "already limited",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "quota_limited_until": billing_period_end,
@@ -491,7 +520,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "ignored",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -525,7 +554,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "suspended",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "trust_score": trust_score,
@@ -547,7 +576,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "suspended",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "trust_score": trust_score,
@@ -576,7 +605,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspended",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "grace_period_days": grace_period_days,
@@ -637,7 +666,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspension not expired",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -659,7 +688,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspended expired",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                 },
@@ -1138,6 +1167,15 @@ def update_all_orgs_billing_quotas(
                 FlagRequestType.LOCAL_EVALUATION,
             )
         ),
+        "teams_with_local_evaluation_not_modified_requests_count": convert_team_usage_rows_to_dict(
+            _timed_query(
+                "local_evaluation_not_modified_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period.start,
+                period.end,
+                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED,
+            )
+        ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
             _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period.start, period.end)
@@ -1230,14 +1268,18 @@ def update_all_orgs_billing_quotas(
     for team in teams:
         decide_requests = all_data["teams_with_decide_requests_count"].get(team.id, 0)
         local_evaluation_requests = all_data["teams_with_local_evaluation_requests_count"].get(team.id, 0)
+        local_evaluation_not_modified_requests = all_data[
+            "teams_with_local_evaluation_not_modified_requests_count"
+        ].get(team.id, 0)
 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
-            feature_flag_requests=decide_requests
-            + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            feature_flag_requests=billable_feature_flag_requests(
+                decide_requests, local_evaluation_requests, local_evaluation_not_modified_requests
+            ),
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
@@ -1368,7 +1410,9 @@ def update_all_orgs_billing_quotas(
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
-                    result = org_quota_limited_until(org, resource, previously_quota_limited_team_tokens[field])
+                    result = org_quota_limited_until(
+                        org, resource, previously_quota_limited_team_tokens[field], teams_by_org.get(org_id, [])
+                    )
                     if result:
                         quota_limited_until = result.get("quota_limited_until")
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")

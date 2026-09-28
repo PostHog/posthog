@@ -1347,15 +1347,19 @@ def list_custom_property_definitions(
     *,
     user_access_control: "UserAccessControl",
     exclude_group_targets: bool = False,
+    target_type: str | None = None,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization."""
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
     queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
+    if target_type is not None:
+        queryset = queryset.filter(target_type=target_type)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     workflow_references = _custom_property_references_by_definition_id(team_id)
@@ -3090,7 +3094,7 @@ def _apply_account_table_sort(
         tag_values = (
             TaggedItem.objects.matching_outer(Account)
             .filter(tag__team_id=team_id)
-            .values("object_key")
+            .values("object_uuid")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3299,7 +3303,7 @@ def query_accounts_table(
         for account_id, tag_name in (
             TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("object_key", "tag__name")
+            .values_list("object_uuid", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 
@@ -3873,6 +3877,32 @@ def list_account_presence_viewers(
     )
 
 
+def list_accounts_presence(
+    team_id: int,
+    account_ids: list[str],
+    user_access_control: "UserAccessControl",
+    *,
+    viewer_user_id: int | None,
+) -> list[contracts.AccountPresence]:
+    accessible_account_ids = list(
+        user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=team_id, id__in=account_ids)
+        ).values_list("id", flat=True)
+    )
+    viewers_by_account_id = _account_presence_logic.list_account_presence(
+        team_id=team_id, account_ids=[str(account_id) for account_id in accessible_account_ids]
+    )
+    return [
+        contracts.AccountPresence(
+            account_id=account_id,
+            viewers=[
+                viewer for viewer in viewers_by_account_id.get(str(account_id), []) if viewer.user_id != viewer_user_id
+            ],
+        )
+        for account_id in accessible_account_ids
+    ]
+
+
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
     """The account_id when the caller can edit that account, else None."""
     account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
@@ -4207,6 +4237,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
         SYNC_RETRY_AT_CONFIG_KEY,
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
+        get_calendar_sync_interval,
     )
 
     statuses = []
@@ -4229,9 +4260,23 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
                 integration_id=integration.id,
                 last_synced_at=last_synced_at,
                 is_syncing=is_syncing,
+                sync_interval_minutes=get_calendar_sync_interval(config),
             )
         )
     return statuses
+
+
+def update_calendar_sync_interval(team_id: int, integration_id: int, interval_minutes: int) -> bool:
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
+        SYNC_INTERVAL_CONFIG_KEY,
+        update_calendar_sync_config,
+    )
+
+    try:
+        update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
+    except Integration.DoesNotExist:
+        return False
+    return True
 
 
 def _parse_datetime(value: str | None) -> datetime | None:

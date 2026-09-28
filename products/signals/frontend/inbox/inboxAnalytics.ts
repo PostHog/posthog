@@ -3,6 +3,9 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
+import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import {
     InboxReportSectionKey,
     SignalReport,
@@ -29,6 +32,7 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -44,6 +48,7 @@ export const INBOX_EVENTS = {
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
+    SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -60,6 +65,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
+    RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
@@ -153,6 +159,9 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
+/** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
     | 'scope'
@@ -203,6 +212,8 @@ export type ScoutActionType =
     | 'search_scouts'
     | 'expand_run_group'
     | 'sort_roster'
+    | 'choose_create_path'
+    | 'switch_create_path'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -584,6 +595,23 @@ export function captureSignalSourceSteeringChanged(params: {
     })
 }
 
+export function captureSignalSourceFiltersChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    filter: string
+    selectedCount: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTERS_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        filter: params.filter,
+        selected_count: params.selectedCount,
+        reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
 /**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
@@ -617,6 +645,18 @@ export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCou
     captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {
         panel: params.panel,
         item_count: params.itemCount ?? null,
+    })
+}
+
+/**
+ * A panel read was aborted for taking too long. A request that never settles is invisible to
+ * `client_request_failure`, which only records a response, so this is the one place a stalled pane
+ * can be counted.
+ */
+export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.PANEL_LOAD_TIMED_OUT, {
+        load: params.load,
+        timeout_ms: params.timeoutMs,
     })
 }
 
@@ -810,6 +850,25 @@ export function captureInboxRunOpened(params: {
 }
 
 /**
+ * A run's own summary was read on a Runs row. The summary is the cheapest account of what a run did,
+ * and it is only reachable on hover, so this is the one signal for whether readers find it.
+ *
+ * The summary text stays out of the event, like the report title: an agent writes it about a
+ * customer's own code and data. `summary_length` is the readable stand-in.
+ */
+export function captureInboxRunSummaryViewed(params: {
+    purpose: ReportTaskPurpose
+    status: TaskRunStatus | null
+    summaryLength: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RUN_SUMMARY_VIEWED, {
+        run_purpose: params.purpose,
+        run_status: params.status,
+        summary_length: params.summaryLength,
+    })
+}
+
+/**
  * What the inbox decided to do about self-driving onboarding, and when it decided nothing, why.
  *
  * The takeover and banner are the only prompt to run the wizard, and several inputs can hold them
@@ -827,16 +886,40 @@ export function captureInboxOnboardingDecided(params: {
     })
 }
 
-/** A scout CTA kicked off a cloud task ("Suggest a scout", the fleet-overview chips). */
+/** A scout CTA kicked off a cloud task ("Chat with an agent", the fleet-overview chips). */
 export function captureScoutChatStarted(params: {
     chatType: ScoutChatType
     surface: ScoutSurface
     skillName?: string | null
+    hasUserPrompt?: boolean
+    templateId?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_CHAT_STARTED, {
         chat_type: params.chatType,
         surface: params.surface,
         skill_name: params.skillName ?? null,
+        has_user_prompt: params.hasUserPrompt ?? false,
+        template_id: params.templateId ?? null,
+    })
+}
+
+/** How a person creates a scout: in a chat with an agent, or in the form. */
+export type ScoutCreatePath = 'chat' | 'form'
+
+/** A person picked a way to create a scout from the "New scout" entry. */
+export function captureScoutCreatePathChosen(params: { path: ScoutCreatePath; surface: ScoutSurface }): void {
+    captureScoutAction({ actionType: 'choose_create_path', surface: params.surface, extra: { path: params.path } })
+}
+
+/** A person left one create modal for the other, taking what they typed with them. */
+export function captureScoutCreatePathSwitched(params: {
+    direction: 'chat_to_form' | 'form_to_chat'
+    surface: ScoutSurface
+}): void {
+    captureScoutAction({
+        actionType: 'switch_create_path',
+        surface: params.surface,
+        extra: { direction: params.direction },
     })
 }
 

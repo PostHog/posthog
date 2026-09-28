@@ -8,13 +8,15 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import (
-    PAGE_SIZE,
     DevinAIResumeConfig,
     _endpoint_path,
     devin_ai_source,
     get_status_code,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import DEVIN_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
+    DEVIN_AI_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -33,6 +35,14 @@ def _response(
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _consumption_response(rows: list[dict[str, Any]], *, total_acus: float = 0.0) -> Response:
+    # The consumption endpoints answer with one unpaginated object, not the cursor envelope.
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"total_acus": total_acus, "consumption_by_date": rows}).encode()
     return resp
 
 
@@ -61,6 +71,21 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
+def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Like `_wire`, but capture each request's URL too so fan-out tests can tell a parent request
+    from a per-parent child request."""
+    session.headers = {}
+    captured: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        captured.append((request.url or "", dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return captured
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -83,6 +108,8 @@ class TestEndpointPath:
             ("playbooks", "/v3/organizations/org-abc/playbooks"),
             ("knowledge_notes", "/v3/organizations/org-abc/knowledge/notes"),
             ("secrets", "/v3/organizations/org-abc/secrets"),
+            ("session_insights", "/v3/organizations/org-abc/sessions/insights"),
+            ("consumption_daily", "/v3/organizations/org-abc/consumption/daily"),
             # Members must stay on the org-scoped users listing: the v2 members endpoint only accepts
             # enterprise-admin personal API keys, which this source never stores.
             ("members", "/v3beta1/organizations/org-abc/members/users"),
@@ -212,9 +239,37 @@ class TestGetStatusCode:
         assert kwargs["params"] == {"first": 1}
         assert kwargs["headers"]["Authorization"] == "Bearer cog_test"
 
+    @parameterized.expand(
+        [
+            # A fan-out child's own path needs a parent id, so probing it directly would send a URL
+            # with an unbound `{devin_id}` / `{user_id}` placeholder. Each delegates to the org-level
+            # endpoint gated by the same permission instead.
+            ("session_messages", "https://api.devin.ai/v3/organizations/org-abc/sessions", {"first": 1}),
+            (
+                "consumption_daily_users",
+                "https://api.devin.ai/v3/organizations/org-abc/consumption/daily",
+                {},
+            ),
+        ]
+    )
+    def test_fanout_child_probes_its_org_level_endpoint(
+        self, endpoint: str, expected_url: str, expected_params: dict[str, Any]
+    ) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        session = mock.MagicMock()
+        session.get.return_value = response
+
+        with mock.patch(DEVIN_SESSION_PATCH, return_value=session):
+            get_status_code("cog_test", "org-abc", endpoint)
+
+        args, kwargs = session.get.call_args
+        assert args[0] == expected_url
+        assert kwargs["params"] == expected_params
+
 
 class TestDevinAISource:
-    @parameterized.expand(["sessions", "playbooks", "knowledge_notes", "secrets"])
+    @parameterized.expand(["sessions", "session_insights", "playbooks", "knowledge_notes", "secrets"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
         response = _source(endpoint, _make_manager())
@@ -224,6 +279,26 @@ class TestDevinAISource:
         # created_at is a stable field — never updated_at — so partitions don't rewrite each sync.
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
+
+    @parameterized.expand(
+        [
+            ("session_messages", ["session_id", "event_id"]),
+            ("consumption_daily", ["date"]),
+            ("consumption_daily_users", ["user_id", "date"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_and_consumption_tables_keep_their_keys_and_partitioning(
+        self, endpoint: str, expected_keys: list[str], MockSession
+    ) -> None:
+        # The fan-out and single-page branches build their SourceResponse separately from the
+        # top-level one, so each has to carry the composite key that keeps rows from colliding
+        # across parents, and a partition key that doesn't move once written.
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == (["date"] if endpoint.startswith("consumption") else ["created_at"])
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_members_source_response_dedupes_on_user_id_and_has_no_partition(self, MockSession) -> None:
@@ -303,3 +378,97 @@ class TestMembersJoin:
         assert params[1] == {"first": PAGE_SIZE, "after": "cur1"}
         email_by_user_id = {row["user_id"]: row["email"] for row in rows}
         assert email_by_user_id["email|bbb222"] == "riley@example.com"
+
+
+class TestConsumption:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_daily_selects_rows_from_the_consumption_envelope_in_one_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The consumption body nests its rows under `consumption_by_date`, and carries no cursor —
+        # selecting `items` or paginating it would sync nothing and loop respectively.
+        params = _wire(
+            session,
+            [
+                _consumption_response(
+                    [
+                        {"date": 1750000000, "acus": 12.5, "acus_by_product": {"devin": 12.5}},
+                        {"date": 1750086400, "acus": 3.0, "acus_by_product": {"devin": 3.0}},
+                    ],
+                    total_acus=15.5,
+                )
+            ],
+        )
+
+        rows = _rows(_source("consumption_daily", _make_manager()))
+
+        assert [row["date"] for row in rows] == [1750000000, 1750086400]
+        assert rows[0]["acus"] == 12.5
+        assert session.send.call_count == 1
+        # The endpoint takes no page-size param; sending one would be undocumented.
+        assert params[0] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_daily_users_fans_out_over_members_and_stamps_the_member_on_each_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Per-user consumption rows are just date + ACUs, so without the parent's user_id copied down
+        # the table would be unattributable — and every member's rows would collide on `date`.
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"user_id": "email|aaa111"}, {"user_id": "email|bbb222"}]),
+                _consumption_response([{"date": 1750000000, "acus": 4.0, "acus_by_product": {"devin": 4.0}}]),
+                _consumption_response([{"date": 1750000000, "acus": 7.0, "acus_by_product": {"devin": 7.0}}]),
+            ],
+        )
+
+        rows = _rows(_source("consumption_daily_users", _make_manager()))
+
+        assert {(row["user_id"], row["acus"]) for row in rows} == {("email|aaa111", 4.0), ("email|bbb222", 7.0)}
+        child_urls = [url for url, _params in reqs if "/consumption/daily/users/" in url]
+        assert {url.rsplit("/", 1)[1] for url in child_urls} == {"email|aaa111", "email|bbb222"}
+        parent = next(params for url, params in reqs if url.endswith("/members/users"))
+        assert parent["first"] == PAGE_SIZE
+
+
+class TestSessionMessagesFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_messages_are_fetched_per_session_and_carry_their_session_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Message rows carry no session id of their own, so the parent's has to be copied down —
+        # otherwise the (session_id, event_id) primary key can't be formed.
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"session_id": "devin-1"}, {"session_id": "devin-2"}]),
+                _response([{"event_id": "e1", "source": "user", "message": "hi", "created_at": 1750000000}]),
+                _response([{"event_id": "e1", "source": "devin", "message": "on it", "created_at": 1750000100}]),
+            ],
+        )
+
+        rows = _rows(_source("session_messages", _make_manager()))
+
+        assert {(row["session_id"], row["event_id"]) for row in rows} == {("devin-1", "e1"), ("devin-2", "e1")}
+        # The un-renamed parent-prefixed key must not survive into the table.
+        assert all("_sessions_session_id" not in row for row in rows)
+        child = [(url, params) for url, params in reqs if url.endswith("/messages")]
+        assert {url.split("/sessions/")[1].split("/")[0] for url, _params in child} == {"devin-1", "devin-2"}
+        # The messages endpoint cursor-paginates like the rest of v3, so it takes a page size.
+        assert all(params["first"] == PAGE_SIZE for _url, params in child)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_session_with_more_messages_than_one_page_is_fully_walked(self, MockSession) -> None:
+        session = MockSession.return_value
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"session_id": "devin-1"}]),
+                _response([{"event_id": "e1"}], has_next_page=True, end_cursor="cur1"),
+                _response([{"event_id": "e2"}], has_next_page=False, end_cursor=None),
+            ],
+        )
+
+        rows = _rows(_source("session_messages", _make_manager()))
+
+        assert [row["event_id"] for row in rows] == ["e1", "e2"]
+        child = [params for url, params in reqs if url.endswith("/messages")]
+        assert child[1]["after"] == "cur1"
