@@ -44,6 +44,8 @@ describe("railPaneForPath", () => {
     ["/loops/$loopId/edit", "loops"],
     ["/feeds/", "feeds"],
     ["/feeds/$feedId", "feeds"],
+    ["/today", "today"],
+    ["/library/$", "library"],
   ] as const)("puts %s on %s", (path, pane) => {
     expect(railPaneForPath(path)).toBe(pane);
   });
@@ -80,6 +82,7 @@ describe("railPaneForHref", () => {
     ["/reports/report-1?from=%2Finbox%2Ftriage", "inbox"],
     ["/reports/report-1?from=%2Fspaces%2Fchan-1", "spaces"],
     ["/reports/report-1", "reports"],
+    ["/reports/report-1?from=%2Ftoday", "today"],
     ["/inbox?item=1", "inbox"],
   ] as const)("puts %s on %s", (href, pane) => {
     expect(railPaneForHref(href)).toBe(pane);
@@ -152,12 +155,16 @@ describe("railPaneHasSidebar", () => {
     },
   );
 
-  it.each(["home", "reports", "command-center", "loops"] as const)(
-    "gives %s the whole screen",
-    (pane) => {
-      expect(railPaneHasSidebar(pane)).toBe(false);
-    },
-  );
+  it.each([
+    "home",
+    "reports",
+    "command-center",
+    "loops",
+    "today",
+    "library",
+  ] as const)("gives %s the whole screen", (pane) => {
+    expect(railPaneHasSidebar(pane)).toBe(false);
+  });
 
   it.each(["spaces", "activity", "feeds", "inbox"] as const)(
     "gives %s a column",

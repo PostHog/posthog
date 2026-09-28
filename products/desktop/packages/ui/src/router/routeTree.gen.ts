@@ -32,6 +32,7 @@ import { Route as InboxAgentsRouteImport } from './routes/inbox/agents'
 import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
 import { Route as CodeSplatRouteImport } from './routes/code.$'
 import { Route as AgentsSplatRouteImport } from './routes/agents.$'
+import { Route as ShellTodayRouteImport } from './routes/_shell/today'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
 import { Route as ShellMcpServersRouteImport } from './routes/_shell/mcp-servers'
@@ -185,6 +186,11 @@ const AgentsSplatRoute = AgentsSplatRouteImport.update({
   id: '/agents/$',
   path: '/agents/$',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShellTodayRoute = ShellTodayRouteImport.update({
+  id: '/today',
+  path: '/today',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellSkillsRoute = ShellSkillsRouteImport.update({
   id: '/skills',
@@ -407,6 +413,7 @@ export interface FileRoutesByFullPath {
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
+  '/today': typeof ShellTodayRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
@@ -468,6 +475,7 @@ export interface FileRoutesByTo {
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
+  '/today': typeof ShellTodayRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
@@ -528,6 +536,7 @@ export interface FileRoutesById {
   '/_shell/mcp-servers': typeof ShellMcpServersRoute
   '/_shell/new': typeof ShellNewRoute
   '/_shell/skills': typeof ShellSkillsRoute
+  '/_shell/today': typeof ShellTodayRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
@@ -594,6 +603,7 @@ export interface FileRouteTypes {
     | '/mcp-servers'
     | '/new'
     | '/skills'
+    | '/today'
     | '/agents/$'
     | '/code/$'
     | '/folders/$folderId'
@@ -655,6 +665,7 @@ export interface FileRouteTypes {
     | '/mcp-servers'
     | '/new'
     | '/skills'
+    | '/today'
     | '/agents/$'
     | '/code/$'
     | '/folders/$folderId'
@@ -714,6 +725,7 @@ export interface FileRouteTypes {
     | '/_shell/mcp-servers'
     | '/_shell/new'
     | '/_shell/skills'
+    | '/_shell/today'
     | '/agents/$'
     | '/code/$'
     | '/folders/$folderId'
@@ -946,6 +958,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/$'
       preLoaderRoute: typeof AgentsSplatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_shell/today': {
+      id: '/_shell/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof ShellTodayRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/skills': {
       id: '/_shell/skills'
@@ -1243,6 +1262,7 @@ interface ShellRouteChildren {
   ShellMcpServersRoute: typeof ShellMcpServersRoute
   ShellNewRoute: typeof ShellNewRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
+  ShellTodayRoute: typeof ShellTodayRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
   ShellLibrarySplatRoute: typeof ShellLibrarySplatRoute
@@ -1276,6 +1296,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellMcpServersRoute: ShellMcpServersRoute,
   ShellNewRoute: ShellNewRoute,
   ShellSkillsRoute: ShellSkillsRoute,
+  ShellTodayRoute: ShellTodayRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,
   ShellLibrarySplatRoute: ShellLibrarySplatRoute,

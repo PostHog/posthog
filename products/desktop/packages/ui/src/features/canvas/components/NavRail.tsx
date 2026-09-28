@@ -25,12 +25,14 @@ import {
   type RailCounts,
   type RailDestination,
   showWorkColumn,
+  todayAskLibraryRailDestinations,
   visibleRailDestinations,
   visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useTodayAskLibraryLayout } from "@posthog/ui/features/canvas/hooks/useTodayAskLibraryLayout";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { railPaneFoldsIntoWork } from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
@@ -208,6 +210,7 @@ function NavRailImpl() {
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
   const workLayout = useWorkLayout();
+  const todayAskLibraryLayout = useTodayAskLibraryLayout();
   const workActivityOpen = useWorkActivityStore((state) => state.open);
   const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
   const railFlags = {
@@ -217,9 +220,11 @@ function NavRailImpl() {
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,
   };
-  const destinations = workLayout
-    ? visibleWorkRailDestinations(railFlags)
-    : visibleRailDestinations(railFlags);
+  const destinations = todayAskLibraryLayout
+    ? todayAskLibraryRailDestinations()
+    : workLayout
+      ? visibleWorkRailDestinations(railFlags)
+      : visibleRailDestinations(railFlags);
   const topDestinations = destinations.filter(
     ({ placement }) => placement !== "bottom",
   );

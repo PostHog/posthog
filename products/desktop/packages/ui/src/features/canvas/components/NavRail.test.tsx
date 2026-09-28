@@ -87,6 +87,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+  navigateToToday: vi.fn(),
+  navigateToLibrary: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
   useProjectTaskFeeds: () => [],
@@ -113,7 +115,12 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 }));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
-import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
+import {
+  DESKTOP_HOME_FLAG,
+  DESKTOP_TODAY_ASK_LIBRARY_FLAG,
+  DESKTOP_WORK_LAYOUT_FLAG,
+  type RailVisit,
+} from "@posthog/shared";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   clearKeepListForRoute,
@@ -219,6 +226,23 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
+  });
+
+  it("replaces the destinations with Today, Ask and Library under that layout", () => {
+    mocks.featureFlags.set(DESKTOP_WORK_LAYOUT_FLAG, true);
+    mocks.featureFlags.set(DESKTOP_TODAY_ASK_LIBRARY_FLAG, true);
+    mocks.fullPath = "/library/$";
+    mocks.href = "/library/project/1/insights";
+
+    render(<NavRail />);
+
+    const buttonLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(buttonLabels.slice(0, 3)).toEqual(["Today", "Ask", "Library"]);
+    expect(screen.queryByLabelText("Activity")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Library")).toHaveAttribute("data-selected");
+    expect(screen.getByLabelText("Ask")).not.toHaveAttribute("data-selected");
   });
 
   it("keeps Search directly above Settings at the bottom of the rail", () => {

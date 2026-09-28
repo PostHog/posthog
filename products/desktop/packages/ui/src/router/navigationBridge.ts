@@ -71,6 +71,10 @@ export function navigateToCanvases(canvasId?: string): void {
   });
 }
 
+export function navigateToToday(): void {
+  void getRouterOrNull()?.navigate({ to: "/today", state: keepTabTag });
+}
+
 export function navigateToHome(): void {
   void getRouterOrNull()?.navigate({ to: "/" });
 }

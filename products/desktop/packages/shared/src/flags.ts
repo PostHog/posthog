@@ -26,6 +26,12 @@ export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
 export const DESKTOP_WORK_LAYOUT_FLAG =
   featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
+/**
+ * Replaces the rail with Today, Ask and Library. Requires the work layout, which is what Ask shows.
+ * pinned: flag key, renaming it starts a new flag.
+ */
+export const DESKTOP_TODAY_ASK_LIBRARY_FLAG =
+  featureFlagKeys.DESKTOP_TODAY_ASK_LIBRARY_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =

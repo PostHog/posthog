@@ -298,6 +298,9 @@ export type SidebarNavItem =
   | "canvases"
   | "configure"
   | "loops"
+  | "today"
+  | "ask"
+  | "library"
   | "more";
 
 /** Which sidebar shell the click came from, so the two can be compared. */

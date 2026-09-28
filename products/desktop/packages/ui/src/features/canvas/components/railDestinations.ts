@@ -1,12 +1,14 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  Books,
   ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
   Lightning,
   ListMagnifyingGlassIcon,
+  Newspaper,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
@@ -40,9 +42,11 @@ import {
   navigateToFeeds,
   navigateToHome,
   navigateToInbox,
+  navigateToLibrary,
   navigateToLoops,
   navigateToSpaces,
   navigateToSpacesContext,
+  navigateToToday,
 } from "@posthog/ui/router/navigationBridge";
 import { hrefPath } from "@posthog/ui/router/reportNavigation";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
@@ -297,4 +301,32 @@ export function visibleWorkRailDestinations(
       !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
   );
   return [WORK_DESTINATION, ...rest];
+}
+
+/**
+ * The rail under the Today, Ask and Library layout. Ask is the work column, so it takes over the
+ * Spaces pane. The destinations it replaces stay reachable from search and from links.
+ */
+const TODAY_ASK_LIBRARY_DESTINATIONS: readonly RailDestination[] = [
+  {
+    pane: "today",
+    label: "Today",
+    analyticsId: "today",
+    Icon: Newspaper,
+    href: "/today",
+    onPick: navigateToToday,
+  },
+  { ...WORK_DESTINATION, label: "Ask", analyticsId: "ask" },
+  {
+    pane: "library",
+    label: "Library",
+    analyticsId: "library",
+    Icon: Books,
+    href: "/library/",
+    onPick: () => navigateToLibrary(),
+  },
+];
+
+export function todayAskLibraryRailDestinations(): readonly RailDestination[] {
+  return TODAY_ASK_LIBRARY_DESTINATIONS;
 }
