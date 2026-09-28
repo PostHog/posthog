@@ -556,6 +556,7 @@
     'properties',
     'realtime_ready_at',
     'remove_user_by_uuid',
+    'remove_users_by_uuids',
     'save',
     'team_id',
     'to_dict',

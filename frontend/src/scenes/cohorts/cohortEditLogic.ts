@@ -449,11 +449,11 @@ export interface cohortEditLogicActions {
     submitCohortSuccess: (cohort: CohortType) => {
         cohort: CohortType
     }
-    touchCohortField: (key: string) => {
-        key: string
-    }
     togglePersonToRemoveFromCohort: (personId: string) => {
         personId: string
+    }
+    touchCohortField: (key: string) => {
+        key: string
     }
     updateCohortCount: () => {
         value: true
@@ -1206,6 +1206,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
 
             posthog.capture('cohort persons removed', { cohort_id: values.cohort.id, count: 1, bulk: false })
+            if (personId in values.personsToRemoveFromCohort) {
+                actions.togglePersonToRemoveFromCohort(personId)
+            }
             lemonToast.success('Person removed from cohort')
             // Refresh cohort data + count
             actions.refreshPersonsData()
