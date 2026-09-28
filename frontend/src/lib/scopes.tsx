@@ -289,9 +289,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Pending removal — no endpoint enforces these, so they do nothing when granted.
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
-    // The registry is behind a feature flag, so the picker waits for its owners to decide whether
-    // every user should see the row.
-    mcp_registry: 'Behind a feature flag: the row waits for the product owners.',
+    mcp_registry: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
