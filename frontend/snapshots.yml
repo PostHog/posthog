@@ -7456,6 +7456,10 @@ snapshots:
         hash: v1.k794b7964.a260abcedfa1372c2c4caf36dbf8e51580ae6d6303b7d18617a6799fbdcb9841.pfjNZI_gu55WYAo4V3uxORMyk_GHRA7uQMkkBaMaYX8
     scenes-app-ai-observability-byok-model-picker-notice--no-usable-provider-keys--light:
         hash: v1.k794b7964.73105b9c91872982be5b2259a6c794520ac631d2e356babb1cdf235453a32475.L6eqzBeiEZSKXLMsMa3a2cfQvRDwxzia0bdVflixJQ0
+    scenes-app-ai-observability-byok-model-picker-notice--system-one--dark:
+        hash: v1.k794b7964.0a56e6f60237a190b55ca5299ce0ef5e4c115455515dc5702c1bf21b2692fdf3.nkYiu0RhIneQSqy4W0wvO0BXhgO1z1I4BzZmmNbTbC0
+    scenes-app-ai-observability-byok-model-picker-notice--system-one--light:
+        hash: v1.k794b7964.f15cdbf6cb327a49559c809539d095b7275dc4ef3709c0b2df17c5805d90c813.X6SPnX_tLcSqWR4bMLkftXKkrrDNLAG-4ni68Aratio
     scenes-app-ai-observability-clustercard--default--dark:
         hash: v1.k794b7964.745c8ac41b251f329b890d56d7b07fb31b4939a440a40eea7932f1081d3de702.ESnQVAOfySBfRJWfJsURYu-prgU3EUvQZCD62MyLlX4
     scenes-app-ai-observability-clustercard--default--light:
@@ -7508,6 +7512,18 @@ snapshots:
         hash: v1.k794b7964.c9cf0f699197f208ec18e3ad326c29d43b8034f37f5fc101a9e25773510895a5.f_qTgpzSlQlCRirQv0iD791ajpL-x8WnVi8T8qNYr1o
     scenes-app-ai-observability-conversation-display--tools--light:
         hash: v1.k794b7964.cc6f7770155f4b720ff0597c3dd5deff699a267cfbdd8fe76a131cb51740215d.lKCAOsQBSoBkK46EHSYdGmWxAi4CQ4wUrx2J1iRF_f0
+    scenes-app-ai-observability-evaluation-explanation--reasoning--dark:
+        hash: v1.k794b7964.df59798a73898fed2019aaa67ba440611c743d7bab0ff9c282db9eaeec4602dd.RDTleoCWmufVyJ6bte4BtB45JV51kbNvUbRZAa8lvUo
+    scenes-app-ai-observability-evaluation-explanation--reasoning--light:
+        hash: v1.k794b7964.d018ae75901811c91af25c5a8c68e3bf8b02a4b9ca0ffa2641faed46f572e385.LCSHPTx-1opaMtYqjT5TuO0ulPGtrNH9LK87BG5VdBY
+    scenes-app-ai-observability-evaluation-explanation--system-one--dark:
+        hash: v1.k794b7964.11fd15711bd135e7f8018f0a417835f17f0056f27d9262a211f8969316d7d1c8.a87FQdEsav9F-zw-IQFVAZWJ6i-9lqXPMCBCAOrisu4
+    scenes-app-ai-observability-evaluation-explanation--system-one--light:
+        hash: v1.k794b7964.5fcc731d0e4b1c3cd75c72bb4faeae96144dd4372085ee3db281b0c3c0f6ea11.S2KbBvKJr2ojmkP2R05o593GNVJKmcqv6tPcVWVcpwQ
+    scenes-app-ai-observability-evaluation-explanation--system-one-zero-probability--dark:
+        hash: v1.k794b7964.1cd199ebfc3ecf7f75c065b7f670778fed080997c6afb56bac02e49b49637c96.nFRmsF5CaYLyxKdaRS0UtS6ba8esGKqBv6MPu7HwOBo
+    scenes-app-ai-observability-evaluation-explanation--system-one-zero-probability--light:
+        hash: v1.k794b7964.f56325c23a185f032b8e7c331463345ea780e4e1b9a85f44a2f560869f06afa4.KcU1H2opmRuSoQcBHacqKya9WVvI5GATsFn_lgLD8rM
     scenes-app-ai-observability-instrumentation-checklist-card--collecting--dark:
         hash: v1.k794b7964.6f9f209d5daaf8573020fb50615421d426055c8090d0ee73a2629487d30cbf29.g4iTGpNCX68yiOgdFhRMYO2xEGf0WhTu4ji2Rqijroc
     scenes-app-ai-observability-instrumentation-checklist-card--collecting--light:
@@ -7652,6 +7668,18 @@ snapshots:
         hash: v1.k794b7964.ef922a0a06bf1db7141ffa5dda43e7106b3eec562f4dc4c0996b817b8e55b3be.Ij1-WjXoREtj3yIYkzbXuRg-ccNy-NPBUBW_31tlfRw
     scenes-app-ai-observability-skills--skills-list--light:
         hash: v1.k794b7964.d22fb946238114580130ed5d5978b187d6acd086868d1ebb8e326e02c65fc6f5.W7RfUzTvMqZEzuRPjF2h0XXTftd4X0bauTIRZAc48qk
+    scenes-app-ai-observability-system-one-connection--default--dark:
+        hash: v1.k794b7964.2729d2ff6ec5024b31cb584cfe8d15a07607c9c9723655feaa6cd5b401d4fd47.1MGXki6PWyOm9TClWTgzksbLuXkha1JfZN-z2sVQsmg
+    scenes-app-ai-observability-system-one-connection--default--light:
+        hash: v1.k794b7964.6a1956122a3c65bbc2e5f8a3c9f39ba580bba6e13c2dba3ebb9508ab981088ef.H_oIeIN9TydPQMe866PgGhV4nLvqkFdTwvG1VQPkI_k
+    scenes-app-ai-observability-system-one-connection--provider-settings--dark:
+        hash: v1.k794b7964.81ce7999f24877f6e4ac2d9ab89fb4e584e5bc0749e594742c15377c8da8a1a7.BlSbtKwSVk0n9eZKEpRMG7hADbYEDAXAedKVuCaBN_8
+    scenes-app-ai-observability-system-one-connection--provider-settings--light:
+        hash: v1.k794b7964.05b7de1c84c25e03badf722fa567182ff449e74a6299d6a543c554ecd20e3184.eccRHOq726ohqws6q_XlZPELbvyUZPfAZk1cwlog_QY
+    scenes-app-ai-observability-system-one-connection--provider-settings-flag-off--dark:
+        hash: v1.k794b7964.81ce7999f24877f6e4ac2d9ab89fb4e584e5bc0749e594742c15377c8da8a1a7.DaP59ecAHMR8eaDYuWmJyKEowz34lJ3qbuKNJ4DsN8U
+    scenes-app-ai-observability-system-one-connection--provider-settings-flag-off--light:
+        hash: v1.k794b7964.05b7de1c84c25e03badf722fa567182ff449e74a6299d6a543c554ecd20e3184.3SudNZ7cfTDqUdodzpr3A8w1rZBmSjpUHNJ-qyTQQC4
     scenes-app-ai-observability-trace--full--dark:
         hash: v1.k794b7964.142fc550717f2be0bc0c72f8b670fb5b70f1be8cf26ae2805e4a6ae6937c06a5.ms9_vuzQ5yFxSSCaQtMJLVHBMBR0fIKrrKJhivb5Zfg
     scenes-app-ai-observability-trace--full--light:
