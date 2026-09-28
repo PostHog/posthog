@@ -405,8 +405,13 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
                 + "\nResult schema:\n"
                 + json.dumps(ScoutRubricSuggestionBatch.model_json_schema()),
             )
+            # Read the config again because the owner can save rubric edits while the draft turn runs.
+            saved_config = await database_sync_to_async(
+                lambda: SignalScoutConfig.objects.for_team(team_id).get(id=config_id), thread_sensitive=True
+            )()
             selected_output = await session.send_followup_raw(
-                build_selection_prompt(read_rubric_state(config).criteria, draft), label="rubric_saved_selection"
+                build_selection_prompt(read_rubric_state(saved_config).criteria, draft),
+                label="rubric_saved_selection",
             )
             batch = await validate_output(
                 selected_output,

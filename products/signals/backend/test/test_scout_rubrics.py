@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.models import Team
@@ -230,6 +230,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             ("completed", None, False),
             ("description_only", None, False),
             ("saved_choices", None, False),
+            ("saved_during_draft", None, False),
             ("complete_context", None, False),
             ("truncated_context", None, False),
             ("report_emit", None, False, "emit"),
@@ -461,6 +462,14 @@ class TestScoutRubricsAPI(APIBaseTest):
             result = callback(SimpleNamespace(id=run_id, task_id=uuid4()))
             assert isinstance(result, Awaitable)
             await result
+            if name == "saved_during_draft":
+                edited_criteria = default_criteria()
+                edited_criteria[1].enabled = False
+                edited_criteria.append(custom_criterion())
+                await sync_to_async(save_rubric)(
+                    self.team.id, str(self.config.id), revision=0, criteria=edited_criteria
+                )
+                expected_criteria[:] = edited_criteria
             if failed_stage == "start":
                 raise ValueError("Draft failed")
             initial_output = review_outputs[0]
@@ -483,7 +492,9 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(session.send_followup_raw.await_count, expected_followups)
         self.config.refresh_from_db()
         state = read_rubric_state(self.config)
-        self.assertEqual(state.revision, 1 if name in {"saved_choices", "oversized_selection"} else 0)
+        self.assertEqual(
+            state.revision, 1 if name in {"saved_choices", "saved_during_draft", "oversized_selection"} else 0
+        )
         self.assertEqual(state.criteria, expected_criteria)
         assert state.generation is not None
         self.assertEqual(state.generation.task_run_id, str(run_id))
