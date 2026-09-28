@@ -62,21 +62,22 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         { title: 'Self-managed sources', sources: VALID_SELF_MANAGED_MARKETING_SOURCES },
     ]
     const items: LemonMenuItems = [
-        showNewSourcesInMenu && {
-            items: [
-                {
-                    key: 'new-ad-sources',
-                    label: () => (
-                        <div className="w-72 max-w-full p-2 space-y-2">
-                            <div className="font-semibold">New ad sources</div>
-                            <p className="m-0 text-muted text-sm">
-                                {`Connect ${newSources.map(nativeSourceDisplayLabel).join(', ')} to compare spend and conversions.`}
-                            </p>
-                        </div>
-                    ),
-                },
-            ],
-        },
+        ...(showNewSourcesInMenu
+            ? [
+                  {
+                      key: 'new-ad-sources',
+                      title: (
+                          <div className="w-72 max-w-full p-2 space-y-2">
+                              <div className="font-semibold">New ad sources</div>
+                              <p className="m-0 text-muted text-sm">
+                                  {`Connect ${newSources.map(nativeSourceDisplayLabel).join(', ')} to compare spend and conversions.`}
+                              </p>
+                          </div>
+                      ),
+                      items: [],
+                  },
+              ]
+            : []),
         ...groups
             .filter(({ sources }) => sources.length > 0)
             .map(({ title, sources }) => ({
@@ -100,6 +101,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
             items={items}
             visible={showPopover}
             onVisibilityChange={handleVisibilityChange}
+            focusBasedKeyboardNavigation={showPopover}
             closeOnClickInside={false}
             placement="bottom-end"
             maxContentWidth
@@ -109,8 +111,10 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 size="small"
                 icon={<IconPlusSmall />}
                 data-attr="add-integration"
+                aria-label="Add source"
                 disabledReason={restrictedReason}
-                tooltip={showNewSources && !showPopover ? 'New ad sources are available' : undefined}
+                tooltip="New ad sources are available"
+                tooltipForceMount={restrictedReason || (showNewSources && !showPopover) ? undefined : false}
             >
                 <span>Add source</span>
                 {showNewSources && (
