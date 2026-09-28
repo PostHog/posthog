@@ -17,7 +17,8 @@ UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 
 # Every path not declared below is a dynamic subcolumn (up to the column's max_dynamic_paths per part, then
 # shared data) and keeps its JSON type. Declare only what ClickHouse cannot infer: LowCardinality
-# for genuinely low-cardinality strings, and the feature-flags map.
+# for genuinely low-cardinality strings, the feature-flags map, and the String join keys behind the
+# $session_id, $window_id, and $group_N columns.
 EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 1024
 PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS = 256
 
@@ -35,11 +36,18 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$geoip_country_name": "LowCardinality(String)",
     "$geoip_subdivision_1_name": "LowCardinality(String)",
     "$geoip_time_zone": "LowCardinality(String)",
+    "$group_0": "String",
+    "$group_1": "String",
+    "$group_2": "String",
+    "$group_3": "String",
+    "$group_4": "String",
     "$lib": "LowCardinality(String)",
     "$lib_version": "LowCardinality(String)",
     "$os": "LowCardinality(String)",
     "$os_version": "LowCardinality(String)",
+    "$session_id": "String",
     "$timezone": "LowCardinality(String)",
+    "$window_id": "String",
 }
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS = EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES
@@ -75,18 +83,6 @@ PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
 }
 
 PERSON_PROPERTIES_JSON_SUBCOLUMNS = PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES
-
-
-def events_properties_string_path_sql(subcolumn_sql: str, path: str) -> str:
-    """String read of an events `properties` path for the compatibility aliases ($session_id, $group_0, ...).
-
-    Undeclared paths read as Dynamic; take the String variant so the result stays String-typed for
-    joins, GROUP BY, and clients that cannot decode Dynamic. The printer inlines the same expression
-    as the table ALIAS, so both must come from here.
-    """
-    if path in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
-        return f"ifNull({subcolumn_sql}, '')"
-    return f"ifNull(dynamicElement({subcolumn_sql}, 'String'), '')"
 
 
 def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:

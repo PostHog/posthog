@@ -7,7 +7,7 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$timezone` LowCardinality(String))"
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
     }
     column "temporary_properties" {
       type = "JSON(max_dynamic_paths = 32)"
@@ -108,38 +108,6 @@ database "posthog" {
     column "elements_chain_elements" {
       type = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
     }
-    column "$group_0" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$group_0`, 'String'), '')"
-    }
-    column "$group_1" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$group_1`, 'String'), '')"
-    }
-    column "$group_2" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$group_2`, 'String'), '')"
-    }
-    column "$group_3" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$group_3`, 'String'), '')"
-    }
-    column "$group_4" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$group_4`, 'String'), '')"
-    }
-    column "$window_id" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$window_id`, 'String'), '')"
-    }
-    column "$session_id" {
-      type = "String"
-      alias = "ifNull(dynamicElement(properties.`$session_id`, 'String'), '')"
-    }
-    column "$session_id_uuid" {
-      type = "Nullable(UInt128)"
-      alias = "toUInt128(toUUIDOrNull(ifNull(dynamicElement(properties.`$session_id`, 'String'), '')))"
-    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
@@ -169,7 +137,7 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$timezone` LowCardinality(String))"
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
     }
     column "temporary_properties" {
       type = "JSON(max_dynamic_paths = 32)"

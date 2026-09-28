@@ -5393,6 +5393,10 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_session_id_uuid_optimization(self, _name, expr, expected):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            expected = expected.replace(
+                "events.`$session_id_uuid`", "toUInt128(toUUIDOrNull(events.properties.`$session_id`))"
+            )
         self.assertEqual(self._expr(expr), expected)
 
     @parameterized.expand(

@@ -21,7 +21,6 @@ from posthog.clickhouse.events_json import (
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     UNPARSEABLE_PROPERTIES_KEY,
     WRITABLE_EVENTS_JSON_TABLE,
-    events_properties_string_path_sql,
 )
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
@@ -230,25 +229,6 @@ def EVENTS_JSON_DATA_TABLE_ENGINE():
     return ReplacingMergeTree("events_json", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED)
 
 
-def _json_subcolumn(column: str, path: str) -> str:
-    return f"{escape_clickhouse_identifier(column)}.{escape_clickhouse_identifier(path)}"
-
-
-def _json_string_subcolumn(path: str) -> str:
-    return events_properties_string_path_sql(_json_subcolumn("properties", path), path)
-
-
-EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS = f"""
-    , $group_0 String ALIAS {_json_string_subcolumn("$group_0")}
-    , $group_1 String ALIAS {_json_string_subcolumn("$group_1")}
-    , $group_2 String ALIAS {_json_string_subcolumn("$group_2")}
-    , $group_3 String ALIAS {_json_string_subcolumn("$group_3")}
-    , $group_4 String ALIAS {_json_string_subcolumn("$group_4")}
-    , $window_id String ALIAS {_json_string_subcolumn("$window_id")}
-    , $session_id String ALIAS {_json_string_subcolumn("$session_id")}
-    , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull({_json_string_subcolumn("$session_id")}))
-"""
-
 EVENTS_JSON_ELEMENTS_COLUMNS = """
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
@@ -348,8 +328,7 @@ def DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         gcd_codec="",
         t64_codec="",
         elements_columns="",
-        compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS
-        + """
+        compatibility_columns="""
     , elements_chain_href String
     , elements_chain_texts Array(String)
     , elements_chain_ids Array(String)

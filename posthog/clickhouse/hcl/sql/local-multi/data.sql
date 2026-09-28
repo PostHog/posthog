@@ -1060,7 +1060,7 @@ CREATE TABLE posthog.sharded_events (
 CREATE TABLE posthog.sharded_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$timezone` LowCardinality(String)),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32) TTL toDateTime(inserted_at) + toIntervalDay(60),
   timestamp DateTime64(6, 'UTC') CODEC(GCD, Default),
   team_id Int64,
@@ -2009,7 +2009,7 @@ CREATE TABLE posthog.writable_events (
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$timezone` LowCardinality(String)),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   timestamp DateTime64(6, 'UTC'),
   team_id Int64,
@@ -3027,7 +3027,7 @@ CREATE TABLE posthog.events (
 CREATE TABLE posthog.events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$timezone` LowCardinality(String)),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   timestamp DateTime64(6, 'UTC'),
   team_id Int64,
@@ -3059,15 +3059,7 @@ CREATE TABLE posthog.events_json (
   elements_chain_href String,
   elements_chain_texts Array(String),
   elements_chain_ids Array(String),
-  elements_chain_elements Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7)),
-  $group_0 String ALIAS ifNull(dynamicElement(properties.`$group_0`, 'String'), ''),
-  $group_1 String ALIAS ifNull(dynamicElement(properties.`$group_1`, 'String'), ''),
-  $group_2 String ALIAS ifNull(dynamicElement(properties.`$group_2`, 'String'), ''),
-  $group_3 String ALIAS ifNull(dynamicElement(properties.`$group_3`, 'String'), ''),
-  $group_4 String ALIAS ifNull(dynamicElement(properties.`$group_4`, 'String'), ''),
-  $window_id String ALIAS ifNull(dynamicElement(properties.`$window_id`, 'String'), ''),
-  $session_id String ALIAS ifNull(dynamicElement(properties.`$session_id`, 'String'), ''),
-  $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull(ifNull(dynamicElement(properties.`$session_id`, 'String'), '')))
+  elements_chain_elements Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
 CREATE TABLE posthog.events_recent (
   uuid UUID,

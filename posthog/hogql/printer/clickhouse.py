@@ -43,7 +43,6 @@ from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, 
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.events_json import events_properties_string_path_sql
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -544,12 +543,10 @@ class ClickHousePrinter(BasePrinter):
                 "$group_3",
                 "$group_4",
             }:
-                # Proxy ALIAS expansion collides with aggregate outputs that reuse the column name.
+                # events_json has no columns for these; they are declared String paths in properties.
                 prefix = field_sql.removesuffix(self._print_identifier(name))
                 path = "$session_id" if name == "$session_id_uuid" else name
-                field_sql = events_properties_string_path_sql(
-                    f"{prefix}properties.{self._print_identifier(path)}", path
-                )
+                field_sql = f"{prefix}properties.{self._print_identifier(path)}"
                 if name == "$session_id_uuid":
                     field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
         field_sql = self._maybe_stringify_events_json_field(type, field_sql)
@@ -692,7 +689,11 @@ class ClickHousePrinter(BasePrinter):
         if session_id_table is None or not constants:
             return None
 
-        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        table_sql = self.visit(session_id_table)
+        if self.context.uses_new_events_schema():
+            field_sql = f"toUInt128(toUUIDOrNull({table_sql}.properties.{self._print_identifier('$session_id')}))"
+        else:
+            field_sql = f"{table_sql}.{self._print_identifier('$session_id_uuid')}"
         wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
 
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
