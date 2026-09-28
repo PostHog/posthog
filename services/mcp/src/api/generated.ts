@@ -9823,6 +9823,11 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    /**
+     * Warnings attached to the query response that produced an insight's results.
+     */
+    export type _InsightResultWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning)[];
+
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
       date_from?: string | null;
@@ -9963,6 +9968,8 @@ export namespace Schemas {
       readonly resolved_date_range: InsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -17758,6 +17765,13 @@ export namespace Schemas {
       end_date: string;
     }
 
+    export interface CalendarSyncInterval {
+      /** Id of the connected Google account. */
+      integration_id: number;
+      /** Minutes between scheduled syncs: 5, 15, 30, or 60. */
+      sync_interval_minutes: number;
+    }
+
     /**
      * Sync state of one connected calendar (read-only).
      */
@@ -17771,6 +17785,8 @@ export namespace Schemas {
       readonly last_synced_at: string | null;
       /** Whether a sync run is currently in flight. */
       readonly is_syncing: boolean;
+      /** Minutes between scheduled syncs. */
+      readonly sync_interval_minutes: number;
     }
 
     /**
@@ -25197,7 +25213,7 @@ export namespace Schemas {
     }
 
     /**
-     * InsightSerializer restricted to identifiers + result only.
+     * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
      */
     export interface InsightResult {
       readonly id: number;
@@ -25207,6 +25223,8 @@ export namespace Schemas {
       /** @nullable */
       readonly derived_name: string | null;
       readonly result: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
     }
 
     /**
@@ -38578,6 +38596,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -38592,6 +38611,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      OpenaiCompatible: 'openai_compatible',
     } as const;
 
     /**
@@ -38819,6 +38839,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -66374,6 +66401,7 @@ export namespace Schemas {
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
@@ -66409,6 +66437,7 @@ export namespace Schemas {
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
@@ -68124,7 +68153,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -74408,6 +74438,8 @@ export namespace Schemas {
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan?: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings?: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -74566,6 +74598,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -78317,7 +78356,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -113798,6 +113838,7 @@ export namespace Schemas {
       Gemini: 'gemini',
       Minimax: 'minimax',
       Openai: 'openai',
+      OpenaiCompatible: 'openai_compatible',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
