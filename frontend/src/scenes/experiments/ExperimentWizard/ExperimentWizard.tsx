@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconLightBulb } from '@posthog/icons'
+import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ExperimentWizardGuide } from './ExperimentWizardGuide'
@@ -14,30 +13,16 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const {
-        currentStep,
-        isLastStep,
-        isFirstStep,
-        isExperimentSubmitting,
-        showGuide,
-        stepValidationErrors,
-        hasFormErrors,
-    } = useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment, toggleGuide } = useActions(experimentWizardLogic)
+    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors, hasFormErrors } =
+        useValues(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, saveExperiment } = useActions(experimentWizardLogic)
 
     const header = (
-        <div className="flex items-center justify-between">
-            <div className="space-y-1">
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.experiments()}>
-                    Experiments
-                </LemonButton>
-                <h1 className="text-2xl font-semibold">New experiment</h1>
-            </div>
-            {!showGuide && (
-                <LemonButton type="secondary" size="small" icon={<IconLightBulb />} onClick={toggleGuide}>
-                    Show guide
-                </LemonButton>
-            )}
+        <div className="space-y-1">
+            <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.experiments()}>
+                Experiments
+            </LemonButton>
+            <h1 className="text-2xl font-semibold">New experiment</h1>
         </div>
     )
 
@@ -102,27 +87,24 @@ export function ExperimentWizard(): JSX.Element {
         </>
     )
 
+    // The main column stays centered in the page, with the guide in a right-hand column that starts level with
+    // the form card. Sized off the container rather than the viewport, so the layout holds when the side panel
+    // narrows the scene. Below that width the guide stacks under the main column.
+    const mainColumn = 'w-full max-w-3xl min-w-0 justify-self-center space-y-6 @5xl:col-start-2 @5xl:max-w-none'
     return (
-        <div className="flex-1 bg-bg-light">
-            <div className={cn('mx-auto px-6 py-6 space-y-6', showGuide ? 'max-w-5xl' : 'max-w-3xl')}>
-                {header}
-
-                {showGuide ? (
-                    <div className="grid grid-cols-[1fr_280px] gap-6">
-                        <div className="space-y-6">
-                            {stepper}
-                            {body}
-                            {footer}
-                        </div>
-                        <ExperimentWizardGuide />
-                    </div>
-                ) : (
-                    <div className="space-y-6">
-                        {stepper}
-                        {body}
-                        {footer}
-                    </div>
-                )}
+        <div className="@container flex-1 bg-bg-light">
+            <div className="grid grid-cols-1 gap-6 px-6 py-6 @5xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(16rem,1fr)]">
+                <div className={mainColumn}>
+                    {header}
+                    {stepper}
+                </div>
+                <div className={mainColumn}>
+                    {body}
+                    {footer}
+                </div>
+                <aside className="w-full max-w-3xl min-w-0 justify-self-center @5xl:col-start-3 @5xl:row-start-2 @5xl:max-w-80 @5xl:justify-self-start">
+                    <ExperimentWizardGuide />
+                </aside>
             </div>
         </div>
     )

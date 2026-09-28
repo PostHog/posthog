@@ -1255,15 +1255,8 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchHighlightContext
         experimentId: ExperimentIdType
     }
-    reportExperimentWizardGuideToggled: (
-        visible: boolean,
-        currentStep: string
-    ) => {
-        currentStep: string
-        visible: boolean
-    }
-    reportExperimentWizardStarted: (guideVisible: boolean) => {
-        guideVisible: boolean
+    reportExperimentWizardStarted: () => {
+        value: true
     }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
@@ -1915,8 +1908,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             draftAgeSeconds,
         }),
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
-        reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
-        reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
+        reportExperimentWizardStarted: true,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2549,16 +2541,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 })
             }
         },
-        reportExperimentWizardStarted: ({ guideVisible }) => {
-            posthog.capture('experiment wizard started', {
-                guide_visible: guideVisible,
-            })
-        },
-        reportExperimentWizardGuideToggled: ({ visible, currentStep }) => {
-            posthog.capture('experiment wizard guide toggled', {
-                visible,
-                current_step: currentStep,
-            })
+        reportExperimentWizardStarted: () => {
+            posthog.capture('experiment wizard started')
         },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {

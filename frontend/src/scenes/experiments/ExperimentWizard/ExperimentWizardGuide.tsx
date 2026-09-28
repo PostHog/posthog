@@ -1,7 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconLightBulb, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconLightBulb } from '@posthog/icons'
 
 import { ExperimentWizardStep, experimentWizardLogic } from './experimentWizardLogic'
 
@@ -38,24 +37,14 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
 
 export function ExperimentWizardGuide(): JSX.Element {
     const { currentStep } = useValues(experimentWizardLogic)
-    const { toggleGuide } = useActions(experimentWizardLogic)
 
     const guide = GUIDE_CONTENT[currentStep]
 
     return (
         <div className="sticky top-6 space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-sm font-medium text-secondary">
-                    <IconLightBulb className="size-4" />
-                    Guide
-                </div>
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconX />}
-                    onClick={toggleGuide}
-                    tooltip="Hide guide"
-                />
+            <div className="flex items-center gap-1.5 text-sm font-medium text-secondary">
+                <IconLightBulb className="size-4" />
+                Guide
             </div>
 
             <h4 className="text-sm font-semibold">{guide.title}</h4>
