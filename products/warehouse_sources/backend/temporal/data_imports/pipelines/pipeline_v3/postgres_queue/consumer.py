@@ -90,6 +90,7 @@ ConsumerConfig = BatchConsumerConfig
 VerifyOwnership = Callable[[], None]
 # Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
 DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+DeltaProcessBatchesFn = Callable[[list[PendingBatch], VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -177,6 +178,43 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+# Bounds on a set of consecutive batches loaded as one Delta commit. A batch is at most one
+# extraction chunk (500k rows, 200 MiB of Arrow), so the row cap keeps a set to what one large
+# batch already costs, and the byte cap (parquet on disk, several times smaller than the Arrow it
+# decodes to) keeps many small batches from adding up past it.
+COALESCE_MAX_BATCHES = 8
+COALESCE_MAX_ROWS = 500_000
+COALESCE_MAX_BYTES = 64 * 1024 * 1024
+# CDC batches resolve positions against the table between writes, and a batch bound for external
+# destinations is delivered per batch, so neither is folded into a set.
+COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
+
+
+def _coalescable(batch: PendingBatch) -> bool:
+    return (
+        batch.sync_type in COALESCABLE_SYNC_TYPES
+        # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+        and batch.latest_attempt == 0
+        and not batch.destination_ids
+        and batch.metadata.get("cdc_write_mode") is None
+    )
+
+
+def _extends_coalesced_set(current: list[PendingBatch], batch: PendingBatch) -> bool:
+    head = current[-1]
+    if not (_coalescable(head) and _coalescable(batch)):
+        return False
+    if batch.run_uuid != head.run_uuid or batch.job_id != head.job_id:
+        return False
+    if batch.batch_index != head.batch_index + 1:
+        return False
+    if len(current) >= COALESCE_MAX_BATCHES:
+        return False
+    rows = sum(member.row_count for member in current) + batch.row_count
+    size = sum(member.byte_size for member in current) + batch.byte_size
+    return rows <= COALESCE_MAX_ROWS and size <= COALESCE_MAX_BYTES
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -915,6 +953,20 @@ class DeltaBatchConsumerAdapter:
     ) -> None:
         return None
 
+    def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        sets: list[list[PendingBatch]] = []
+        current: list[PendingBatch] = []
+        for batch in batches:
+            if current and _extends_coalesced_set(current, batch):
+                current.append(batch)
+                continue
+            if current:
+                sets.append(current)
+            current = [batch]
+        if current:
+            sets.append(current)
+        return sets
+
 
 class BatchConsumer(SharedBatchConsumer):
     def __init__(
@@ -924,9 +976,15 @@ class BatchConsumer(SharedBatchConsumer):
         health_reporter: Callable[[], None] | None = None,
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
+        process_batches: DeltaProcessBatchesFn | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
+
+        async def process_set_with_ownership_check(batches: list[PendingBatch]) -> None:
+            assert process_batches is not None
+            # One lease covers the whole set: every constituent shares the group.
+            await process_batches(batches, self._make_verify_ownership(batches[0]))
 
         super().__init__(
             config=config,
@@ -936,6 +994,7 @@ class BatchConsumer(SharedBatchConsumer):
                 claim_exclude_sync_types=claim_exclude_sync_types,
             ),
             health_reporter=health_reporter,
+            process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
