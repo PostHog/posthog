@@ -26,7 +26,7 @@ async def ateam(aorganization):
     yield team
     # Skip Temporal schedule cleanup — team.delete() CASCADE-deletes BatchExport
     # rows from the DB, and Temporal schedules in CI don't need explicit removal.
-    # Calling delete_batch_exports() here can hang indefinitely because
+    # Calling delete_batch_exports_for_teams() here can hang indefinitely because
     # sync_to_async threads blocked on gRPC cannot be cancelled by asyncio.
     await sync_to_async(team.delete)()
 

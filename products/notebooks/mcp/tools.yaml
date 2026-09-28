@@ -521,6 +521,18 @@ tools:
     notebooks-widget-revert:
         operation: notebooks_widget_revert
         enabled: false
+    notebooks-widget-snapshot-create:
+        operation: notebooks_widget_snapshot_create
+        enabled: false
+    notebooks-widget-snapshot-frame:
+        operation: notebooks_widget_snapshot_frame
+        enabled: false
+    notebooks-widget-snapshot-publish:
+        operation: notebooks_widget_snapshot_publish
+        enabled: false
+    notebooks-widget-snapshot-retrieve:
+        operation: notebooks_widget_snapshot_retrieve
+        enabled: false
     notebooks-widget-source:
         operation: notebooks_widget_source
         enabled: false

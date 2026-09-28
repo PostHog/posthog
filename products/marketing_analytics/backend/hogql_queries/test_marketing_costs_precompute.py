@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_costs_sql import DISTRIBUTED_MARKETING_COSTS_TABLE
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
@@ -30,6 +31,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.google_ads impo
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_marketing_costs"
@@ -306,6 +308,26 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             assert result_rows[0][self._col(result_cols, output_alias)] == post_value, (
                 f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
             )
+
+    @parameterized.expand([("user_read", None, True), ("on_demand_revalidation", REVALIDATION_TRIGGER, False)])
+    def test_on_demand_revalidation_never_builds_costs(self, _name, trigger, expect_costs_build):
+        # The Celery revalidation runs userless with warehouse access control bypassed, and a user read
+        # can trigger it. Cost rows it wrote would expose every source's spend to users denied a source.
+        runner = MarketingAnalyticsTableQueryRunner(
+            query=MarketingAnalyticsTableQuery(
+                dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"), limit=100, offset=0, properties=[]
+            ),
+            team=self.team,
+        )
+        runner.config.costs_precomputation_enabled = True
+
+        with (
+            tags_context(trigger=trigger),
+            patch.object(runner, "_build_costs_from_precompute", return_value=None) as build_costs,
+        ):
+            runner.to_query()
+
+        assert build_costs.called is expect_costs_build
 
     def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
         # One source materializes, one can't. The result must read the native table for the materialized

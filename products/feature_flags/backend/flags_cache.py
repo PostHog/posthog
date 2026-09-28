@@ -26,6 +26,7 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
+import sys
 from collections import defaultdict, deque
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -116,18 +117,49 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     Inactive/deleted flags return empty deps before their filters are read, to
     match Rust's extract_dependencies behavior. Only flags that passed
     ``_omit_unsupported_flags`` are serialized, so every other document here is a
-    readable config version 1.
+    readable config version 1 or a supported v2 document, which has no dependencies.
     """
-    if _is_unevaluable(flag_data):
+    if not _reads_v1_conditions(flag_data):
         return set()
     return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
+
+
+def _reads_v1_conditions(flag_data: dict[str, Any]) -> bool:
+    """Whether a serialized flag's release conditions are read: evaluable, and a v1
+    document (a kept v2 document has no cohort or flag references)."""
+    return not _is_unevaluable(flag_data) and detect_config_format(flag_data.get("filters", {})).kind == "v1"
+
+
+def _validates_v2(filters: Mapping[str, Any]) -> bool:
+    """Whether the shared validator admits a v2 document under the deployed filter-size
+    limit, the bound the Rust reader also applies. Rust may still reject what it cannot
+    read; the service then returns that one flag with ``failed: true`` and a
+    ``flag_data_parsing_error`` reason and still evaluates the rest.
+    """
+    # Deferred: the validator imports posthog.hogql, which must stay off the django.setup() path.
+    from products.feature_flags.backend.facade.config_validation import (  # noqa: PLC0415
+        ConfigValidationError,
+        ValidationLimits,
+        validate_config,
+    )
+
+    limits = ValidationLimits(
+        max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=sys.maxsize
+    )
+    try:
+        validate_config(filters, limits=limits)
+    except ConfigValidationError:
+        return False
+    return True
 
 
 def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     """The flag ids a stored row's release conditions reference, or ``None`` when this
     cache cannot carry the row.
 
-    A non-object or non-v1 document is rejected whatever the row's lifecycle, so an
+    A non-object document and an unsupported discriminator are rejected whatever the
+    row's lifecycle. A v2 document is carried verbatim, with no dependencies, only when
+    the row is active and ``_validates_v2`` admits it. Any other v2 row is rejected, so an
     inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
     not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
     conditions cannot be read is rejected instead of failing the team.
@@ -135,7 +167,10 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     filters = flag.filters
     if not isinstance(filters, Mapping):
         return None
-    if detect_config_format(filters).kind != "v1":
+    kind = detect_config_format(filters).kind
+    if kind == "v2":
+        return set() if flag.active and not flag.deleted and _validates_v2(filters) else None
+    if kind != "v1":
         return None
     if not flag.active or flag.deleted:
         return set()
@@ -219,7 +254,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if _is_unevaluable(flag):
+        if not _reads_v1_conditions(flag):
             continue
         cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
     return cohort_ids

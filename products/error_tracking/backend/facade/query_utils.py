@@ -6,6 +6,8 @@ from typing import cast
 from posthog.hogql.escape_sql import escape_hogql_string
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
+# The issue detail tool returns the full description, so list rows keep only a preview.
+MAX_LIST_DESCRIPTION_CHARS = 300
 
 ISSUE_FIELDS = [
     "id",
@@ -189,6 +191,19 @@ def pick_fields(record: dict[str, object], fields: list[str]) -> dict[str, objec
     return {field: record[field] for field in fields if field in record}
 
 
+def build_list_issue(issue: dict[str, object], include_volume: bool) -> dict[str, object]:
+    row = pick_fields(issue, LIST_ISSUE_FIELDS)
+    if "description" in row:
+        row["description"] = truncate_text(row["description"], MAX_LIST_DESCRIPTION_CHARS)
+    aggregations = as_record(row.get("aggregations"))
+    if aggregations is not None and not include_volume:
+        # The query always computes one volume bucket, which only repeats the occurrence count.
+        row["aggregations"] = {
+            key: value for key, value in aggregations.items() if key not in {"volumeRange", "volume_buckets"}
+        }
+    return row
+
+
 def to_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
@@ -210,11 +225,11 @@ def parse_jsonish(value: object) -> object:
     return parsed
 
 
-def truncate_text(value: object) -> object:
-    if not isinstance(value, str) or len(value) <= MAX_NORMALIZED_TEXT_CHARS:
+def truncate_text(value: object, max_chars: int = MAX_NORMALIZED_TEXT_CHARS) -> object:
+    if not isinstance(value, str) or len(value) <= max_chars:
         return value
     suffix = f"… [truncated from {len(value)} chars]"
-    return f"{value[: MAX_NORMALIZED_TEXT_CHARS - len(suffix)]}{suffix}"
+    return f"{value[: max_chars - len(suffix)]}{suffix}"
 
 
 def as_record(value: object) -> dict[str, object] | None:

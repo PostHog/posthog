@@ -31,7 +31,12 @@ describe("withSelectionPosition", () => {
       }),
     ).toEqual({
       ...selection,
-      anchor: { top: 80, endX: 230, bottom: 90 },
+      anchor: {
+        top: 80,
+        endX: 230,
+        bottom: 90,
+        bounds: { top: 100, left: 200, right: 600, bottom: 500 },
+      },
     });
   });
 });

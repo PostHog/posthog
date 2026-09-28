@@ -22,13 +22,21 @@ from products.signals.backend.scout_harness.lazy_seed import (
     SyncResult,
     _compute_canonical_hash,
     _compute_row_hash,
+    canonical_structured_output_schema_for,
     discover_canonical_skills,
     reset_canonical_caches,
     seed_canonical_skills,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.tools.structured_output import (
+    InvalidStructuredOutputError,
+    StructuredOutputRecord,
+    _validate_records,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+_SCHEMA_JSON = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
 
 
 @pytest.fixture(autouse=True)
@@ -609,6 +617,148 @@ class TestDiscoverCanonicalSkills:
         )
         with pytest.raises(CanonicalSkillParseError, match="char limit"):
             discover_canonical_skills(tmp_path)
+
+
+class TestStructuredOutputSchemaFrontmatter:
+    """`scout-structured-output-schema`: the record contract a measurement scout ships."""
+
+    def test_parses_the_schema_from_the_named_bundled_file(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                scout-structured-output-schema: references/out.schema.json
+                ---
+            """,
+            body="# Bar\n",
+            bundled_files={"references/out.schema.json": _SCHEMA_JSON},
+        )
+        skill = discover_canonical_skills(tmp_path)[0]
+        assert skill.structured_output_schema == {"type": "object", "properties": {"verdict": {"type": "string"}}}
+        # The file also rides in the bundle, which is what folds the schema into the content
+        # hash — without it a schema edit would never reach a team that already has the scout.
+        assert "references/out.schema.json" in [f.path for f in skill.files]
+
+    def test_defaults_to_no_schema(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="---\nname: signals-scout-bar\ndescription: bar skill\n---\n",
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].structured_output_schema is None
+
+    @pytest.mark.parametrize(
+        "schema_yaml,schema_content,expected_error",
+        [
+            ("scout-structured-output-schema:", None, "must be a non-empty string"),
+            ("scout-structured-output-schema: 17", None, "must be a non-empty string"),
+            ("scout-structured-output-schema: out.schema.json", None, "must name a bundled file"),
+            ("scout-structured-output-schema: ../out.schema.json", None, "must name a bundled file"),
+            ("scout-structured-output-schema: references/../SKILL.md", None, "must name a bundled file"),
+            ("scout-structured-output-schema: references/missing.json", None, "must name a bundled file"),
+            ("scout-structured-output-schema: references/out.schema.json", "{not json", "not valid JSON"),
+            ("scout-structured-output-schema: references/out.schema.json", '{"type": "array"}', "is invalid"),
+            (
+                "scout-structured-output-schema: references/out.schema.json",
+                '{"type": "object", "properties": {"a": {"pattern": "^(a+)+$"}}}',
+                "is invalid",
+            ),
+        ],
+    )
+    def test_rejects_a_malformed_declaration(
+        self, tmp_path: Path, schema_yaml: str, schema_content: str | None, expected_error: str
+    ) -> None:
+        # A schema that does not survive validation must fail the harness sync once, rather than
+        # seeding a contract that fails every record call of every run on every team. A path that
+        # is not a bundled file fails the same way whether it is outside the bundle dirs, an
+        # escape, or simply absent: the bundle is the only place the schema is looked for.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{schema_yaml}\n---\n",
+            body="# Bar\n",
+            bundled_files={"references/out.schema.json": schema_content} if schema_content else None,
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
+    def test_rejects_the_key_on_a_companion_skill(self, tmp_path: Path) -> None:
+        # A companion skill never gets a config, so there is nothing for the schema to land on.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="authoring-scouts",
+            frontmatter="""
+                ---
+                name: authoring-scouts
+                description: companion authoring guide
+                scout-structured-output-schema: references/out.schema.json
+                ---
+            """,
+            body="# Authoring\n",
+            bundled_files={"references/out.schema.json": _SCHEMA_JSON},
+        )
+        with pytest.raises(
+            CanonicalSkillParseError,
+            match="Only a signals-scout-\\* skill may declare 'scout-structured-output-schema'",
+        ):
+            discover_canonical_skills(tmp_path)
+
+
+class TestShippedStructuredOutputSchemas:
+    """The schemas the canonical fleet ships, checked against the contract the record endpoint
+    enforces. Discovery already rejects an invalid schema; these pin what the valid one accepts."""
+
+    def test_mcp_tool_calls_schema_accepts_one_record_of_each_kind(self) -> None:
+        # Validated through the endpoint's own `_validate_records`, not a fresh validator: the
+        # endpoint resolves references through a no-retrieval registry and applies its own size
+        # caps, so a schema that only passes a bare validator can still fail every real record
+        # call — and validation is all-or-nothing, so one rejected record loses the whole batch.
+        schema = canonical_structured_output_schema_for("signals-scout-mcp-tool-calls")
+        assert schema is not None
+
+        rollup = {
+            "mcp_record_kind": "category_rollup",
+            "mcp_metrics_version": "1",
+            "mcp_regime": "hono",
+            "mcp_window_days": 7,
+            "mcp_category": "all",
+            "mcp_calls": 4000,
+            "mcp_errors": 240,
+            "mcp_sessions": 900,
+            "mcp_users": 30,
+            "mcp_error_rate_pct": 6.0,
+            "mcp_struggle_session_pct": None,
+            "mcp_p95_duration_ms": 1830.0,
+            "mcp_problem_tools": 2,
+            "mcp_share_of_project_calls_pct": 100.0,
+            "mcp_report_action": "authored",
+        }
+        share = {
+            "mcp_record_kind": "tool_session_share",
+            "mcp_metrics_version": "1",
+            "mcp_tool": "execute-sql",
+            "mcp_source": "self_driving",
+            "mcp_category": "SQL",
+            "mcp_sessions_with_call": 1200,
+            "mcp_sessions_total": 4000,
+            "mcp_session_share_pct": 30.0,
+            "mcp_calls_per_session": 1.5,
+            "mcp_share_pct_prior_window": 12.0,
+        }
+        _validate_records([StructuredOutputRecord(payload=rollup), StructuredOutputRecord(payload=share)], schema)
+        # Closed on both branches: a stray field is a typo nobody would otherwise see, and a
+        # payload that satisfies both branches would make the discriminator meaningless.
+        for rejected in (
+            {**rollup, "mcp_unexpected": 1},
+            {**share, "mcp_report_action": "authored"},
+            {**rollup, "mcp_report_action": "filed"},
+        ):
+            with pytest.raises(InvalidStructuredOutputError):
+                _validate_records([StructuredOutputRecord(payload=rejected)], schema)
 
 
 class TestDeprecationFrontmatter:
@@ -1408,6 +1558,28 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert dict(named)["signals-scout-apm"] == "APM"
         assert dict(named)["signals-scout-mcp-tool-calls"] == "MCP tool calls"
         assert all(display_name for _, display_name in named)
+
+    def test_real_fleet_seeds_the_structured_output_schema_and_backfills_it_but_never_a_team_edit(self) -> None:
+        # The schema's presence on the config is what switches the record channel on, so a dropped
+        # frontmatter key means the scout records nothing and nobody notices. Every config of this
+        # scout predates the key, so the backfill is the only way they acquire one — and it runs on
+        # every tick, so it must lose to a team's own schema forever.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+        configs = SignalScoutConfig.all_teams.filter(team=self.team)
+        canonical_schema = canonical_structured_output_schema_for("signals-scout-mcp-tool-calls")
+
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == canonical_schema
+        assert configs.get(skill_name="signals-scout-general").structured_output_schema is None
+
+        configs.filter(skill_name="signals-scout-mcp-tool-calls").update(structured_output_schema=None)
+        register_missing_configs(self.team.id)
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == canonical_schema
+
+        team_schema = {"type": "object", "properties": {"ours": {"type": "string"}}}
+        configs.filter(skill_name="signals-scout-mcp-tool-calls").update(structured_output_schema=team_schema)
+        register_missing_configs(self.team.id)
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").structured_output_schema == team_schema
 
     def test_reconcile_names_a_row_seeded_before_the_label_existed_but_never_a_rename(self) -> None:
         # Every canonical config predates the frontmatter key, so the backfill is the only way they

@@ -857,6 +857,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalCount(sortKey, undefined)
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsUserBlastRadiusCreate() from 'products/feature_flags/frontend/generated/api' instead.
                 const response: UserBlastRadiusType = await api.create(
                     `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                     {
