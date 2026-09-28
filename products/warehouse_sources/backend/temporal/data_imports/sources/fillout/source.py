@@ -51,6 +51,7 @@ class FilloutSource(SimpleSource[FilloutSourceConfig]):
 
 Supported endpoints:
 - `forms`
+- `form_metadata`
 - `submissions`
 
 You can generate an API key in your Fillout account under **Settings → Developer**.

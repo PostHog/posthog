@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -25,9 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
     FACTORIAL_ENDPOINTS,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial.make_tracked_session"
-)
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial"
+_SESSION_FACTORY = f"{_MODULE}.make_tracked_session"
 
 # Paginator logic ignores the request URL (it only touches params), so any supported base is fine here.
 _BASE_URL = base_url(API_VERSION_2026_04_01)
@@ -175,54 +175,56 @@ def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Respons
     return resp
 
 
+def _drive(
+    endpoint: str,
+    manager: MagicMock,
+    responses: list[Response],
+    api_version: str = API_VERSION_2026_04_01,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Run ``factorial_source`` to exhaustion against canned pages, capturing every request."""
+    sent_params: list[dict[str, Any]] = []
+    sent_urls: list[str] = []
+    response_iter = iter(responses)
+
+    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+        sent_params.append(dict(request.params or {}))
+        sent_urls.append(request.url)
+        return next(response_iter)
+
+    with patch(_SESSION_FACTORY) as MockSession:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+
+        source = factorial_source(
+            api_key="test-key",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="test_job",
+            resumable_source_manager=manager,
+            api_version=api_version,
+        )
+        list(cast(Iterable[Any], source.items()))
+        return sent_params, sent_urls
+
+
+def _page_body(items: list[dict[str, Any]], meta: dict[str, Any]) -> dict[str, Any]:
+    return {"data": items, "meta": meta}
+
+
 class TestFactorialSourceResumeBehavior:
     """End-to-end resume behaviour of ``factorial_source`` via ``rest_api_resource``."""
-
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        api_version: str = API_VERSION_2026_04_01,
-    ) -> tuple[list[dict[str, Any]], list[str]]:
-        sent_params: list[dict[str, Any]] = []
-        sent_urls: list[str] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(_SESSION_FACTORY) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source = factorial_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                api_version=api_version,
-            )
-            list(cast(Iterable[Any], source.items()))
-            return sent_params, sent_urls
-
-    def _page_body(self, items: list[dict[str, Any]], meta: dict[str, Any]) -> dict[str, Any]:
-        return {"data": items, "meta": meta}
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
         responses = [
-            _make_http_response(self._page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
-            _make_http_response(self._page_body([{"id": 999}], {"has_next_page": False, "end_cursor": None})),
+            _make_http_response(_page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
+            _make_http_response(_page_body([{"id": 999}], {"has_next_page": False, "end_cursor": None})),
         ]
-        sent_params, _ = self._drive("employees", manager, responses)
+        sent_params, _ = _drive("employees", manager, responses)
 
         # First request starts without a cursor; the second carries the advanced after_id.
         assert "after_id" not in sent_params[0]
@@ -238,9 +240,9 @@ class TestFactorialSourceResumeBehavior:
         manager.load_state.return_value = FactorialResumeConfig(after_id="MTY=")
 
         responses = [
-            _make_http_response(self._page_body([{"id": 17}], {"has_next_page": False, "end_cursor": None})),
+            _make_http_response(_page_body([{"id": 17}], {"has_next_page": False, "end_cursor": None})),
         ]
-        sent_params, _ = self._drive("employees", manager, responses)
+        sent_params, _ = _drive("employees", manager, responses)
 
         assert sent_params[0].get("after_id") == "MTY="
         manager.load_state.assert_called_once()
@@ -251,9 +253,9 @@ class TestFactorialSourceResumeBehavior:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
         responses = [
-            _make_http_response(self._page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
+            _make_http_response(_page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
         ]
-        _, sent_urls = self._drive("employees", manager, responses, api_version=api_version)
+        _, sent_urls = _drive("employees", manager, responses, api_version=api_version)
 
         assert sent_urls
         assert all(url.startswith(f"{base_url(api_version)}/resources/employees/employees") for url in sent_urls)
@@ -263,9 +265,9 @@ class TestFactorialSourceResumeBehavior:
         manager.can_resume.return_value = False
 
         responses = [
-            _make_http_response(self._page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
+            _make_http_response(_page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
         ]
-        self._drive("employees", manager, responses)
+        _drive("employees", manager, responses)
 
         manager.save_state.assert_not_called()
 
@@ -274,11 +276,77 @@ class TestFactorialSourceResumeBehavior:
         manager.can_resume.return_value = False
 
         responses = [
-            _make_http_response(self._page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
+            _make_http_response(_page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
         ]
-        self._drive("employees", manager, responses)
+        _drive("employees", manager, responses)
 
         manager.load_state.assert_not_called()
+
+
+class TestEndpointParams:
+    """Static endpoint params must survive both the paginator and the page walk."""
+
+    def test_worked_times_sends_required_include_flags_on_every_page(self) -> None:
+        # Factorial rejects `attendance/worked_times` without these two flags, and the paginator
+        # rewrites the request in place between pages — so page two must still carry them.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(_page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
+            _make_http_response(_page_body([{"id": "1_2024-07-02"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        sent_params, _ = _drive("worked_times", manager, responses)
+
+        assert len(sent_params) == 2
+        for params in sent_params:
+            assert params["include_time_range_category"] == "false"
+            assert params["include_non_attendable_employees"] == "false"
+
+    def test_endpoint_without_params_sends_pagination_params_only(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(_page_body([{"id": "1"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        sent_params, _ = _drive("time_records", manager, responses)
+
+        assert sent_params == [{"limit": PAGE_SIZE}]
+
+    def test_allowance_stats_pins_one_reference_date_across_pages(self) -> None:
+        # Factorial recomputes allowance_stats against the date it receives, defaulting to today,
+        # so a walk that crosses midnight would otherwise mix two as-of dates into one table.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(_page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
+            _make_http_response(_page_body([{"id": "1/2/x"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        with patch(f"{_MODULE}.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 5, 4, 23, 59, tzinfo=UTC)
+            sent_params, _ = _drive("allowance_stats", manager, responses)
+
+        assert [p["reference_date"] for p in sent_params] == ["2026-05-04", "2026-05-04"]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [FactorialResumeConfig(after_id="Mjc=", reference_date="2026-05-04")]
+
+    def test_allowance_stats_resume_reuses_the_saved_reference_date(self) -> None:
+        # A resumed walk must keep the earlier pages' as-of date, not the day it resumes on.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = FactorialResumeConfig(after_id="MTY=", reference_date="2026-05-04")
+
+        responses = [
+            _make_http_response(_page_body([{"id": "1/2/x"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        with patch(f"{_MODULE}.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 5, 5, 0, 1, tzinfo=UTC)
+            sent_params, _ = _drive("allowance_stats", manager, responses)
+
+        assert sent_params[0]["reference_date"] == "2026-05-04"
+        assert sent_params[0]["after_id"] == "MTY="
 
 
 class TestValidateCredentials:

@@ -783,7 +783,16 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     487: ErrorCodeMeta("CANNOT_GET_CREATE_DICTIONARY_QUERY"),
     489: ErrorCodeMeta("INCORRECT_DICTIONARY_DEFINITION"),
     490: ErrorCodeMeta("CANNOT_FORMAT_DATETIME"),
-    491: ErrorCodeMeta("UNACCEPTABLE_URL"),
+    # Raised when a warehouse table points at a storage host the query engine may not read.
+    # The raw ClickHouse message echoes the whole URL, which a public shared insight must not
+    # show, so carry a fixed message instead.
+    491: ErrorCodeMeta(
+        "UNACCEPTABLE_URL",
+        user_safe=(
+            "PostHog can't read from this storage host. Check the files URL pattern on the table points at "
+            "S3, Google Cloud Storage, Cloudflare R2, or Azure Blob Storage."
+        ),
+    ),
     492: ErrorCodeMeta("ACCESS_ENTITY_NOT_FOUND"),
     493: ErrorCodeMeta("ACCESS_ENTITY_ALREADY_EXISTS"),
     495: ErrorCodeMeta("ACCESS_STORAGE_READONLY"),
