@@ -495,7 +495,7 @@ describe("ClaudeAcpAgent session creation", () => {
         mcpServers: [],
         _meta: { taskRunId: "run-init-fail-new" },
       }),
-    ).rejects.toThrow(/init boom/);
+    ).rejects.toThrow("Session initialization failed");
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
@@ -598,7 +598,7 @@ describe("ClaudeAcpAgent session creation", () => {
       name: "a new session whose model switch fails",
       kind: "new",
       setModel: () => Promise.reject(new Error("set model boom")),
-      error: "Session model switch failed: set model boom",
+      error: "Session model switch failed",
     },
   ] as const)(
     "rejects and closes the query for $name",
@@ -678,7 +678,7 @@ describe("ClaudeAcpAgent session creation", () => {
     };
 
     await expect(agent.resumeSession(params)).rejects.toThrow(
-      "Session model switch failed: set model boom",
+      "Session model switch failed",
     );
 
     nextSetModel = () => Promise.resolve();
@@ -701,7 +701,7 @@ describe("ClaudeAcpAgent session creation", () => {
         mcpServers: [],
         _meta: { taskRunId: "run-init-fail-resume" },
       }),
-    ).rejects.toThrow(/resume boom/);
+    ).rejects.toThrow("Session resumption failed");
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
