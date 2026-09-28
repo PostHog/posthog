@@ -2282,6 +2282,28 @@ class TestExperimentService(APIBaseTest):
         assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
         assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
 
+    def test_analytics_metadata_counts_variants_with_notes_and_screenshots(self):
+        experiment = self._create_draft_experiment()
+        experiment.parameters = {
+            **(experiment.parameters or {}),
+            "variant_notes": {"control": "Current 3-step checkout", "test": "   "},
+            "variant_screenshot_media_ids": {"control": [], "test": ["media-1", "media-2"]},
+        }
+
+        metadata = experiment.get_analytics_metadata()
+
+        # Blank notes and empty screenshot lists don't count
+        assert metadata["variants_with_notes_count"] == 1
+        assert metadata["variants_with_screenshots_count"] == 1
+
+    def test_analytics_metadata_counts_are_zero_without_variant_details(self):
+        experiment = self._create_draft_experiment()
+
+        metadata = experiment.get_analytics_metadata()
+
+        assert metadata["variants_with_notes_count"] == 0
+        assert metadata["variants_with_screenshots_count"] == 0
+
     @parameterized.expand(
         [
             ("name", {"name": "Renamed experiment"}, "name"),
