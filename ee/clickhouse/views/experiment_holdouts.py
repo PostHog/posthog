@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.documentation import FeatureFlagConditionGroupSchemaSerializer
+from posthog.api.documentation.filter_serializers import FeatureFlagConditionGroupSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 

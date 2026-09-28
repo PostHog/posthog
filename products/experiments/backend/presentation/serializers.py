@@ -33,7 +33,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.documentation.filter_serializers import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin

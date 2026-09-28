@@ -6,11 +6,11 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 
-from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action

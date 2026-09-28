@@ -39,7 +39,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.documentation.filter_serializers import FeatureFlagFiltersSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action

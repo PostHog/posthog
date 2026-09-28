@@ -15,7 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
-from drf_spectacular.utils import empty
+from drf_spectacular.utils import empty, extend_schema
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -28,7 +28,6 @@ from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
 from posthog.schema import QueryTiming
 
-from posthog.api.documentation import extend_schema
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,

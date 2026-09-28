@@ -31,7 +31,7 @@ from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, Convers
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin

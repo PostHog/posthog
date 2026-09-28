@@ -5,7 +5,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
+from posthog.api.documentation.autoschema import PostHogAutoSchema, _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin

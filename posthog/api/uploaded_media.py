@@ -20,7 +20,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import (

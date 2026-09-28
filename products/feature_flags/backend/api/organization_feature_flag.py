@@ -8,14 +8,14 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.documentation import _FallbackSerializer, extend_schema
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
