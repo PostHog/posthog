@@ -270,6 +270,7 @@ export interface supportTicketSceneLogicValues {
     person: PersonType | null
     personLoading: boolean
     previousTickets: Ticket[]
+    previousTicketsFailed: boolean
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
@@ -707,7 +708,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     const person = values.person
                     const currentTicketId = props.id
 
-                    if (!person?.distinct_ids || person.distinct_ids.length === 0) {
+                    if (!person?.uuid) {
                         return []
                     }
 
@@ -721,26 +722,22 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         emails.add(values.ticket.email_from)
                     }
 
-                    try {
-                        const response = await api.conversationsTickets.list({
-                            distinct_ids: person.distinct_ids.join(','),
-                            ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
-                        })
-                        const allTickets = response.results || []
+                    // The server resolves the person's distinct_ids: a person can have too many to fit in a URL.
+                    const response = await api.conversationsTickets.list({
+                        person_uuid: person.uuid,
+                        ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
+                    })
+                    const allTickets = response.results || []
 
-                        // Exclude current ticket
-                        const uniqueTickets = allTickets.filter(
-                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
-                        )
+                    // Exclude current ticket
+                    const uniqueTickets = allTickets.filter(
+                        (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                    )
 
-                        // Sort by created_at descending (most recent first)
-                        return uniqueTickets.sort(
-                            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                        )
-                    } catch (error) {
-                        console.error('Failed to load previous tickets:', error)
-                        return []
-                    }
+                    // Sort by created_at descending (most recent first)
+                    return uniqueTickets.sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )
                 },
             },
         ],
@@ -764,6 +761,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     })),
     reducers({
+        previousTicketsFailed: [
+            false,
+            {
+                loadPreviousTickets: () => false,
+                loadPreviousTicketsFailure: () => true,
+            },
+        ],
         ticket: [
             null as Ticket | null,
             {

@@ -834,7 +834,14 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         // Person carries a customer-controlled properties.email distinct from the ticket's email_from,
         // so the assertions prove the match uses email_from (when verified) and never properties.email.
         personsListMock.mockReset().mockResolvedValue({
-            results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
+            results: [
+                {
+                    id: 'p1',
+                    uuid: 'person-uuid-1',
+                    distinct_ids: ['user-1'],
+                    properties: { email: 'analytics@example.com' },
+                },
+            ],
         })
         ticketsListMock.mockReset().mockResolvedValue({ results: [] })
         ticketGetMock.mockReset()
@@ -852,10 +859,10 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         [
             'verified email ticket matches by email_from',
             true,
-            { distinct_ids: 'user-1', emails: 'verified@example.com' },
+            { person_uuid: 'person-uuid-1', emails: 'verified@example.com' },
         ],
-        ['unverified ticket omits emails', false, { distinct_ids: 'user-1' }],
-        ['unknown identity omits emails', null, { distinct_ids: 'user-1' }],
+        ['unverified ticket omits emails', false, { person_uuid: 'person-uuid-1' }],
+        ['unknown identity omits emails', null, { person_uuid: 'person-uuid-1' }],
     ])('%s', async (_name, identity_verified, expectedParams) => {
         ticketGetMock.mockResolvedValue({
             ...makeTicket(),
@@ -872,6 +879,24 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
         expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+
+    it('marks previous tickets as failed instead of showing an empty history', async () => {
+        ticketGetMock.mockResolvedValue({ ...makeTicket(), distinct_id: 'user-1' })
+        ticketsListMock.mockRejectedValue(new Error('Request-URI Too Large'))
+
+        logic = supportTicketSceneLogic({ id: 42 })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadPreviousTicketsFailure'])
+        expect(logic.values.previousTicketsFailed).toBe(true)
+
+        ticketsListMock.mockResolvedValue({ results: [] })
+        await expectLogic(logic, () => {
+            logic.actions.loadPreviousTickets()
+        }).toDispatchActions(['loadPreviousTicketsSuccess'])
+        expect(logic.values.previousTicketsFailed).toBe(false)
     })
 })
 

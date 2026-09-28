@@ -2027,7 +2027,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketEmailFilter(APIBaseTest):
-    """Tests the `emails` query param used by the previous-tickets panel to match related tickets."""
+    """Tests the `emails` and `person_uuid` query params used by the previous-tickets panel to match related tickets."""
 
     def _create_ticket(self, distinct_id, email_from=None):
         return Ticket.objects.create_with_number(
@@ -2061,6 +2061,34 @@ class TestTicketEmailFilter(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
+
+    def test_filter_by_person_uuid_matches_all_of_the_persons_distinct_ids(self, mock_on_commit):
+        person = create_person(team=self.team, distinct_ids=[f"did-{i}" for i in range(150)])
+        first = self._create_ticket(distinct_id="did-0")
+        beyond_old_url_cap = self._create_ticket(distinct_id="did-149")
+        self._create_ticket(distinct_id="someone-else")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?person_uuid={person.uuid}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {first.ticket_number, beyond_old_url_cap.ticket_number}
+
+    @parameterized.expand(
+        [
+            ("unknown_person", "00000000-0000-0000-0000-000000000000", status.HTTP_200_OK),
+            ("invalid_uuid", "not-a-uuid", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_filter_by_person_uuid_never_falls_back_to_all_tickets(
+        self, mock_on_commit, _name, person_uuid, expected_status
+    ):
+        self._create_ticket(distinct_id="did-1")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?person_uuid={person_uuid}")
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["count"] == 0
 
     def test_filter_by_email_no_match_returns_empty(self, mock_on_commit):
         self._create_ticket(distinct_id="did-1", email_from="alice@example.com")

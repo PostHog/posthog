@@ -51,7 +51,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
-from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
@@ -315,6 +315,7 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
 
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
+PERSON_DISTINCT_IDS_MATCH_LIMIT = 1000
 
 
 class BulkUpdateStatusRequestSerializer(serializers.Serializer):
@@ -786,6 +787,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if ids:
                 match_q |= Q(distinct_id__in=ids)
 
+        # A person can have more distinct_ids than fit in a URL, so resolve them here instead.
+        person_uuid_param = self.request.query_params.get("person_uuid")
+        if person_uuid_param:
+            person_ids = self._distinct_ids_for_person_uuid(person_uuid_param.strip())
+            # Match nothing for an unknown person, rather than drop the filter and return every ticket.
+            match_q |= Q(distinct_id__in=person_ids) if person_ids else Q(pk__in=[])
+
         emails_param = self.request.query_params.get("emails")
         if emails_param:
             emails = [e.strip() for e in emails_param.split(",") if e.strip()][:100]
@@ -814,6 +822,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
         return apply_ticket_filters(queryset, filters, team=self.team, user=user)
+
+    def _distinct_ids_for_person_uuid(self, person_uuid: str) -> list[str]:
+        try:
+            uuid.UUID(person_uuid)
+        except ValueError:
+            raise ValidationError({"person_uuid": "Must be a valid person UUID."})
+        with personhog_caller_tag("conversations/previous-tickets"):
+            person = get_person_by_uuid(self.team_id, person_uuid, distinct_id_limit=PERSON_DISTINCT_IDS_MATCH_LIMIT)
+        return list(person.distinct_ids) if person else []
 
     def _get_view_filters(self, short_id: str) -> dict[str, Any]:
         """Resolve a saved ticket view into the canonical filter shape for apply_ticket_filters."""
@@ -984,6 +1001,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "person_uuid",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "UUID of a person. Matches tickets whose `distinct_id` is one of the person's distinct IDs "
+                    f"(max {PERSON_DISTINCT_IDS_MATCH_LIMIT}). Combines with `distinct_ids` and `emails` (OR)."
+                ),
             ),
             OpenApiParameter(
                 "emails",

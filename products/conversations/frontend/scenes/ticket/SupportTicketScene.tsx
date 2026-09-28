@@ -94,6 +94,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         eventsQuery,
         previousTickets,
         previousTicketsLoading,
+        previousTicketsFailed,
         linkedReports,
         exceptionsQuery,
         chatPanelWidth,
@@ -141,6 +142,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
+        loadPreviousTickets,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -635,6 +637,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                previousTicketsFailed={previousTicketsFailed}
+                                onRetry={loadPreviousTickets}
                                 personDistinctIds={person?.distinct_ids}
                             />
                         </>

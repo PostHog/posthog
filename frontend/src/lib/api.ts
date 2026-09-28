@@ -6808,6 +6808,7 @@ const api = {
                 assignee?: string
                 tags?: string
                 distinct_ids?: string
+                person_uuid?: string
                 emails?: string
                 search?: string
                 date_from?: string
