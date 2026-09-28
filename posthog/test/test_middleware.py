@@ -30,8 +30,9 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
+    ActivityLoggingMiddleware,
     ManagedProxyClientIPMiddleware,
-    ManagedProxyClientIPOutcome,
+    SignedClientIPOutcome,
     per_request_logging_context_middleware,
 )
 from posthog.models.organization import Organization
@@ -85,6 +86,24 @@ def _managed_proxy_headers(
         "HTTP_X_POSTHOG_CLIENT_IP": ip,
         "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(timestamp),
         "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, signed_ip or ip, str(timestamp)),
+    }
+
+
+MCP_CLIENT_IP_KEY = "mcp-client-ip-test-key"
+MCP_CLIENT_IP_OLD_KEY = "mcp-client-ip-old-key"
+MCP_POD_IP = "10.0.0.5"
+
+
+def _mcp_client_ip_headers(
+    ip: str = MANAGED_PROXY_CLIENT_IP,
+    *,
+    key: str = MCP_CLIENT_IP_KEY,
+    timestamp: int | str = MANAGED_PROXY_NOW,
+) -> dict[str, Any]:  # dict[str, str] does not unpack into the test client's typed keyword arguments
+    return {
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP": ip,
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP": str(timestamp),
+        "HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, ip, str(timestamp)),
     }
 
 
@@ -267,7 +286,7 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
                 "posthog_managed_proxy_client_ip_verifications_total", {"outcome": outcome.value}
             )
             or 0.0
-            for outcome in ManagedProxyClientIPOutcome
+            for outcome in SignedClientIPOutcome
         }
 
     def _run_middleware(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
@@ -2163,6 +2182,81 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertIsNone(self.captured["ip_address"])
+
+    @parameterized.expand(
+        [
+            ("signed ip", _mcp_client_ip_headers(), [MCP_CLIENT_IP_KEY], MANAGED_PROXY_CLIENT_IP, "valid"),
+            (
+                "signed with an older key",
+                _mcp_client_ip_headers("2001:db8::1", key=MCP_CLIENT_IP_OLD_KEY),
+                [MCP_CLIENT_IP_KEY, MCP_CLIENT_IP_OLD_KEY],
+                "2001:db8::1",
+                "valid",
+            ),
+            (
+                "signed with the managed proxy key",
+                _mcp_client_ip_headers(key=MANAGED_PROXY_KEY),
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "bad_signature",
+            ),
+            ("no key configured", _mcp_client_ip_headers(), [], MCP_POD_IP, "not_configured"),
+            (
+                "expired timestamp",
+                _mcp_client_ip_headers(timestamp=MANAGED_PROXY_NOW - 61),
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "timestamp_out_of_window",
+            ),
+            (
+                "unsigned ip",
+                {"HTTP_X_POSTHOG_MCP_CLIENT_IP": MANAGED_PROXY_CLIENT_IP},
+                [MCP_CLIENT_IP_KEY],
+                MCP_POD_IP,
+                "invalid_input",
+            ),
+            ("no mcp headers", {}, [MCP_CLIENT_IP_KEY], MCP_POD_IP, None),
+        ]
+    )
+    def test_mcp_signed_client_ip(
+        self,
+        _name: str,
+        meta: dict[str, Any],
+        signing_keys: list[str],
+        expected_ip: str,
+        expected_outcome: str | None,
+    ) -> None:
+        def verification_counts() -> dict[str, float]:
+            return {
+                outcome.value: REGISTRY.get_sample_value(
+                    "posthog_mcp_client_ip_verifications_total", {"outcome": outcome.value}
+                )
+                or 0.0
+                for outcome in SignedClientIPOutcome
+            }
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            self.captured["ip_address"] = self.activity_storage.get_ip_address()
+            self.captured["request_ip"] = get_ip_address(request)
+            self.captured["leftover"] = [name for name in request.headers if name.lower().startswith("x-posthog-mcp")]
+            return HttpResponse()
+
+        request = self.factory.get("/", REMOTE_ADDR=MCP_POD_IP, **meta)
+        request.user = self.user
+        # An earlier middleware may read request.headers, which caches a snapshot of META.
+        assert request.headers.get("x-posthog-mcp-client-ip") == meta.get("HTTP_X_POSTHOG_MCP_CLIENT_IP")
+        counts_before = verification_counts()
+
+        with self.settings(MCP_CLIENT_IP_SIGNING_KEYS=signing_keys), time_machine.travel(MANAGED_PROXY_NOW, tick=False):
+            ActivityLoggingMiddleware(get_response)(request)
+
+        assert self.captured["ip_address"] == expected_ip
+        assert self.captured["request_ip"] == MCP_POD_IP
+        assert self.captured["leftover"] == []
+        expected_counts = dict(counts_before)
+        if expected_outcome:
+            expected_counts[expected_outcome] += 1
+        assert verification_counts() == expected_counts
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

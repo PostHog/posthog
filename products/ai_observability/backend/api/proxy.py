@@ -48,7 +48,7 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     get_playground_models,
 )
-from products.ai_observability.backend.llm.errors import UnsupportedProviderError
+from products.ai_observability.backend.llm.errors import ProviderConfigurationError, UnsupportedProviderError
 from products.ai_observability.backend.models.provider_keys import LLMProvider, LLMProviderKey
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
@@ -71,6 +71,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "azure_openai": "Azure OpenAI",
     "minimax": "MiniMax",
     "zeabur": "Zeabur AI Hub",
+    "openai_compatible": "OpenAI-compatible",
 }
 
 
@@ -223,6 +224,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                         on_error(Exception("Client disconnected"), perf_counter() - started)
                     return
                 yield chunk.to_sse().encode()
+        except ProviderConfigurationError as e:
+            if on_error:
+                on_error(e, perf_counter() - started)
+            yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
         except Exception as e:
             if on_error:
                 on_error(e, perf_counter() - started)
@@ -362,6 +367,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         except UnsupportedProviderError:
             return Response({"error": "Unsupported provider"}, status=400)
+
+        except ProviderConfigurationError as e:
+            # The key's stored configuration is unusable and a retry cannot fix it, so report the
+            # reason instead of logging an exception on every attempt and returning a 500.
+            return Response({"error": str(e)}, status=400)
 
         except Exception as e:
             logger.exception("llm_proxy_error", error=str(e))
