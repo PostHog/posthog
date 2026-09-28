@@ -182,7 +182,7 @@ RUN cd /code/common/plugin_transpiler && \
 FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -286,7 +286,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.13.13-bookworm@sha256:0544e35a04d3d3272a5e180a402065bfa84402bf39431a727f8989e32ffce979
+FROM python:3.14.7-bookworm@sha256:ecac9e212daacda8a702eae372fceebc0ee36f5805abe087880367e8d061fa5b
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -435,6 +435,14 @@ RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
 COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
+
+# Pre-compile first-party bytecode. Site-packages are already compiled (UV_COMPILE_BYTECODE=1), but
+# the app runs as `nobody` (bin/docker-server), which cannot write __pycache__ under the posthog-owned
+# /code, so without this every process compiled ~1300 first-party modules in memory at every start.
+# Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
+# module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
+RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
+    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

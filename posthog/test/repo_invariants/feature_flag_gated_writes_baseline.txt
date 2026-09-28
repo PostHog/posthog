@@ -12,8 +12,6 @@ products/demo/backend/logic/matrix/matrix.py::Matrix.set_project_up::FeatureFlag
 products/demo/backend/logic/products/hedgebox/matrix.py::HedgeboxMatrix.set_project_up.create_experiment_flag::FeatureFlag.objects.create()
 products/demo/backend/logic/products/hedgebox/matrix.py::HedgeboxMatrix.set_project_up::FeatureFlag.objects.create()
 products/early_access_features/backend/api.py::clear_feature_enrollment::feature_flag.filters =
-products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._copy_feature_flag_to_target::FeatureFlagSerializer()
-products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._copy_feature_flag_to_target::FeatureFlagSerializer(existing_flag)
 products/feature_flags/evals/seeders.py::_create_flag::FeatureFlag.objects.create()
 products/feature_flags/evals/seeders.py::seed_stale_full_rollout_flag::FeatureFlag.objects.create()
 products/feature_flags/evals/seeders.py::seed_stale_partial_rollout_flag::FeatureFlag.objects.create()
