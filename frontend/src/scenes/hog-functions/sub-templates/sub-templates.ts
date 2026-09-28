@@ -21,9 +21,12 @@ export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
+// actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
 const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : ' +
+    "(event.properties.$mcp_tool_name = 'exec' and event.properties.$mcp_exec_verb = 'call' " +
+    "and event.properties.$mcp_exec_target_tool and event.properties.$mcp_exec_target_tool != 'unrecognized' " +
+    '? event.properties.$mcp_exec_target_tool : event.properties.$mcp_tool_name)'
 
 // How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
 // a breakage that is still happening reappears in the channel.

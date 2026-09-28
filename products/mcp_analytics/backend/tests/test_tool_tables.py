@@ -427,6 +427,8 @@ def _emit_tool_call(
     client_name: str | None = None,
     session_id: str | None = None,
     exec_tool: str | None = None,
+    exec_verb: str | None = None,
+    exec_target: str | None = None,
     timestamp: datetime | None = None,
 ) -> None:
     properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
@@ -446,6 +448,10 @@ def _emit_tool_call(
         properties["$mcp_session_id"] = session_id
     if exec_tool is not None:
         properties["$mcp_exec_tool_call_name"] = exec_tool
+    if exec_verb is not None:
+        properties["$mcp_exec_verb"] = exec_verb
+    if exec_target is not None:
+        properties["$mcp_exec_target_tool"] = exec_target
     _create_event(
         team=team,
         event="$mcp_tool_call",
@@ -466,10 +472,22 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
     def test_empty_when_no_calls(self) -> None:
         assert self._run() == []
 
-    def test_aggregates_scalars_and_intent_coverage(self) -> None:
+    @parameterized.expand([("direct", False), ("rejected_exec", True)])
+    def test_aggregates_scalars_and_intent_coverage(self, _name: str, rejected_exec: bool) -> None:
         _emit_tool_call(self.team, distinct_id="d1", duration_ms=100, intent='{"goal":"x"}', session_id="s1")
-        _emit_tool_call(self.team, distinct_id="d1", duration_ms=300, is_error=True, session_id="s1")
+        _emit_tool_call(
+            self.team,
+            distinct_id="d1",
+            duration_ms=300,
+            is_error=True,
+            session_id="s1",
+            tool_name="exec" if rejected_exec else "query_run",
+            exec_verb="call" if rejected_exec else None,
+            exec_target="query_run" if rejected_exec else None,
+        )
         _emit_tool_call(self.team, distinct_id="d2", duration_ms=200, intent="{}", session_id="s2")
+        for verb in ("info", "schema"):
+            _emit_tool_call(self.team, tool_name="exec", exec_verb=verb, exec_target="query_run", is_error=True)
         # Off-tool event must not leak into the aggregation (shared tool filter wiring).
         _emit_tool_call(self.team, distinct_id="d3", tool_name="other", duration_ms=999)
         flush_persons_and_events()
