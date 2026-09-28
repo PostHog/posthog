@@ -107,9 +107,15 @@ def _span_label(*spans: tuple[int, int]) -> dict[str, Any]:
             {"present": True, "moments": [{"startMs": 1_250, "endMs": 4_500, "labelers": 2}]},
         ),
         (
-            "rating_that_is_not_an_integer_is_no_answer",
+            "rating_that_is_not_an_integer_or_is_off_scale_is_no_answer",
             _question("multiple_choice", optionScale={"max": 5}, options=[{"optionId": "a"}]),
-            [{"ratings": {"a": 4}}, {"ratings": {"a": 4}}, {"ratings": {"a": None}}],
+            [
+                {"ratings": {"a": 4}},
+                {"ratings": {"a": 4}},
+                {"ratings": {"a": None}},
+                {"ratings": {"a": 9}},
+                {"ratings": {"a": 9}},
+            ],
             {"ratings": {"a": 4}},
         ),
         ("single_label_is_not_consensus", _question("binary"), [{"choice": True}], None),

@@ -63,7 +63,7 @@ def _majority_answer(question: Question, labels: list[dict[str, Any]]) -> tuple[
         return _majority_value([label.get("choice") for label in labels], lambda choice: {"choice": choice})
     if question.type == "multiple_choice":
         if definition.get("optionScale"):
-            return _median_ratings(labels)
+            return _median_ratings(definition["optionScale"], labels)
         if definition.get("multiple"):
             return _per_option_majority(definition, labels)
         choices = [_single_choice(label) for label in labels]
@@ -122,12 +122,12 @@ def _per_option_majority(
     return {"choiceIndices": majority}, agreement
 
 
-def _median_ratings(labels: list[dict[str, Any]]) -> tuple[dict[str, Any], None] | None:
+def _median_ratings(scale: dict[str, Any], labels: list[dict[str, Any]]) -> tuple[dict[str, Any], None] | None:
     by_option: dict[str, list[int]] = {}
     for label in labels:
         for option_id, rating in (label.get("ratings") or {}).items():
-            # A missing or malformed rating is no answer for that option, the way a span missing an edge is.
-            if type(rating) is int:
+            # A missing, malformed or off-scale rating is no answer for that option, the way a span missing an edge is.
+            if type(rating) is int and 1 <= rating <= scale.get("max", 0):
                 by_option.setdefault(option_id, []).append(rating)
     ratings = {
         option_id: median
