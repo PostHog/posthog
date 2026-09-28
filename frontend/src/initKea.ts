@@ -96,7 +96,8 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
-generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
+generic toast would be a second one. It is a validation result, so it is not reported as an exception.
+Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
@@ -176,6 +177,10 @@ export function initKea({
                 }
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                const isSelfHandledDuplicateKey =
+                    error?.code === 'unique' &&
+                    error?.attr === 'key' &&
+                    DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
@@ -198,10 +203,6 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
-                    const isFeatureFlagDuplicateKey =
-                        error.code === 'unique' &&
-                        error.attr === 'key' &&
-                        DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
                     const isHasDependentsError =
                         error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
 
@@ -220,7 +221,7 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
-                        isFeatureFlagDuplicateKey ||
+                        isSelfHandledDuplicateKey ||
                         isHasDependentsError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
@@ -247,7 +248,12 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
+                if (
+                    shouldReportApiFailure(error) &&
+                    !isSelfHandledNotFound &&
+                    !isSelfHandledExistingMember &&
+                    !isSelfHandledDuplicateKey
+                ) {
                     posthog.captureException(error)
                 }
             },
