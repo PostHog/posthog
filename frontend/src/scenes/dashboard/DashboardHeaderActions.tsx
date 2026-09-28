@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -16,7 +17,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
@@ -289,33 +290,59 @@ export function FullscreenModeActions(): JSX.Element {
     )
 }
 
-export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
+export function DashboardShareButton({ dashboard }: { dashboard: DashboardType }): JSX.Element {
     const { push } = useActions(router)
-    if (!dashboard) {
-        return <></>
-    }
-
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
     )
 
     return (
+        <LemonButton
+            type="secondary"
+            data-attr="dashboard-share-button"
+            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+            size="small"
+            icon={dashboard.is_shared ? <LemonBadge content="On" size="small" /> : <IconShare fontSize="16" />}
+            active={dashboard.is_shared}
+            disabledReason={sharingDisabledReason ?? undefined}
+        >
+            {dashboard.is_shared ? 'Sharing' : 'Share'}
+        </LemonButton>
+    )
+}
+
+export function DashboardEmbeddedShareButton({
+    dashboard,
+    placement,
+}: {
+    dashboard: DashboardType | null
+    placement: DashboardPlacement
+}): JSX.Element | null {
+    if (
+        !dashboard?.is_shared ||
+        ![DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(placement)
+    ) {
+        return null
+    }
+
+    return (
+        <div className="flex justify-end mb-2">
+            <DashboardShareButton dashboard={dashboard} />
+        </div>
+    )
+}
+
+export function ViewModeActions(): JSX.Element {
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
+    if (!dashboard) {
+        return <></>
+    }
+
+    return (
         <>
             <DashboardSubscribeButton />
-            {tiles.length > 0 && (
-                <LemonButton
-                    type="secondary"
-                    data-attr="dashboard-share-button"
-                    onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    disabledReason={sharingDisabledReason ?? undefined}
-                >
-                    Share
-                </LemonButton>
-            )}
+            {(tiles.length > 0 || dashboard.is_shared) && <DashboardShareButton dashboard={dashboard} />}
             {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
         </>

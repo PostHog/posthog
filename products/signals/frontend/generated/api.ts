@@ -63,15 +63,18 @@ import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
+    ScoutToolCatalogueApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
+    SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
     SignalReportClaimApi,
+    SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportMergeRequestApi,
@@ -81,7 +84,9 @@ import type {
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
+    SignalReportReingestionStatusApi,
     SignalReportStateRequestApi,
+    SignalReportSuggestedReviewersArtefactApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -92,6 +97,7 @@ import type {
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
@@ -104,6 +110,8 @@ import type {
     SignalsReportPrReviewCommentReactionsCreateParams,
     SignalsReportPrReviewCommentUpdateParams,
     SignalsReportPrReviewCommentsCreateParams,
+    SignalsReportsAvailableReviewersRetrieve200,
+    SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -111,6 +119,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutReportCheckListParams,
     SignalsScoutReportChecksListParams,
     SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
@@ -137,6 +146,45 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsConfigListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ * @summary Read the project's signals config
+ */
+export const signalsConfigList = async (projectId: string, options?: RequestInit): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Partial update of the per-project singleton. Omitted fields keep their value.
+ * @summary Update the project's signals config
+ */
+export const signalsConfigCreate = async (
+    projectId: string,
+    signalTeamConfigApi?: NonReadonly<SignalTeamConfigApi>,
+    options?: RequestInit
+): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalTeamConfigApi),
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -266,6 +314,25 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+/**
+ * Soft-delete a report and its signals via the deletion workflow.
+ * @summary Delete a signal report
+ */
+export const signalsReportsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportDeletionStatusApi> => {
+    return apiMutator<SignalReportDeletionStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -632,6 +699,50 @@ export const signalsReportsRefundCreate = async (
     })
 }
 
+export const getSignalsReportsReingestCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reingest/`
+}
+
+/**
+ * Re-ingest a report's signals (same team access as other report actions).
+ * @summary Re-ingest a report's signals
+ */
+export const signalsReportsReingestCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportReingestionStatusApi> => {
+    return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/`
+}
+
+/**
+ * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+ * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+ * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+ * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * @summary Set a report's suggested reviewers
+ */
+export const signalsReportsReviewersUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportArtefactWriteApi: SignalReportArtefactWriteApi,
+    options?: RequestInit
+): Promise<SignalReportSuggestedReviewersArtefactApi> => {
+    return apiMutator<SignalReportSuggestedReviewersArtefactApi>(getSignalsReportsReviewersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportArtefactWriteApi),
+    })
+}
+
 export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/signals/`
 }
@@ -822,7 +933,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -842,7 +953,7 @@ export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: st
 }
 
 /**
- * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * Fetch the unified diff for a `commit` artefact via the team's GitHub integration. A commit linked to a report pull request uses GitHub's durable pull request diff. A commit without that link compares the branch's current tip with the default branch.
  * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (
@@ -940,6 +1051,42 @@ export const signalsReportChecksDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getSignalsReportsAvailableReviewersRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/available_reviewers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/available_reviewers/`
+}
+
+/**
+ * @summary List the org members who can be suggested as reviewers
+ */
+export const signalsReportsAvailableReviewersRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams,
+    options?: RequestInit
+): Promise<SignalsReportsAvailableReviewersRetrieve200> => {
+    return apiMutator<SignalsReportsAvailableReviewersRetrieve200>(
+        getSignalsReportsAvailableReviewersRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
@@ -1064,7 +1211,7 @@ export const getSignalsScoutChatTasksCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; an `author_scout` chat can carry the user's request, which the server fences inside that prompt. The response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
 export const signalsScoutChatTasksCreate = async (
@@ -1226,6 +1373,24 @@ export const signalsScoutConfigSync = async (
     })
 }
 
+export const getSignalsScoutConfigToolCatalogueUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/tool_catalogue/`
+}
+
+/**
+ * List every MCP tool a scout could be configured with. Each entry carries the tool's name, label, one-line summary, category, and required scopes, plus `holdable`: whether a scout run can hold every scope the tool needs, and `missing_scopes`: what it would have to be granted on top of the baseline preset. The response also returns the scout scope presets and the write scopes a person can grant to one scout, so a caller can show why a tool is out of reach. Tools a successor has replaced are left out. A tool can carry a `feature_flag`, which resolves per project: evaluate it for the project you are configuring before you offer the tool. Read-only, and the same for every project.
+ * @summary List the MCP tool catalogue
+ */
+export const signalsScoutConfigToolCatalogue = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutToolCatalogueApi> => {
+    return apiMutator<ScoutToolCatalogueApi>(getSignalsScoutConfigToolCatalogueUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsScoutMembersListUrl = (projectId: string, params?: SignalsScoutMembersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1243,7 +1408,7 @@ export const getSignalsScoutMembersListUrl = (projectId: string, params?: Signal
 }
 
 /**
- * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const signalsScoutMembersList = async (
@@ -1428,7 +1593,7 @@ export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: st
 }
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResult = async (
@@ -1843,6 +2008,37 @@ export const signalsScoutRunsRecentPerScout = async (
     options?: RequestInit
 ): Promise<SignalScoutRunSummaryApi[]> => {
     return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsRecentPerScoutUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutReportCheckListUrl = (projectId: string, params: SignalsScoutReportCheckListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/report-checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/report-checks/`
+}
+
+/**
+ * Every check on one report, newest first. The `report_id` is the only input. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const signalsScoutReportCheckList = async (
+    projectId: string,
+    params: SignalsScoutReportCheckListParams,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi[]> => {
+    return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportCheckListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

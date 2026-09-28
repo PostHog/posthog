@@ -9,7 +9,6 @@ from django.core.cache import cache, caches
 
 import structlog
 import redis.exceptions
-from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
@@ -266,6 +265,13 @@ class HyperCache:
         return data
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
+        # Call-time import: hypercache loads at django.setup() (via group_type_mapping) and botocore
+        # is only needed to classify S3 read failures.
+        from botocore.exceptions import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            BotoCoreError,
+            ClientError,
+        )
+
         cache_key = self.get_cache_key(key)
         try:
             data = self.cache_client.get(cache_key)

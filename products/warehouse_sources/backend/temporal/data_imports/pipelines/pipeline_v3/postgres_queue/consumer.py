@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    COLUMN_TYPE_WIDENED_KEY,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -46,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
+    _is_transient_queue_db_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -175,10 +179,15 @@ def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConne
     """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
 
     A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
-    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
-    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    reconcile cycle reconnects and retries, so it isn't worth paging on.
+
+    The engine's classifier reads the error itself, so it also catches the shapes that
+    leave the connection usable, such as pgbouncer cutting the query loose before it
+    reached Postgres. The `conn.closed` arm stays for a drop worded in a way no marker
+    matches, because a closed connection under a psycopg error is a drop however it is
+    phrased.
     """
-    return isinstance(err, psycopg.OperationalError) and conn.closed
+    return _is_transient_queue_db_error(err) or (isinstance(err, psycopg.OperationalError) and conn.closed)
 
 
 class DeltaBatchConsumerAdapter:
@@ -338,11 +347,14 @@ class DeltaBatchConsumerAdapter:
 
         if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
             try:
-                await sync_to_async(_disable_schema_after_permanent_failure)(
-                    schema_id=batch.schema_id,
-                    team_id=batch.team_id,
-                    reason=reason,
-                )
+                if not await sync_to_async(_auto_widen_reset_is_pending)(
+                    schema_id=batch.schema_id, team_id=batch.team_id
+                ):
+                    await sync_to_async(_disable_schema_after_permanent_failure)(
+                        schema_id=batch.schema_id,
+                        team_id=batch.team_id,
+                        reason=reason,
+                    )
             except Exception as e:
                 # The run is already failed and the message recorded; a failed disable only means
                 # the next run retries, so log it rather than crashing the consumer.
@@ -474,7 +486,7 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._drain_orphaned_batches(conn, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
+            if _is_transient_queue_connection_drop(e, conn):
                 logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
             else:
                 logger.exception("orphaned_batch_drain_failed")
@@ -488,9 +500,9 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
-                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
-                # leaves the connection closed. The engine reconnects on the next cycle.
+            if _is_transient_queue_connection_drop(e, conn):
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce).
+                # The engine reconnects on the next cycle.
                 logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
             else:
                 logger.exception("stranded_run_reconcile_sweep_failed")
@@ -811,10 +823,11 @@ class DeltaBatchConsumerAdapter:
           limit exists to prevent.
         - A deliberate stop (syncing turned off, the table deleted) is a decision to make
           this run stop, so finishing the load would override it.
-        - A permanent, unfixable failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) already disabled
-          the schema because the data itself cannot land, and a deletion failure
-          (``DELETION_ERROR_PATTERNS``) means the schema or job row is gone; loading more in
-          either case writes into a destination the run has already given up on.
+        - A permanent failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) means the data itself cannot
+          land, and a deletion failure (``DELETION_ERROR_PATTERNS``) means the schema or job row
+          is gone; loading more in either case writes into a destination the run has already
+          given up on. A widening whose schedule stayed on is no exception: its next run resets
+          the table, so draining into the one this run gave up on is wasted either way.
 
         ``incremental`` is left because its next run continues from a staged cursor that
         only promotes on a Completed job (``load/processor.py``). The job stays Failed here,
@@ -972,6 +985,27 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_u
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
         pass
+
+
+def _auto_widen_reset_is_pending(*, schema_id: str, team_id: int) -> bool:
+    """Whether an automatic reset-and-resync is already stamped on this schema and not yet consumed.
+
+    ``maybe_schedule_auto_widen_resync`` stamps the reset for the *next* scheduled sync, so pausing
+    the schedule strands it. The stamp is the only reliable signal: only the first failure to
+    schedule one carries the reworded message, and the cooldown hands every later batch of the same
+    widening the manual-reset wording instead. The reset pops the marker when it runs, so a failure
+    after that disables as usual.
+    """
+    close_old_connections()
+
+    config = (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("sync_type_config", flat=True)
+        .first()
+    )
+    if not isinstance(config, dict):
+        return False
+    return bool(config.get("reset_pipeline")) and COLUMN_TYPE_WIDENED_KEY in config
 
 
 def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, reason: str) -> bool:

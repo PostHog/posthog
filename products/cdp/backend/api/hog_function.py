@@ -27,11 +27,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -200,18 +200,20 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+    return {
+        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
+    }
 
 
 def comparable_content(content: dict) -> dict:
     """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, transpiled JS, input ordering.
+    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
 
     A background re-save can change those on its own without the config changing at all — most often
     `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
     comparing them would version a plain rename.
     """
-    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
     mappings = content.get("mappings")
     return {
         **content,

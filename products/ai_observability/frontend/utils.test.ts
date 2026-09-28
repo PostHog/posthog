@@ -75,6 +75,30 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.5, -2, '0', '0.5', '-2'])('keeps numeric score %p and its original bounds', (score) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
+        row[15] = score
+        row[16] = -5
+        row[17] = 10
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'numeric',
+            result: null,
+            score: Number(score),
+            score_min: -5,
+            score_max: 10,
+        })
+    })
+
+    it.each([null, true, false, '', 'true', 'false'])(
+        'does not read a numeric score from the boolean result property (%p)',
+        (result) => {
+            expect(mapEvaluationRunRow(makeEvaluationRunRow({ result, resultType: 'numeric' }))).toMatchObject({
+                result: null,
+                score: null,
+            })
+        }
+    )
+
     it('maps sentiment rows without coercing missing boolean results to false', () => {
         const run = mapEvaluationRunRow(
             makeEvaluationRunRow({
@@ -2981,5 +3005,8 @@ describe('queryEvaluationRuns', () => {
         await queryEvaluationRuns({ evaluationId: 'eval-1' })
 
         expect(queryHogQL.mock.calls[0][0]).not.toContain('$ai_evaluation_backfill_id')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result as score')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_min as score_min')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_max as score_max')
     })
 })

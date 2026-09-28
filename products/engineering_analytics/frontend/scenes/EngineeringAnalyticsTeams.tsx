@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -10,19 +9,47 @@ import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import { timesTypical } from '../lib/format'
 import { rowNavigationProps } from '../lib/rowNavigation'
+import { withCurrentScope } from '../lib/scope'
+import { authorFrictionLogic } from './authorFrictionLogic'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
 
 const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
 
-/** The team's detail page, carrying the active source so it opens scoped the same. */
+/** The team's detail page, carrying the current scope so it opens scoped the same. */
 function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
-    return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), sourceId ? { source: sourceId } : {}).url
+    return withCurrentScope(urls.engineeringAnalyticsTeam(ownerTeam), sourceId)
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
     const { teams, teamsFailed, teamsLoading, teamsNotConnected, sourceId } = useValues(teamsLogic)
     const { loadTeams } = useActions(teamsLogic)
+    const { friction } = useValues(authorFrictionLogic)
+    const medianFriction = new Map((friction?.teams ?? []).map((team) => [team.github_team, team.median_score]))
+
+    // A dash would read as too few scored members, so without friction data or memberships the column stays out.
+    const frictionColumns: LemonTableColumns<TeamCIHealthRow> =
+        friction?.available && friction.has_membership_data
+            ? [
+                  {
+                      title: 'Friction',
+                      key: 'friction',
+                      width: 100,
+                      align: 'right',
+                      tooltip: `Median friction of the team's members over the last ${friction?.window_days ?? 30} days, as a multiple of the typical author. Shown for teams with at least 3 members who have a score.`,
+                      sorter: (a, b) =>
+                          (medianFriction.get(a.ownerTeam) ?? -1) - (medianFriction.get(b.ownerTeam) ?? -1),
+                      render: (_, row) => (
+                          <span className="tabular-nums" data-attr="engineering-analytics-teams-friction">
+                              {medianFriction.has(row.ownerTeam)
+                                  ? timesTypical(medianFriction.get(row.ownerTeam))
+                                  : '–'}
+                          </span>
+                      ),
+                  },
+              ]
+            : []
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
         {
@@ -55,6 +82,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     </Link>
                 ),
         },
+        ...frictionColumns,
         {
             title: 'Test files',
             key: 'testFileCount',
@@ -91,7 +119,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <Section id="team-ci-health" title="Team CI health">
+            <Section id="team-ci-health" title="Owned tests by team">
                 {teamsFailed ? (
                     <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />
                 ) : (

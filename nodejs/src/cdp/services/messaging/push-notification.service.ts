@@ -331,6 +331,9 @@ export class PushNotificationService {
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
 
+        // Billing reads this rather than the metrics above, which a test send suppresses.
+        result.deliveredToRecipient = successCount > 0
+
         // Captured at the terminal outcome for the same reason the business metrics are: a rescheduled
         // attempt returns earlier, so a retried notification produces one asset rather than one per try.
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a

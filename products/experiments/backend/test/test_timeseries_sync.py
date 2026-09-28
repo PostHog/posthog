@@ -139,17 +139,54 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert self._sync(exp) is None
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
-    def test_leaves_metric_types_the_daily_run_cannot_compute_out_of_the_row(self):
-        exp = self._experiment("sync-retention", [_mean_metric("m1"), _retention_metric("r1")])
-        self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
+    def test_finds_points_written_under_the_daily_saved_metric_fingerprint(self):
+        """The daily saved-metrics discovery hashes the raw saved query, while the sync resolves the metric
+        through find_metric_dict, which injects an empty breakdown list. The two must land on the same
+        fingerprint, or every saved metric computes fresh points each morning that are never published."""
+        exp = self._experiment("sync-saved", [])
+        self._link_saved_metric(exp, "sm1")
+        assert exp.start_date is not None
+
+        saved_query = ExperimentSavedMetric.objects.get(team=self.team, name="sm1").query
+        daily_fp = compute_metric_fingerprint(
+            saved_query,
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+            excluded_variants=exp.excluded_variants,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="sm1",
+            fingerprint=daily_fp,
+            query_from=exp.start_date,
+            query_to=IN_RUN,
+            status="completed",
+            result={"m": 1},
+        )
 
         recalculation_id = self._sync(exp)
 
         assert recalculation_id is not None
         recalc = ExperimentMetricsRecalculation.objects.get(id=recalculation_id)
-        assert recalc.total_metrics == 1
-        assert recalc.metric_uuids == ["m1"]
-        assert {r["metric_uuid"] for r in get_run_results(recalc)} == {"m1"}
+        assert recalc.metric_uuids == ["sm1"]
+        assert [r["metric_uuid"] for r in get_run_results(recalc)] == ["sm1"]
+
+    def test_publishes_retention_metrics_like_any_other_type(self):
+        """Retention was once outside the daily pipeline, so its absence from the published run made the
+        page recompute every metric on first open each morning. It now counts and publishes."""
+        exp = self._experiment("sync-retention", [_mean_metric("m1"), _retention_metric("r1")])
+        self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
+        self._timeseries_point(exp, "r1", LATER_IN_RUN, {"r": 1})
+
+        recalculation_id = self._sync(exp)
+
+        assert recalculation_id is not None
+        recalc = ExperimentMetricsRecalculation.objects.get(id=recalculation_id)
+        assert recalc.total_metrics == 2
+        assert recalc.metric_uuids == ["m1", "r1"]
+        assert {r["metric_uuid"] for r in get_run_results(recalc)} == {"m1", "r1"}
 
     def test_counts_a_supported_metric_without_a_point_as_a_gap(self):
         exp = self._experiment("sync-gap", [_mean_metric("m1"), _mean_metric("m2")])

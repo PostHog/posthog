@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import { engineeringAnalyticsTeamCiHealth } from '../generated/api'
@@ -21,14 +22,32 @@ export const TEAMS_WINDOW_LABELS: Record<TeamsWindow, { prior: string; current: 
     '-30d': { prior: 'Previous 30 days', current: 'Last 30 days' },
 }
 
-export function isTeamsWindow(value: unknown): value is TeamsWindow {
+function isTeamsWindow(value: unknown): value is TeamsWindow {
     return typeof value === 'string' && value in TEAMS_WINDOW_LABELS
+}
+
+const MAX_TEAMS_WINDOW_DAYS = 30
+
+/** Whether the team page can show this range: one of its presets, or a fixed range of at most 30 days. */
+export function isTeamsDateRange(dateFrom: string | null, dateTo: string | null): boolean {
+    if (isTeamsWindow(dateFrom)) {
+        return dateTo === null
+    }
+    if (!dateFrom || dateFrom.startsWith('-') || !dayjs(dateFrom).isValid()) {
+        return false
+    }
+    const span = (dateTo ? dayjs(dateTo) : dayjs()).diff(dayjs(dateFrom), 'day')
+    return span >= 0 && span <= MAX_TEAMS_WINDOW_DAYS
 }
 
 // date_from presets the team endpoints accept (max 30d; an equal-length prior twin is scanned).
 export const TEAMS_WINDOW_DATE_OPTIONS = dateMapping.filter(({ values }) => isTeamsWindow(values[0]))
 
 export const UNOWNED_TEAM = 'unowned'
+
+export function teamLabel(ownerTeam: string): string {
+    return ownerTeam === UNOWNED_TEAM ? 'Unowned' : ownerTeam
+}
 
 export interface TeamCIHealthRow {
     ownerTeam: string

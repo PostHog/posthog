@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 48 enabled ops
+ * PostHog API - MCP 49 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -233,6 +233,40 @@ export const SignalsReportsClaimBody = () => zod.object({
 })
 
 /**
+ * Fold one or more duplicate reports into this report, which survives. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the survivor, the survivor's signal counters take on theirs, and each source is archived with a 'duplicate of' link back to the survivor. A source's open pull request stays open, because the survivor holds it after the move. Pick the survivor deliberately: prefer the older report, and prefer the one with an open implementation PR or an active claim. Any active claim on a source is released, so re-claim the survivor if you were working on one. Titles and summaries are not combined, so edit it afterwards if it needs a rewrite. A merged report keeps its URL but cannot be restored, because its signals now belong to the survivor.
+ * @summary Merge duplicate reports into this one
+ */
+export const SignalsReportsMergeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsMergeCreateBodySourceReportIdsMax = 10
+
+export const signalsReportsMergeCreateBodyReasonMax = 500
+
+export const SignalsReportsMergeCreateBody = () => zod.object({
+    source_report_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(signalsReportsMergeCreateBodySourceReportIdsMax)
+        .describe(
+            "Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does."
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsMergeCreateBodyReasonMax)
+        .optional()
+        .describe(
+            "Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters."
+        ),
+})
+
+/**
  * Transition a report to a new state. The model validates allowed transitions, except that a
  * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
  * is a 200 that records the dismissal feedback without touching the status.
@@ -435,7 +469,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -1319,7 +1353,7 @@ export const SignalsScoutConfigSyncQueryParams = () => zod.object({
 })
 
 /**
- * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const SignalsScoutMembersListParams = () => zod.object({
@@ -1337,6 +1371,13 @@ export const SignalsScoutMembersListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Case-insensitive substring filter over member email and first\/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+    team: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Team slug (case-insensitive, no `@org\/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug.'
         ),
 })
 
@@ -1572,7 +1613,7 @@ export const SignalsScoutRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const SignalsScoutRecordCheckResultParams = () => zod.object({
@@ -2649,23 +2690,6 @@ export const SignalsScoutReportCheckCreateBody = () => zod
     )
 
 /**
- * Every check on one report, newest first. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
- * @summary List a report's follow-up checks
- */
-export const SignalsScoutReportChecksListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
-})
-
-export const SignalsScoutReportChecksListQueryParams = () => zod.object({
-    report_id: zod.string().describe('The report whose checks to list.'),
-})
-
-/**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).
  * @summary List recent emitted findings across all runs
  */
@@ -2703,6 +2727,22 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = () => zod.object({
         .describe(
             "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team."
         ),
+})
+
+/**
+ * Every check on one report, newest first. The `report_id` is the only input. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const SignalsScoutReportCheckListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutReportCheckListQueryParams = () => zod.object({
+    report_id: zod.string().describe('The report whose checks to list.'),
 })
 
 /**
@@ -2943,7 +2983,7 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })
 
@@ -3053,7 +3093,7 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })
 
@@ -3156,6 +3196,6 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })

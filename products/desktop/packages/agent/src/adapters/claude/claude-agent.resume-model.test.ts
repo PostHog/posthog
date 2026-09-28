@@ -7,7 +7,11 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GATEWAY_MODEL } from "../../gateway-models";
+import {
+  DEFAULT_GATEWAY_MODEL,
+  fetchGatewayModels,
+} from "../../gateway-models";
+import { getSessionJsonlPath } from "./session/jsonl-hydration";
 
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
@@ -25,11 +29,12 @@ let nextInitPromise: Promise<unknown> = Promise.resolve({
   commands: [],
   models: [],
 });
+let nextSetModel: () => Promise<void> = () => Promise.resolve();
 
 function makeQueryHandle(): SdkQueryHandle {
   return {
     interrupt: vi.fn().mockResolvedValue(undefined),
-    setModel: vi.fn().mockResolvedValue(undefined),
+    setModel: vi.fn().mockImplementation(() => nextSetModel()),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
     supportedCommands: vi.fn().mockResolvedValue([]),
@@ -61,6 +66,11 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: vi.fn(),
 }));
 
+vi.mock("../../gateway-models", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../gateway-models")>();
+  return { ...actual, fetchGatewayModels: vi.fn(actual.fetchGatewayModels) };
+});
+
 vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
@@ -83,10 +93,12 @@ vi.mock("./mcp/local-tools", () => ({
 const { ClaudeAcpAgent } = await import("./claude-agent");
 type Agent = InstanceType<typeof ClaudeAcpAgent>;
 
-function makeAgent(): Agent {
+function makeAgent(
+  extNotification = vi.fn().mockResolvedValue(undefined),
+): Agent {
   const client = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
-    extNotification: vi.fn().mockResolvedValue(undefined),
+    extNotification,
   } as unknown as AgentSideConnection;
   return new ClaudeAcpAgent(client);
 }
@@ -145,6 +157,7 @@ describe("ClaudeAcpAgent session creation", () => {
       commands: [],
       models: [],
     });
+    nextSetModel = () => Promise.resolve();
     createLocalToolsMcpServer.mockClear();
     // No gateway: fetchGatewayModels returns [] and the requested model is
     // kept as a custom option — mirrors the gateway-outage failure mode.
@@ -482,53 +495,197 @@ describe("ClaudeAcpAgent session creation", () => {
         mcpServers: [],
         _meta: { taskRunId: "run-init-fail-new" },
       }),
-    ).rejects.toThrow(/init boom/);
+    ).rejects.toThrow("Session initialization failed");
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
 
-  it("logs diagnostics and closes the query when new-session init times out", async () => {
-    vi.useFakeTimers();
-    try {
-      nextInitPromise = new Promise(() => {});
-      const agent = makeAgent();
-      const errorSpy = vi.spyOn(agent.logger, "error");
+  it.each([
+    {
+      kind: "new",
+      log: "Session initialization failed",
+      message: "Session initialization timed out after 30000ms",
+    },
+    {
+      kind: "resume",
+      log: "Session resumption failed",
+      message: "Session resumption timed out after 30000ms",
+    },
+  ] as const)(
+    "logs diagnostics and closes the query when $kind session init times out",
+    async ({ kind, log, message }) => {
+      vi.useFakeTimers();
+      try {
+        nextInitPromise = new Promise(() => {});
+        const agent = makeAgent();
+        const errorSpy = vi.spyOn(agent.logger, "error");
+        const sessionId = "0197a000-0000-7000-8000-0000000000fd";
+        const transcript = '{"type":"user","message":"test"}\n';
+        if (kind === "resume") {
+          const transcriptPath = getSessionJsonlPath(sessionId, cwd);
+          mkdirSync(path.dirname(transcriptPath), { recursive: true });
+          writeFileSync(transcriptPath, transcript);
+        }
+        const params = {
+          sessionId,
+          cwd,
+          mcpServers: [],
+          _meta: {
+            taskRunId: `run-init-timeout-${kind}`,
+            model: "claude-opus-5",
+          },
+        };
 
-      const promise = agent.newSession({
+        const promise =
+          kind === "new"
+            ? agent.newSession(params)
+            : agent.resumeSession(params);
+        promise.catch(() => {});
+
+        await vi.waitFor(() => {
+          expect(createdQueries[0]?.initializationResult).toHaveBeenCalledTimes(
+            1,
+          );
+        });
+        await vi.advanceTimersByTimeAsync(30_001);
+
+        const silentCli = {
+          lines: 0,
+          hasPartialLine: false,
+          msSinceLastLine: null,
+          lastMessageType: null,
+        };
+        await expect(promise).rejects.toBeInstanceOf(RequestError);
+        await expect(promise).rejects.toMatchObject({
+          data: expect.objectContaining({ cliOutput: silentCli }),
+        });
+        expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          log,
+          expect.objectContaining({
+            initializationPhase: "sdk_initialization",
+            timeoutMs: 30_000,
+            cliOutput: silentCli,
+            initMs: expect.any(Number),
+            requestedModel: "claude-opus-5",
+            gatewayConfigured: false,
+            ...(kind === "resume"
+              ? { transcriptBytes: Buffer.byteLength(transcript) }
+              : {}),
+            errorDetail: expect.objectContaining({ message }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    {
+      name: "a new session whose model switch never answers",
+      kind: "new",
+      setModel: () => new Promise<void>(() => {}),
+      error: "Session model switch timed out after 30000ms",
+    },
+    {
+      name: "a resumed session whose model switch never answers",
+      kind: "resume",
+      setModel: () => new Promise<void>(() => {}),
+      error: "Session model switch timed out after 30000ms",
+    },
+    {
+      name: "a new session whose model switch fails",
+      kind: "new",
+      setModel: () => Promise.reject(new Error("set model boom")),
+      error: "Session model switch failed",
+    },
+  ] as const)(
+    "rejects and closes the query for $name",
+    async ({ kind, setModel, error }) => {
+      vi.useFakeTimers();
+      try {
+        nextSetModel = setModel;
+        const agent = makeAgent();
+        const errorSpy = vi.spyOn(agent.logger, "error");
+        const params = {
+          sessionId: "0197a000-0000-7000-8000-0000000000fe",
+          cwd,
+          mcpServers: [],
+          _meta: { taskRunId: `run-set-model-${kind}` },
+        };
+
+        const promise =
+          kind === "new"
+            ? agent.newSession(params)
+            : agent.resumeSession(params);
+        promise.catch(() => {});
+
+        await vi.waitFor(() => {
+          expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+        });
+        await vi.advanceTimersByTimeAsync(30_001);
+
+        await expect(promise).rejects.toThrow(error);
+        expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
+          true,
+        );
+        expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          "Session configuration failed",
+          expect.objectContaining({
+            startupStep: "model switch",
+            errorDetail: expect.objectContaining({ message: error }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("preserves RequestError metadata when naming a rejected startup control", async () => {
+    const requestError = new RequestError(42, "set model boom", {
+      source: "sdk",
+    });
+    nextSetModel = () => Promise.reject(requestError);
+    const agent = makeAgent();
+
+    const error = await agent
+      .resumeSession({
+        sessionId: "0197a000-0000-7000-8000-0000000000fc",
         cwd,
         mcpServers: [],
-        _meta: {
-          taskRunId: "run-init-timeout-new",
-          model: "claude-opus-5",
-        },
-      });
-      promise.catch(() => {});
+      })
+      .catch((caught: unknown) => caught);
 
-      await vi.waitFor(() => {
-        expect(createdQueries[0]?.initializationResult).toHaveBeenCalledTimes(
-          1,
-        );
-      });
-      await vi.advanceTimersByTimeAsync(30_001);
+    expect(error).toBe(requestError);
+    expect(error).toMatchObject({
+      code: 42,
+      data: { source: "sdk" },
+      message: "Session model switch failed: set model boom",
+    });
+  });
 
-      await expect(promise).rejects.toBeInstanceOf(RequestError);
-      expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
-      expect(errorSpy).toHaveBeenCalledWith(
-        "Session initialization failed",
-        expect.objectContaining({
-          initializationPhase: "sdk_initialization",
-          timeoutMs: 30_000,
-          initMs: expect.any(Number),
-          requestedModel: "claude-opus-5",
-          gatewayConfigured: false,
-          errorDetail: expect.objectContaining({
-            message: "Session initialization timed out after 30000ms",
-          }),
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+  it("starts a fresh query when retrying failed session configuration", async () => {
+    nextSetModel = () => Promise.reject(new Error("set model boom"));
+    const agent = makeAgent();
+    const params = {
+      sessionId: "0197a000-0000-7000-8000-0000000000fd",
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-set-model-retry" },
+    };
+
+    await expect(agent.resumeSession(params)).rejects.toThrow(
+      "Session model switch failed",
+    );
+
+    nextSetModel = () => Promise.resolve();
+    await expect(agent.resumeSession(params)).resolves.toMatchObject({
+      sessionId: params.sessionId,
+    });
+    expect(createdQueries).toHaveLength(2);
   });
 
   it("closes the query and rethrows when resume init fails", async () => {
@@ -544,8 +701,87 @@ describe("ClaudeAcpAgent session creation", () => {
         mcpServers: [],
         _meta: { taskRunId: "run-init-fail-resume" },
       }),
-    ).rejects.toThrow(/resume boom/);
+    ).rejects.toThrow("Session resumption failed");
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs instead of crashing when a model switch cannot update effort flags", async () => {
+    const gatewayModel = (id: string, ownedBy: string) => ({
+      id,
+      owned_by: ownedBy,
+      context_window: 200_000,
+      supports_streaming: true,
+      supports_vision: false,
+      allowed: true,
+    });
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      gatewayModel("claude-opus-5-5", "anthropic"),
+      gatewayModel("moonshotai/kimi-k3", "modal"),
+    ]);
+    const agent = makeAgent();
+    const warnSpy = vi.spyOn(agent.logger, "warn");
+    const { sessionId } = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-effort-flags", model: "claude-opus-5-5" },
+    });
+    createdQueries[0].applyFlagSettings.mockRejectedValue(
+      new Error("query closed"),
+    );
+
+    await agent.setSessionConfigOption({
+      sessionId,
+      configId: "model",
+      value: "moonshotai/kimi-k3",
+    });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("Failed to apply flag settings", {
+        error: expect.any(Error),
+      });
+    });
+  });
+
+  it("logs and retries when reporting used PostHog products fails", async () => {
+    const extNotification = vi.fn().mockResolvedValue(undefined);
+    const agent = makeAgent(extNotification);
+    const warnSpy = vi.spyOn(agent.logger, "warn");
+    await agent.newSession({
+      cwd: permissionCwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-resources" },
+    });
+    extNotification
+      .mockReset()
+      .mockRejectedValueOnce(new Error("connection closed"));
+
+    const input = {
+      session_id: "resources-session",
+      transcript_path: "/tmp/transcript",
+      cwd: permissionCwd,
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__posthog__exec",
+      tool_input: { command: "call dashboard-get {}" },
+      tool_response: {},
+    } as HookInput;
+    const hooks = (createdQueryOptions[0].hooks?.PostToolUse ?? []).flatMap(
+      (entry) => entry.hooks ?? [],
+    );
+    for (const hook of hooks) {
+      await hook(input, undefined, { signal: new AbortController().signal });
+    }
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Failed to report used PostHog products",
+        { error: expect.any(Error) },
+      );
+    });
+
+    for (const hook of hooks) {
+      await hook(input, undefined, { signal: new AbortController().signal });
+    }
+    await vi.waitFor(() => expect(extNotification).toHaveBeenCalledTimes(2));
   });
 });

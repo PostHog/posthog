@@ -9,9 +9,9 @@ from products.workflows.backend.api import hog_flow, hog_flow_template, workflow
 
 # AWS SES tenant reputation events, delivered EventBridge -> SNS HTTPS subscription. Workflows owns
 # the topic and its allowlist setting, so the route is mounted here rather than in core.
-urlpatterns: list[URLPattern] = [
+webhook_urlpatterns: list[URLPattern] = [
     opt_slash_path(
-        "webhooks/workflows/ses-events",
+        "ses-events",
         build_webhook_view(build_sns_provider(topic_arns_setting="WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS")),
     ),
 ]

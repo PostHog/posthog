@@ -36,6 +36,21 @@ import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetC
 const ActivityEventsWidget = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidget').then((m) => ({ default: m.ActivityEventsWidget }))
 )
+const NotebookDashboardWidget = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidget').then((m) => ({
+        default: m.NotebookDashboardWidget,
+    }))
+)
+const NotebookDashboardWidgetMenu = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidgetMenu').then((m) => ({
+        default: m.NotebookDashboardWidgetMenu,
+    }))
+)
+const EditNotebookWidgetModal = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
+        default: m.EditNotebookWidgetModal,
+    }))
+)
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
 )
@@ -174,6 +189,8 @@ export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<Comp
 
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    MenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    bodyPadding?: boolean
     TileFilters?: DashboardWidgetSlot<DashboardWidgetTileFiltersProps>
     EditModal?: DashboardWidgetSlot<DashboardWidgetEditModalProps>
     TopHeading?: DashboardWidgetSlot<DashboardWidgetTopHeadingProps>
@@ -204,6 +221,7 @@ export type DashboardWidgetComponentProps = {
     /** Support list only — assignee controls when false stay read-only. */
     canMutateConversationsTickets?: boolean
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
+    onConfigPublished?: () => void
 }
 
 export type DashboardWidgetMetadataPatch = {
@@ -227,6 +245,13 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    notebook_widget: {
+        Component: NotebookDashboardWidget,
+        MenuItems: NotebookDashboardWidgetMenu,
+        bodyPadding: false,
+        EditModal: EditNotebookWidgetModal,
+        parseConfigApiError: () => null,
+    },
     conversations_recent_tickets: {
         Component: ConversationsWidget,
         TopHeading: ConversationsWidgetTopHeading,

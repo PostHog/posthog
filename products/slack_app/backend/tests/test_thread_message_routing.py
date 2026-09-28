@@ -456,8 +456,7 @@ class TestRouteThreadMessage(TestCase):
             ("never_other_person", UntaggedFollowupMode.NEVER, "U_BOB", False),
             # `never` means nobody, the creator included.
             ("never_creator", UntaggedFollowupMode.NEVER, "U_ALICE", False),
-            # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
-            ("unset", None, "U_BOB", False),
+            ("unset", None, "U_BOB", True),
         ]
     )
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

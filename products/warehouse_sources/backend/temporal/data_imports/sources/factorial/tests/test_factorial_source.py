@@ -70,10 +70,11 @@ class TestFactorialSource:
         assert leaves["sync_methods"] == ["Full refresh"]
         assert leaves["primary_keys"] == []  # detected_primary_keys is unset for static schemas
 
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
-        # Every documented table must map to a real endpoint, else the description is dead weight.
-        assert set(descriptions).issubset(set(ENDPOINTS))
+        # A description keyed to no endpoint is dead weight, and an endpoint with no description
+        # ships to the public docs with an LLM-guessed table summary instead of the vendor's.
+        assert set(descriptions) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),

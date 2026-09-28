@@ -95,7 +95,9 @@ describe('ExperimentMetricForm', () => {
             retention_window_start: 1,
             retention_window_end: 7,
             retention_window_unit: FunnelConversionWindowTimeUnit.Day,
-            start_handling: 'first_seen',
+            start_handling: 'last_seen',
+            conversion_window: 14,
+            conversion_window_unit: FunnelConversionWindowTimeUnit.Day,
         }
         const handleSetMetric = jest.fn()
 
@@ -107,10 +109,14 @@ describe('ExperimentMetricForm', () => {
         expect(form.getByText('When users have multiple start events')).toBeInTheDocument()
         expect(form.getByText('Conversion window limit')).toBeInTheDocument()
 
+        // switching to exposure clears the settings the backend rejects for an exposure start
         await userEvent.click(form.getByText('Experiment exposure'))
         expect(handleSetMetric).toHaveBeenCalledWith({
             ...metric,
             start_event: { kind: NodeKind.ExperimentExposureNode },
+            start_handling: 'first_seen',
+            conversion_window: undefined,
+            conversion_window_unit: undefined,
         })
 
         const exposureMetric = handleSetMetric.mock.calls[0][0]
@@ -125,10 +131,14 @@ describe('ExperimentMetricForm', () => {
         expect(form.queryByText('When users have multiple start events')).not.toBeInTheDocument()
         expect(form.queryByText('Conversion window limit')).not.toBeInTheDocument()
 
+        // switching back restores the custom start event and its cleared settings
         await userEvent.click(form.getByText('Custom event'))
         expect(handleSetMetric).toHaveBeenLastCalledWith({
             ...exposureMetric,
             start_event: startEvent,
+            start_handling: 'last_seen',
+            conversion_window: 14,
+            conversion_window_unit: FunnelConversionWindowTimeUnit.Day,
         })
     })
 })

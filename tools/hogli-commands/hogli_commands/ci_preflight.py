@@ -285,6 +285,7 @@ DIFF_CHECKS: list[DiffCheck] = [
             *BUILD_TRIGGERS["build:taxonomy-json"],
             "bin/build-taxonomy-json.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+            "services/mcp/src/lib/trace-property-allowlist.generated.ts",
         ],
         verify=["hogli", "build:taxonomy-json", "--check"],
         fix=["hogli", "build:taxonomy-json"],
