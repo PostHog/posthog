@@ -27,11 +27,14 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import (
     ArtefactAttribution,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
@@ -1849,12 +1852,16 @@ class TestSignalReportCommitDiff(APIBaseTest):
             total_weight=1.0,
         )
 
-    def _create_commit_artefact(self, report: SignalReport, content: dict | list | None = None) -> SignalReportArtefact:
+    def _create_commit_artefact(
+        self, report: SignalReport, content: dict | list | None = None, task: Task | None = None
+    ) -> SignalReportArtefact:
         return SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.COMMIT,
             content=json.dumps(content if content is not None else _COMMIT_CONTENT),
+            task=task,
+            actor_kind=SignalActorKind.TASK if task else None,
         )
 
     def test_diff_rejects_non_commit_artefact(self):
@@ -1903,6 +1910,100 @@ class TestSignalReportCommitDiff(APIBaseTest):
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"diff": "diff --git a b", "truncated": False}
+
+    def test_diff_uses_linked_pr_after_its_branch_is_deleted(self):
+        report = self._create_report()
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        artefact = self._create_commit_artefact(report, task=task)
+        pull_request = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="PostHog/posthog",
+            number=42,
+            url="https://github.com/PostHog/posthog/pull/42",
+            state=SignalReportPullRequest.State.MERGED,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+            content=json.dumps({"url": pull_request.url}),
+            task=task,
+            actor_kind=SignalActorKind.TASK,
+            pull_request=pull_request,
+        )
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git durable-pr",
+            "truncated": False,
+        }
+
+        response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"diff": "diff --git durable-pr", "truncated": False}
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_diff.assert_not_called()
+
+    def test_diff_uses_unique_pr_when_deduplication_keeps_another_task(self):
+        report = self._create_report()
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        other_task = Task.objects.create(
+            team=self.team, title="Earlier implementation", description="", origin_product="signals"
+        )
+        artefact = self._create_commit_artefact(report, task=task)
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git durable-pr",
+            "truncated": False,
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    ImplementationPr(
+                        url="https://github.com/PostHog/posthog/pull/42",
+                        merged=True,
+                        task_id=str(other_task.id),
+                    )
+                ]
+            },
+        ):
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_pull_request.assert_not_called()
+        github.return_value.get_diff.assert_not_called()
+
+    def test_diff_disambiguates_stacked_prs_by_branch(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+        github.return_value.get_pull_request.side_effect = [
+            {"success": True, "head_branch": "posthog-code/other"},
+            {"success": True, "head_branch": _COMMIT_CONTENT["branch"]},
+        ]
+        github.return_value.get_pull_request_diff.return_value = {
+            "success": True,
+            "diff": "diff --git stacked-pr",
+            "truncated": False,
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_prs_for_reports",
+            return_value={
+                str(report.id): [
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/41", merged=False),
+                    ImplementationPr(url="https://github.com/PostHog/posthog/pull/42", merged=True),
+                ]
+            },
+        ):
+            response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.return_value.get_pull_request_diff.assert_called_once_with("PostHog/posthog", 42)
+        github.return_value.get_diff.assert_not_called()
 
     def test_diff_maps_upstream_404(self):
         report = self._create_report()

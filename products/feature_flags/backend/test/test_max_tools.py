@@ -620,6 +620,6 @@ class TestCreateFeatureFlagTool(APIBaseTest):
 
         @database_sync_to_async
         def get_tags():
-            return list(TaggedItem.objects.filter(feature_flag=flag).values_list("tag__name", flat=True))
+            return list(TaggedItem.objects.for_object(flag).values_list("tag__name", flat=True))
 
         return await get_tags()

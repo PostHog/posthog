@@ -23,7 +23,8 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.assertIn("table", external_data_schema_exclusions)
         self.assertIn("destination_links", external_data_schema_exclusions)
         self.assertIn("auto_disabled_at", external_data_schema_exclusions)
-        self.assertEqual(len(external_data_schema_exclusions), 7)
+        self.assertIn("next_full_refresh_at", external_data_schema_exclusions)
+        self.assertEqual(len(external_data_schema_exclusions), 8)
 
     def test_external_data_schema_scope_in_activity_log_types(self):
         self.assertIn("ExternalDataSchema", get_args(ActivityScope))

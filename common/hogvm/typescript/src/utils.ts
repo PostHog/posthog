@@ -12,10 +12,22 @@ function temporalSeconds(value: any): number | null {
     return null
 }
 
+/**
+ * What a failure says about the program, so a caller can decide what to do with it without reading
+ * the message. `contract`: the bytecode asks for something this runtime does not have (a global, a
+ * function, an arity, an opcode), so the same program fails on every input until one of them changes.
+ * `data`: the program fits the runtime and a value did not fit the program, so another input may
+ * pass. `limit`: a resource ceiling was hit.
+ */
+export type HogVMErrorKind = 'contract' | 'data' | 'limit'
+
 export class HogVMException extends Error {
-    constructor(message: string) {
-        super(message)
+    kind: HogVMErrorKind
+
+    constructor(message: string, kind: HogVMErrorKind = 'data', options?: { cause?: unknown }) {
+        super(message, options)
         this.name = 'HogVMException'
+        this.kind = kind
     }
 }
 
@@ -24,7 +36,7 @@ export class UncaughtHogVMException extends HogVMException {
     payload: any
 
     constructor(type: string, message: string, payload: any = null) {
-        super(message)
+        super(message, 'data')
         this.name = 'UncaughtHogVMException'
         this.type = type
         this.payload = payload

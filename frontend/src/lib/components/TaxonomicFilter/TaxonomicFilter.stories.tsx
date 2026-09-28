@@ -845,3 +845,133 @@ export const EmptyEventsWithStaleToggle: Story = {
         },
     },
 }
+
+/** A search that matches no event name gets core events the decision model thinks it describes. */
+export const EmptyEventsWithEventMatch: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('browser capture'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-event-match',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+            post: {
+                '/api/projects/:team_id/taxonomic_search_intent/match_events/': () => [
+                    200,
+                    {
+                        matches: [
+                            { name: '$autocapture', display_name: 'Autocapture', probability: 0.95 },
+                            { name: '$rageclick', display_name: 'Rageclick', probability: 0.74 },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
+    },
+}
+
+// The decision model answers "person properties" for a search of "email" in every search intent story.
+const searchIntentPersonPropertiesMock = mswDecorator({
+    post: {
+        '/api/projects/:team_id/taxonomic_search_intent/classify/': () => [
+            200,
+            {
+                group_type: 'person_properties',
+                confidence: 0.9,
+                is_confident: true,
+                suggests_switch: true,
+                method: 'model',
+            },
+        ],
+    },
+})
+
+// The empty state also carries the list class, so the "All" tab stories wait for a real result row instead.
+const SEARCH_INTENT_ALL_TAB_FIRST_ROW = '[data-attr="prop-filter-suggested_filters-0"]'
+
+const SEARCH_INTENT_GROUP_TYPES = [
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+]
+
+function SearchIntentStoryRender({
+    args,
+    tab,
+}: {
+    args: TaxonomicFilterProps
+    tab: TaxonomicFilterGroupType
+}): JSX.Element {
+    const logicKey = args.taxonomicFilterLogicKey as string
+    const { setActiveTab, setSearchQuery } = useActions(
+        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey })
+    )
+    useOnMountEffect(() => {
+        setActiveTab(tab)
+        setSearchQuery('email')
+    })
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+
+/** Banner arm: a search that belongs in another tab gets a suggestion to switch to it. */
+export const SearchIntentSuggestsAnotherTab: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.EventProperties} />,
+    args: { taxonomicFilterLogicKey: 'search-intent-banner', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"]' },
+    },
+}
+
+/** Banner arm in a narrow scene: the switch button stacks under the question. */
+export const SearchIntentSuggestsAnotherTabNarrow: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.EventProperties} />,
+    args: {
+        taxonomicFilterLogicKey: 'search-intent-banner-narrow',
+        taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES,
+        width: 360,
+    },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
+        // LemonBanner renders the action twice and hides the wide copy at this width, so wait for the narrow copy.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"].LemonButton--full-width' },
+    },
+}
+
+/** Every arm: the predicted group moves to the top of the "All" list before the results show. */
+export const SearchIntentPromotesGroup: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.SuggestedFilters} />,
+    args: { taxonomicFilterLogicKey: 'search-intent-promotes-group', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'control' },
+        testOptions: { waitForSelector: SEARCH_INTENT_ALL_TAB_FIRST_ROW },
+    },
+}

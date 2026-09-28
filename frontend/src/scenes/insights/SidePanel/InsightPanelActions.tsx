@@ -9,12 +9,10 @@ import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashbo
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneCopyImageButton } from 'lib/components/Scenes/InsightOrDashboard/SceneCopyImageButton'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFavorite } from 'lib/components/Scenes/SceneFavorite'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -33,14 +31,7 @@ import {
     isHogQLQuery,
     isInsightVizNode,
 } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ExporterFormat,
-    InsightLogicProps,
-    InsightShortId,
-    InsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightLogicProps, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
@@ -108,7 +99,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive
                     menuItem
-                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
                     data-attr="insight-copy-to-project"
                     tooltip="Copy this insight to another project"
                 >
@@ -149,24 +140,6 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     !isSavedInsight
                         ? { 'You must save the insight first before adding it to a dashboard': true }
                         : undefined
-                }
-            />
-
-            <SceneSubscribeButton
-                insight={insight}
-                dataAttrKey={RESOURCE_TYPE}
-                disabledReasons={
-                    !isSavedInsight ? { 'You must save the insight first before subscribing to it': true } : undefined
-                }
-            />
-
-            <SceneAlertsButton
-                insightId={insight.id!}
-                insightShortId={insight.short_id as InsightShortId}
-                insightLogicProps={insightLogicProps}
-                dataAttrKey={RESOURCE_TYPE}
-                disabledReasons={
-                    !isSavedInsight ? { 'You must save the insight first before adding alerts to it': true } : undefined
                 }
             />
 
