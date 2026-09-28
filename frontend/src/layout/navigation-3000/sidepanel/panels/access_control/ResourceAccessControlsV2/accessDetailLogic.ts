@@ -289,7 +289,6 @@ export interface accessDetailLogicActions {
             | 'mcp_registry'
             | 'metrics'
             | 'notebook'
-            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'

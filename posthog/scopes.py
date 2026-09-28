@@ -10,8 +10,9 @@ from typing import Literal, get_args
 # or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`. frontend/src/lib/scopes.test.ts
 # fails until one of them exists.
 #
-# `bin/build-scope-objects.py` writes the object list and the internal and OAuth-hidden sets
-# below to `frontend/src/lib/scopeObjects.generated.ts`. It runs as part of `hogli build:openapi`.
+# The frontend's `APIScopeObject` type derives from the `ScopeObjectEnum` that the access control
+# API publishes (`GRANTABLE_API_SCOPE_OBJECTS` below), so `hogli build:openapi` carries a new object
+# to the frontend and no list is copied by hand.
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
@@ -224,6 +225,13 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
+# Every scope object a person can grant: a personal API key, an OAuth grant or an access
+# control rule can name any of these. The access control API types its resource fields with
+# this list, so the generated frontend enum carries it and the frontend keeps no copy.
+GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
+    obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
+)
+
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
@@ -258,10 +266,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
 # Every public `obj:action` scope string. Matches `get_scope_descriptions()`
 # keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
 ALL_SCOPES: frozenset[str] = frozenset(
-    f"{obj}:{action}"
-    for obj in API_SCOPE_OBJECTS
-    if obj not in INTERNAL_API_SCOPE_OBJECTS
-    for action in API_SCOPE_ACTIONS
+    f"{obj}:{action}" for obj in GRANTABLE_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
 )
 
 # Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven

@@ -14,6 +14,8 @@ should stay in the implementation (logic.py, models.py).
 
 from typing import Literal, get_args
 
+from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS
+
 ResolvedAccessSourceValue = Literal[
     "object",
     "parent_object",
@@ -30,3 +32,7 @@ ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 # ENUM_NAME_OVERRIDES in posthog/settings/web.py, because no Choices class carries these values.
 RESOLVED_ACCESS_SOURCE_CHOICES: list[str] = list(get_args(ResolvedAccessSourceValue))
 RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccessSourceSubjectValue))
+
+# The scope objects a rule can name. The schema names the enum component ScopeObjectEnum through
+# ENUM_NAME_OVERRIDES, and the frontend derives its APIScopeObject type from that enum.
+SCOPE_OBJECT_CHOICES: list[str] = list(GRANTABLE_API_SCOPE_OBJECTS)

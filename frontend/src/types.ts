@@ -31,7 +31,6 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { API_SCOPE_OBJECTS } from 'lib/scopeObjects.generated'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
@@ -82,6 +81,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
@@ -5864,7 +5864,8 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]
+// Every grantable scope object, generated from posthog/scopes.py through the access control API.
+export type APIScopeObject = ScopeObjectEnumApi
 
 export type APIScopeAction = 'read' | 'write'
 

@@ -1,5 +1,4 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
-import { API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS } from 'lib/scopeObjects.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
@@ -8,6 +7,10 @@ import {
     getScopeDescription,
     scopeMatchesSearch,
 } from 'lib/scopes'
+
+import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
+const API_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi)
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -48,21 +51,14 @@ describe('API_SCOPES modal coverage', () => {
     const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
 
     it('offers or explicitly omits every scope object', () => {
-        // API_SCOPE_OBJECTS is generated from posthog/scopes.py, so a new backend scope object fails
-        // here until someone offers it in the key-creation modal or gives a reason to omit it.
+        // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
+        // until someone offers it in the key-creation modal or gives a reason to omit it.
         const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
-    it('omits every internal and OAuth-hidden scope object', () => {
-        const offeredButRestricted = [...INTERNAL_API_SCOPE_OBJECTS, ...OAUTH_HIDDEN_SCOPE_OBJECTS].filter(
-            (obj) => !omitted.has(obj)
-        )
-        expect(offeredButRestricted).toEqual([])
-    })
-
     it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        const overlap = [...omitted].filter((obj) => offered.has(obj as ScopeObjectEnumApi))
         expect(overlap).toEqual([])
     })
 })

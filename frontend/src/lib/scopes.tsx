@@ -161,7 +161,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
-    { key: 'mcp_registry', objectName: 'MCP registry', objectPlural: 'MCP servers', disabledActions: ['write'] },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -268,29 +267,21 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
 // Every scope object in `API_SCOPE_OBJECTS` must be either offered in `API_SCOPES` or listed here —
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
-// It also fails when an object in the generated internal or OAuth-hidden list is not here.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
-    clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
-    context_layer_internal: 'Internal: permits channel-bound Context Wiki writes from task runs.',
-    interactive_run: 'Internal: marks a sandbox run that a person started.',
-    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
-    loop_context_internal: 'Internal: permits context maintenance tools in Loop runs.',
-    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
-    signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
-    signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
-    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
-    slack_run: 'Internal: marks a credential minted for a Slack task.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
     // Pending removal — no endpoint enforces these, so they do nothing when granted.
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    // The registry is behind a feature flag, so the picker waits for its owners to decide whether
+    // every user should see the row.
+    mcp_registry: 'Behind a feature flag: the row waits for the product owners.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
