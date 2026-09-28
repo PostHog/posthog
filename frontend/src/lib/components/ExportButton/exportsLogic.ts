@@ -169,15 +169,15 @@ export interface exportsLogicActions {
     setAssetFormat: (format: ExporterFormat | null) => {
         format: ExporterFormat | null
     }
-    setHasReachedExportFullVideoLimit: (hasReached: boolean) => {
-        hasReached: boolean
-    }
     setExportRequestPending: (
         key: string,
         exportData: TriggerExportProps | null
     ) => {
         exportData: TriggerExportProps | null
         key: string
+    }
+    setHasReachedExportFullVideoLimit: (hasReached: boolean) => {
+        hasReached: boolean
     }
     startExport: (exportData: TriggerExportProps) => {
         exportData: TriggerExportProps
