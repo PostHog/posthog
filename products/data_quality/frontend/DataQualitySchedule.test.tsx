@@ -5,11 +5,11 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 
 import { DataQualitySchedule } from './DataQualitySchedule'
-import { dataCatalogMetricsChecksScheduleRetrieve } from './generated/api'
+import { dataQualityChecksScheduleRetrieve } from './generated/api'
 
 jest.mock('./generated/api', () => ({
-    dataCatalogMetricsChecksScheduleRetrieve: jest.fn(),
-    dataCatalogMetricsChecksSchedulePartialUpdate: jest.fn(),
+    dataQualityChecksScheduleRetrieve: jest.fn(),
+    dataQualityChecksSchedulePartialUpdate: jest.fn(),
 }))
 
 describe('DataQualitySchedule', () => {
@@ -26,7 +26,7 @@ describe('DataQualitySchedule', () => {
     })
 
     it('shows an elapsed next run as due now', async () => {
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
             id: 'schedule-1',
             enabled: true,
             interval: '1hour',
@@ -35,7 +35,7 @@ describe('DataQualitySchedule', () => {
             last_suite_run: null,
         })
 
-        render(<DataQualitySchedule metricId="metric-1" />)
+        render(<DataQualitySchedule subjectType="metric" subjectId="metric-1" />)
 
         const dueNow = await screen.findByText('due now')
         expect(dueNow).toBeInTheDocument()

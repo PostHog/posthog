@@ -133,6 +133,20 @@ _HOST_RESOLUTION_RETRY_MESSAGE = (
     "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
 )
 
+# libpq and the raw socket layer word the same DNS failure three different ways, so they share one
+# message at validation time.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+
+# libpq appends this hint both to a refused connection and to one the network dropped, which is what
+# a firewall that hasn't allowlisted PostHog looks like from our side.
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
@@ -203,7 +217,7 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
-    "could not translate host name": "Could not connect to the host",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
     # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
@@ -211,15 +225,15 @@ PostgresErrors = {
     # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
     # them here too so credential validation returns an actionable message instead of surfacing the
     # customer's unresolvable host as captured error noise.
-    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
-    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "Name or service not known": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "No address associated with hostname": _DNS_RESOLUTION_VALIDATION_ERROR,
     # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
     # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
     # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
     # already treats both as non-retryable on the streaming path.
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
@@ -294,11 +308,16 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
 # replace it with concrete guidance on both the validate and sync paths.
 _SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
-_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+_SSH_GATEWAY_UNREACHABLE_GUIDANCE = (
     "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
     "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
-    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall"
 )
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
+# The sync path classifies this non-retryable, which switches the schema off, so the customer has
+# to turn it back on once the bastion is reachable again — the setup path has no sync to re-enable.
+# Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
+_SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
@@ -330,6 +349,17 @@ _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "ran out. Raise the connection limit on the database or its pooler, or reduce how many other "
     "clients connect at the same time. This sync is still enabled and will run again on its next "
     "schedule."
+)
+
+# What a customer reads when their database reports a damaged page rather than a damaged row
+# length. The driver text is raw Postgres internals (a TOAST chunk number, a block number), so it
+# reads like a PostHog defect and names no next action.
+_SOURCE_PAGE_CORRUPTION_ERROR = (
+    "PostHog couldn't read one of the tables you're syncing because your database reported "
+    "damaged data on disk. PostHog only reads from your source, so this has to be repaired on "
+    "your database. Check your database server logs, run a consistency check on the table (for "
+    "example pg_amcheck), reindex it if an index is damaged, or restore the affected data from a "
+    "backup. Then re-enable the sync."
 )
 
 _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
@@ -638,6 +668,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'its configured allow list ("address not in tenant allow_list"). Add PostHog\'s egress IP '
                 "addresses to your database provider's IP allow list, then re-enable the sync."
             ),
+            # Neon words its own IP allow list rejection differently from the Supavisor key above
+            # ("This IP address <ip> is not allowed to connect to this endpoint"), and rejects a
+            # project that blocks public access with "... from a blocked network". Both are the
+            # customer's network policy, so every retry re-hits them until they change it.
+            "is not allowed to connect to this endpoint": (
+                "Your database provider rejected the connection because PostHog's IP address isn't on its "
+                "IP allow list. Add PostHog's egress IP addresses to that allow list, then re-enable the sync."
+            ),
+            "access this endpoint from a blocked network": (
+                "Your database provider blocks connections from the public internet, so PostHog can't "
+                "connect. Allow public access for PostHog's IP addresses, then re-enable the sync."
+            ),
             # A Neon-style proxy rejects the connection for a specific branch/compute endpoint —
             # observed when the branch is archived, suspended, or otherwise restricted from external
             # connections. Deterministic until the customer changes the branch's connection settings.
@@ -648,6 +690,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
+            # A connection pooler (e.g. PgBouncer) rejects the connection because the configured
+            # username isn't in its own user list — distinct from Postgres's own
+            # "password authentication failed for user", which means the username exists but the
+            # password is wrong. Deterministic until the customer fixes the pooler username, so
+            # retrying just re-hits it. Match without "FATAL:" since the driver pads the severity
+            # with a variable number of spaces.
+            "no such user": (
+                "Your database connection pooler rejected the connection because it doesn't "
+                'recognize the configured username ("no such user"). Check the username for this '
+                "source against your pooler's configuration, then re-enable the sync."
+            ),
             # A relation or column the sync reads was dropped or renamed on the source, so the
             # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
             # ("column ... does not exist"). The stored schema/query is fixed until the customer
@@ -834,7 +887,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -881,6 +934,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "Your database provider blocked the connection because your project exceeded its data "
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
+            ),
+            # The same provider family names some quotas in the refusal and others not at all
+            # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
+            # libpq line — carrying the customer's host and port — is retried and then stored.
+            # Every variant ends in the same provider sentence, so match that instead of each
+            # quota name. Placed last so the two entries above keep their more specific copy.
+            "quota. Upgrade your plan to increase limits": (
+                "Your database provider blocked the connection because your project exceeded a plan "
+                "quota. Upgrade the plan or wait for the quota to reset, then re-enable the sync."
             ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
@@ -1014,6 +1076,30 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "memory pressure on your database (for example lower work_mem, reduce concurrent "
                 "connections, or increase the instance's memory), then re-enable the sync."
             ),
+            # PostgreSQL's allocator rejects a request it can't service, raised via a bare `elog`
+            # that carries no specific SQLSTATE and so surfaces as the internal-error class (XX000,
+            # psycopg's `InternalError_`): "invalid memory alloc request size <n>". Observed while
+            # streaming rows through a server-side cursor (see `get_rows`) with the requested size
+            # wrapped to just under UINT64_MAX — the signature of a corrupted length field in the
+            # row's own stored data (for example a damaged TOAST pointer), not anything in our query.
+            # The corruption lives in the source row, so retrying re-reads into the same wall every
+            # time. The volatile request size is excluded from the match.
+            "invalid memory alloc request size": (
+                "PostgreSQL refused to allocate memory while reading a row from one of your tables "
+                '("invalid memory alloc request size"). This usually means that row\'s stored data is '
+                "corrupted on the source database (for example a damaged TOAST value), rather than a "
+                "problem with the sync. Check this table for data corruption (for example with "
+                "pg_amcheck), then repair or remove the affected rows and re-enable the sync."
+            ),
+            # The same damage reported through the wordings that name the page instead of the
+            # allocation: a TOAST row whose out-of-line chunks are gone, an index page that reads
+            # back as zeroes, and a heap or index page the server could not read at all. We only
+            # ever run `SELECT ... FROM <relation>`, so each one is damage on the customer's side,
+            # fixed to the affected page, and every retry re-reads that page into the same error.
+            # The volatile chunk and block numbers and relation names are excluded from the match.
+            "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
+            "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely

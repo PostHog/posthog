@@ -869,6 +869,24 @@ export enum PredicateScope {
     Unknown = 'unknown',
 }
 
+export enum PredicateFixAction {
+    /** A query edit unblocks an index that already exists. */
+    EditQuery = 'edit_query',
+    /** The property definition declares a type its stored values do not have. */
+    EditPropertyType = 'edit_property_type',
+    /** The property has no dedicated column to index. */
+    Materialize = 'materialize',
+}
+
+export interface PredicateQuickfix {
+    /** Character offset in the query where the replaced range starts. */
+    start: integer
+    /** Character offset in the query where the replaced range ends. */
+    end: integer
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 /** How one property filter in the query reads its data, decided before the query runs. */
 export interface PredicateIndexUsage {
     property_name: string
@@ -886,7 +904,13 @@ export interface PredicateIndexUsage {
     usable_indexes: string[]
     verdict: PredicateIndexVerdict
     message: string
+    /** Prose advice for a reader. */
     fix?: string
+    fix_action?: PredicateFixAction
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfix
     start?: integer
     end?: integer
 }
@@ -3443,6 +3467,8 @@ export interface MCPToolCallBreakdownItem {
     calls: integer
 }
 
+export type MCPAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+
 export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolCallBreakdownItem[]
 }
@@ -3451,7 +3477,7 @@ export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryRespons
 export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
     kind: NodeKind.MCPToolCallBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3476,7 +3502,7 @@ export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
     kind: NodeKind.MCPToolCallsAndErrorsQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3492,6 +3518,8 @@ export interface MCPHarnessBreakdownItem {
     errors: integer
     error_rate_pct: number
     sessions: integer
+    /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+    harness_sessions?: integer
 }
 
 export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -3502,7 +3530,7 @@ export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponse
 export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
     kind: NodeKind.MCPHarnessBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
     toolName?: string
@@ -3526,7 +3554,7 @@ export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
     kind: NodeKind.MCPModelBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
     includeAllModels?: boolean
@@ -3568,6 +3596,8 @@ export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
@@ -3596,6 +3626,8 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
@@ -3630,6 +3662,8 @@ export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureO
     /** When set, only events with this HTTP status match; when unset, only events without a status match. */
     errorStatus?: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailureOccurrencesQueryResponse = CachedQueryResponse<MCPToolFailureOccurrencesQueryResponse>
@@ -3644,6 +3678,10 @@ export interface MCPToolStatsItem {
     conversations: integer
     /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
     with_intent: integer
+    /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+    total_calls: integer
+    /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+    total_conversations: integer
 }
 
 export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3657,6 +3695,8 @@ export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
@@ -3682,6 +3722,8 @@ export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryR
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
      * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
     interval?: IntervalType
@@ -3693,6 +3735,8 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
+    /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+    previous_calls: integer
     errors: integer
     error_rate_pct: number
     p50_duration_ms: number
@@ -3702,6 +3746,15 @@ export interface MCPToolQualityRowItem {
     sessions: integer
     first_seen: string
     last_seen: string
+    /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
+     * large tool's surge. Not a percentage; only meaningful for ordering. */
+    trend_score: number
+    /** Errored calls in the previous period. */
+    previous_errors: integer
+    /** p95 duration in the previous period, or null when no previous call carried a duration. */
+    previous_p95_duration_ms: number | null
+    /** Distinct sessions that called the tool in the previous period. */
+    previous_sessions: integer
 }
 
 export type MCPToolQualitySortColumn =
@@ -3713,6 +3766,7 @@ export type MCPToolQualitySortColumn =
     | 'users'
     | 'sessions'
     | 'last_seen'
+    | 'trend_score'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 
@@ -3720,12 +3774,18 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
     results: MCPToolQualityRowItem[]
     /** Number of tools matching the date, category, and search filters. */
     totalCount: integer
+    /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+    totalSessions: integer
+    /** The same total for the previous period, the denominator for each row's previous session share. */
+    previousTotalSessions: integer
 }
 
 /** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
     /** Case-insensitive substring search on the effective tool name. */
@@ -3760,6 +3820,8 @@ export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryRes
 export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolQualityDailyStatsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
@@ -3784,6 +3846,8 @@ export interface MCPToolCategoryCountsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCategoryCountsQuery extends DataNode<MCPToolCategoryCountsQueryResponse> {
     kind: NodeKind.MCPToolCategoryCountsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoryCountsQueryResponse = CachedQueryResponse<MCPToolCategoryCountsQueryResponse>
@@ -3801,6 +3865,8 @@ export interface MCPToolCategoriesQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryResponse> {
     kind: NodeKind.MCPToolCategoriesQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
@@ -3843,6 +3909,8 @@ export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQu
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
@@ -3867,6 +3935,8 @@ export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntents
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
@@ -3889,6 +3959,8 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
     /** Whether to count tools called immediately before or after the target tool. */
     neighborDirection: 'before' | 'after'
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
@@ -4375,6 +4447,8 @@ export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'i
 export interface ErrorTrackingExternalReference {
     id: string
     external_url: string
+    external_id: string
+    title: string
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
@@ -4658,6 +4732,8 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
+    /** Return only attribute keys that exactly match an entry in this list. */
+    attributeKeys?: string[]
 }
 
 export interface LogAttributeResult {
@@ -4915,7 +4991,7 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     kind: NodeKind.TraceSpansQuery
-    dateRange: DateRange
+    dateRange?: DateRange
     limit?: integer
     offset?: integer
     /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
@@ -4966,6 +5042,11 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
+    sessions?: integer
+    users?: integer
+    spans_with_session_id?: integer
+    spans_with_distinct_id?: integer
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -4975,6 +5056,8 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
+    includeImpact?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
@@ -5276,6 +5359,7 @@ export type FileSystemIconType =
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
     | 'marketing_analytics'
+    | 'customer_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -5292,6 +5376,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'feature_flag_off'
+    | 'data_modeling'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
@@ -5302,6 +5387,7 @@ export type FileSystemIconType =
     | 'tracing'
     | 'metrics'
     | 'workflows'
+    | 'broadcasts'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5348,6 +5434,24 @@ export type FileSystemIconType =
     | 'llm_clusters'
     | 'mcp_analytics'
     | 'exports'
+    | 'pulse'
+    | 'skill'
+    | 'wizard'
+    | 'data_catalog'
+    | 'warehouse_destination'
+    | 'warehouse_property'
+    | 'data_source'
+    | 'data_destination'
+    | 'data_transformation'
+    | 'event_filter'
+    | 'managed_migration'
+    | 'web_script'
+    | 'core_event'
+    | 'property_group'
+    | 'mcp_server'
+    | 'streamlit_app'
+    | 'sql_variable'
+    | 'business_knowledge'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5574,6 +5678,14 @@ export interface ExperimentApiEventSource {
     properties?: EventPropertyFilter[]
 }
 
+/** Slim start source for retention metrics in API payloads. kind stays required so a
+ *  payload without it fails validation instead of silently becoming an exposure start. */
+export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSource, 'kind'> {
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure
+     *  event; the other fields then stay unset. */
+    kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
+}
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5626,8 +5738,10 @@ export interface ExperimentApiMetric {
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSource
+    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
+     *  from the experiment's exposure event; a conversion window or 'last_seen' start_handling is
+     *  rejected then, because the start is always the user's first exposure. */
+    start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
     retention_window_start?: integer
@@ -5826,7 +5940,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window. Ignored for an
+    // How to handle the start of the retention window. Must be 'first_seen' for an
     // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
@@ -6718,6 +6832,7 @@ export enum DetectorType {
     LOF = 'lof',
     OCSVM = 'ocsvm',
     PCA = 'pca',
+    LLM = 'llm',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -6864,6 +6979,32 @@ export interface PCADetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+/**
+ * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
+ * differencing or smoothing would hide from the model exactly what it is meant to read.
+ */
+export interface LLMDetectorConfig {
+    type: 'llm'
+    /**
+     * What counts as unusual or interesting for this metric, in your own words. Optional.
+     * @maxLength 2000
+     */
+    instructions?: string
+    /**
+     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
+     * @minimum 0
+     * @maximum 1
+     */
+    threshold?: number
+    /**
+     * How many recent points the model is shown (default: 90)
+     * @asType integer
+     * @minimum 5
+     * @maximum 400
+     */
+    window?: number
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
@@ -6886,13 +7027,16 @@ export type SingleDetectorConfig =
     | LOFDetectorConfig
     | OCSVMDetectorConfig
     | PCADetectorConfig
+    | LLMDetectorConfig
+
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */
-    detectors: SingleDetectorConfig[]
+    detectors: EnsembleSubDetectorConfig[]
 }
 
 /**
@@ -7604,6 +7748,11 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -7612,6 +7761,11 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
@@ -7889,9 +8043,15 @@ export interface MarketingAnalyticsRetentionSummaryRow {
     returned7d: integer
     eligible30d: integer
     returned30d: integer
-    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    /**
+     * Estimated median calendar days from the first session to the first return on a later day, using
+     * the project's timezone. Includes observed returns within 30 days. Same-day visits do not count.
+     */
     medianReturnDays: number | null
-    /** People with an observed second session within 30 days, including incomplete windows. */
+    /**
+     * People who returned on a later calendar day in the project's timezone within 30 days of their
+     * first session, including incomplete windows.
+     */
     returners: integer
 }
 
@@ -8278,6 +8438,9 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'BingAds',
     'SnapchatAds',
     'PinterestAds',
+    'AppleSearchAds',
+    'OpenAIAds',
+    'AmazonAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8448,9 +8611,43 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adTableName: 'ads' as const,
         adStatsTableName: 'ad_analytics' as const,
     },
+    AppleSearchAds: {
+        sourceType: 'AppleSearchAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        defaultSources: ['apple', 'apple_search_ads', 'apple_ads', 'asa'] as const,
+        primarySource: 'apple',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+    },
+    OpenAIAds: {
+        sourceType: 'OpenAIAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_insights',
+        defaultSources: ['openai', 'chatgpt', 'openai_ads'] as const,
+        primarySource: 'openai',
+    },
+    AmazonAds: {
+        sourceType: 'AmazonAds' as const,
+        nameField: 'name',
+        idField: 'campaign_id',
+        campaignTableName: 'sp_campaigns',
+        statsTableName: 'sp_campaign_reports',
+        defaultSources: ['amazon', 'amazon_ads'] as const,
+        primarySource: 'amazon',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type AppleSearchAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
+export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
@@ -8678,14 +8875,14 @@ export interface ProductItem {
 
 export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
+    DATA = 'Data',
     AI_ENGINEERING = 'AI engineering',
-    BEHAVIOR = 'Behavior',
-    APP_MONITORING = 'App monitoring',
-    FEATURES = 'Features',
+    PRODUCT_ENGINEERING = 'Product engineering',
+    MESSAGING = 'Messaging',
+    MONITORING = 'Monitoring',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
-    PIPELINE = 'Pipeline',
-    METADATA = 'Metadata',
+    CDP = 'CDP',
     UNRELEASED = 'Unreleased',
 }
 
@@ -8715,11 +8912,11 @@ export interface UIVisibilityConfig {
 
 /** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
 export interface SidebarSectionsConfiguration {
-    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    /** The "Project" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden. */
     project?: UIVisibilityConfig
     /** The "Recents" section, listing recently viewed items. */
     recents?: UIVisibilityConfig
-    /** The "My tools" section, listing the user's selected tools. */
+    /** The "My products" section, listing the user's selected products. */
     my_tools?: UIVisibilityConfig
 }
 
@@ -8733,7 +8930,7 @@ export interface SidebarItemsConfiguration {
     data?: UIVisibilityConfig
     /** "Files" panel trigger in the Project section. */
     files?: UIVisibilityConfig
-    /** "Tools" panel trigger in the Project section. */
+    /** "Products" panel trigger in the Project section. */
     tools?: UIVisibilityConfig
     /** "Starred" panel trigger in the Project section. */
     starred?: UIVisibilityConfig

@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     MAX_COINS,
     MERGE_ONLY_ENDPOINTS,
     PER_COIN_ENDPOINTS,
+    PRO_ONLY_ENDPOINTS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -67,7 +68,9 @@ Create a key in your [CoinGecko developer dashboard](https://www.coingecko.com/e
 
 CoinGecko enforces tight per-minute rate limits and monthly credit caps, especially on the Demo plan, so large tables may take a while to sync.
 
-The market pairs, historical chart and OHLC tables are per coin, so they only sync once you list the coins you want.""",
+The market pairs, historical chart and OHLC tables are per coin, so they only sync once you list the coins you want.
+
+The global market cap chart and NFT market tables need a Pro key on the Analyst plan or above.""",
             iconPath="/static/services/coingecko.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coingecko",
             fields=cast(
@@ -139,12 +142,18 @@ The market pairs, historical chart and OHLC tables are per coin, so they only sy
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        should_sync_default = dict(SHOULD_SYNC_DEFAULT)
+        if config.plan != PLAN_PRO:
+            # A Demo key is refused outright by the Pro-only endpoints, so one-shot setup must not
+            # enable a table that can only 401.
+            should_sync_default.update(dict.fromkeys(PRO_ONLY_ENDPOINTS, False))
+
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,
-            should_sync_default=SHOULD_SYNC_DEFAULT,
+            should_sync_default=should_sync_default,
         )
 
     def validate_credentials(
@@ -166,6 +175,9 @@ The market pairs, historical chart and OHLC tables are per coin, so they only sy
         # source that syncs only those must still connect.
         if not coins and schema_name in PER_COIN_ENDPOINTS:
             return False, "Add at least one coin ID to sync this table."
+
+        if config.plan != PLAN_PRO and schema_name in PRO_ONLY_ENDPOINTS:
+            return False, "This table needs a CoinGecko Pro key on the Analyst plan or above."
 
         if validate_coingecko_credentials(config.plan, config.api_key):
             return True, None

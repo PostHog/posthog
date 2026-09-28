@@ -104,20 +104,24 @@ class TestWhopSource:
         }
 
     @pytest.mark.parametrize(
-        "company_id, probe_result, schema_name, expected_valid",
+        "company_id, probe_result, schema_name, expected_valid, expected_message",
         [
-            ("biz_test", (True, 200), None, True),
+            ("biz_test", (True, 200), None, True, None),
             # A 403 means a genuine key without company:basic:read; users may only grant the scopes
             # for the tables they sync, so source creation must not be blocked on it.
-            ("biz_test", (False, 403), None, True),
-            ("biz_test", (False, 403), "payments", False),
-            ("biz_test", (False, 401), None, False),
-            ("biz_test", (False, 404), None, False),
-            ("biz_test", (False, None), None, False),
-            ("company-1", (True, 200), None, False),
+            ("biz_test", (False, 403), None, True, None),
+            ("biz_test", (False, 403), "payments", False, "permission to read this resource"),
+            ("biz_test", (False, 401), None, False, "rejected your API key"),
+            ("biz_test", (False, 404), None, False, "could not find that company"),
+            # An unreachable or overloaded Whop is not a bad key — saying it is sends the customer
+            # off to rotate a key that works.
+            ("biz_test", (False, None), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 429), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 503), None, False, "Couldn't reach Whop"),
+            ("company-1", (True, 200), None, False, "start with"),
         ],
     )
-    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid):
+    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid, expected_message):
         config = WhopSourceConfig(api_key="test-api-key", company_id=company_id)
 
         with mock.patch(API_CLIENT_PATCH) as api_client:
@@ -125,7 +129,10 @@ class TestWhopSource:
             is_valid, message = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
-        assert (message is None) is expected_valid
+        if expected_message is None:
+            assert message is None
+        else:
+            assert expected_message in (message or "")
 
     def test_validate_credentials_skips_the_probe_for_a_malformed_company_id(self):
         config = WhopSourceConfig(api_key="test-api-key", company_id="acme")

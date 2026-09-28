@@ -247,12 +247,12 @@ class TestBingAdsClient:
         assert not any(pattern in message for pattern in non_retryable_patterns)
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.download_and_extract_report_csv"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.iter_report_row_pages"
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.build_report_request")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.reporting")
     def test_get_performance_report_gives_sdk_private_existing_working_directory(
-        self, mock_reporting, _mock_build_request, mock_download
+        self, mock_reporting, _mock_build_request, mock_iter_pages
     ):
         """The bingads SDK defaults every ReportingServiceManager to a shared /tmp/BingAdsSDKPython that it
         creates with a non-atomic check-then-makedirs; concurrent report fetches race and one dies with
@@ -272,15 +272,18 @@ class TestBingAdsClient:
             return mock.MagicMock()
 
         mock_reporting.ReportingServiceManager.side_effect = fake_manager
-        mock_download.return_value = ""
+        mock_iter_pages.return_value = iter([])
 
         client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
-        client.get_performance_report(
-            resource=BingAdsResource.AD_PERFORMANCE_REPORT,
-            account_id=self.account_id,
-            customer_id=self.customer_id,
-            start_date=dt.datetime(2024, 1, 1),
-            end_date=dt.datetime(2024, 12, 31),
+        # The report is a generator now, so the manager is only built once it is drained.
+        list(
+            client.get_performance_report(
+                resource=BingAdsResource.AD_PERFORMANCE_REPORT,
+                account_id=self.account_id,
+                customer_id=self.customer_id,
+                start_date=dt.datetime(2024, 1, 1),
+                end_date=dt.datetime(2024, 12, 31),
+            )
         )
 
         # A private, already-existing directory means the SDK's racy makedirs never runs.

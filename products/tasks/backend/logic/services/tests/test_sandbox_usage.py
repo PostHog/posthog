@@ -227,6 +227,33 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert props["prewarmed"] is False
         assert props["origin_product"] == Task.OriginProduct.USER_CREATED
 
+    @parameterized.expand(
+        [
+            ("modal", None, 21600.0, 583200.0),
+            ("hogland", "hogland", 604800.0, 0.0),
+        ]
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_clamps_late_stamp_to_provider_kill_deadline(
+        self, _name, sandbox_backend, expected_seconds, expected_lag, mock_capture
+    ):
+        opened_at = datetime(2026, 9, 14, 4, tzinfo=UTC)
+        run = self._run(state={"sandbox_backend": sandbox_backend} if sandbox_backend else None)
+
+        with time_machine.travel(opened_at, tick=False):
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-stale", config=_config())
+            record_task_run_user_activity(run.id, self.team.id)
+
+        with time_machine.travel(opened_at + timedelta(days=7), tick=False):
+            close_sandbox_session("sb-stale", reason=SandboxSession.EndedReason.CLEANUP)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        props = captured[0].kwargs["properties"]
+        assert props["attributed_seconds"] == expected_seconds
+        assert props["runtime_seconds"] == expected_seconds
+        assert props["idle_seconds"] == expected_seconds
+        assert props["close_stamp_lag_seconds"] == expected_lag
+
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))

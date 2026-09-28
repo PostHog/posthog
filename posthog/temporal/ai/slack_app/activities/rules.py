@@ -2,7 +2,6 @@ import structlog
 from temporalio import activity
 
 from posthog.temporal.ai.slack_app.types import (
-    PostHogCodeRulesCommandResult,
     PostHogCodeSlackMentionCommandResult,
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -12,46 +11,6 @@ from posthog.temporal.common.utils import close_db_connections
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
-
-
-@activity.defn
-@close_db_connections
-def handle_posthog_code_rules_command_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
-    channel: str,
-    thread_ts: str,
-    slack_user_id: str,
-    user_id: int,
-) -> PostHogCodeRulesCommandResult:
-    from posthog.models.integration import Integration, SlackIntegration
-
-    from products.slack_app.backend.api import parse_rules_command
-    from products.slack_app.backend.services.commands import dispatch_rules_command
-
-    command = parse_rules_command(inputs.event.get("text", ""))
-    if not command:
-        return PostHogCodeRulesCommandResult(status="not_a_command")
-    # Picker flow is unique to this workflow; the command service can't drive a
-    # workflow signal, so catch it here before delegating.
-    if command.action == "add" and not command.repository:
-        return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
-
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
-    dispatch_rules_command(
-        command,
-        SlackIntegration(integration),
-        integration,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        slack_workspace_id=inputs.slack_team_id,
-        user_id=user_id,
-    )
-    return PostHogCodeRulesCommandResult(status="handled")
 
 
 @activity.defn

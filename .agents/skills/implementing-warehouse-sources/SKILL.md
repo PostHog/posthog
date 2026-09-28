@@ -25,7 +25,7 @@ Before coding, read:
 Every new source **must** inherit from one (or a combination) of these:
 
 - **`SimpleSource[Config]`** — default for straightforward pull-based APIs where each run fully iterates the endpoint.
-- **`ResumableSource[Config, ResumableData]`** — **preferred for any new API-backed source whose underlying API supports resumption** (cursor/link-header pagination, time windows, offset tokens, or any other deterministic way to pick back up where we left off). If the API gives us a next-page token, a `Link` header, or a stable time filter, use `ResumableSource`. This lets Temporal resume after heartbeat timeouts without restarting from scratch. The manager persists state to Redis (24h TTL).
+- **`ResumableSource[Config, ResumableData]`** — **preferred for any new API-backed source whose underlying API supports resumption** (cursor/link-header pagination, time windows, offset tokens, or any other deterministic way to pick back up where we left off). If the API gives us a next-page token, a `Link` header, or a stable time filter, use `ResumableSource`. This lets Temporal resume after heartbeat timeouts without restarting from scratch. `save_state` stages the cursor in memory; the pipeline commits it to Redis (24h TTL) right after it writes the rows yielded so far.
 - **`WebhookSource[Config]`** — only when the source can push events to us (e.g. Stripe webhook endpoints). Typically combined with `ResumableSource` so the initial backfill is resumable and subsequent deltas come via webhook.
 
 Combine by multiple inheritance when both apply, e.g.:
@@ -405,15 +405,16 @@ url = resume.next_url if resume else initial_url
 
 while True:
     data = fetch_page(url)
-    # yield batch
     next_url = data.get("links", {}).get("next")
+    if next_url:
+        manager.save_state(MyResumeConfig(next_url=next_url))  # stage before the yield it covers
+    # yield batch
     if not next_url:
         break
-    manager.save_state(MyResumeConfig(next_url=next_url))
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
-Save state **after** yielding each batch, not before — so if we crash we re-yield the last batch (merge dedupes on primary key) rather than skipping it.
+Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
 ### Webhook source pattern
 
@@ -879,7 +880,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
-- Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
+- Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.

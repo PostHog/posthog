@@ -1,10 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import {
-  isTranscriptNeutralNotificationMethod,
-  serializeError,
-} from "@posthog/shared";
+import { serializeError, TranscriptBoundaries } from "@posthog/shared";
 import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
@@ -72,6 +69,7 @@ interface BufferedToolUpdate {
 
 interface SessionState {
   context: SessionContext;
+  transcriptBoundaries: TranscriptBoundaries;
   chunkBuffer?: ChunkBuffer;
   lastAgentMessage?: string;
   currentTurnMessages: string[];
@@ -176,6 +174,7 @@ export class SessionLogWriter {
 
     this.sessions.set(sessionId, {
       context,
+      transcriptBoundaries: new TranscriptBoundaries(),
       currentTurnMessages: [],
       toolUpdateCache: new Map(),
       pendingRawInputSnapshots: new Map(),
@@ -280,11 +279,7 @@ export class SessionLogWriter {
       if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
-      } else if (
-        !isTranscriptNeutralNotificationMethod(
-          message.method as string | undefined,
-        )
-      ) {
+      } else if (!session.transcriptBoundaries.isNeutral(message)) {
         this.emitCoalescedMessage(sessionId, session);
       }
 

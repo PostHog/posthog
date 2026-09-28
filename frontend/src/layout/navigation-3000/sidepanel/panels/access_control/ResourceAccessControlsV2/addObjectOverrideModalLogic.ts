@@ -86,6 +86,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -131,6 +132,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -207,6 +209,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -252,6 +255,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -349,6 +353,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -394,6 +399,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -475,6 +481,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -520,6 +527,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -600,6 +608,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -645,6 +654,7 @@ export interface addObjectOverrideModalLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -746,6 +756,7 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -791,6 +802,7 @@ export interface addObjectOverrideModalLogicMeta {
                 | 'mcp_builtin_agent'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -933,6 +945,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                 loadObjectOptions: async (_, breakpoint) => {
                     await breakpoint(300)
                     // One backend endpoint serves every resource type with correct display names
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<{ results: ObjectOption[] }>(
                         `api/projects/${props.projectId}/access_control_object_search?resource=${values.resource}&search=${encodeURIComponent(
                             values.search
@@ -1000,6 +1013,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             // and silently replace the selection
             await breakpoint(300)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.get<{ results: ObjectOption[] }>(
                     `api/projects/${props.projectId}/access_control_object_search?resource=${resource}&id=${encodeURIComponent(
                         lookupId
