@@ -250,7 +250,8 @@ Do this even if you read it earlier in this session and are confident nothing ch
 A definition read that happens after you have already written to a file is too late; it does not satisfy this check.
 Do not use a cached response for this check.
 If the read fails, stop before editing.
-If the version or rollout changed, stop: do not edit, and do not revert an edit you already made instead of not making it. Return to step 4, "Classify the rollout state," and reassess before touching any file.
+If the version or rollout changed, stop: do not edit, and do not revert an edit you already made instead of not making it. Return to step 2, "Find and assess candidates," and repeat its reads and exclusions before touching any file.
+The change is itself an update, and step 2 excludes a recently updated flag.
 
 - **Fully rolled out boolean**: remove the flag check, keep the enabled path.
   If there is an else branch, remove it entirely.
@@ -314,8 +315,8 @@ Compare its version and rollout against what step 6 used to choose the retained 
 - **If they match**, name the version and rollout percentage you just confirmed in your summary or
   PR description, so a reviewer can see the check happened without re-running it themselves.
 - **If they differ**, do not publish. If you already edited against the old data, revert those edits
-  rather than leave them standing, and restart from step 4 with the new definition. Do this even when
-  step 6's own pre-edit check ran and matched — that confirmed one moment, not this one.
+  rather than leave them standing, and restart from step 2 with the new definition, repeating its reads
+  and exclusions. Do this even when step 6's own pre-edit check ran and matched — that confirmed one moment, not this one.
 
 Default to one draft PR per flag, so each review and rollback stays bounded.
 Start each flag's branch from the base branch, not from the tip the previous flag left behind:
