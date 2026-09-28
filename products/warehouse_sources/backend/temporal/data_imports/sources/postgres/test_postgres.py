@@ -4187,10 +4187,11 @@ class TestChunkedRereadAfterRecoveryConflict:
             return self._rows[pivot:] + self._rows[:pivot]
 
     class _PageCursor:
-        def __init__(self, scan, column_names: list[str]):
+        def __init__(self, scan, column_names: list[str], column_type: str):
             self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
-            self._result: list[tuple[int, ...]] = []
+            self._column_type = column_type
+            self._result: list[tuple[int | str, ...]] = []
 
         def execute(self, query, *args, **kwargs):
             text = query.as_string()
@@ -4202,7 +4203,9 @@ class TestChunkedRereadAfterRecoveryConflict:
                 rows = [row for row in rows if int(window.group(1)) <= row[0] < int(window.group(2))]
             seek = re.search(r"\) > \(([^)]*)\)", text)
             if seek:
-                rows = [row for row in rows if row[-1] > int(seek.group(1).split(", ")[-1])]
+                raw_seek_value = seek.group(1).split(", ")[-1]
+                seek_value = raw_seek_value.strip("'") if self._column_type == "text" else int(raw_seek_value)
+                rows = [row for row in rows if row[-1] > seek_value]
             offset = re.search(r"OFFSET (\d+)", text)
             if offset:
                 rows = rows[int(offset.group(1)) :]
@@ -4278,7 +4281,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
-    ) -> list[int]:
+    ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
             yield ("localhost", 5432)
@@ -4295,6 +4298,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
         rows = self._XMIN_ROWS if is_xmin else self._ROWS
+        if column_type == "text":
+            rows = [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
@@ -4303,7 +4308,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", return_value=connection),
-            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names)),
+            patch(
+                f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type)
+            ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
             patch(f"{module}._is_duckdb_connection", return_value=False),
@@ -4338,7 +4345,7 @@ class TestChunkedRereadAfterRecoveryConflict:
             )
             self.last_response = response
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
-            ids: list[int] = []
+            ids: list[int | str] = []
             taken = 0
             for table in pages:
                 ids.extend(row["id"] for row in table.to_pylist())
