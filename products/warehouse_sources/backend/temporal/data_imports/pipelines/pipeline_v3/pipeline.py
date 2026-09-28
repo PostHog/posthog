@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     persist_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
+    seed_desc_sort_incremental_value,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -83,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ResumableSourceManager,
     resolve_resume_manager,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_resume import ResumeCheckpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -231,6 +233,13 @@ class PipelineV3(Generic[ResumableData]):
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
         )
 
+        if self._resumable_source_manager is not None and source_response.sort_mode == "desc":
+            self._resumable_source_manager.prepare_for_schema(
+                self._schema, self._source, is_durable=self._is_resume_checkpoint_durable
+            )
+            is_resume = self._resumable_source_manager.can_resume()
+            self._producer_kwargs["is_resume"] = is_resume
+            self._pg_producer.set_is_resume(is_resume)
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         self._batcher = Batcher(
@@ -342,9 +351,31 @@ class PipelineV3(Generic[ResumableData]):
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
+    def _is_resume_checkpoint_durable(self, checkpoint: ResumeCheckpoint) -> bool:
+        return self._pg_producer.is_resume_checkpoint_durable(
+            job_id=checkpoint.job_id,
+            job_created_at=checkpoint.job_created_at,
+            run_uuid=checkpoint.run_uuid,
+            batch_index=checkpoint.batch_index,
+        )
+
     async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is not None:
-            await asyncio.to_thread(self._resumable_source_manager.commit)
+            if self._total_batches() == 0:
+                await asyncio.to_thread(self._resumable_source_manager.commit)
+                return
+            high_water_mark = (
+                self._schema._serialize_incremental_value(self._last_incremental_field_value)
+                if self._last_incremental_field_value is not None
+                else None
+            )
+            await asyncio.to_thread(
+                self._resumable_source_manager.commit,
+                high_water_mark=high_water_mark,
+                job_created_at=self._job.created_at,
+                run_uuid=self._s3_batch_writer.get_run_uuid(),
+                batch_index=self._total_batches() - 1,
+            )
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -400,6 +431,23 @@ class PipelineV3(Generic[ResumableData]):
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
+            self._last_incremental_field_value = await seed_desc_sort_incremental_value(
+                self._resource,
+                self._schema,
+                self._job.workflow_run_id,
+                should_resume,
+                self._logger,
+                log_prefix="V3 Pipeline: ",
+            )
+            if should_resume and self._resource.sort_mode == "desc" and self._resumable_source_manager is not None:
+                carried_value = process_incremental_value(
+                    self._resumable_source_manager.pass_high_water_mark, self._schema.incremental_field_type
+                )
+                if carried_value is not None and (
+                    self._last_incremental_field_value is None or carried_value > self._last_incremental_field_value
+                ):
+                    self._last_incremental_field_value = carried_value
+
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
                 self._schema,
@@ -442,6 +490,9 @@ class PipelineV3(Generic[ResumableData]):
                     is_cdc_companion=self._maintains_companion_table(),
                     partition_count_fallback=self._resource.partition_count,
                 )
+
+            if not should_resume and self._resumable_source_manager is not None:
+                await asyncio.to_thread(self._resumable_source_manager.restart_schema_state)
 
             async def stage_remaining_rows() -> None:
                 nonlocal chunk_index, row_count
@@ -659,6 +710,19 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = self._total_batches()
 
         if total_batches == 0:
+            # A resumed pass can finish without yielding another batch. Its carried high-water
+            # mark is safe now because prepare_for_schema accepted only a durable checkpoint.
+            await finalize_desc_sort_incremental_value(
+                self._resource,
+                self._schema,
+                self._last_incremental_field_value,
+                self._logger,
+                log_prefix="V3 Pipeline: ",
+                staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            )
+            await database_sync_to_async_pool(self._schema.promote_staged_incremental_values)(
+                self._s3_batch_writer.get_run_uuid()
+            )
             # A zero-batch run still ran the full extraction, which is what the fast-return
             # valve counts. Post-load stamps this on every other path but never runs here: with
             # no batches the load consumer is never notified. Without this a v3 schema whose
