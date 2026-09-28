@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _apply_partitioning,
     _enrich_cdc_rows,
     _get_write_type,
+    _handle_partial_data_loading,
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
@@ -144,6 +146,54 @@ class TestApplyPartitioning:
 
         assert PARTITION_KEY not in result.column_names
         assert result.equals(pa_table)
+
+
+_PROCESSOR_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+
+
+class TestHandlePartialDataLoading:
+    @parameterized.expand(
+        [
+            ("first_batch", 0, [], ["a", "b"], ["a", "b"], True),
+            ("append_only_batch", 1, ["a"], ["a", "b"], ["b"], False),
+            ("merge_rewrote_existing_files", 1, ["a", "b"], ["a2", "b", "c"], ["a2", "b", "c"], True),
+        ]
+    )
+    @patch(f"{_PROCESSOR_MODULE}.capture_exception")
+    @patch(f"{_PROCESSOR_MODULE}.validate_schema_and_update_table", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR_MODULE}.prepare_s3_files_for_querying", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR_MODULE}.supports_partial_data_loading", return_value=True)
+    def test_query_folder_matches_the_delta_table(
+        self,
+        _name: str,
+        batch_index: int,
+        previous_file_uris: list[str],
+        current_file_uris: list[str],
+        expected_copied: list[str],
+        expected_delete_existing: bool,
+        _supports: MagicMock,
+        mock_prepare: AsyncMock,
+        mock_validate: AsyncMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        export_signal = MagicMock(is_first_ever_sync=True, batch_index=batch_index)
+        delta_table = MagicMock()
+        delta_table.file_uris.return_value = current_file_uris
+
+        async_to_sync(_handle_partial_data_loading)(
+            export_signal=export_signal,
+            job=MagicMock(),
+            schema=MagicMock(),
+            delta_table=delta_table,
+            previous_file_uris=previous_file_uris,
+            internal_schema=MagicMock(),
+        )
+
+        kwargs = mock_prepare.await_args.kwargs
+        assert sorted(kwargs["file_uris"]) == expected_copied
+        assert kwargs["delete_existing"] is expected_delete_existing
+        mock_validate.assert_awaited_once()
+        mock_capture_exception.assert_not_called()
 
 
 class TestPromoteStagedCursor:

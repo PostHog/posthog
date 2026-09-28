@@ -337,19 +337,23 @@ async def _handle_partial_data_loading(
 
     current_file_uris = delta_table.file_uris()
 
-    if export_signal.batch_index == 0:
+    # A merge rewrites every file that holds a matched primary key, e.g. when the source sends a
+    # record again across pages. The query folder then holds stale copies, so rebuild it from the
+    # full file list instead of copying only the new files.
+    rebuild_query_folder = export_signal.batch_index == 0
+    if rebuild_query_folder:
         new_file_uris = current_file_uris
     else:
         new_file_uris = list(set(current_file_uris) - set(previous_file_uris))
         modified_files = set(previous_file_uris) - set(current_file_uris)
         if modified_files:
-            logger.warning(
-                "Found modified files during first sync, skipping partial data loading",
+            logger.info(
+                "Delta files rewritten during first sync, rebuilding query folder",
                 batch_index=export_signal.batch_index,
                 modified_count=len(modified_files),
             )
-            capture_exception(Exception(f"Found {len(modified_files)} modified delta files during first sync"))
-            return
+            rebuild_query_folder = True
+            new_file_uris = current_file_uris
 
     if not new_file_uris:
         logger.debug("No new files to make queryable", batch_index=export_signal.batch_index)
@@ -366,7 +370,7 @@ async def _handle_partial_data_loading(
         folder_path=job.folder_path(),
         table_name=export_signal.resource_name,
         file_uris=new_file_uris,
-        delete_existing=(export_signal.batch_index == 0),
+        delete_existing=rebuild_query_folder,
         use_timestamped_folders=False,
         logger=logger,
     )
