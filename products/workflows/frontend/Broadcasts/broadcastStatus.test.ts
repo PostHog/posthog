@@ -1,9 +1,11 @@
-import type { HogFlowBatchJobApi, HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { getBroadcastStatus } from './broadcastsLogic'
 
-const flow = (status: string, origin_product: string | null = 'broadcasts'): HogFlowMinimalApi =>
-    ({ status, origin_product }) as unknown as HogFlowMinimalApi
+const flow = (
+    status: string,
+    origin_product: string | null = 'broadcasts'
+): Parameters<typeof getBroadcastStatus>[0] => ({ status, origin_product })
 const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: Record<string, number> } => ({
     latestBatchJob: { status } as HogFlowBatchJobApi,
     totals: {},
