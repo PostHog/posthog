@@ -166,6 +166,12 @@ tools:
             `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
             loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-create
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
         confirmed_action:
             message: >
                 About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and
@@ -185,6 +191,12 @@ tools:
             Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project
             admin can delete a loop.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-archive
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-list:
         operation: loops_list
         enabled: true
@@ -201,6 +213,12 @@ tools:
             loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`,
             `consecutive_failures`).
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-list
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-partial-update:
         operation: loops_partial_update
         enabled: true
@@ -217,6 +235,13 @@ tools:
             member takes ownership and re-validates repositories and connectors against that member's own access.
             Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-patch-graph
+            - workflows-update
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-preview-create:
         operation: loops_preview_create
         enabled: true
@@ -232,6 +257,12 @@ tools:
             schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's
             prompt before enabling it.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -247,6 +278,12 @@ tools:
             Get a specific loop by ID, including its full config (instructions, model, repositories, triggers,
             behaviors, connectors, notifications) and run bookkeeping.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-get
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-run-create:
         operation: loops_run_create
         enabled: true
@@ -262,6 +299,14 @@ tools:
             current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as
             trigger-fired runs.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". A test run steps one node at a time and mocks outbound calls, so it checks the graph
+            and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog
+            Desktop, or wait for its trigger.'
     loops-runs-retrieve:
         operation: loops_runs_retrieve
         enabled: true
@@ -281,6 +326,17 @@ tools:
             filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error,
             and consecutive_failures for current health; an enabled schedule alone does not show successful work.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - tasks-list
+            - tasks-runs-retrieve
+            - workflows-list-invocations
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". For run history, call tasks-list with the hog_flow_id of the loop and archived set
+            to all: it lists the tasks the loop created, newest first, each with the status and error of its latest run.
+            Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL.
+            workflows-list-invocations carries the engine outcome only, with no task output.'
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
         enabled: false

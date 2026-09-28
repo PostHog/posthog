@@ -77,6 +77,7 @@ export interface chartAlternativesLogicValues {
     galleryOpen: boolean
     inSharedMode: boolean | undefined
     isEditableSurface: boolean
+    isEligibleSurface: boolean
     options: ChartDisplayOptionGroup[]
     selectionDisabledReason: string | undefined
     trendsSource: TrendsQuery | null
@@ -98,6 +99,9 @@ export interface chartAlternativesLogicActions {
         value: true
     }
     openGallery: () => {
+        value: true
+    }
+    reportChartMenuOpened: () => {
         value: true
     }
     selectChart: (
@@ -145,13 +149,13 @@ export interface chartAlternativesLogicMeta {
             currentDisplay: ChartDisplayType
         ) => ChartDisplayOption | undefined
         isEditableSurface: (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean) => boolean
-        canShowAlternatives: (
-            featureFlags: FeatureFlagsSet,
+        isEligibleSurface: (
             isEditableSurface: boolean,
             isTrends: boolean,
             query: Node<Record<string, any>> | null,
             trendsSource: TrendsQuery | null
         ) => boolean
+        canShowAlternatives: (featureFlags: FeatureFlagsSet, isEligibleSurface: boolean) => boolean
         canSelectCharts: (canShowAlternatives: boolean, insightDataLoading: boolean) => boolean
         selectionDisabledReason: (
             canShowAlternatives: boolean,
@@ -187,6 +191,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         openGallery: true,
         closeGallery: true,
         toggleGallery: true,
+        reportChartMenuOpened: true,
         selectChart: (display: ChartDisplayType, source: ChartAlternativeSource) => ({ display, source }),
     }),
     reducers({
@@ -258,20 +263,21 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean): boolean =>
                 !embedded && !inSharedMode && canEditInsight,
         ],
-        canShowAlternatives: [
-            (s) => [s.featureFlags, s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
+        // Where either experiment arm offers a chart type choice, so where an opened menu counts as an exposure.
+        isEligibleSurface: [
+            (s) => [s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
             (
-                featureFlags: FeatureFlagsSet,
                 isEditableSurface: boolean,
                 isTrends: boolean,
                 query: Node | null,
                 trendsSource: TrendsQuery | null
-            ): boolean =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test' &&
-                isEditableSurface &&
-                isTrends &&
-                !!query &&
-                !!trendsSource,
+            ): boolean => isEditableSurface && isTrends && !!query && !!trendsSource,
+        ],
+        canShowAlternatives: [
+            (s) => [s.featureFlags, s.isEligibleSurface],
+            (featureFlags: FeatureFlagsSet, isEligibleSurface: boolean): boolean =>
+                // Reading the flag logs a flag call, so read it only where the gallery could show.
+                isEligibleSurface && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test',
         ],
         canSelectCharts: [
             (s) => [s.canShowAlternatives, s.insightDataLoading],
@@ -299,6 +305,19 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         openGallery: () => {
             if (!values.canSelectCharts) {
                 actions.closeGallery()
+                return
+            }
+            actions.reportChartMenuOpened()
+        },
+        toggleGallery: () => {
+            if (values.galleryOpen) {
+                actions.reportChartMenuOpened()
+            }
+        },
+        reportChartMenuOpened: () => {
+            if (values.isEligibleSurface) {
+                // The chart gallery experiment uses this as its exposure event, for both arms.
+                posthog.capture('insight chart type menu opened', { current_display: values.currentDisplay })
             }
         },
         selectChart: ({ display, source }) => {
