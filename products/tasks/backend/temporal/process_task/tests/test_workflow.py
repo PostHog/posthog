@@ -1862,19 +1862,81 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         logger = Mock()
-        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.SANDBOX_GONE)
+
+        async def refresh_loop(context, sandbox_id, on_sandbox_gone):
+            on_sandbox_gone("killed with exit code 137, usually because it ran out of memory")
+            return CredentialRefreshExitReason.SANDBOX_GONE
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
-        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop)
 
         await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+        await workflow._mark_sandbox_gone()
 
         assert workflow._sandbox_gone is True
-        refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
+        assert workflow._completion_error == (
+            "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue."
+        )
         logger.warning.assert_called_once_with(
             "sandbox_gone_detected",
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
+
+    @pytest.mark.parametrize(
+        "patched, lookup_result, expected_error",
+        [
+            (True, "timed out", "Sandbox stopped: timed out. Resume to continue."),
+            (True, RuntimeError("lookup failed"), "Sandbox stopped; resume to continue"),
+            (False, "timed out", "Sandbox stopped; resume to continue"),
+        ],
+    )
+    async def test_relay_sandbox_loss_records_the_sandbox_exit_reason(
+        self, monkeypatch, patched, lookup_result, expected_error
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        lookups: list[str] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
+            if activity_fn is process_task_workflow_module.get_sandbox_exit_reason:
+                lookups.append(activity_input.sandbox_id)
+                if isinstance(lookup_result, Exception):
+                    raise lookup_result
+                return lookup_result
+            return True
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow._relay_sandbox_events("https://sandbox.example", "connect-token", sandbox_id="sandbox-123")
+
+        assert workflow._sandbox_gone is True
+        assert lookups == []
+
+        await workflow._mark_sandbox_gone()
+
+        assert lookups == (["sandbox-123"] if patched else [])
+        assert workflow._completion_error == expected_error
+
+    async def test_completion_signal_during_the_exit_reason_lookup_wins(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._sandbox_gone = True
+        workflow._sandbox_exit_reason_lookup_id = "sandbox-123"
+
+        async def fake_execute_activity(_activity_fn, _activity_input, **_kwargs):
+            await workflow.complete_task(status="cancelled", error_message="Stopped by user")
+            return "timed out"
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        await workflow._mark_sandbox_gone()
+
+        assert workflow._completion_status == "cancelled"
+        assert workflow._completion_error == "Stopped by user"
+        assert workflow._completion_timeout_marker is None
 
     async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -3412,6 +3474,7 @@ class TestContinueAsNew:
             process_task_workflow_module.workflow, "info", Mock(return_value=Mock(start_time=chain_start))
         )
         wf = self._idle_enabled_workflow()
+        wf.context.sandbox_backend = "hogland"
         wf._sandbox_url = "https://sandbox.example"
         wf._sandbox_connect_token = "tok"
         wf._ci_repetitions = 2
@@ -3443,8 +3506,10 @@ class TestContinueAsNew:
         rs = resumed_input.resumed_sandbox
         assert rs is not None
         assert (rs.sandbox_id, rs.sandbox_url, rs.connect_token) == ("sb-1", "https://sandbox.example", "tok")
+        assert rs.sandbox_backend == "hogland"
 
         restored = ProcessTaskWorkflow()
+        restored._context = dataclasses.replace(wf.context)
         restored._restore_resumed_state(rs)
 
         assert restored._ci_repetitions == 2

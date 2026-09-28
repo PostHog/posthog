@@ -61,6 +61,20 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stop_status_stream_skips_trailing_mention_when_answer_mentions_recipient(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+        )
+
+        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        assert streamed.count("<@U123>") == 1
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):

@@ -52,6 +52,55 @@ tools:
                 optional: true
                 fallback: projectId
         feature_entitlement: access_control
+    access-control-default-rule-set:
+        operation: organizations_projects_access_control_default_rules_update
+        enabled: true
+        scopes:
+            - access_control:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set or clear the default access rule for a scope
+        description: >
+            Sets the level everyone in the project gets for one scope when they have no member rule or role rule of
+            their own there. Use it to change the project baseline (`resource: project` with the project id as
+            `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level
+            `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property
+            (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or
+            `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. An
+            empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current
+            and the new level before you ask for confirmation. Requires human typed confirmation.
+        agent_note: >
+            A member rule or a role rule on the same scope still wins over this default. Verify the result with
+            access-control-defaults-get or access-control-members-list.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+            resource:
+                description: >
+                    The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`.
+                    The tool names are the keys of `resource_access_levels` on access-control-defaults-get.
+            resource_id:
+                description: >
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
+                default: null
+            access_level:
+                description: >
+                    The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null
+                    to remove the rule.
+        feature_entitlement: access_control
+        confirmed_action:
+            message: >
+                About to set the default {resource} access rule in project {id} to {access_level}, for object
+                {resource_id} (null means the whole tool; a null level clears the rule). This changes what every member
+                without a rule of their own gets. Reply 'confirm' to proceed.
+            action_label: change the default access rule
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
         enabled: true
@@ -140,6 +189,59 @@ tools:
                 description: |
                     The organization membership id, as `organization_membership_id` in access-control-members-list.
         feature_entitlement: access_control
+    access-control-member-rule-set:
+        operation: organizations_projects_access_control_member_rules_update
+        enabled: true
+        scopes:
+            - access_control:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set or clear one member's access rule for a scope
+        description: >
+            Sets the level one organization member gets for one scope. A member rule applies to that person only and
+            wins over their role rules and the default. The scope is the project (`resource: project` with the project
+            id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
+            `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource:
+            property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's
+            rule, so they fall back to their role rules or the default. An empty result means the rule is cleared. When
+            several people need the same change, prefer a role rule. Read access-control-members-list with `member_id`
+            first and tell the user the current and the new level before you ask for confirmation. Requires human typed
+            confirmation.
+        agent_note: >
+            Organization admins and owners have full access regardless of rules. Verify the result with
+            access-control-members-list and `member_id`.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+            member_id:
+                description: |
+                    The organization membership id, as `organization_membership_id` in access-control-members-list.
+            resource:
+                description: >
+                    The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`.
+                    The tool names are the keys of `resources` in access-control-members-list.
+            resource_id:
+                description: >
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
+                default: null
+            access_level:
+                description: >
+                    The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null
+                    to remove the rule.
+        feature_entitlement: access_control
+        confirmed_action:
+            message: >
+                About to set the {resource} access rule for member {member_id} in project {id} to {access_level}, for
+                object {resource_id} (null means the whole tool; a null level clears the rule). Reply 'confirm' to
+                proceed.
+            action_label: change a member's access rule
     access-control-members-list:
         operation: organizations_projects_access_control_members_retrieve
         enabled: true
@@ -230,6 +332,57 @@ tools:
                     The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in
                     access-control-members-list.
         feature_entitlement: role_based_access
+    access-control-role-rule-set:
+        operation: organizations_projects_access_control_role_rules_update
+        enabled: true
+        scopes:
+            - access_control:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set or clear one role's access rule for a scope
+        description: >
+            Sets the level every member of one role gets for one scope. A role rule wins over the default, and a
+            member's own rule wins over it. The scope is the project (`resource: project` with the project id as
+            `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`,
+            `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`,
+            level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. An empty result means
+            the rule is cleared. Role rules are enforced only on plans with role-based access. Read
+            access-control-roles-list with `role_id` first and tell the user the current and the new level before you
+            ask for confirmation. Requires human typed confirmation.
+        agent_note: |
+            Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+            role_id:
+                description: |
+                    The role id, as `role_id` in access-control-roles-list or `id` in roles-list.
+            resource:
+                description: >
+                    The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`.
+                    The tool names are the keys of `resources` in access-control-roles-list.
+            resource_id:
+                description: >
+                    The project id for a project rule, the object's id for a rule on one object (a pk, as returned by
+                    the object's own get tool), or the property definition id for a property rule. Null only for a rule
+                    on a whole tool.
+                default: null
+            access_level:
+                description: >
+                    The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null
+                    to remove the rule.
+        feature_entitlement: role_based_access
+        confirmed_action:
+            message: >
+                About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for object
+                {resource_id} (null means the whole tool; a null level clears the rule). This affects every member of
+                the role. Reply 'confirm' to proceed.
+            action_label: change a role's access rule
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
         enabled: true

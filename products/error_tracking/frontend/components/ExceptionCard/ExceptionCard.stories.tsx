@@ -658,18 +658,20 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
     return (
-        <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
-            {(width) => (
-                <OpenTab tab="timeline" issueId={`header-action-${width}`}>
-                    <ExceptionCard
-                        issueId={`header-action-${width}`}
-                        issueName="Test Issue"
-                        loading={false}
-                        event={event}
-                    />
-                </OpenTab>
-            )}
-        </HeaderWidthMatrix>
+        <div className="[&_[data-attr=session-timeline-scroll-container]]:overflow-clip">
+            <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
+                {(width) => (
+                    <OpenTab tab="timeline" issueId={`header-action-${width}`}>
+                        <ExceptionCard
+                            issueId={`header-action-${width}`}
+                            issueName="Test Issue"
+                            loading={false}
+                            event={event}
+                        />
+                    </OpenTab>
+                )}
+            </HeaderWidthMatrix>
+        </div>
     )
 }
 ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()

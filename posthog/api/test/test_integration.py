@@ -5,6 +5,7 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import quote, urlencode
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -82,6 +83,7 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.models import HogFlow
 
 
@@ -619,7 +621,7 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_integration_from_domain(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -651,7 +653,7 @@ class TestEmailIntegration:
             org_team_ids=[self.team.id],
         )
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -710,7 +712,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_integration(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -747,7 +749,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
@@ -6560,23 +6562,30 @@ class TestGitHubIntegrationUninstall:
         assert not Integration.objects.filter(id=integration.id).exists()
 
     @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
-    @patch("posthog.api.integration.count_in_progress_runs_for_github_integration")
+    @patch("posthog.api.integration.get_in_progress_runs_for_github_integration")
     def test_destroy_github_blocked_while_background_agent_runs_in_progress(
         self, mock_count, _mock_uninstall, client: HttpClient
     ):
         integration = self._create_github_integration("12345")
         _mock_uninstall.return_value = "uninstalled"
-        mock_count.return_value = 2
+        task_id = uuid4()
+        mock_count.return_value = InProgressGithubRunsDTO(
+            count=3, oldest_task_id=task_id, oldest_task_title="Fix the login redirect"
+        )
 
         client.force_login(self.user)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "2 in-progress background agent runs" in response.json()["detail"]
+        assert response.json()["detail"] == (
+            'This GitHub integration is being used by the in-progress background agent task "Fix the login redirect" '
+            f"({settings.SITE_URL}/project/{self.team.pk}/ai?task={task_id}) and 2 other runs. "
+            "Wait for them to finish or cancel them before disconnecting it."
+        )
         assert Integration.objects.filter(id=integration.id).exists()
-        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)
+        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id, user_id=self.user.id)
 
-        mock_count.return_value = 0
+        mock_count.return_value = InProgressGithubRunsDTO(count=0)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT

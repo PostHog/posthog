@@ -1855,7 +1855,7 @@ export type CommentsListParams = {
      */
     source_comment?: string
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.
      */
     task_id?: string
 }

@@ -11,6 +11,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
     FINNHUB_BASE_URL,
+    FinnhubRowCapExceededError,
+    _expand_columnar,
     _extract_rows,
     _fetch,
     _parse_symbols,
@@ -93,6 +95,37 @@ class TestExtractRows:
     def test_bare_array_non_list_returns_empty(self) -> None:
         assert _extract_rows({"error": "boom"}, FINNHUB_ENDPOINTS["stock_symbols"]) == []
 
+    def test_columnar_candles_zipped_into_rows(self) -> None:
+        payload = {
+            "s": "ok",
+            "t": [100, 200],
+            "o": [1.0, 2.0],
+            "h": [1.5, 2.5],
+            "l": [0.5, 1.5],
+            "c": [1.2, 2.2],
+            "v": [10, 20],
+        }
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["stock_candles"]) == [
+            {"t": 100, "o": 1.0, "h": 1.5, "l": 0.5, "c": 1.2, "v": 10},
+            {"t": 200, "o": 2.0, "h": 2.5, "l": 1.5, "c": 2.2, "v": 20},
+        ]
+
+    @parameterized.expand(
+        [
+            ("no_data_status", {"s": "no_data", "t": [], "c": []}),
+            ("missing_status", {"t": [100], "c": [1.0]}),
+            ("no_arrays", {"s": "ok"}),
+            ("not_a_dict", []),
+        ]
+    )
+    def test_columnar_non_ok_returns_empty(self, _name: str, payload: Any) -> None:
+        assert _expand_columnar(payload) == []
+
+    def test_columnar_truncates_to_shortest_array(self) -> None:
+        # A short array would otherwise leave a half-populated final row.
+        payload = {"s": "ok", "t": [100, 200], "c": [1.0]}
+        assert _expand_columnar(payload) == [{"t": 100, "c": 1.0}]
+
 
 class TestRequestParams:
     def test_stock_symbols_defaults_exchange(self) -> None:
@@ -125,6 +158,34 @@ class TestRequestParams:
     @time_machine.travel("2024-06-15", tick=False)
     def test_company_news_window_falls_back_to_lookback_without_cursor(self) -> None:
         params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, None)
+        assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_candles_window_uses_epoch_seconds(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["stock_candles"], "AAPL", "US", False, None)
+        assert params == {"symbol": "AAPL", "resolution": "D", "from": 1655337600, "to": 1718496000}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_candles_window_starts_at_midnight_of_the_watermark_day(self) -> None:
+        # The stored cursor is a candle timestamp mid-window; rounding down re-fetches that day.
+        params = _request_params(FINNHUB_ENDPOINTS["stock_candles"], "AAPL", "US", True, 1717000000)
+        assert params["from"] == 1716940800  # 2024-05-29T00:00:00Z
+        assert params["to"] == 1718496000
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_financials_reported_window_uses_long_lookback_and_freq(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["financials_reported"], "AAPL", "US", False, None)
+        assert params == {"symbol": "AAPL", "freq": "annual", "from": "2019-06-17", "to": "2024-06-15"}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_insider_transactions_window_uses_incremental_cursor(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["insider_transactions"], "AAPL", "US", True, "2024-05-01")
+        assert params == {"symbol": "AAPL", "from": "2024-05-01", "to": "2024-06-15"}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_full_refresh_omits_the_watermark(self) -> None:
+        # A full refresh must sweep the whole lookback even when a cursor is stored.
+        params = _request_params(FINNHUB_ENDPOINTS["sec_filings"], "AAPL", "US", False, "2024-05-01")
         assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
 
 
@@ -205,6 +266,35 @@ class TestGetRows:
         with pytest.raises(KeyError):
             list(get_rows(api_key="k", endpoint="company_news", symbols="AAPL", exchange="US", logger=MagicMock()))
 
+    def test_candles_emitted_as_rows_with_symbol(self, monkeypatch: Any) -> None:
+        self._patch_fetch(
+            monkeypatch,
+            {"AAPL": {"s": "ok", "t": [200, 100], "c": [2.0, 1.0]}},
+        )
+        batches = list(
+            get_rows(api_key="k", endpoint="stock_candles", symbols="AAPL", exchange="US", logger=MagicMock())
+        )
+        # Sorted ascending on the declared `t` watermark, with the requested ticker injected.
+        assert batches == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
+
+    def test_raises_when_a_response_hits_the_documented_cap(self, monkeypatch: Any) -> None:
+        # Insider transactions cap at 100 rows per call with no pagination — a full page means
+        # the API silently dropped the rest of the window. Emitting that subset would let the
+        # cursor advance past the missing rows, so the sync must fail instead of checkpointing.
+        rows = [{"symbol": "AAPL", "transactionDate": f"2024-01-{i % 28 + 1:02d}"} for i in range(100)]
+        self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
+        logger = MagicMock()
+        with pytest.raises(FinnhubRowCapExceededError):
+            list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        logger.error.assert_called_once()
+
+    def test_no_cap_error_below_the_cap(self, monkeypatch: Any) -> None:
+        rows = [{"symbol": "AAPL", "transactionDate": "2024-01-01"}]
+        self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
+        logger = MagicMock()
+        list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        logger.error.assert_not_called()
+
     def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
         self._patch_fetch(
             monkeypatch,
@@ -230,6 +320,23 @@ class TestFinnhubSource:
             ("company_news", ["id", "symbol"], None, "asc"),
             ("recommendation_trends", ["symbol", "period"], "period", None),
             ("earnings_surprises", ["symbol", "period"], "period", None),
+            ("financials_reported", ["symbol", "accessNumber"], "endDate", "asc"),
+            ("stock_candles", ["symbol", "t"], "t", "asc"),
+            ("sec_filings", ["symbol", "accessNumber"], "filedDate", "asc"),
+            (
+                "insider_transactions",
+                [
+                    "symbol",
+                    "name",
+                    "transactionDate",
+                    "filingDate",
+                    "transactionCode",
+                    "change",
+                    "transactionPrice",
+                ],
+                "transactionDate",
+                "asc",
+            ),
         ]
     )
     def test_source_response_keys_and_partitioning(
