@@ -95,7 +95,8 @@ _REVIEWS_SELECT = f"""
 # Skipped runs add no red or running time, and the shared gate-attempt read handles queue runs.
 _RUNS_SELECT = f"""
     SELECT
-        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
+        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at,
+        stopped_reporting
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
@@ -415,10 +416,12 @@ class PullRequestTimelinesQuery:
             updated_at,
             attempt,
             created_at,
+            stopped_reporting,
         ) in runs:
             run_attempts = job_attempts.get(int(run_id), [])
             queued_at = created_at or started_at
-            completed = status == "completed"
+            # A run that stopped reporting ends at its last update, neither failed nor passed.
+            completed = status == "completed" or bool(stopped_reporting)
             run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:

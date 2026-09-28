@@ -14,9 +14,9 @@ export const FRICTION_GROUP_LABELS: Record<FrictionGroupEnumApi, string> = {
 }
 
 export const FRICTION_GROUP_DESCRIPTIONS: Record<FrictionGroupEnumApi, string> = {
-    queue: 'time in the merge queue past 30 minutes, and kickouts',
+    queue: 'time in the merge queue from 30 minutes up to 4 hours, and kickouts',
     review: 'the wait for the first approval',
-    ci: 'red CI by cause, re-runs that failed again, and CI time past 10 minutes per push',
+    ci: 'red CI by cause, re-runs that failed again, and CI time from 10 minutes up to 2 hours per push',
     rework: 'own failures fixed by a push, extra pushes, and pushes after approval',
 }
 

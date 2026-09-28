@@ -90,6 +90,12 @@ from products.engineering_analytics.backend.logic.merge_queue import source_pr_n
 # contributor-named branch can't re-key someone else's runs onto their PR (see logic.merge_queue).
 _MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
 
+# An unfinished run with no update for a day. The webhook sync can miss or misorder the final event of a
+# run, most often a workflow that GitHub skips at once, and the row then stays in_progress or queued
+# forever. A consumer that treats an unfinished run as still running would count it open until the pull
+# request merges, so the timeline reads such a run as ended at its last update, with no outcome.
+STOPPED_REPORTING_SQL = "(status != 'completed' AND updated_at < now() - INTERVAL 1 DAY)"
+
 # The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).
 # ``> 0`` guards the both-missing case: JSONExtractInt yields 0 for an absent key, so a malformed
 # entry would otherwise "match" a run whose ``repository`` JSON never landed.
@@ -160,6 +166,7 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             if(merge_queue_pr_number > 0, merge_queue_pr_number, association_pr_number) AS pr_number,
             {commit_pr_number} AS commit_pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
+            {STOPPED_REPORTING_SQL} AS stopped_reporting,
             arrayElement(repo_parts, 1) AS repo_owner,
             arrayElement(repo_parts, 2) AS repo_name
         FROM (

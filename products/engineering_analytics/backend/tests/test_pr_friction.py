@@ -63,7 +63,7 @@ def _job(job_id: int, run_id: int, name: str, conclusion: str, offset: int, dura
     return _job_row(job_id, run_id, name, conclusion, started=start, completed=end, **kwargs)
 
 
-def _gate(run_id: int, pr: int, attempt: str, conclusion: str, offset: int, duration: int) -> dict[str, Any]:
+def _gate(run_id: int, pr: int, attempt: str, conclusion: str | None, offset: int, duration: int) -> dict[str, Any]:
     return _run(
         run_id,
         f"queue{run_id}",
@@ -94,6 +94,8 @@ class TestPRFrictionView(_WarehouseMixin):
                 _merged(36, 120),
                 _merged(37, 360),
                 _merged(38, 60, login="dependabot[bot]"),
+                _merged(40, 190),
+                _merged(41, 180),
                 _pr_row(39, "alice", "closed", 0, _ago(70), merged_at=_at(60), default_branch="master"),
             ],
         )
@@ -114,13 +116,25 @@ class TestPRFrictionView(_WarehouseMixin):
                 _run(3401, "sha34", "success", 0, 15, pr_number=34),
                 _gate(3402, 34, "first", "failure", 60, 30),
                 _gate(3403, 34, "second", "success", 120, 30),
-                # 35: two runs of one workflow start in the same second; the unfinished one has the higher id.
+                # 35: two runs of one workflow start in the same second. The unfinished one has the higher id and
+                # stopped reporting days ago, so it ends at its start instead of running until the merge.
                 _run(3501, "sha35", "success", 0, 5, pr_number=35, name="Lint"),
                 _run(3502, "sha35", None, 0, 0, pr_number=35, name="Lint"),
                 # 37: approved three hours after ready, then pushed again.
                 _run(3701, "sha37a", "success", 0, 10, pr_number=37),
                 _run(3702, "sha37b", "success", 300, 10, pr_number=37),
                 _run(3801, "sha38", "success", 0, 10, pr_number=38),
+                # 40: kicked out, pushed again and merged. A skipped gate run of the first attempt stayed
+                # in_progress, which must not hold the queue open until the merge.
+                _run(4001, "sha40a", "success", 0, 10, pr_number=40),
+                _gate(4002, 40, "first", "failure", 20, 30),
+                _gate(4003, 40, "first", None, 20, 0),
+                _run(4004, "sha40b", "success", 120, 10, pr_number=40),
+                _gate(4005, 40, "second", "success", 150, 30),
+                # 41: "Re-run all" re-ran two failed workflows of one commit, and both failed again.
+                _run(4101, "sha41a", "failure", 30, 10, pr_number=41, run_attempt=2, created_offset=0),
+                _run(4102, "sha41a", "failure", 30, 10, pr_number=41, run_attempt=2, created_offset=0, name="Lint"),
+                _run(4103, "sha41b", "success", 120, 10, pr_number=41),
             ],
         )
         self._create_table(
@@ -133,6 +147,10 @@ class TestPRFrictionView(_WarehouseMixin):
                 _job(4, 3201, "test (1/2)", "failure", 20, 10, run_attempt=2),
                 _job(5, 3201, "test (1/2)", "failure", 40, 10, run_attempt=3),
                 _job(6, 3901, "test (2/2)", "failure", 0, 5, head_branch="master"),
+                _job(7, 4101, "build", "failure", 0, 10),
+                _job(8, 4101, "build", "failure", 30, 10, run_attempt=2),
+                _job(9, 4102, "lint", "failure", 0, 10),
+                _job(10, 4102, "lint", "failure", 30, 10, run_attempt=2),
             ],
         )
         self._create_table(
@@ -214,7 +232,7 @@ class TestPRFrictionView(_WarehouseMixin):
             if number in timeline_figures
         }
 
-        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39}
+        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41}
         assert view_figures == timeline_figures
 
     def test_view_counts_what_the_author_went_through(self) -> None:
@@ -259,7 +277,11 @@ class TestPRFrictionView(_WarehouseMixin):
             37: {**base, "push_count": 2, "first_approval_wait_seconds": 3 * 3600.0, "pushes_after_approval": 1},
             38: {**base, "is_bot": True},
             39: {**base, "push_count": 0},
+            40: {**base, "push_count": 2, "kickout_count": 1},
+            41: {**base, "push_count": 2, "own_red_count": 2, "futile_rerun_count": 1},
         }
         assert self._github_source is not None
         assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}
-        assert rows[35]["ci_wait_seconds"] == [timedelta(hours=1).total_seconds()]
+        assert rows[35]["ci_wait_seconds"] == [0.0]
+        # The first gate attempt ends when its finished runs end: 30 minutes, plus 40 from the second gate to the merge.
+        assert rows[40]["queue_seconds"] == timedelta(minutes=70).total_seconds()
