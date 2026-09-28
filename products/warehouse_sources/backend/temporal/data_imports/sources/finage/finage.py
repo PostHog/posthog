@@ -430,9 +430,12 @@ def _iter_symbol_list_rows(
 
     A symbol is only unique within its market, so the requested market is pinned onto every row and
     is part of the key. The response reports no total, so the walk ends on the first empty page.
+    A page that adds no new symbol means the API ignores `page`, so the walk fails instead of
+    re-fetching the same page up to the cap and keeping only its symbols.
     """
     for market in config.markets:
         path = config.path.format(market=market)
+        seen: set[str] = set()
         for page in range(1, SYMBOL_LIST_MAX_PAGES + 1):
             what = f"{config.name} for {market} page {page}"
             try:
@@ -450,10 +453,15 @@ def _iter_symbol_list_rows(
             if not all(isinstance(record, dict) for record in symbols):
                 raise ValueError(f"Finage {what} returned a symbol entry that is not a record")
 
-            yield [
+            rows = [
                 {**_symbol_keyed_row(record, config, pinned_symbol=None, what=what), "market": market}
                 for record in symbols
             ]
+            page_symbols = {row["symbol"] for row in rows}
+            if page_symbols <= seen:
+                raise ValueError(f"Finage {what} returned no new symbols; the API may ignore the page parameter")
+            seen |= page_symbols
+            yield rows
         else:
             logger.warning(
                 f"Finage: {config.name} for {market} hit the {SYMBOL_LIST_MAX_PAGES}-page cap; later symbols skipped"
