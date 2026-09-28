@@ -96,13 +96,12 @@ function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'recordin
 }
 
 export function SessionRecordingCollections(): JSX.Element {
-    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(sessionRecordingCollectionsLogic)
+    const { playlists, playlistsLoading, builtInPlaylists, filters, sorting, pagination } = useValues(
+        sessionRecordingCollectionsLogic
+    )
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
         sessionRecordingCollectionsLogic
     )
-
-    const builtInCollections = playlists.results.filter((playlist) => playlist.is_synthetic)
-    const ownCollections = playlists.results.filter((playlist) => !playlist.is_synthetic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
@@ -210,7 +209,7 @@ export function SessionRecordingCollections(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-6">
-            <BuiltInCollections playlists={builtInCollections} />
+            <BuiltInCollections playlists={builtInPlaylists} />
 
             <div className="flex flex-col gap-2">
                 <div className="flex justify-between gap-2 items-center flex-wrap">
@@ -264,20 +263,14 @@ export function SessionRecordingCollections(): JSX.Element {
                     </div>
                 </div>
 
-                {!playlistsLoading && ownCollections.length < 1 ? (
+                {!playlistsLoading && playlists.results.length < 1 ? (
                     <SessionRecordingCollectionsEmptyState />
                 ) : (
                     <LemonTable
                         loading={playlistsLoading}
                         columns={columns}
-                        dataSource={ownCollections}
-                        pagination={{
-                            ...pagination,
-                            entryCount:
-                                pagination.entryCount === undefined
-                                    ? undefined
-                                    : Math.max(0, pagination.entryCount - builtInCollections.length),
-                        }}
+                        dataSource={playlists.results}
+                        pagination={pagination}
                         noSortingCancellation
                         sorting={sorting}
                         onSort={(newSorting) =>

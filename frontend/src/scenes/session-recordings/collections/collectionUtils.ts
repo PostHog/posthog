@@ -11,7 +11,7 @@ export interface CollectionCounts {
 }
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
-    return isObject(x) && ('collection' in x || 'saved_filters' in x)
+    return isObject(x) && 'collection' in x
 }
 
 export function getCollectionCounts(recordingsCounts: unknown): CollectionCounts | null {
