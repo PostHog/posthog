@@ -1,4 +1,5 @@
 import json
+import importlib
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -40,9 +41,12 @@ class TestGithubTriggerFilters(ClickhouseTestMixin, APIBaseTest):
     """The trigger editor writes property filters, the engine runs their bytecode. These check the
     two actually agree, which is what the editor's own round-trip tests can't see."""
 
-    def _matches(self, properties: list[dict], globals: dict | None = None) -> bool:
+    def _bytecode(self, properties: list[dict]) -> list:
         expr = hog_function_filters_to_expr(filters={"properties": properties}, team=self.team, actions={})
-        bytecode = json.loads(json.dumps(create_bytecode(expr).bytecode))
+        return json.loads(json.dumps(create_bytecode(expr).bytecode))
+
+    def _matches(self, properties: list[dict], globals: dict | None = None) -> bool:
+        bytecode = self._bytecode(properties)
         return execute_bytecode(bytecode, globals or GITHUB_EVENT_GLOBALS).result is True
 
     @parameterized.expand(
@@ -112,3 +116,14 @@ class TestGithubTriggerFilters(ClickhouseTestMixin, APIBaseTest):
         ]
         assert self._matches(properties)
         assert not self._matches(properties, _event(actor_access="read"))
+
+    def test_backfill_lowercases_literal_repositories_and_keeps_patterns(self):
+        migration = importlib.import_module(
+            "products.workflows.backend.migrations.0027_lowercase_github_repository_filters"
+        )
+        bytecode = self._bytecode(
+            [_prop("repository", ["PostHog/Posthog"], "exact"), _prop("repository", "^PostHog/", "regex")]
+        )
+        rewritten = migration._lowercased_bytecode(bytecode)
+        assert "posthog/posthog" in rewritten and "PostHog/Posthog" not in rewritten
+        assert "^PostHog/" in rewritten

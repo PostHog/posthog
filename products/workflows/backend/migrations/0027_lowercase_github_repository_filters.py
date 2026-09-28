@@ -69,13 +69,15 @@ def _lowercased_filters(filters: object) -> dict | None:
 # The operand(s) of a property condition sit right before the field access that reads
 # `properties.repository`: `32, <value>` for one value, or `32, <v1>, 32, <v2>, 44, <n>` for a list.
 REPOSITORY_FIELD_ACCESS = [32, "repository", 32, "properties", 1, 2]
+# EQ, NOT_EQ, IN, NOT_IN: what `exact` and `is_not` compile to. A regex or ilike pattern sits in the same operand slot.
+LITERAL_COMPARE_OPCODES = frozenset({11, 12, 21, 22})
 
 
 def _lowercased_bytecode(bytecode: list) -> list:
     result = list(bytecode)
     width = len(REPOSITORY_FIELD_ACCESS)
-    for j in range(2, len(result) - width + 1):
-        if result[j : j + width] != REPOSITORY_FIELD_ACCESS:
+    for j in range(2, len(result) - width):
+        if result[j : j + width] != REPOSITORY_FIELD_ACCESS or result[j + width] not in LITERAL_COMPARE_OPCODES:
             continue
         if result[j - 2] == 44 and isinstance(result[j - 1], int):
             operands = [j - 1 - 2 * result[j - 1] + 2 * k for k in range(result[j - 1])]
