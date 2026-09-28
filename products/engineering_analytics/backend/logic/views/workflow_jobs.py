@@ -64,6 +64,12 @@ _FIRST_STEP_STARTED_AT = (
 )
 
 
+def branch(jobs_alias: str, runs_alias: str) -> str:
+    """A job's branch: its own, else its run's. A reader that joins a job to its run reads this, because
+    Depot CI job rows carry no branch."""
+    return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
+
+
 def build_query(table_name: str, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,

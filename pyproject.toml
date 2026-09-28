@@ -141,7 +141,7 @@ dependencies = [
     "statshog==1.0.6",
     "stripe==12.2.0",
     "structlog==25.5.0",
-    "temporalio==1.24.0",
+    "temporalio==1.33.0",
     "tenacity==9.1.4",
     "tiktoken==0.12.*",
     "tldextract~=5.1",
@@ -210,7 +210,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
-    "deltalite==0.1.7",
+    "deltalite==0.1.8",
     "posthog-hogland==0.4.1",
 ]
 
@@ -323,7 +323,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
 # v0.11.0-posthog.N tag, and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.7" }
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.8" }
 
 # xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
 # CPU, so drop it to keep the wheel out of the image.

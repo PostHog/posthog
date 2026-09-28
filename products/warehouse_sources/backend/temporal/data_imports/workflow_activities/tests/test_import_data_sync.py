@@ -34,7 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core imp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    SimpleSource,
+    SourceExtractionNotImplementedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -177,6 +180,40 @@ async def test_retryable_setup_error_is_reraised():
         with pytest.raises(Exception, match="connection reset by peer"):
             await import_data_activity_sync(_inputs())
 
+    handle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unimplemented_source_extraction_is_retryable_and_unreported():
+    # A scaffolded source is only connectable once its implementation ships, so a worker that
+    # still holds the base stub is running the build from before that release. The next retry
+    # lands on a caught-up worker, so the run must stay retryable, must not disable the schema,
+    # and must not mint an error-tracking issue for a rollout window.
+    error = SourceExtractionNotImplementedError("DepotSource does not implement source_for_pipeline")
+    source = _make_source(error, {})
+
+    with _patched_activity(source) as handle_mock:
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == module.SOURCE_ROLLOUT_IN_PROGRESS_MESSAGE
+    handle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_plain_not_implemented_error_from_a_source_is_still_reported():
+    # Source implementations raise NotImplementedError for real defects — an unbound resolve param
+    # in a REST manifest, or the Postgres guard against building a pipeline off the base template.
+    # Only the base stub means "this build is behind", so a plain one must still escape raw.
+    error = NotImplementedError("Resource orders defines resolve params that are not bound in path")
+    source = _make_source(error, {})
+
+    with _patched_activity(source) as handle_mock:
+        with pytest.raises(NotImplementedError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value is error
     handle_mock.assert_not_awaited()
 
 
@@ -981,8 +1018,8 @@ def _parent(
     [None, "disabled", "never_synced", "append_mode", "cdc_mode", "too_small", "unknown_size"],
 )
 async def test_unusable_parent_falls_back_to_the_api_path(parent):
-    # A child enabled without its parent is a config that syncs today, so turning the flag on
-    # must leave it working: fall back to the parent API instead of failing the run. Append and
+    # A child enabled without its parent is a config that syncs today, so reuse must leave it
+    # working: fall back to the parent API instead of failing the run. Append and
     # CDC parents hold more than one row per key, so the reader must not stream them either. A
     # parent under the size floor costs more to open than the listing it would replace.
     parent_obj = None
@@ -1001,7 +1038,6 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
 
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(module, "get_schema_if_exists", return_value=parent_obj),
     ):
         result = await module._warehouse_parent_reuse_available(
@@ -1025,7 +1061,6 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
     # because its drains merge on the primary key rather than appending.
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module,
             "get_schema_if_exists",
@@ -1042,7 +1077,7 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
 @pytest.mark.asyncio
 async def test_fanout_gate_result_threaded_into_source_inputs():
     # The gate's decision must reach the source via SourceInputs — if this wiring drops,
-    # every child silently falls back to re-pulling the parent API with the flag on.
+    # every child silently falls back to re-pulling the parent API.
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_required_parent_schemas.return_value = ["issues"]
@@ -1052,7 +1087,6 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
     with (
         _patched_activity_reaching_run(source, schema),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
         ),
@@ -1064,32 +1098,17 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
 
 @pytest.mark.asyncio
-async def test_parent_gate_inert_when_flag_disabled():
-    with (
-        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
-        mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
-    ):
-        result = await module._warehouse_parent_reuse_available(
-            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
-        )
-
-    assert result is False
-    schema_lookup.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_parent_gate_inert_for_sources_without_requirements():
     source = mock.MagicMock(spec=SimpleSource)
     source.get_required_parent_schemas.return_value = []
 
-    with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
+    with mock.patch.object(module, "get_schema_if_exists") as schema_lookup:
         result = await module._warehouse_parent_reuse_available(
             source, _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
         )
 
     assert result is False
-    flag_check.assert_not_called()
+    schema_lookup.assert_not_called()
 
 
 def _probe_model() -> mock.MagicMock:
