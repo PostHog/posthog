@@ -42,7 +42,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Activity log ID from the last known edit. Used for conflict detection."
+            "description": "The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime."
         },
         "folder_id": {
             "anyOf": [

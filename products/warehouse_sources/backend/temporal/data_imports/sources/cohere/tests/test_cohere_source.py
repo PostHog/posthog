@@ -7,7 +7,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.coh
     COHERE_API_VERSION_V1,
     COHERE_BASE_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
+    ENDPOINTS,
+    RETIRED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 
@@ -33,6 +36,14 @@ class TestCohereSourceClass:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["datasets"])
         assert [s.name for s in schemas] == ["datasets"]
+
+    @parameterized.expand([(e,) for e in sorted(RETIRED_ENDPOINTS)])
+    def test_retired_endpoint_is_off_the_catalog_and_stops_retrying(self, endpoint: str) -> None:
+        # Discovery drops the table because it left COHERE_ENDPOINTS. A schema created before the
+        # retirement keeps running until someone turns it off, so its failure has to be classified
+        # non-retryable or every scheduled run burns the full retry budget on a removed route.
+        assert endpoint not in ENDPOINTS
+        assert RETIRED_ENDPOINTS[endpoint] in self.source.get_non_retryable_errors()
 
     def test_lists_tables_without_credentials_for_public_docs(self) -> None:
         # get_schemas is a static catalog with no I/O, so the table list is safe to publish.

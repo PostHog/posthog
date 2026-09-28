@@ -10,10 +10,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccessControlDefaultsResponseApi,
+    AccessControlMemberRuleRequestApi,
     AccessControlMembersResponseApi,
     AccessControlObjectRulesResponseApi,
     AccessControlPropertyRulesResponseApi,
+    AccessControlRoleRuleRequestApi,
     AccessControlRolesResponseApi,
+    AccessControlRuleRequestApi,
+    AccessControlStoredRuleApi,
+    MemberProjectAccessResponseApi,
+    MembersProjectAccessRetrieveParams,
     OrganizationsProjectsAccessControlMemberObjectsRetrieveParams,
     OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams,
     OrganizationsProjectsAccessControlMembersRetrieveParams,
@@ -26,6 +32,39 @@ import type {
     PropertyAccessControlsDestroyParams,
     PropertyAccessControlsRetrieveParams,
 } from './api.schemas'
+
+export const getMembersProjectAccessRetrieveUrl = (
+    organizationId: string,
+    params?: MembersProjectAccessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/members/project_access/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/members/project_access/`
+}
+
+/**
+ * Every visible member's access to every project the caller can reach, with the rule behind it.
+ */
+export const membersProjectAccessRetrieve = async (
+    organizationId: string,
+    params?: MembersProjectAccessRetrieveParams,
+    options?: RequestInit
+): Promise<MemberProjectAccessResponseApi> => {
+    return apiMutator<MemberProjectAccessResponseApi>(getMembersProjectAccessRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getOrganizationsProjectsAccessControlDefaultObjectsRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/access_control_default_objects/`
@@ -68,6 +107,30 @@ export const organizationsProjectsAccessControlDefaultPropertiesRetrieve = async
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlDefaultRulesUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_default_rules/`
+}
+
+/**
+ * Set or clear the rule everyone in the project gets for a scope, unless a member or role rule of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const organizationsProjectsAccessControlDefaultRulesUpdate = async (
+    organizationId: string,
+    id: number,
+    accessControlRuleRequestApi: AccessControlRuleRequestApi,
+    options?: RequestInit
+): Promise<AccessControlStoredRuleApi | void> => {
+    return apiMutator<AccessControlStoredRuleApi | void>(
+        getOrganizationsProjectsAccessControlDefaultRulesUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accessControlRuleRequestApi),
         }
     )
 }
@@ -165,6 +228,30 @@ export const organizationsProjectsAccessControlMemberPropertiesRetrieve = async 
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlMemberRulesUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_member_rules/`
+}
+
+/**
+ * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const organizationsProjectsAccessControlMemberRulesUpdate = async (
+    organizationId: string,
+    id: number,
+    accessControlMemberRuleRequestApi: AccessControlMemberRuleRequestApi,
+    options?: RequestInit
+): Promise<AccessControlStoredRuleApi | void> => {
+    return apiMutator<AccessControlStoredRuleApi | void>(
+        getOrganizationsProjectsAccessControlMemberRulesUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accessControlMemberRuleRequestApi),
         }
     )
 }
@@ -279,6 +366,30 @@ export const organizationsProjectsAccessControlRolePropertiesRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlRoleRulesUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_role_rules/`
+}
+
+/**
+ * Set or clear one role's rule for a scope. A role rule applies to every member of the role and takes precedence over the default. Requires the role-based access feature. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
+ */
+export const organizationsProjectsAccessControlRoleRulesUpdate = async (
+    organizationId: string,
+    id: number,
+    accessControlRoleRuleRequestApi: AccessControlRoleRuleRequestApi,
+    options?: RequestInit
+): Promise<AccessControlStoredRuleApi | void> => {
+    return apiMutator<AccessControlStoredRuleApi | void>(
+        getOrganizationsProjectsAccessControlRoleRulesUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accessControlRoleRuleRequestApi),
         }
     )
 }

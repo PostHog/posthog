@@ -203,7 +203,12 @@ def merge_issue_created_fingerprint_activity(
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) -> None:
-    dispatch_issue_lifecycle_alert(inputs, event="$error_tracking_issue_created", humanize_status=False)
+    dispatch_issue_lifecycle_alert(
+        inputs,
+        event="$error_tracking_issue_created",
+        exception_timestamp=inputs.event_timestamp,
+        humanize_status=False,
+    )
 
 
 @activity.defn

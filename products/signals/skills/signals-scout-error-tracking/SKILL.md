@@ -25,6 +25,12 @@ The relationship between `count` and `distinct_users` on `$exception` is the mos
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated issue you'd stand behind as a standalone inbox item a human will act on. An issue that's still firing (or resolved-then-relapsing) that the inbox already covers is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the error-tracking-specific framing.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: is error tracking even loud?
 
 If `$exception` is absent from `top_events` or its `count` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), error tracking probably isn't where the signal is today. Cheap scratchpad entry + close out:
@@ -91,7 +97,7 @@ Memory is a continuous activity. Write a scratchpad entry whenever you observe s
 
 - key `pattern:error_tracking:baseline` — _"Project's normal `$exception` baseline: ~50/day across ~30 distinct users. Anything materially above that is fresh."_
 - key `dedupe:error_tracking:019de34e` — _"Issue 019de34e — surfaced 2026-05-01 11:31–13:22Z, then quiet. If quiet next run, treat as already-surfaced; if firing, escalate."_
-- key `noise:error_tracking:sandbox-timeoutexpired` — _"Sandbox `TimeoutExpired` Docker errors are recurring noise on this team — internal harness ops, not user-facing."_
+- key `noise:error_tracking:ci-runner-timeoutexpired` — _"`TimeoutExpired` raised by the team's own CI runner is recurring noise — internal tooling, not user-facing."_
 - key `pattern:error_tracking:fetch_signals_for_report_activity` — _"Server activity `fetch_signals_for_report_activity` was a regression source on 2026-05-01 — if it appears in a fresh stack trace, double-check it's not the same root cause."_
 - key `report:error_tracking:019de34e` — the `report_id` of a report you authored for issue `019de34e`, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:error_tracking:ingestion` — a resolved owner (bare lowercase GitHub login) for a service / module / activity area, so reports route to a human faster.
@@ -116,7 +122,6 @@ Sibling courtesy: raw log-line rate/level shifts belong to the logs scout; LLM `
 ## Disqualifiers (skip these)
 
 - **Single user, single session, single occurrence** — almost always a personal browser quirk. Confirmed via low `count` AND low `distinct_users`.
-- **Sandbox-internal exceptions** — KEA store-path errors, Docker `TimeoutExpired`, `agentsh` failures. Internal harness operations, not user-facing.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party API outages already covered by past memory. Skip unless volume / shape changes meaningfully.
 
 When in doubt, write a memory entry instead of filing a report.

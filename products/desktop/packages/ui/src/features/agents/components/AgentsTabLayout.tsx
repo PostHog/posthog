@@ -61,10 +61,14 @@ export function AgentsTabLayout({
         ) : null}
       </div>
 
-      {/* A filling tab scrolls its own list, so the page itself must not scroll. */}
+      {/* A filling tab scrolls its own list. The page scrolls only when the tab
+          content no longer fits, so a minimum height inside the tab stays
+          usable on a short window. */}
       <div
         className={
-          fill ? "flex min-h-0 flex-1 flex-col" : "min-h-0 flex-1 overflow-auto"
+          fill
+            ? "flex min-h-0 flex-1 flex-col overflow-auto"
+            : "min-h-0 flex-1 overflow-auto"
         }
       >
         <div

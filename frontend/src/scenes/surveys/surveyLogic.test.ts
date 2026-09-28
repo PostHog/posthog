@@ -1419,6 +1419,9 @@ describe('survey filters', () => {
             .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
             .toMatchValues({
                 propertyFilters: propertyFilters,
+                responsesExportQuery: partial({
+                    source: partial({ filters: { properties: propertyFilters } }),
+                }),
                 dataTableQuery: partial({
                     source: partial({
                         filters: partial({
@@ -1447,6 +1450,32 @@ describe('survey filters', () => {
         expect(query).toContain("'survey dismissed', 'survey abandoned'")
         expect(query).toContain('argMaxIf(')
         expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+        const exportSource = logic.values.responsesExportQuery?.source
+        expect(exportSource).toMatchObject({ kind: NodeKind.HogQLQuery })
+        expect((exportSource as { query: string }).query).toContain('GROUP BY submission_key')
+        expect((exportSource as { query: string }).query).not.toContain('AS response,')
+    })
+
+    it('adds only the chosen context columns to the responses table and the export', async () => {
+        const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        expect(tableQuery()).not.toContain('current_url')
+        expect(logic.values.responsesExportQuery?.columns).not.toContain('Current URL')
+
+        await expectLogic(logic, () => {
+            logic.actions.setResponseContextColumn('current_url', true)
+        }).toDispatchActions(['setResponseContextColumn'])
+
+        expect(tableQuery()).toContain('properties.`$current_url` AS current_url')
+        // Row actions render in the rightmost column, so context columns come before them.
+        expect(tableQuery()).toContain('current_url AS current_url,\nuuid AS actions')
+        expect(tableQuery()).not.toContain('person_id AS person_id')
+        expect(logic.values.responsesExportQuery?.columns).toContain('Current URL')
+        expect(logic.values.responsesExportQuery?.columns).not.toContain('Person ID')
     })
 
     it('keeps question text out of the generated HogQL', async () => {
@@ -1823,11 +1852,14 @@ describe('surveyLogic filters for surveys responses', () => {
     })
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.loadSurveySuccess({
+                ...MULTIPLE_CHOICE_SURVEY,
+                questions: [{ ...MULTIPLE_CHOICE_SURVEY.questions[0], id: 'answer-filter-question' }],
+            })
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
+            key: `${SurveyEventProperties.SURVEY_RESPONSE}_answer-filter-question`,
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
@@ -1836,6 +1868,9 @@ describe('surveyLogic filters for surveys responses', () => {
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
+        const exportSql = (logic.values.responsesExportQuery?.source as { query: string }).query
+        expect(exportSql).toContain('HAVING')
+        expect(exportSql).toContain('test response')
     })
 
     it.each<[EventPropertyFilter['value'], number]>([

@@ -27,6 +27,14 @@ from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import (
+    CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL,
+    EmittedRowStore,
+    emitted_rows_key,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_write,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -187,8 +195,9 @@ class CDPProducer:
 
         A source sync also mixes in the job id: the same row arriving in a later sync is a new
         delivery. A materialized view does not, because its incremental filter is inclusive of the
-        watermark — the rows on the boundary are recomputed and re-emitted on every run without
-        having changed. Keying those on content alone lets a destination recognize the repeat.
+        watermark — the rows on the boundary are recomputed and read again on every run without
+        having changed. Keying those on content alone is what lets EmittedRowStore recognize the
+        repeat and hold it back, and a destination recognize one that still gets through.
         """
         row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
         scope = self.table.id if self.table.kind == "view" else self.job_id
@@ -287,15 +296,30 @@ class CDPProducer:
         if isinstance(table, pa.RecordBatch):
             table = pa.Table.from_batches([table])
 
+        path = f"{self._get_path_prefix()}/chunk_{chunk}.parquet"
         # Write operations in pyarrow are CPU-bound, so run in thread pool
-        await asyncio.to_thread(
-            write_table,
-            table,
-            f"{self._get_path_prefix()}/chunk_{chunk}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                table,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
+
+    def _build_emitted_row_store(self) -> EmittedRowStore:
+        """Repeat suppression only applies to a view.
+
+        A source sync mixes the job id into every event id, so the same row in a later sync is a
+        new delivery and never a repeat. Leaving the source path clear of Redis also keeps the
+        high-volume path as it was.
+        """
+        key = emitted_rows_key(self.team_id, self.table.id) if self.table.kind == "view" else None
+        return EmittedRowStore(key, self.logger)
 
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
@@ -310,6 +334,10 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
+        emitted_rows = self._build_emitted_row_store()
+        await emitted_rows.load()
+        suppressed_rows = 0
+
         async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
             for file_path in files_to_produce:
                 await self.logger.adebug(f"Producing file {file_path} to Kafka")
@@ -322,19 +350,27 @@ class CDPProducer:
 
                         for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
+                                event_id = self._build_event_id(row)
+                                if emitted_rows.is_repeat(event_id):
+                                    suppressed_rows += 1
+                                    continue
+
                                 row_as_props = {
                                     "team_id": self.team_id,
                                     "table_name": dot_notated_table_name,
                                     "table_type": self.table.kind,
-                                    "event_id": self._build_event_id(row),
+                                    "event_id": event_id,
                                     "properties": row,
                                 }
-                                await kafka_producer.produce(
+                                delivery = await kafka_producer.produce(
                                     topic=KAFKA_DWH_CDP_RAW_TABLE,
                                     data=row_as_props,
                                     value_serializer=self._serialize_json,
                                 )
+                                emitted_rows.record_on_delivery(event_id, delivery)
                                 row_index += 1
+
+                            emitted_rows.record_settled()
 
                     await kafka_producer.flush()
                     CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
@@ -344,6 +380,9 @@ class CDPProducer:
                     capture_exception(e)
                     await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
                 finally:
+                    # A row is remembered only once Kafka confirms it, or the next run would
+                    # suppress a row that no subscriber received.
+                    emitted_rows.record_delivered()
                     # TODO(Gilbert09): have better row tracking so we can retry from a particular row
                     if row_index:
                         CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
@@ -352,3 +391,9 @@ class CDPProducer:
                     await asyncio.to_thread(fs.delete_file, file_path)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
+
+        if suppressed_rows:
+            CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL.labels(team_id=str(self.team_id)).inc(suppressed_rows)
+            await self.logger.ainfo(f"Suppressed {suppressed_rows} unchanged rows an earlier run already produced")
+
+        await emitted_rows.commit()

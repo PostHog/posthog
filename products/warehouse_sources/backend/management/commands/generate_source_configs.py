@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from typing import Any, Optional
 
@@ -8,6 +9,7 @@ from structlog import get_logger
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -123,6 +125,10 @@ class SourceConfigGenerator:
 
         elif isinstance(field, SourceFieldOauthAccountSelectConfig):
             field_def = self._process_oauth_account_select_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldCredentialAccountSelectConfig):
+            field_def = self._process_credential_account_select_field(field)
             return [field_def] if field_def else [], []
 
         elif isinstance(field, SourceFieldFileUploadConfig):
@@ -343,6 +349,20 @@ class SourceConfigGenerator:
             return f'    {python_field_name}: str | None = config.value(alias="{field.name}", default_factory=lambda: None)'
         return f"    {python_field_name}: str | None = None"
 
+    def _process_credential_account_select_field(self, field: SourceFieldCredentialAccountSelectConfig) -> str:
+        # Persisted exactly like a text field — the picker only changes how the value is chosen, so a
+        # source can switch a field to this type without reshaping configs already stored.
+        python_field_name, should_alias = self._make_python_identifier(field.name)
+
+        if field.required:
+            if should_alias:
+                return f'    {python_field_name}: str = config.value(alias="{field.name}")'
+            return f"    {python_field_name}: str"
+
+        if should_alias:
+            return f'    {python_field_name}: str | None = config.value(alias="{field.name}", default_factory=lambda: None)'
+        return f"    {python_field_name}: str | None = None"
+
     def _process_file_upload_field(self, field: SourceFieldFileUploadConfig, parent_class: str) -> tuple[str, str]:
         python_field_name, should_alias = self._make_python_identifier(field.name)
 
@@ -488,6 +508,38 @@ class {class_name}(config.Config):
                 return line.split("class ")[1].split("(")[0]
         return ""
 
+    def _nested_config_names_in_dependency_order(self) -> list[str]:
+        """Nested config class names, alphabetical except that a class follows the ones it references.
+
+        Python evaluates an annotation when the class body runs, so a nested config that names a
+        sibling declared later raises `NameError` on import. That happens whenever a field which
+        generates its own nested class (a file upload) sits inside another one (a select option).
+        """
+        names = sorted(self.nested_configs)
+        ordered: list[str] = []
+        remaining = list(names)
+
+        while remaining:
+            for name in remaining:
+                if self._referenced_nested_configs(name, names) <= set(ordered):
+                    ordered.append(name)
+                    remaining.remove(name)
+                    break
+            else:
+                # A reference cycle cannot be expressed in Python here either, so leave the
+                # remainder alphabetical and let the import error name the offending class.
+                ordered.extend(remaining)
+                break
+
+        return ordered
+
+    def _referenced_nested_configs(self, name: str, candidates: list[str]) -> set[str]:
+        body = self.nested_configs[name]
+        # Skip the declaration line: a parent's class name is a prefix of its children's, and the
+        # word-boundary match below only separates them once the declaration is out of the way.
+        field_lines = "\n".join(line for line in body.splitlines() if not line.startswith("class "))
+        return {other for other in candidates if other != name and re.search(rf"\b{other}\b", field_lines)}
+
     def _build_module(self) -> str:
         parts = []
 
@@ -509,7 +561,7 @@ class {class_name}(config.Config):
         parts.append("")
         parts.append("")
 
-        for class_name in sorted(self.nested_configs.keys()):
+        for class_name in self._nested_config_names_in_dependency_order():
             parts.append(self.nested_configs[class_name])
             parts.append("")
             parts.append("")

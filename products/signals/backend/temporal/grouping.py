@@ -31,11 +31,15 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.receivers import _is_safety_suppressed
+from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -503,6 +507,16 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(input)
+        if isinstance(result, ExistingReportMatch) and input.team_id is not None:
+            report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
+            if report is not None and report.status != SignalReport.Status.DELETED:
+                current = await database_sync_to_async(signal_target_report, thread_sensitive=False)(report)
+                if current.id != report.id:
+                    result.report_id = str(current.id)
+                    unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+                        str(current.id), input.team_id
+                    )
+                    result.report_title = "" if unsafe else current.title
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
             f"Match result: matched={isinstance(result, ExistingReportMatch)}",
@@ -752,27 +766,35 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         promotion_suppressed=False,
                         next_research_bucket=None,
                     )
+                # A report dismissed as fixed claims the issue is gone, exactly as a resolved report
+                # does, so this signal contradicts it and must not be absorbed. The other dismissal
+                # codes state a preference about the report, and a sink is the right answer for
+                # them (see recurrence.py).
+                report = signal_target_report(report, lock=True)
+                dismissed_as_fixed_at = (
+                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
-                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
-                # link is discoverable from either side. The research agent is later handed that
+                # `recurrence_of` report link. The research agent is later handed that
                 # resolved report as context (see report.py).
-                if report.status == SignalReport.Status.RESOLVED:
-                    resolved_report = report
+                if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
+                    parent_report = report
+                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
                         total_weight=input.weight,
                         signal_count=1,
-                        title=resolved_report.title,
-                        summary=resolved_report.summary,
+                        title=parent_report.title if inherit_content else "",
+                        summary=parent_report.summary if inherit_content else "",
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
                         report_id=str(report.id),
-                        content=RelatedTo(report_id=str(resolved_report.id)),
+                        content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent_report.id)),
                         attribution=ArtefactAttribution.system(),
                     )
                 else:
@@ -798,7 +820,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
 
             # Promotion rules by status:
-            # - SUPPRESSED: never promoted.
+            # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
+            #   either (a recurrence spawns a fresh report above).
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
@@ -1284,7 +1307,13 @@ async def _process_signal_batch(
 
             if isinstance(match_result, ExistingReportMatch):
                 report_ctx = report_contexts.get(match_result.report_id)
-                report_title = report_ctx.title if report_ctx else ""
+                report_title = (
+                    match_result.report_title
+                    if match_result.report_title is not None
+                    else report_ctx.title
+                    if report_ctx
+                    else ""
+                )
 
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,

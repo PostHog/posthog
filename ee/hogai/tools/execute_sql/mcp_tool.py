@@ -17,6 +17,7 @@ from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.execute_sql.compatibility_hints import build_compatibility_hint
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
 
@@ -84,7 +85,9 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
                 message = f"Query validation failed: {e.validation_message}"
-                suggestion = await self._maybe_unknown_table_suggestion(e.validation_message)
+                suggestion = await self._maybe_unknown_table_suggestion(
+                    e.validation_message
+                ) or build_compatibility_hint(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
                 raise MaxToolRetryableError(message)
@@ -105,9 +108,17 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             user=self._user,
             event_source=self._event_source,
         )
-        results = await insight_context.execute_and_format(
-            prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
-        )
+        try:
+            results = await insight_context.execute_and_format(
+                prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
+            )
+        except MaxToolRetryableError as e:
+            # A connection query defers validation to the runner, so the compatibility rejections
+            # the local validator would have enriched above surface here instead.
+            hint = build_compatibility_hint(str(e))
+            if not hint:
+                raise
+            raise MaxToolRetryableError(f"{e}\n\n{hint}") from e
 
         return MCPToolResult(
             content=_prepend_taxonomy_warnings(results, taxonomy_warnings),

@@ -7,6 +7,7 @@ from django.core.validators import MinLengthValidator
 from django.db import models, transaction
 from django.utils import timezone
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UpdatedMetaFields, sane_repr
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ class ProjectManager(models.Manager["Project"]):
             return project, team
 
 
-class Project(UpdatedMetaFields):
+class Project(Taggable, UpdatedMetaFields):
     id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -109,6 +110,10 @@ class Project(UpdatedMetaFields):
 
     def is_deletion_pending(self) -> bool:
         return bool(self.is_pending_deletion)
+
+    def has_ingested_data(self) -> bool:
+        """True when any environment of this project has ever ingested an event."""
+        return self.teams.filter(ingested_event=True).exists()
 
     def can_cancel_deletion(self, *, at: datetime | None = None) -> bool:
         return bool(

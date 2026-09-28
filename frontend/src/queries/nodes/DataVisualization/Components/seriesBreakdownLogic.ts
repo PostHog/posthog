@@ -19,6 +19,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
@@ -81,14 +82,6 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
 
     try {
         const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
-
-        if (selectedYAxis.settings.formatting?.decimalPlaces) {
-            const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
-            )
-            return Number.isNaN(parsed) ? null : parsed
-        }
-
         const parsed = Number.isInteger(value)
             ? parseInt(String(value), 10) * multiplier
             : parseFloat(String(value)) * multiplier
@@ -122,6 +115,7 @@ export interface seriesBreakdownLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
@@ -155,6 +149,7 @@ export interface seriesBreakdownLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
     }
     deleteSeriesBreakdown: () => {}
@@ -182,6 +177,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => string[]
@@ -204,6 +200,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[],
             chartSettings: ChartSettings,

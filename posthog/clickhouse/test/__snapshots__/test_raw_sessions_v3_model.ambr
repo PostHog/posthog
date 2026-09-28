@@ -167,9 +167,9 @@
   '''
   
   select session_id_v7,
-         has(flag_values['$feature/flag_string'], 'f1_a') as has_f1_a,
-         has(flag_values['$feature/flag_string'], 'f1_b') as has_f1_b,
-         has(flag_values['$feature/flag_string'], 'f1_c') as has_f1_c
+         has(flag_key_values, '$feature/flag_string=f1_a') as has_f1_a,
+         has(flag_key_values, '$feature/flag_string=f1_b') as has_f1_b,
+         has(flag_key_values, '$feature/flag_string=f1_c') as has_f1_c
   from raw_sessions_v3_v
   where team_id = 99999
   ORDER BY session_id_v7

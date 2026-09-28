@@ -54,6 +54,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
+    FILE_FORMAT_EXTENSIONS,
     S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import (
@@ -61,6 +62,7 @@ from products.batch_exports.backend.temporal.destinations.utils import (
     get_manifest_key,
     get_object_key,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -108,19 +110,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "IntegrationError",
 )
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "snappy": "sz",
-    "brotli": "br",
-    "zstd": "zst",
-    "lz4": "lz4",
-}
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -226,18 +215,23 @@ class S3InsertInputs(BatchExportInsertInputs):
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
+    # Defaults to the legacy naming: an activity input recorded before this field existed has no
+    # value for it, so the missing field uses this default and the export keeps its existing names.
+    legacy_parquet_extension: bool = True
 
 
-def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
+def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, file_name_prefix: str | None = None) -> str:
     return get_object_key(
         prefix=inputs.prefix,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_format=inputs.file_format,
+        compression=inputs.compression,
+        legacy_parquet_extension=inputs.legacy_parquet_extension,
         file_number=file_number,
         include_file_number=bool(inputs.max_file_size_mb),
+        file_name_prefix=file_name_prefix,
     )
 
 
@@ -294,7 +288,7 @@ def s3_default_fields() -> list[BatchExportField]:
     Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
-    batch_export_fields = default_fields()
+    batch_export_fields = [field for field in default_fields() if field["alias"] != "person_id"]
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
@@ -379,6 +373,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
@@ -607,6 +602,8 @@ async def s3_client(
 
 async def _resolve_credentials_from_integration(inputs: S3InsertInputs) -> ResolvedS3Credentials:
     """Resolve an export's S3 credentials from the Integration it links to."""
+    if inputs.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled S3 exports require a data_interval_end")
     if inputs.integration_id is None:
         raise MissingIntegrationError(inputs.batch_export_id)
 
@@ -709,7 +706,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
 
 async def insert_into_s3_from_stage(
-    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials
+    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials, file_name_prefix: str | None = None
 ) -> S3BatchExportResult:
     """Write data staged in our internal S3 stage to a target S3 bucket.
 
@@ -738,7 +735,7 @@ async def insert_into_s3_from_stage(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
-        get_s3_key_from_inputs(inputs),
+        get_s3_key_from_inputs(inputs, file_name_prefix=file_name_prefix),
     )
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -799,6 +796,7 @@ async def insert_into_s3_from_stage(
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
             checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
+            file_name_prefix=file_name_prefix,
         )
 
         result = await run_consumer_from_stage(
@@ -838,7 +836,7 @@ class ConcurrentS3Consumer(Consumer):
         region_name: str,
         prefix: str,
         data_interval_start: str | None,
-        data_interval_end: str,
+        data_interval_end: str | None,
         batch_export_model: BatchExportModel | None,
         file_format: str,
         checksum_algorithm: str | None = None,
@@ -847,8 +845,10 @@ class ConcurrentS3Consumer(Consumer):
         compression: str | None = None,
         encryption: str | None = None,
         use_virtual_style_addressing: bool = False,
+        legacy_parquet_extension: bool = True,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
+        file_name_prefix: str | None = None,
     ):
         super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
@@ -858,6 +858,7 @@ class ConcurrentS3Consumer(Consumer):
 
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
+        self.file_name_prefix = file_name_prefix
         self.batch_export_model = batch_export_model
 
         self.checksum_algorithm = checksum_algorithm
@@ -865,6 +866,7 @@ class ConcurrentS3Consumer(Consumer):
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
+        self.legacy_parquet_extension = legacy_parquet_extension
         # This is only needed to obtain a file key. It's very easy to confuse it with
         # the transformer's `max_file_size_bytes` which actually does the file splitting.
         # TODO: Remove this from here, figure out a different way to obtain an S3 key.
@@ -903,6 +905,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
         checksum_algorithm: str | None = None,
+        file_name_prefix: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -919,8 +922,10 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
+            legacy_parquet_extension=s3_inputs.legacy_parquet_extension,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
+            file_name_prefix=file_name_prefix,
         )
 
     async def finalize_file(self):
@@ -1121,10 +1126,12 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=self.data_interval_start,
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
-            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_format=self.file_format,
+            compression=self.compression,
+            legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
+            file_name_prefix=self.file_name_prefix,
         )
 
     async def _start_new_file(self):
@@ -1236,7 +1243,11 @@ class ConcurrentS3Consumer(Consumer):
         # containing the list of files.  This is used to check if the export is complete.
         if self.max_file_size_mb:
             manifest_key = get_manifest_key(
-                self.prefix, self.data_interval_start, self.data_interval_end, self.batch_export_model
+                self.prefix,
+                self.data_interval_start,
+                self.data_interval_end,
+                self.batch_export_model,
+                file_name_prefix=self.file_name_prefix,
             )
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await self.upload_manifest_file(

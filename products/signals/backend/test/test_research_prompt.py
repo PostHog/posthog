@@ -10,11 +10,14 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    build_actionability_prompt,
     build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
+    build_supersede_prompt,
 )
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -110,14 +113,14 @@ class TestBuildInitialResearchPrompt:
             resolved_report_title="fix(funnel): drop off after step 2",
             resolved_report_summary="Users were falling out of the funnel.",
         )
-        assert "## Previously resolved report" in prompt
+        assert "## Previously closed report" in prompt
         assert "fix(funnel): drop off after step 2" in prompt
         assert "Users were falling out of the funnel." in prompt
 
     def test_resolved_report_context_absent_by_default(self):
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
-        assert "## Previously resolved report" not in prompt
+        assert "## Previously closed report" not in prompt
 
     # The steering section is what carries a reviewer's dismissal reason into the stage that judges
     # whether to surface the topic again. A team that left no notes renders nothing, so a quiet
@@ -248,6 +251,15 @@ class TestBuildReportPresentationPrompt:
         assert "chartSettings.xAxis.column" in on
         assert "chartSettings.yAxis[].column" in on
 
+    # The research turn already fetches every pull request URL it needs, and the presentation
+    # turn is the only place that decides whether the summary carries them. Without this section
+    # a summary cites a bare `#1234`, which costs the reader a GitHub search and, across
+    # repositories, resolves to the wrong pull request.
+    def test_summary_guidance_requires_linked_pull_requests(self):
+        on = build_report_presentation_prompt(2)
+        assert PULL_REQUEST_LINK_RULE in on
+        assert PLAIN_TEXT_FIELDS_RULE in on
+
     def test_previous_charts_context_rendered_when_present(self):
         chart = _make_chart()
         on = build_report_presentation_prompt(1, previous_charts=[chart])
@@ -332,3 +344,25 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.charts == []
         assert parsed.summary == "Signups fell 60% over the week."
+
+
+class TestOwnPullRequestCarveOut:
+    _PR = "https://github.com/PostHog/posthog/pull/7"
+
+    def test_actionability_prompt_exempts_the_report_own_pr(self):
+        # On a re-research the in-flight check finds the draft PR this report opened last pass. Read
+        # as somebody else's work it makes the report already_addressed, and superseding never fires.
+        prompt = build_actionability_prompt(2, own_pr_url=self._PR)
+        assert self._PR in prompt
+        assert "never counts as `already_addressed`" in prompt
+
+    def test_actionability_prompt_says_nothing_without_a_pr(self):
+        prompt = build_actionability_prompt(2)
+        assert "already_addressed`" in prompt  # the general guidance survives
+        assert "github.com" not in prompt
+
+    def test_supersede_prompt_names_the_pr_and_the_summary_it_was_built_from(self):
+        prompt = build_supersede_prompt(self._PR, "the previous summary")
+        assert self._PR in prompt
+        assert "the previous summary" in prompt
+        assert "obsolete_pr_urls" in prompt

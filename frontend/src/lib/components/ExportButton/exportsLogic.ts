@@ -371,6 +371,7 @@ export const exportsLogic = kea<exportsLogicType>([
             const toastId = 'toast-' + Math.random()
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
                 const cohort: CohortType = await api.create('api/cohort', {
                     is_static: true,
                     name: name || 'Query cohort',

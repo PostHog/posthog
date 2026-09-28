@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -19,6 +20,7 @@ from rest_framework import status
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -31,6 +33,7 @@ from posthog.settings import (
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
+    ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -585,9 +588,25 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
-    def _enable_alerts(self) -> None:
+    def _enable_alerts(self) -> ErrorTrackingAlert:
         with team_scope(self.team.id):
-            ErrorTrackingAlert.objects.create(team=self.team, name="Notify", triggers=["issue_created"])
+            return ErrorTrackingAlert.objects.create(team=self.team, name="Notify", triggers=["issue_created"])
+
+    def _open_thread(self, alert: ErrorTrackingAlert, issue: ErrorTrackingIssue) -> None:
+        with team_scope(self.team.id):
+            integration = Integration.objects.create(
+                team=self.team, kind=Integration.IntegrationKind.SLACK.value, config={"team": {"id": "T1"}}
+            )
+            destination = alert.destinations.create(
+                team=self.team, channel_type="slack", integration=integration, config={"channel": "C1"}
+            )
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=issue,
+                destination=destination,
+                external_ref={"channel": "C1", "ts": "1.2"},
+            )
 
     def test_issue_status_update_queues_alert_dispatch_with_the_event_uuid(self):
         issue = self.create_issue()
@@ -614,6 +633,7 @@ class TestErrorTracking(APIBaseTest):
         assert notification["issue_id"] == str(issue.id)
         assert notification["status"] == "Resolved"
         assert notification["actor_email"] == self.user.email
+        assert notification["opener_allowed"] is True
         # The delivery workflow and the internal event share the notification id.
         assert notification["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
 
@@ -642,7 +662,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_bulk_assign_queues_one_dispatch_task_per_transaction(self):
         issues = [self.create_issue() for _ in range(3)]
-        self._enable_alerts()
+        alert = self._enable_alerts()
+        # Bulk transitions only reply: issues without a thread queue nothing.
+        self._open_thread(alert, issues[0])
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -665,9 +687,10 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert mock_produce.call_count == 3
         mock_dispatch.assert_called_once()
-        notifications = mock_dispatch.call_args.kwargs["notifications"]
-        assert {n["event"] for n in notifications} == {"$error_tracking_issue_assigned"}
-        assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+        (notification,) = mock_dispatch.call_args.kwargs["notifications"]
+        assert notification["event"] == "$error_tracking_issue_assigned"
+        assert notification["issue_id"] == str(issues[0].id)
+        assert notification["opener_allowed"] is False
 
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
@@ -689,7 +712,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_bulk_set_status_queues_one_dispatch_task_per_transaction(self):
         issues = [self.create_issue() for _ in range(3)]
-        self._enable_alerts()
+        alert = self._enable_alerts()
+        for issue in issues:
+            self._open_thread(alert, issue)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -708,6 +733,7 @@ class TestErrorTracking(APIBaseTest):
         mock_dispatch.assert_called_once()
         notifications = mock_dispatch.call_args.kwargs["notifications"]
         assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+        assert all(n["opener_allowed"] is False for n in notifications)
         assert {n["notification_id"] for n in notifications} == {
             call.kwargs["event"].uuid for call in mock_produce.call_args_list
         }
@@ -749,8 +775,15 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == "Resolved"
         assert event.properties["previous_status"] == "Active"
 
-    def test_issue_assign_produces_lifecycle_internal_event(self):
+    @parameterized.expand([("user", "Jane"), ("user_without_name", ""), ("role", "Jane")])
+    def test_issue_assign_produces_lifecycle_internal_event(self, case, first_name):
+        assignee_type = "role" if case == "role" else "user"
         issue = self.create_issue()
+        self.user.first_name = first_name
+        self.user.last_name = "Doe" if first_name else ""
+        self.user.save()
+        role = Role.objects.create(name="Backend", organization=self.organization)
+        assignee_id = self.user.id if assignee_type == "user" else str(role.id)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -758,7 +791,7 @@ class TestErrorTracking(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-                data={"assignee": {"id": self.user.id, "type": "user"}},
+                data={"assignee": {"id": assignee_id, "type": assignee_type}},
             )
 
         assert response.status_code == 200, response.json()
@@ -767,8 +800,44 @@ class TestErrorTracking(APIBaseTest):
         assert event.event == "$error_tracking_issue_assigned"
         assert event.distinct_id == str(issue.id)
         # Byte-identical to cymbal's compact serde output so exact-match filters work.
-        assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
-        assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
+        user_assignee = f'{{"type":"user","id":{self.user.id}}}'
+        expected_properties = {
+            "user": {"assignee": user_assignee, "assignee_name": "Jane Doe", "assignee_email": self.user.email},
+            "user_without_name": {
+                "assignee": user_assignee,
+                "assignee_name": self.user.email,
+                "assignee_email": self.user.email,
+            },
+            "role": {"assignee": f'{{"type":"role","id":"{role.id}"}}', "assignee_name": "Backend"},
+        }[case]
+        assert {key: value for key, value in event.properties.items() if key.startswith("assignee")} == (
+            expected_properties
+        )
+        assert json.loads(event.properties["assignee"]) == {"type": assignee_type, "id": assignee_id}
+
+    def test_issue_lifecycle_event_omits_former_member_assignee_details(self):
+        issue = self.create_issue()
+        former_member = User.objects.create_and_join(self.organization, "former@example.com", "password", "Former")
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": former_member.id, "type": "user"}},
+        )
+        OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert properties["assignee"] == f'{{"type":"user","id":{former_member.id}}}'
+        assert "assignee_name" not in properties
+        assert "assignee_email" not in properties
 
     def test_issue_unassign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()
@@ -1398,6 +1467,64 @@ class TestErrorTracking(APIBaseTest):
         assert "s3-accelerate" not in entry["fallback_presigned_url"]["url"]
         assert entry["fallback_presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
 
+    def test_bulk_start_upload_omits_presigned_put_without_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash"}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "presigned_put_url" not in entry
+        assert entry["presigned_url"]["fields"]["key"] is not None
+
+    def test_bulk_start_upload_signs_presigned_put_for_declared_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 1234}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        put_url = entry["presigned_put_url"]
+        # The PUT addresses the object itself, unlike the POST, which addresses the bucket root.
+        assert symbol_set.storage_ptr in put_url
+        # Only a signed content-length stops an oversized body, so it must reach the signature.
+        assert "content-length" in unquote(put_url)
+        assert "fallback_presigned_put_url" not in entry
+        # The POST form stays for clients that predate the PUT.
+        assert entry["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    def test_bulk_start_upload_includes_fallback_presigned_put_when_accelerated(self) -> None:
+        chunk_id = str(uuid7())
+        with (
+            self.settings(OBJECT_STORAGE_TRANSFER_ACCELERATION=True),
+            patch("posthog.storage.object_storage._accelerated_presigned_client", None),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 10}]},
+            )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "s3-accelerate" in entry["presigned_put_url"]
+        assert "s3-accelerate" not in entry["fallback_presigned_put_url"]
+
+    def test_bulk_start_upload_rejects_oversized_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 100 * 1024 * 1024 + 1}]
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+        # The row must not exist: a rejected upload leaves nothing for retention to clean up.
+        assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
+
     @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
         release = ErrorTrackingRelease.objects.create(
@@ -1785,6 +1912,60 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set.refresh_from_db()
         assert symbol_set.release_id == first_release.id
+
+    @parameterized.expand(
+        [
+            # (name, endpoint, the upload names the other release, expected rejection code)
+            ("start_upload", "bulk_start_upload", True, "release_id_mismatch"),
+            ("check_upload", "bulk_check_upload", False, "content_hash_mismatch"),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture_exception")
+    def test_bulk_upload_conflict_is_not_reported_to_error_tracking(
+        self,
+        _name: str,
+        endpoint: str,
+        upload_names_other_release: bool,
+        expected_code: str,
+        patched_capture_exception: Mock,
+    ) -> None:
+        chunk_id = str(uuid7())
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-release",
+            version="1.0.0",
+            project="test",
+        )
+        other_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-other-release",
+            version="1.0.1",
+            project="test",
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            release=release,
+        )
+
+        upload = {
+            "chunk_id": chunk_id,
+            "content_hash": "already_uploaded" if upload_names_other_release else "different_hash",
+        }
+        if upload_names_other_release:
+            upload["release_id"] = str(other_release.id)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{endpoint}",
+            data={"symbol_sets": [upload]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        patched_capture_exception.assert_not_called()
 
     @parameterized.expand(
         [

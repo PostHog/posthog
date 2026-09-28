@@ -22,7 +22,7 @@ from posthog.exceptions_capture import capture_exception
 
 from ..db import READER_DB, WRITER_DB
 from ..facade.enums import RunStatus
-from ..models import Artifact, Repo, Run, RunSnapshot
+from ..models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage, StoryIndexStorage
 from . import artifact_store, run_queries, story_index
 
@@ -33,8 +33,8 @@ T = TypeVar("T")
 # A superseded run on a PR branch is history that no page reads after the next
 # push replaces it. Its last readers are the "stale" review-state filter and the
 # run detail page, so this window is a grace period for people who open an old
-# link.
-SUPERSEDED_RUN_RETENTION_DAYS = 30
+# link, and for a flake someone debugs after a weekend.
+SUPERSEDED_RUN_RETENTION_DAYS = 3
 
 # Default-branch runs feed the baseline overview (90 days) and the snapshot
 # history page, which is unbounded, so they are kept much longer.
@@ -42,7 +42,12 @@ DEFAULT_BRANCH_RUN_RETENTION_DAYS = 180
 
 # A PR branch with no run this recent belongs to a merged or abandoned PR.
 # Nothing links to it any more, so its latest runs go too.
-QUIET_BRANCH_RETENTION_DAYS = 90
+QUIET_BRANCH_RETENTION_DAYS = 30
+
+# Each merge-queue batch runs once on its own branch, and the PR's own runs keep
+# the review history.
+MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
+MERGE_QUEUE_RUN_RETENTION_DAYS = 7
 
 # An artifact can exist for a short time before anything names it, because a
 # diff or thumbnail image is written to storage first and linked to its snapshot
@@ -69,8 +74,17 @@ MAX_ARTIFACTS_PER_SWEEP = 20_000
 SWEEP_TIME_BUDGET_SECONDS = 15 * 60
 
 # Repos do not record their real default branch, so a run with no PR number is
-# read as default-branch history and the rule fails toward keeping it.
-_PROTECTED_HISTORY = Q(branch__in=run_queries._DEFAULT_BRANCHES) | Q(pr_number__isnull=True)
+# read as default-branch history and the rule fails toward keeping it. A
+# merge-queue branch is never the default branch, whatever its PR number.
+_PROTECTED_HISTORY = Q(branch__in=run_queries._DEFAULT_BRANCHES) | (
+    Q(pr_number__isnull=True) & ~Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
+)
+
+# Merge-queue first, because the general pass would keep them for the full window.
+_QUIET_BRANCH_PASSES = (
+    (MERGE_QUEUE_RUN_RETENTION_DAYS, Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)),
+    (QUIET_BRANCH_RETENTION_DAYS, Q()),
+)
 
 # The row goes first and the object second, and the DELETE repeats the reference
 # checks of the candidate query, so a reference acquired between the SELECT and
@@ -141,19 +155,42 @@ class RetentionSweep:
     def _artifacts(self) -> QuerySet[Artifact]:
         return Artifact.objects.for_team(self.team_id, canonical=True).using(WRITER_DB).filter(repo_id=self.repo.id)
 
+    def _source_of_active_quarantine(self) -> Exists:
+        # The quarantine UI shows the commit, branch and PR of this run.
+        return Exists(
+            QuarantinedIdentifier.objects.for_team(self.team_id, canonical=True)
+            .using(WRITER_DB)
+            .filter(source_run_id=OuterRef("id"))
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=self.now))
+        )
+
     def _expired_superseded_run_ids(self, limit: int) -> list[UUID]:
+        merge_queue = Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
+        # A PR-branch run's grace starts when its successor arrives, so a run left
+        # alone for days still keeps its window after the next push.
         expired = (
-            _PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=DEFAULT_BRANCH_RUN_RETENTION_DAYS))
-        ) | (~_PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS)))
+            (_PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=DEFAULT_BRANCH_RUN_RETENTION_DAYS)))
+            | (
+                ~_PROTECTED_HISTORY
+                & ~merge_queue
+                & Q(superseded_by__created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS))
+            )
+            | (
+                ~_PROTECTED_HISTORY
+                & merge_queue
+                & Q(superseded_by__created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
+            )
+        )
         return list(
             self._runs()
             .filter(Q(superseded_by__isnull=False) & expired)
+            .exclude(self._source_of_active_quarantine())
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
         )
 
-    def _quiet_branch_run_ids(self, limit: int) -> list[UUID]:
-        quiet_cutoff = self.now - timedelta(days=QUIET_BRANCH_RETENTION_DAYS)
+    def _quiet_branch_run_ids(self, limit: int, *, quiet_days: int, branches: Q) -> list[UUID]:
+        quiet_cutoff = self.now - timedelta(days=quiet_days)
         recent_run_on_branch = self._runs().filter(branch=OuterRef("branch"), created_at__gte=quiet_cutoff)
         # Every superseded run of a group points at the group's latest run, so
         # the latest run can only go when none of them is left.
@@ -175,8 +212,9 @@ class RetentionSweep:
         )
         return list(
             self._runs()
-            .filter(superseded_by__isnull=True, created_at__lt=quiet_cutoff)
+            .filter(branches, superseded_by__isnull=True, created_at__lt=quiet_cutoff)
             .exclude(_PROTECTED_HISTORY)
+            .exclude(self._source_of_active_quarantine())
             .filter(~Exists(recent_run_on_branch), ~Exists(superseded_run_in_group), Exists(newer_completed_run))
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
@@ -214,6 +252,12 @@ class RetentionSweep:
             if self._out_of_time():
                 break
             with transaction.atomic(using=WRITER_DB):
+                # A quarantine can name the run after the candidate query read it.
+                # Its insert takes a key-share lock on the run row, so locking the
+                # row first makes the check and the delete see the same quarantines.
+                list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
+                if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
+                    continue
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
             run_deleted = per_model.get(Run._meta.label, 0)
@@ -223,17 +267,21 @@ class RetentionSweep:
         return deleted
 
     def delete_expired_runs(self) -> int:
-        # Both candidate queries are expensive reads, so each one runs only when
+        # The candidate queries are expensive reads, so each one runs only when
         # there is time left to act on its result.
         if self._out_of_time():
             return 0
         deleted = self._delete_runs(self._expired_superseded_run_ids(MAX_RUNS_PER_SWEEP))
-        remaining = MAX_RUNS_PER_SWEEP - deleted
-        if remaining <= 0 or self._out_of_time():
-            return deleted
-        # The quiet-branch pass reads the groups the pass above has already
-        # emptied, so the two cannot run in the other order.
-        return deleted + self._delete_runs(self._quiet_branch_run_ids(remaining))
+        # The quiet-branch passes read the groups the pass above has already
+        # emptied, so they cannot run before it.
+        for quiet_days, branches in _QUIET_BRANCH_PASSES:
+            remaining = MAX_RUNS_PER_SWEEP - deleted
+            if remaining <= 0 or self._out_of_time():
+                break
+            deleted += self._delete_runs(
+                self._quiet_branch_run_ids(remaining, quiet_days=quiet_days, branches=branches)
+            )
+        return deleted
 
     def _unreferenced_artifact_ids(self, limit: int) -> list[UUID]:
         snapshots = self._snapshots()

@@ -95,6 +95,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
                             $session_id: await sessionManager.getSessionUuid(sessionId),
                             ...properties,
+                            is_impersonated: apiKey?.is_impersonated === true,
                         },
                     })
                 } catch {}

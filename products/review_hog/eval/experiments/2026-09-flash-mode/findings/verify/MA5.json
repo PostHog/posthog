@@ -1,0 +1,27 @@
+{
+    "letter": "MA",
+    "id": "MA5",
+    "cluster": 9,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The repeated dispatch is intentional recovery behavior, with the expensive work deduplicated against the current GitHub head. /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1155-1159 fetches that head, then :1198-1221 returns for an existing same-head run or restarts its stranded QUEUED workflow. The tests at /tmp/frozen-75215/products/stamphog/backend/tests/test_tasks.py:974-1020 explicitly cover same-head no-op, failed-run recovery, and a changed head whose synchronize webhook was missed. Deduplicating permanently by task_run_id and PR URL would suppress those valid retries because both values stay unchanged. The receiver already excludes declared saves that do not touch output at /tmp/frozen-75215/products/review_hog/backend/receivers.py:85-89; ordinary status and state saves use such update_fields at /tmp/frozen-75215/products/tasks/backend/models.py:1263,1533,1564,1807. The webhook output writer also avoids duplicate writes at /tmp/frozen-75215/products/tasks/backend/webhooks.py:283-292.",
+            "refutation": "I first looked for an existing dedupe and for the caller frequency necessary to substantiate the claimed queue/rate-limit problem. The current-head dedupe prevents duplicate review runs and sandboxes, the receiver skips status/state updates, and the webhook backstop is idempotent. The extra PR fetch answers whether new commits need review and lets failed or stranded work recover; explicit tests require those behaviors. Although repeated real output changes can enqueue extra cheap checks, this finding provides no reachable runaway loop or demonstrated rate-limit/queue failure. The proposed task-run/URL key would break required recovery, so the assertion is an optimization suggestion rather than a demonstrated defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/review_hog/backend/receivers.py:82-105 ignores creation, declared saves that omit output, failed/cancelled runs, and nonimplementation tasks; :126 additionally requires a PR URL and reviewer opt-in. products/stamphog/backend/tasks/tasks.py:1140-1153 skips unconfigured repositories before GitHub access. For configured repos it deliberately fetches the current head (:1155-1159), then serializes deduplication by PR/head (:1198-1221): an already handled head does not create another review, while a queued run can restart. test_tasks.py:974-1020 explicitly covers same-head no-op, stranded queued restart, failed-review retry, and review of a new head missed by the webhook.",
+            "refutation": "I checked whether these were accidentally duplicated reviews or unnecessary unconditional saves. They are neither: status/state-only saves are filtered, and repeated eligible output saves intentionally recheck mutable GitHub head state. The proposed minimum key of task_run_id plus PR URL is unchanged across subsequent pushes and failed starts, so permanent deduplication at that boundary would suppress recovery behavior already covered by tests. Coalescing concurrent pending work could be an optimization, but the finding provides no reachable flooding loop, measured harmful volume, or rate-limit failure beyond the intended one-fetch cost. This is speculative performance hardening rather than a demonstrated defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The code does enqueue again for a qualifying output write, but the claimed excessive-load defect is not established. products/review_hog/backend/receivers.py:82-105 rejects creation, non-output update_fields, failed/cancelled runs, missing targets, and non-implementation tasks; :111-126 further requires an assigned opted-in reviewer. A normal workflow status update explicitly saves without output at products/tasks/backend/temporal/process_task/activities/update_task_run_status.py:69, so the hot status path does not enqueue. products/stamphog/backend/tasks/tasks.py:1155-1159 fetches the current head, then :1202-1221 skips an already handled head or restarts its stranded QUEUED workflow. A changed head or FAILED review is intentionally not deduplicated. tests/test_tasks.py:974-988,1009-1020 exercises completed-head no-op, stranded-run restart, failed-run retry, and reviewing a changed head missed by the webhook.",
+            "refutation": "I first checked whether every TaskRun save really publishes, and whether the repeated target can safely be treated as redundant. The update_fields guard rules out ordinary status/state saves, and the current-head lookup distinguishes a duplicate from recovery of a failed review or a lost synchronize event. Deduplicating forever by task_run_id and URL, as suggested, would suppress those covered recovery cases. A pending-job coalescer could be an optimization, but the finding gives no reachable high-frequency output writer, measured overload, rate-limit failure, or incorrect review result. One bounded freshness fetch on an eligible output save is the implemented recovery behavior, not by itself a shipping correctness defect."
+        }
+    ]
+}

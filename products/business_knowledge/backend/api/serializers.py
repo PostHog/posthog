@@ -26,6 +26,7 @@ from ..models import (
     EmbeddingStatus,
     KnowledgeSource,
     RefreshInterval,
+    SafetyVerdict,
     SourceType,
 )
 
@@ -447,6 +448,25 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         return attrs
 
 
+class KnowledgeSourceDocumentSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Document id.")
+    url = serializers.URLField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Fetched page URL after redirects. Empty for text and file documents.",
+    )
+    title = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Page title extracted while indexing. Falls back to empty when the page had none.",
+    )
+    safety_verdict = serializers.ChoiceField(
+        choices=SafetyVerdict.choices,
+        read_only=True,
+        help_text="Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.",
+    )
+
+
 class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     """
     One chunk in a drill-down window over a single knowledge document.
@@ -525,6 +545,10 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     content = serializers.CharField(
         read_only=True,
         help_text="The chunk's text content.",
+    )
+    is_generated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when this chunk comes from a generated source learned from a past support ticket.",
     )
 
 

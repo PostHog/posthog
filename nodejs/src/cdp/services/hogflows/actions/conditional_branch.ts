@@ -10,10 +10,6 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-// A parked conditional_branch has no matcher coverage: every parked-job lookup in the subscription
-// matcher is scoped to wait_until_condition, so this re-check is the only thing that advances a
-// delayed branch.
-const BRANCH_RECHECK_SECONDS = 10 * 60
 // A wait is woken by the matcher on a matching signal, so its re-check only has to reconcile a wake
 // lost between the condition being evaluated and the job being persisted.
 const WAIT_RECHECK_SECONDS = 60 * 60
@@ -108,7 +104,6 @@ export class ConditionalBranchHandler implements ActionHandler {
                           // entry and fire the wait immediately. Only honor a condition with a real
                           // compiled filter; otherwise the wait relies on its events / the timeout.
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
-                          delay_duration: action.config.max_wait_duration,
                       },
                   }
 
@@ -116,7 +111,9 @@ export class ConditionalBranchHandler implements ActionHandler {
             invocation,
             conditionalAction,
             this.createMemberCohortIdsLoader(invocation),
-            action.type === 'wait_until_condition' ? WAIT_RECHECK_SECONDS : BRANCH_RECHECK_SECONDS
+            action.type === 'wait_until_condition' && action.config.max_wait_duration
+                ? { maxWaitDuration: action.config.max_wait_duration, recheckSeconds: WAIT_RECHECK_SECONDS }
+                : undefined
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -191,9 +188,9 @@ export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
     loadMemberCohortIds?: () => Promise<number[]>,
-    // A wait is normalised into a conditional_branch before it gets here, so the caller decides which
-    // cap applies; the type on `action` can no longer tell the two apart.
-    recheckSeconds: number = BRANCH_RECHECK_SECONDS
+    // Only a wait re-parks; a conditional_branch routes on the spot. A wait is normalised into a
+    // branch before it gets here, so the caller passes its ceiling rather than the type carrying it.
+    repark?: { maxWaitDuration: string; recheckSeconds: number }
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -211,6 +208,7 @@ export async function checkConditions(
 
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
+            caller: 'hogflow_conditional_branch',
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: {
@@ -227,14 +225,13 @@ export async function checkConditions(
         }
     }
 
-    if (action.config.delay_duration) {
-        // Re-park on the cap for this step type. A wake arriving between this evaluation and the job
-        // being persisted finds no available row and is never replayed, so neither step type can rely
-        // on the matcher alone.
+    if (repark) {
+        // A wake arriving between this evaluation and the job being persisted finds no available row
+        // and is never replayed, so a wait cannot rely on the matcher alone.
         const scheduledAt = calculatedScheduledAt(
-            action.config.delay_duration,
+            repark.maxWaitDuration,
             invocation.state.currentAction?.startedAtTimestamp,
-            recheckSeconds
+            repark.recheckSeconds
         )
 
         if (scheduledAt) {

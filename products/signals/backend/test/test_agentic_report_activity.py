@@ -2,6 +2,7 @@ import json
 import random
 import asyncio
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -20,7 +21,16 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal, NoteArtefact
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_REPO,
+    Dismissal,
+    ImplementationAssessment,
+    ImplementationTarget,
+    NoteArtefact,
+    RelatedTo,
+    ReportLink,
+)
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -41,10 +51,12 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _load_previous_research,
+    _load_resolved_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
@@ -246,6 +258,62 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parent_status", "dismissal_reason", "expected"),
+    [
+        (SignalReport.Status.RESOLVED, None, True),
+        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
+        # to reason about, so the research agent is told nothing.
+        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+    ],
+)
+@pytest.mark.parametrize("typed_link", [False, True])
+@pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
+async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
+    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
+):
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+    )
+    if dismissal_reason is not None:
+        await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+            team_id=ateam.id,
+            report_id=str(parent.id),
+            content=Dismissal(reason=dismissal_reason),
+            attribution=ArtefactAttribution.system(),
+        )
+    fork = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="fork", summary="fork")
+    for verdict in safety_verdicts:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=parent,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+        )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(fork.id),
+        content=(
+            ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id))
+            if typed_link
+            else RelatedTo(report_id=str(parent.id))
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+
+    safe = not safety_verdicts or safety_verdicts[-1] is True
+    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
+    assert context == (
+        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
+    )
+    assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
 @pytest.mark.asyncio
@@ -1141,6 +1209,176 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
 
     session.end.assert_awaited_once()
     assert session.end.await_args.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "supersede_outcome",
+    [
+        RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"),
+        ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
+    ],
+)
+async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersede_outcome):
+    """The supersede turn is asked last, after every finding, judgment, title and summary is in
+    hand, and the decision is optional downstream. A raise there used to end the session as failed
+    and discard a research run whose activity budget is four hours."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    presentation = ReportPresentationOutput(title="New title", summary="New summary")
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(previous_assessment_correct=True),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": presentation,
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
+        "supersede": supersede_outcome,
+    }
+
+    async def fake_send_followup(message, model, *, label=""):
+        outcome = by_label[label]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        )
+
+    assert (result.title, result.summary) == ("New title", "New summary")
+    assert result.verification_note == by_label["fix_verification"].to_note()
+    session.end.assert_awaited_once()
+    assert "status" not in session.end.await_args.kwargs
+    decided = result.effective_implementation_decision()
+    if isinstance(supersede_outcome, Exception):
+        assert decided is None
+    else:
+        assert decided is not None
+        assert decided.reason == supersede_outcome.reason
+        assert [target.pr_url for target in decided.targets] == supersede_outcome.obsolete_pr_urls
+        assert decided.research_run_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actionability", "expects_supersede_turn"),
+    [
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, True),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT, False),
+        (ActionabilityChoice.NOT_ACTIONABLE, False),
+    ],
+)
+async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(actionability, expects_supersede_turn):
+    """Auto-start is the decision's only consumer and it takes immediately-actionable reports only,
+    so asking on the other two outcomes buys a sandbox turn nothing can read."""
+    signals = _build_signals()
+    previous = ReportResearchOutput(
+        title="Old title",
+        summary="Old summary",
+        new_artefacts=[
+            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        ],
+    )
+    by_label = {
+        "signal_2_of_2": SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+        "actionability": ActionabilityUpdate(
+            previous_assessment_correct=False,
+            assessment=ActionabilityAssessment(
+                explanation="The evidence changed what this needs.",
+                actionability=actionability,
+                already_addressed=False,
+            ),
+        ),
+        "priority": PriorityUpdate(previous_assessment_correct=True),
+        "presentation": ReportPresentationOutput(title="New title", summary="New summary"),
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
+        "supersede": ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
+    }
+    asked_labels: list[str] = []
+
+    async def fake_send_followup(message, model, *, label=""):
+        asked_labels.append(label)
+        return by_label[label]
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=fake_send_followup)
+    session.end = AsyncMock()
+    session.task = Mock(id="task-1")
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(
+            signals,
+            Mock(),
+            previous_report_research=previous,
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        )
+
+    assert ("supersede" in asked_labels) is expects_supersede_turn
+    assert (result.effective_implementation_decision() is not None) is expects_supersede_turn
+    assert (result.verification_note is not None) is (actionability != ActionabilityChoice.NOT_ACTIONABLE)
 
 
 def test_parse_artefact_content_parses_valid_content():

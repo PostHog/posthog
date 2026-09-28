@@ -315,6 +315,24 @@ class TestCheckRunner(BaseTest):
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
         assert query.call_args.kwargs["user"] == self.user
 
+    def test_an_automated_posthog_table_check_runs_as_its_author(self) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.SCHEDULED
+        )
+        check = self._check(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="events",
+            subject_name="events",
+            column_name="properties.$browser",
+            created_by=self.user,
+        )
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
+        assert query.call_args.kwargs["user"] == self.user
+
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_a_manual_referencing_check_without_an_initiator_never_reaches_the_warehouse(
         self, _name, check_type: CheckType

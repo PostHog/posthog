@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
-import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -24,12 +23,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import {
-    addProjectIdIfMissing,
-    getProjectIdentifierInPath,
-    removeProjectIdIfPresent,
-    stripTrailingSlash,
-} from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -90,6 +84,15 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
         ...rest,
         id: tab.id || generateTabId(),
     }
+}
+
+// `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
+// location is the homepage has to derive it the same way.
+const homepageTargetPathname = (homepage: SceneTab): string => {
+    const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+    return removeProjectIdIfPresent(targetPathname) === '/'
+        ? addProjectIdIfMissing(urls.projectHomepage())
+        : targetPathname
 }
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
@@ -242,6 +245,7 @@ export interface sceneLogicValues {
     exportedScenes: Record<string, SceneExport<SceneProps>>
     hashParams: Record<string, any>
     homepage: SceneTab | null
+    homepageSaving: boolean
     lastReloadAt: number | null
     lastSetScenePayload: Record<string, any>
     loadingScene: string | null
@@ -261,27 +265,9 @@ export interface sceneLogicActions {
     hideInviteModal: () => {
         value: true
     } // inviteLogic
-    locationChanged: ({
-        method,
-        pathname,
-        search,
-        searchParams,
-        hash,
-        hashParams,
-        initial,
-        url,
-        routerState,
-    }: LocationChangedPayload) => {
-        hash: string
-        hashParams: Record<string, any>
-        initial: boolean
-        method: 'POP' | 'PUSH' | 'REPLACE'
-        pathname: string
-        routerState: Record<string, any>
-        search: string
-        searchParams: Record<string, any>
-        url: string
-    } // router
+    homepageSaved: (tab: SceneTab | null) => {
+        tab: SceneTab | null
+    }
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -307,6 +293,9 @@ export interface sceneLogicActions {
     reloadBrowserDueToImportError: () => {
         value: true
     }
+    resetUnavailableHomepage: (pathname: string) => {
+        pathname: string
+    }
     setExportedScene: (
         exportedScene: SceneExport,
         sceneId: string,
@@ -318,8 +307,15 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    setHomepage: (tab: SceneTab | null) => {
+    setHomepage: (
+        tab: SceneTab | null,
+        homepageSource?: 'dashboards list'
+    ) => {
+        homepageSource: 'dashboards list' | undefined
         tab: SceneTab | null
+    }
+    setHomepageSaving: (saving: boolean) => {
+        saving: boolean
     }
     setScene: (
         sceneId: string,
@@ -394,12 +390,14 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic, teamLogic],
-        actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
+        actions: [inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedSceneLogic = null as MountedSceneLogic | null
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
+        cache.homepageSave = Promise.resolve()
+        cache.homepageRequest = 0
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -444,7 +442,10 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        setHomepage: (tab: SceneTab | null) => ({ tab }),
+        setHomepage: (tab: SceneTab | null, homepageSource?: 'dashboards list') => ({ tab, homepageSource }),
+        homepageSaved: (tab: SceneTab | null) => ({ tab }),
+        setHomepageSaving: (saving: boolean) => ({ saving }),
+        resetUnavailableHomepage: (pathname: string) => ({ pathname }),
     }),
     reducers({
         sceneId: [
@@ -508,9 +509,16 @@ export const sceneLogic = kea<sceneLogicType>([
         homepage: [
             getBootstrappedHomepage(),
             {
-                setHomepage: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
+                setHomepage: (state, { tab, homepageSource }) => {
+                    if (homepageSource) {
+                        return state
+                    }
+                    return tab ? tabToPersistableSnapshot(tab) : null
+                },
+                homepageSaved: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
             },
         ],
+        homepageSaving: [false, { setHomepageSaving: (_, { saving }) => saving }],
     })),
     selectors({
         sceneConfig: [
@@ -692,26 +700,62 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
-        setHomepage: ({ tab }) => {
-            if (isSharedView()) {
+        // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
+        // and the picker that would change it sits behind that screen. Drop the setting instead.
+        resetUnavailableHomepage: ({ pathname }) => {
+            const target = addProjectIdIfMissing(pathname)
+            if (!values.homepage || homepageTargetPathname(values.homepage) !== target) {
                 return
             }
-            api.update('api/user_home_settings/@me/', {
-                homepage: tab ? tabToPersistableSnapshot(tab) : null,
-            }).catch((error) => {
-                console.error('Failed to persist homepage', error)
-            })
-        },
-        locationChanged: ({ pathname, search, hash }) => {
-            pathname = addProjectIdIfMissing(pathname)
-
-            // Remove trailing slash from the address bar. Route matching itself is handled
-            // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
-            // before this replace runs.
-            const stripped = stripTrailingSlash(pathname)
-            if (stripped !== pathname) {
-                router.actions.replace(stripped, search, hash)
+            actions.setHomepage(null)
+            lemonToast.info('Your home pointed to something that no longer exists, so we reset it.')
+            const location = router.values.currentLocation
+            if (addProjectIdIfMissing(location.pathname) === target) {
+                // Carry the hash and allow-listed params over, as the `/` → homepage redirect does,
+                // so a modal bound to `?modal=` does not close on the way out.
+                router.actions.replace(
+                    withForwardedHashAndSearchParams(
+                        urls.projectHomepage(),
+                        location.searchParams,
+                        location.hashParams,
+                        forwardedRedirectQueryParams
+                    )
+                )
             }
+        },
+        setHomepage: async ({ tab, homepageSource }) => {
+            if (isSharedView() || (homepageSource && values.homepageSaving)) {
+                return
+            }
+            if (homepageSource) {
+                actions.setHomepageSaving(true)
+            }
+            const requestId = ++cache.homepageRequest
+            const previousSave = cache.homepageSave
+            cache.homepageSave = (async () => {
+                await previousSave
+                try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
+                    await api.update('api/user_home_settings/@me/', {
+                        homepage: tab ? tabToPersistableSnapshot(tab) : null,
+                    })
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        actions.homepageSaved(tab)
+                        lemonToast.success('Homepage updated')
+                        posthog.capture('dashboard set as homepage', { source: homepageSource })
+                    }
+                } catch (error) {
+                    console.error('Failed to persist homepage', error)
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        lemonToast.error('Could not save your homepage. Please try again.')
+                    }
+                } finally {
+                    if (homepageSource) {
+                        actions.setHomepageSaving(false)
+                    }
+                }
+            })()
+            await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
@@ -943,9 +987,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.sceneId !== sceneId) {
-                    breakpoint()
-                }
+                // Break before the `values` read below: the import can outlive this logic, and a
+                // detached path throws. The `sceneId` check this replaces read `values` itself.
+                breakpoint()
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
@@ -1023,10 +1067,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (!homepage) {
                 return false
             }
-            let targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
-            if (removeProjectIdIfPresent(targetPathname) === '/') {
-                targetPathname = addProjectIdIfMissing(urls.projectHomepage())
-            }
+            const targetPathname = homepageTargetPathname(homepage)
             // Forward the incoming hash and allow-listed params (e.g. modal) onto the homepage, and
             // compare against that final target so a forwarded param can't loop.
             const target = withForwardedHashAndSearchParams(

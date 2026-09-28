@@ -2,6 +2,8 @@ import datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.models.utils import uuid7
@@ -333,22 +335,37 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(responses), 1)
         self.assertEqual(responses[0]["vitals_lcp"], 42)
 
-    def test_backfill_sql(self):
+    @parameterized.expand([None, "sharded_events"])
+    def test_backfill_sql(self, events_table: str | None) -> None:
         distinct_id = create_distinct_id()
         session_id = create_session_id()
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
-            properties={"$current_url": "/", "$session_id": session_id},
+            properties={
+                "$current_url": "/",
+                "$session_id": session_id,
+                "$browser": "ExampleBrowser",
+                "$viewport_width": 640.5,
+                "$viewport_height": "invalid",
+                "$web_vitals_LCP_value": 42.5,
+                "$geoip_subdivision_city_name": "ExampleCity",
+            },
             timestamp="2024-03-08",
         )
 
-        # just test that the backfill SQL can be run without error
-        sync_execute(
-            "INSERT INTO raw_sessions" + RAW_SESSION_TABLE_BACKFILL_SELECT_SQL() + "AND team_id = %(team_id)s",
+        query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(events_table=events_table) + "AND team_id = %(team_id)s"
+        assert "toJSONString(properties)" not in query
+        sync_execute("INSERT INTO raw_sessions" + query, {"team_id": self.team.id})
+        results = sync_execute(
+            f"""SELECT finalizeAggregation(browser), finalizeAggregation(viewport_width),
+                finalizeAggregation(viewport_height), finalizeAggregation(vitals_lcp),
+                finalizeAggregation(initial_geoip_subdivision_city_name)
+            FROM ({query})""",
             {"team_id": self.team.id},
         )
+        self.assertEqual(results, [("ExampleBrowser", 640, 0, 42.5, "ExampleCity")])
 
     def test_max_inserted_at(self):
         distinct_id = create_distinct_id()
