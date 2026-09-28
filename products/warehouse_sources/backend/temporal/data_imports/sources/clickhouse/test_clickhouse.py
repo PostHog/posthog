@@ -1325,10 +1325,9 @@ class TestHasDuplicatePrimaryKeys:
         client.query.side_effect = ClickHouseError(error_msg)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
-            # Still assumes duplicates (safe append mode), but the probe hitting
-            # its own memory/time budget is the designed fallback — not error
-            # tracking noise.
-            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+            # The probe hitting its own memory/time budget compared no rows, so it
+            # proves nothing about the key and must not read as duplicates.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
 
         mock_capture.assert_not_called()
 
@@ -1372,8 +1371,8 @@ class TestHasDuplicatePrimaryKeys:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse.capture_exception"
         ) as mock_capture:
-            # Still fails safe to True (force append mode), just without noise.
-            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+            # An environment limit is not evidence about the key, so it stays unverified.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
 
         mock_capture.assert_not_called()
 
@@ -1387,6 +1386,87 @@ class TestHasDuplicatePrimaryKeys:
             assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
 
         mock_capture.assert_called_once()
+
+
+class TestDuplicateProbeTargetsMergeKey:
+    """The merge matches rows on the schema's stored key, so that is the key the probe has to
+    check — not the sorting key, which is a different column set and is not unique in ClickHouse."""
+
+    def _build_source(self, *, stored_primary_keys, sorting_key, probe_result):
+        from contextlib import contextmanager
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        mock_table = MagicMock()
+        mock_table.columns = [
+            ClickHouseColumn(name=n, data_type="String", nullable=False)
+            for n in ("environment", "timestamp", "correlation_id", "id")
+        ]
+        mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.string())])
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 8443)
+
+        probe = MagicMock(return_value=probe_result)
+        with (
+            patch.object(ch_module, "_get_client", return_value=MagicMock()),
+            patch.object(ch_module, "_get_table", return_value=mock_table),
+            patch.object(ch_module, "_get_primary_keys", return_value=sorting_key),
+            patch.object(ch_module, "_has_duplicate_primary_keys", probe),
+            patch.object(ch_module, "_get_partition_settings", return_value=None),
+            patch.object(ch_module, "get_clickhouse_row_count", return_value={}),
+        ):
+            response = ch_module.clickhouse_source(
+                tunnel=fake_tunnel,
+                user="u",
+                password="p",
+                database="db",
+                secure=True,
+                verify=True,
+                table_names=["events"],
+                should_use_incremental_field=True,
+                incremental_field="timestamp",
+                incremental_field_type=IncrementalFieldType.Timestamp,
+                logger=MagicMock(),
+                db_incremental_field_last_value=None,
+                stored_primary_keys=stored_primary_keys,
+            )
+        return response, probe
+
+    def test_probes_stored_key_not_sorting_key(self):
+        _, probe = self._build_source(
+            stored_primary_keys=["id"],
+            sorting_key=["environment", "timestamp", "correlation_id", "id"],
+            probe_result=False,
+        )
+        assert probe.call_args.args[3] == ["id"]
+
+    def test_falls_back_to_sorting_key_when_nothing_stored(self):
+        _, probe = self._build_source(
+            stored_primary_keys=None,
+            sorting_key=["environment", "id"],
+            probe_result=False,
+        )
+        assert probe.call_args.args[3] == ["environment", "id"]
+
+    def test_unproven_probe_does_not_block_the_merge(self):
+        # A probe that never compared any rows (an environment limit) must not pause the schema:
+        # the key stays unverified and the next run probes it again.
+        response, _ = self._build_source(
+            stored_primary_keys=["id"],
+            sorting_key=["environment", "id"],
+            probe_result=None,
+        )
+        assert response.has_duplicate_primary_keys is False
+
+    def test_real_duplicates_still_block_the_merge(self):
+        response, _ = self._build_source(
+            stored_primary_keys=["id"],
+            sorting_key=["environment", "id"],
+            probe_result=True,
+        )
+        assert response.has_duplicate_primary_keys is True
 
 
 class TestGetIncrementalRowCount:
