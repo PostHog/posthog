@@ -1224,6 +1224,21 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-suggestions-list": {
+        "description": "List steering suggestions for a pipeline, ordered most recent first. Each entry shows the prompt, priority, status (queued/picked_up/acted_on/dismissed), and the agent's response when available. Use 'linked_iteration_ids' to trace which iterations were spawned from a suggestion.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List suggestions",
+        "title": "List suggestions",
+        "required_scopes": ["autoresearch:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-suggestions-respond": {
         "description": "Record how you handled a steering suggestion so the human who submitted it sees the outcome (it stays 'queued' in the UI until you do). Set status to 'picked_up' (applied as a search constraint across iterations), 'acted_on' (spawned one or more iterations from it), or 'dismissed' (rejected — explain why in agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion picked_up/dismissed without a dedicated iteration.",
         "category": "Autoresearch",
@@ -1345,7 +1360,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-iterations-create": {
-        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id. model_class in model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
+        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id, and every event it reads must be bounded by e.timestamp < fromUnixTimestamp(a.cutoff_ts). The validator cannot prove that bound, and without it the features see the outcome window and the holdout AUC is leaked. model_class in model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration beats the best AUC so far in this run (the first scored iteration is always kept, whatever the current champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Record a training iteration",

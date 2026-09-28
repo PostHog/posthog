@@ -222,6 +222,9 @@ tools:
             Get full details for a specific autoresearch pipeline by ID, including population definitions, training
             configuration, and current status.
         feature_flag: autoresearch
+        response:
+            exclude:
+                - created_by
     autoresearch-runs-list:
         operation: autoresearch_runs_list
         enabled: false
@@ -301,7 +304,7 @@ tools:
         feature_flag: autoresearch
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list
-        enabled: false
+        enabled: true
         scopes:
             - autoresearch:read
         annotations:
@@ -546,13 +549,16 @@ tools:
         description: >
             Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number
             updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be
-            a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id. model_class in
+            a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id, and every event
+            it reads must be bounded by e.timestamp < fromUnixTimestamp(a.cutoff_ts). The validator cannot prove that
+            bound, and without it the features see the outcome window and the holdout AUC is leaked. model_class in
             model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the
             sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration
-            improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at
-            completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
-            pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
-            and marks the suggestion 'acted_on'.
+            beats the best AUC so far in this run (the first scored iteration is always kept, whatever the current
+            champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time
+            to choose the champion. If this iteration was spawned from a pending steering suggestion, pass
+            parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and
+            marks the suggestion 'acted_on'.
         feature_flag: autoresearch
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list

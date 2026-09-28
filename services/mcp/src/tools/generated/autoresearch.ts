@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/autoresearch/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AutoresearchCreateSchema = () => {
@@ -254,7 +254,8 @@ const autoresearchRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        const filtered = omitResponseFields(result, ['created_by']) as typeof result
+        return filtered
     },
 })
 
@@ -287,6 +288,50 @@ const autoresearchSuggestionsCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const AutoresearchSuggestionsListSchema = () => {
+    const AutoresearchSuggestionsListParams = orvalSchemas.AutoresearchSuggestionsListParams()
+    const AutoresearchSuggestionsListQueryParams = orvalSchemas.AutoresearchSuggestionsListQueryParams()
+    return AutoresearchSuggestionsListParams.omit({ project_id: true }).extend(
+        AutoresearchSuggestionsListQueryParams.shape
+    )
+}
+
+const autoresearchSuggestionsList = (): ToolBase<
+    ReturnType<typeof AutoresearchSuggestionsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAutoresearchSuggestionList>
+> => ({
+    name: 'autoresearch-suggestions-list',
+    schema: AutoresearchSuggestionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchSuggestionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoresearchSuggestionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/suggestions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'pipeline',
+                    'prompt',
+                    'priority',
+                    'status',
+                    'source',
+                    'agent_response',
+                    'linked_iteration_ids',
+                    'created_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -700,6 +745,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
+    'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,
     'autoresearch-train-create': autoresearchTrainCreate,
     'autoresearch-training-runs-artifacts-get-create': autoresearchTrainingRunsArtifactsGetCreate,
