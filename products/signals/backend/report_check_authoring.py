@@ -34,12 +34,11 @@ from products.signals.backend.report_checks import (
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
-    MAX_CHECK_SOAK_HOURS,
-    MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
     parse_check_config,
+    soak_minutes_from_gap,
 )
 
 logger = structlog.get_logger(__name__)
@@ -126,7 +125,7 @@ def create_check(
             status = SignalReportCheck.Status.PENDING
             if soak_minutes is None:
                 assert next_run_at is not None
-                soak_minutes = _soak_from_first_run(next_run_at, now)
+                soak_minutes = soak_minutes_from_gap(next_run_at, now)
             # Provisional, and rewritten at arm time. The horizon is real though: a report that
             # never resolves retires its pending checks rather than holding them forever.
             next_run_at = now + timedelta(minutes=soak_minutes)
@@ -277,16 +276,6 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             )
         )
     return armed
-
-
-def _soak_from_first_run(next_run_at: datetime, now: datetime) -> int:
-    """The soak a dated check keeps when its report has not resolved yet.
-
-    The author left a gap before the first run to allow for deploy and soak time, so that gap is
-    what the check waits out once the report resolves, bounded by what a soak may be.
-    """
-    minutes = round((next_run_at - now).total_seconds() / 60)
-    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
 
 
 def _last_run_at(next_run_at: datetime, run_interval_minutes: int | None, runs_remaining: int) -> datetime:

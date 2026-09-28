@@ -65,6 +65,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_SOAK_HOURS,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     MIN_CHECK_INTERVAL_MINUTES,
+    MIN_CHECK_SOAK_HOURS,
     AgentCheckConfig,
     CheckComparison,
     CheckConfigValidationError,
@@ -465,15 +466,47 @@ class TestReportCheckExecution(APIBaseTest):
         # Named like the passed and failed lines, so a report with several checks stays readable.
         assert "Checkout errors stay low could not be measured" in latest
 
-    def test_a_suppressed_report_pauses_its_checks(self) -> None:
-        self._check()
-        self.report.status = SignalReport.Status.SUPPRESSED
+    @parameterized.expand(
+        [
+            ("reopened", SignalReport.Status.READY),
+            ("archived", SignalReport.Status.SUPPRESSED),
+            ("awaiting_input", SignalReport.Status.PENDING_INPUT),
+        ]
+    )
+    def test_an_active_check_on_an_unresolved_report_waits_for_the_next_resolve(self, _name, report_status) -> None:
+        # An active row on an open report: a report that left `resolved`, or a row written before
+        # the create path let the report decide. It must not run, and its old error streak must not
+        # count against the soak that follows the next resolve.
+        check = self._check(consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1)
+        self.report.status = report_status
         self.report.save(update_fields=["status"])
+
+        with patch(_MEASURE) as measure:
+            summary = run_due_report_checks()
+
+        assert not measure.called
+        assert summary.errored == 0
+        assert self._results() == []
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        assert check.consecutive_errors == 0
+
+        before = timezone.now()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.report.status = SignalReport.Status.RESOLVED
+            self.report.save(update_fields=["status"])
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.next_run_at >= before + timedelta(hours=MIN_CHECK_SOAK_HOURS)
         assert collect_due_checks(timezone.now()) == []
 
-        self.report.status = SignalReport.Status.RESOLVED
+    def test_an_active_check_on_an_unresolved_report_is_never_due(self) -> None:
+        self._check()
+        self.report.status = SignalReport.Status.READY
         self.report.save(update_fields=["status"])
-        assert len(collect_due_checks(timezone.now())) == 1
+
+        assert collect_due_checks(timezone.now()) == []
 
     def test_a_check_cancelled_while_its_query_ran_records_nothing(self) -> None:
         check = self._check()
@@ -876,7 +909,6 @@ class TestAgentCheckDispatch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("paused_lane", {"enabled": False, "status": SignalScoutConfig.Status.PAUSED_BY_USER}, "is paused"),
             (
                 "warned_lane_still_runs",
                 {
@@ -942,29 +974,45 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert dispatch.call_args.kwargs["skill_name"] == FALLBACK_CHECK_SKILL_NAME
         assert self._results() == []
 
-    def test_a_check_on_a_scout_a_person_paused_still_reports_the_refusal(self) -> None:
-        # A pause is somebody's decision, so saying the check could not run is more honest than
-        # quietly answering the question on another scout.
-        LLMSkill.objects.create(team=self.team, name="signals-scout-health-checks", is_latest=True, deleted=False)
-        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-health-checks", enabled=False)
-        self._check(
-            config={
-                "instructions": "Re-read the issue and say whether it still fires.",
-                "skill_name": "signals-scout-health-checks",
-            }
-        )
+    @parameterized.expand([("named_lane", "signals-scout-health-checks"), ("fallback_lane", None)])
+    def test_a_check_on_a_paused_scout_waits_for_the_resume_without_spending_errors(self, _name, skill_name) -> None:
+        # A pause is somebody's decision, so the check neither runs on another scout nor burns its
+        # error budget while the pause lasts.
+        if skill_name is None:
+            scout_config = self.scout_config
+            scout_config.enabled = False
+            scout_config.save()
+            config = {"instructions": "Re-read the issue and say whether it still fires."}
+        else:
+            LLMSkill.objects.create(team=self.team, name=skill_name, is_latest=True, deleted=False)
+            scout_config = SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=False)
+            config = {"instructions": "Re-read the issue and say whether it still fires.", "skill_name": skill_name}
+        check = self._check(config=config)
 
-        with patch(_CONNECT), patch(_DISPATCH) as dispatch, patch(_CAPTURE) as capture:
-            with self.captureOnCommitCallbacks(execute=True):
+        for _ in range(MAX_CONSECUTIVE_CHECK_ERRORS):
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                next_run_at=timezone.now() - timedelta(minutes=1)
+            )
+            with patch(_CONNECT), patch(_DISPATCH) as dispatch:
                 summary = run_due_report_checks()
+            assert summary.deferred == 1
+            dispatch.assert_not_called()
 
-        assert summary.errored == 1
-        dispatch.assert_not_called()
-        assert "is paused" in self._results()[0].content
-        properties = capture.call_args.kwargs["properties"]
-        assert capture.call_args.kwargs["event"] == "signals_report_check_evaluated"
-        assert properties["reason"] == "scout_paused"
-        assert properties["skill_name"] == "signals-scout-health-checks"
+        assert self._results() == []
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.consecutive_errors == 0
+
+        scout_config.enabled = True
+        scout_config.save()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            next_run_at=timezone.now() - timedelta(minutes=1)
+        )
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            summary = run_due_report_checks()
+
+        assert summary.dispatched == 1
+        assert dispatch.call_args.kwargs["skill_name"] == (skill_name or FALLBACK_CHECK_SKILL_NAME)
 
     def test_an_unenrolled_project_records_an_errored_result(self) -> None:
         self._enrol({"guaranteed_team_ids": []})

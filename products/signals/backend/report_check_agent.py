@@ -39,8 +39,7 @@ logger = structlog.get_logger(__name__)
 # The lane a check runs on when its author named no skill. The fleet's follow-up scout already
 # exists to re-measure resolved reports, and it is an operational scout, so it is seeded enabled on
 # every enrolled team and exempt from the inactivity sweep and the enabled-scout cap. A person can
-# still pause it by hand, which the dispatch path reports as an errored run rather than working
-# around.
+# still pause it by hand. The dispatch path then waits for the resume rather than working around it.
 FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 
 # How long a dispatched run has to record its verdict before the coordinator gives up on it. A scout
@@ -50,8 +49,8 @@ FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 # dispatched over the top of a live one.
 AGENT_CHECK_RESULT_WINDOW = timedelta(hours=2)
 
-# How long a check waits after a dispatch the fleet refused for a reason that passes on its own: a
-# run of the same scout already in flight, a project at its daily run budget, a paused spend gate.
+# How long a check waits after a dispatch the fleet refused for a reason that can pass: a run of the
+# same scout already in flight, a project at its daily run budget, a paused spend gate, a paused scout.
 # Shorter than the errored-run retry because none of these says anything is wrong with the check.
 CHECK_DISPATCH_DEFER_AFTER = timedelta(hours=1)
 
@@ -66,11 +65,13 @@ MAX_CHECK_NOTE_RESOLUTION_LENGTH = 1_000
 class CheckDispatchRefusal:
     """Why a check could not be dispatched this tick.
 
-    `retryable` splits the two things a refusal can mean. A project at its daily run budget, or a
-    lane already running, will be dispatchable again without anyone doing anything, so the check
-    waits. A project not enrolled in scouts, or a lane a person paused, will not, so the check
-    records an errored run: the report's log is where a reader finds out their follow-up never ran,
-    and three of those retire the check instead of leaving it to expire in silence.
+    `retryable` splits the two things a refusal can mean. A project at its daily run budget, a lane
+    already running, or a paused lane can become dispatchable again, so the check waits without
+    spending its error budget. A paused lane is in that group because a pause is often temporary,
+    and three errored runs during a pause would retire the check before the scout resumes. A project
+    not enrolled in scouts, or a lane that does not exist, will not, so the check records an errored
+    run: the report's log is where a reader finds out their follow-up never ran, and three of those
+    retire the check instead of leaving it to expire in silence.
     """
 
     reason: str
@@ -90,7 +91,7 @@ def resolve_check_skill_name(config: AgentCheckConfig, canonical_team_id: int | 
     one is gone.
 
     A pause is deliberately not one of those reasons. Somebody switched that scout off on purpose,
-    and reporting the refusal is more honest than quietly running the question somewhere else.
+    so the check waits for that scout rather than quietly running the question somewhere else.
     """
     skill_name = config.skill_name or FALLBACK_CHECK_SKILL_NAME
     if canonical_team_id is None or skill_name == FALLBACK_CHECK_SKILL_NAME:
@@ -211,7 +212,7 @@ def _refuse_dispatch(skill_name: str, canonical_team_id: int) -> CheckDispatchRe
         return CheckDispatchRefusal(
             reason="scout_paused",
             detail=f"The `{skill_name}` scout is paused, so the check could not run.",
-            retryable=False,
+            retryable=True,
         )
 
     team = Team.objects.select_related("organization").get(pk=canonical_team_id)
