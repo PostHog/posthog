@@ -21,11 +21,16 @@ describe('sessionRecordingCollectionsLogic', () => {
         results: ['List of playlists'],
     }
 
+    const builtInPlaylist = { short_id: 'synthetic-watch-history', name: 'Watch history', is_synthetic: true }
+
     beforeEach(() => {
         useMocks({
             get: {
                 '/api/projects/:team/session_recording_playlists': ({ request }) => {
                     const { searchParams } = new URL(request.url)
+                    if (searchParams.get('collection_type') === 'synthetic') {
+                        return [200, { count: 1, results: [builtInPlaylist] }]
+                    }
                     if (searchParams.get('date_to') === '2021-10-05') {
                         return [
                             200,
@@ -103,6 +108,13 @@ describe('sessionRecordingCollectionsLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadPlaylistsSuccess'])
                 .toMatchValues({ playlists: mockPlaylistsResponse })
+        })
+
+        it('loads built-in collections in their own request', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadBuiltInPlaylistsSuccess'])
+                .toMatchValues({ builtInPlaylists: [builtInPlaylist] })
+            expect(logic.values.playlists.results).not.toContainEqual(builtInPlaylist)
         })
     })
 
