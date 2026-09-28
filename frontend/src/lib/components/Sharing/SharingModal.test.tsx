@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
@@ -111,7 +112,9 @@ describe('SharingModal (dashboard)', () => {
 
         expect(screen.getByText(/Show branding/i)).toBeInTheDocument()
         expect(screen.getByText('Team link')).toBeInTheDocument()
-        expect((screen.getByLabelText('team link') as HTMLInputElement).value).toMatch(/\/dashboard\/123$/)
+        expect(new URL((screen.getByLabelText('team link') as HTMLInputElement).value).pathname).toBe(
+            `/project/${getCurrentTeamId()}/dashboard/${dashboardId}`
+        )
         expect(screen.getByText('Public link')).toBeInTheDocument()
         expect((screen.getByLabelText('public link') as HTMLInputElement).value).toContain(accessToken)
         expect(screen.getByText('Choose how the shared dashboard appears to viewers.')).toBeInTheDocument()
@@ -210,7 +213,9 @@ describe('SharingModal (insight)', () => {
 
         // Insight option: Show title and description (insight-specific toggle)
         expect(await screen.findByText(/Show title and description/i)).toBeInTheDocument()
-        expect((screen.getByLabelText('team link') as HTMLInputElement).value).toMatch(/\/insights\/insight456$/)
+        expect(new URL((screen.getByLabelText('team link') as HTMLInputElement).value).pathname).toBe(
+            `/project/${getCurrentTeamId()}/insights/${insightShortId}`
+        )
         expect(screen.getByText('Shared insight appearance')).toBeInTheDocument()
         expect(screen.getByText('Choose how the shared insight appears to viewers.')).toBeInTheDocument()
 
