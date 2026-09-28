@@ -808,7 +808,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     return newState
                 },
                 resetPersonsToRemoveFromCohort: () => ({}),
-                setCohort: () => ({}),
             },
         ],
         removingPersonsFromCohort: [
