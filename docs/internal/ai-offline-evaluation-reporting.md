@@ -141,12 +141,13 @@ Experiment and item metadata, including shared item payloads, require `evaluatio
 Results, result payloads, summaries, history, and scorer filters also require `llm_analytics:read` and viewer access to the corresponding scorer definitions.
 An upload-only credential cannot read stored results or payloads.
 Project secret API keys remain limited to the ingestion and lifecycle operations above.
-Reads have separate caller and shared project limits of 60 requests per minute and 1,000 per hour, so browsing does not consume the upload budget.
+Reads allow 600 requests per minute and 6,000 per hour per caller, with shared project limits of 3,000 per minute and 30,000 per hour.
+These limits are separate from ingestion so fetching individual payloads does not consume the upload budget.
 The shared read budget includes child environments of the same parent project.
 
 Experiment responses expose `accepted_item_count` separately from `visible_result_count`, `visible_scorer_definition_count`, and `visible_scorer_version_count`.
 Visible counts include only authorized scorers and are marked with `result_count_scope: "authorized"`.
-For personal keys without `llm_analytics:read`, these three counts are null, `result_counts_available` is false, and `result_count_scope` is `"unavailable"`.
+For personal keys without `llm_analytics:read`, these three counts are null and `result_count_scope` is `"unavailable"`.
 Declared expected counts remain caller-supplied totals, so they are not a measure of the reader's visible result coverage.
 Missing and inaccessible scorer references produce the same response.
 
@@ -157,7 +158,8 @@ Unsupported filters, duplicate query parameters, and selections over the limit r
 Experiment and history ordering follows execution time with stable identity tie-breakers; server receipt times remain separate fields.
 Uploading experiments can change between requests, so their pages are a live view.
 
-Experiment lists and scorer history support execution-time filters (`date_from`, `date_to`), name search (`search`), run source, lifecycle states (`statuses`), suite key, dataset source and identifiers, application/model/prompt versions, scorer definition, and exact scorer versions.
+Experiment lists and scorer history support execution-time filters (`date_from`, `date_to`), name search (`search`), run source, lifecycle states (`statuses`), suite key, dataset source and identifiers, application/model/prompt versions, and exact scorer versions.
+Experiment lists also accept `scorer_definition_id`; history uses the scorer definition in its URL and rejects that query parameter.
 The date range includes `date_from` and excludes `date_to`; `statuses` accepts comma-separated `uploading`, `completed`, and `failed` values.
 Use `run_source=not_specified` to select runs without a source.
 Experiment lists include all lifecycle states by default; scorer history includes completed experiments unless other states are selected explicitly.

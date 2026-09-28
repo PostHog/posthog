@@ -182,7 +182,6 @@ class TestOfflineExperimentReads(APIBaseTest):
         self.assertIsNone(experiment["visible_result_count"])
         self.assertIsNone(experiment["visible_scorer_definition_count"])
         self.assertIsNone(experiment["visible_scorer_version_count"])
-        self.assertFalse(experiment["result_counts_available"])
         self.assertEqual(experiment["result_count_scope"], "unavailable")
         items = self.client.get(self._endpoint(f"{self.experiment.id}/items/")).data
         self.assertEqual(items["scorer_versions"], [])
@@ -359,10 +358,20 @@ class TestOfflineExperimentReads(APIBaseTest):
                 response = self.client.get(self._endpoint(suffix))
                 self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
 
-    def test_query_validation_is_wired_into_the_read_endpoint(self) -> None:
-        response = self.client.get(self._endpoint(), {"limit": 101})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
-        self.assertEqual(response.data["attr"], "limit")
+    def test_query_validation_is_wired_into_the_read_endpoints(self) -> None:
+        cases: list[tuple[str, dict[str, str | int], str]] = [
+            (self._endpoint(), {"limit": 101}, "limit"),
+            (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
+            (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),
+            (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/payload/"), {"limit": 1}, "limit"),
+            (self._endpoint(f"{self.experiment.id}/results/{self.result.id}/payload/"), {"limit": 1}, "limit"),
+            (self._history(), {"scorer_definition_id": str(self.definition.id)}, "scorer_definition_id"),
+        ]
+        for path, query, field in cases:
+            with self.subTest(path=path):
+                response = self.client.get(path, query)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+                self.assertEqual(response.data["attr"], field)
 
     def test_child_scorer_and_hosted_dataset_can_be_uploaded_and_read_in_the_same_environment(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")

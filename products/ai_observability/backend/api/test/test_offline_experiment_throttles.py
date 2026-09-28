@@ -164,3 +164,18 @@ class TestOfflineExperimentThrottles(SimpleTestCase):
             self.assertTrue(OfflineEvaluationIngestionBurstThrottle().allow_request(request, view))
             request.META["HTTP_AUTHORIZATION"] = "Bearer phx_unused_fake_key"
             self.assertFalse(OfflineEvaluationIngestionBurstThrottle().allow_request(request, view))
+
+    @parameterized.expand([("session",), ("personal_key",)])
+    def test_readers_can_fetch_full_item_pages_with_payloads(self, auth_kind: str) -> None:
+        view = _ProjectView()
+        throttles = [
+            OfflineEvaluationReadBurstThrottle(),
+            OfflineEvaluationReadSustainedThrottle(),
+            OfflineEvaluationReadTeamBurstThrottle(),
+            OfflineEvaluationReadTeamSustainedThrottle(),
+        ]
+        for identity in (1, 2):
+            request = self._request(auth_kind, identity=identity)
+            for _ in range(101):
+                for throttle in throttles:
+                    self.assertTrue(throttle.allow_request(request, view))

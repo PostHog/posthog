@@ -38,8 +38,8 @@ tools:
     ai-observability-offline-experiments-items-payload-retrieve:
         operation: ai_observability_offline_experiments_items_payload_retrieve
         enabled: false
-    ai-observability-offline-experiments-items-results-retrieve:
-        operation: ai_observability_offline_experiments_items_results_retrieve
+    ai-observability-offline-experiments-items-results-list:
+        operation: ai_observability_offline_experiments_items_results_list
         enabled: false
     ai-observability-offline-experiments-items-retrieve:
         operation: ai_observability_offline_experiments_items_retrieve
@@ -53,14 +53,14 @@ tools:
     ai-observability-offline-experiments-retrieve:
         operation: ai_observability_offline_experiments_retrieve
         enabled: false
-    ai-observability-offline-experiments-scorer-summaries-retrieve:
-        operation: ai_observability_offline_experiments_scorer_summaries_retrieve
+    ai-observability-offline-experiments-scorer-summaries-list:
+        operation: ai_observability_offline_experiments_scorer_summaries_list
         enabled: false
     ai-observability-offline-experiments-upload-create:
         operation: ai_observability_offline_experiments_upload_create
         enabled: false
-    ai-observability-offline-scorers-history-retrieve:
-        operation: ai_observability_offline_scorers_history_retrieve
+    ai-observability-offline-scorers-history-list:
+        operation: ai_observability_offline_scorers_history_list
         enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve

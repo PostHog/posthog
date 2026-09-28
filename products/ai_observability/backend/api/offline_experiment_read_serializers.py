@@ -1,19 +1,17 @@
-from collections.abc import Mapping
 from dataclasses import replace
 from typing import cast
 from uuid import UUID
 
-from django.http import QueryDict
-
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ItemPayloadField,
     ResultPayloadField,
     ResultValueField,
-    _StrictDataclassSerializer,
 )
+from products.ai_observability.backend.api.query import validate_query_parameters
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -25,14 +23,7 @@ from products.ai_observability.backend.offline_evaluation_service import Offline
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 
-class OfflineEmptyQuerySerializer(serializers.Serializer):
-    def to_internal_value(self, data: object) -> dict[str, object]:
-        if isinstance(data, Mapping) and data:
-            raise serializers.ValidationError({str(key): ["This parameter is not supported."] for key in data})
-        return {}
-
-
-class OfflinePageQuerySerializer(_StrictDataclassSerializer[OfflineReadQuery]):
+class OfflinePageQuerySerializer(DataclassSerializer[OfflineReadQuery]):
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=100, help_text="Page size, from 1 to 100. Defaults to 50."
     )
@@ -45,12 +36,9 @@ class OfflinePageQuerySerializer(_StrictDataclassSerializer[OfflineReadQuery]):
         fields = ["limit", "cursor"]
 
     def to_internal_value(self, data: object) -> OfflineReadQuery:
-        if isinstance(data, QueryDict):
-            repeated = {key: ["Supply this parameter once."] for key in data if len(data.getlist(key)) != 1}
-            if repeated:
-                raise serializers.ValidationError(repeated)
+        validate_query_parameters(data, self.fields)
         try:
-            return super().to_internal_value(data)
+            return super().to_internal_value(cast(dict[str, object], data))
         except OfflineEvaluationValidationError as error:
             raise serializers.ValidationError(error.errors) from error
 
@@ -82,7 +70,7 @@ class OfflineSummaryQuerySerializer(OfflineResultQuerySerializer):
         fields = [*OfflineResultQuerySerializer.Meta.fields, "scorer_definition_id"]
 
 
-class OfflineExperimentQuerySerializer(OfflineSummaryQuerySerializer):
+class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
     date_from = serializers.DateTimeField(
         required=False, help_text="Inclusive execution start time, in ISO 8601 format."
     )
@@ -118,9 +106,9 @@ class OfflineExperimentQuerySerializer(OfflineSummaryQuerySerializer):
         required=False, max_length=255, trim_whitespace=False, help_text="Exact prompt revision."
     )
 
-    class Meta(OfflineSummaryQuerySerializer.Meta):
+    class Meta(OfflineResultQuerySerializer.Meta):
         fields = [
-            *OfflineSummaryQuerySerializer.Meta.fields,
+            *OfflineResultQuerySerializer.Meta.fields,
             "date_from",
             "date_to",
             "search",
@@ -152,6 +140,15 @@ class OfflineExperimentQuerySerializer(OfflineSummaryQuerySerializer):
         return attrs
 
 
+class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
+    scorer_definition_id = serializers.UUIDField(
+        required=False, help_text="Restrict results to this scorer definition."
+    )
+
+    class Meta(OfflineHistoryQuerySerializer.Meta):
+        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id"]
+
+
 class OfflineExperimentReadSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Stable experiment UUID.")
     name = serializers.CharField(help_text="Experiment name.")
@@ -177,9 +174,6 @@ class OfflineExperimentReadSerializer(serializers.Serializer):
     )
     visible_scorer_version_count = serializers.IntegerField(
         allow_null=True, help_text="Distinct visible scorer versions."
-    )
-    result_counts_available = serializers.BooleanField(
-        help_text="Whether this credential can read scorer-dependent counts."
     )
     result_count_scope = serializers.CharField(
         help_text="authorized for visible-result counts, or unavailable without scorer-read scope."

@@ -166,6 +166,7 @@ class _OfflineEvaluationService:
         self._user_access_control = user_access_control
 
     def _dataset_revisions(self) -> QuerySet[DatasetRevision]:
+        # Skip parent resolution because hosted dataset references belong to the submitted environment.
         revisions = DatasetRevision.objects.for_team(self.team_id, canonical=True)
         if self._user_access_control is not None:
             datasets = self._user_access_control.filter_queryset_by_access_level(

@@ -22,23 +22,19 @@ from products.ai_observability.backend.models.offline_evaluations import (
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
-from products.ai_observability.backend.offline_evaluation_read_types import (
-    OfflineReadQuery,
-    OfflineStatusCounts,
-    decode_cursor,
-    encode_cursor,
-)
+from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineStatusCounts
 from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
+from products.ai_observability.backend.read_pagination import decode_cursor, encode_cursor
 
 
 class TestOfflineReadQuery(SimpleTestCase):
     @parameterized.expand([("!",), ("a" * 2049,), (encode_cursor(["id", "extra"]),), ("bnVsbA",)])
     def test_rejects_malformed_or_wrong_shape_cursor(self, cursor: str) -> None:
-        with self.assertRaises(OfflineEvaluationValidationError):
+        with self.assertRaises(ValueError):
             decode_cursor(cursor, 1)
 
     def test_rejects_unbounded_pages_and_scorer_cells(self) -> None:
@@ -284,6 +280,10 @@ class TestOfflineEvaluationReads(TestCase):
         self.assertEqual(
             self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery(run_source_is_null=True)).count, 0
         )
+        with self.assertRaises(OfflineEvaluationNotFound):
+            self.service.scorer_history(
+                self.numeric.definition_id, OfflineReadQuery(scorer_version_ids=(self.boolean.id,))
+            )
 
     def test_items_with_missing_selected_scores_stay_visible_and_result_pages_are_bounded(self) -> None:
         experiment = self._experiment()
@@ -351,7 +351,6 @@ class TestOfflineEvaluationReads(TestCase):
         metadata = OfflineEvaluationReadService(team_id=self.team.id, user_access_control=None, can_read_scores=False)
         read = metadata.get_experiment(experiment.id)
         self.assertEqual(read.accepted_item_count, 1)
-        self.assertFalse(read.result_counts_available)
         self.assertEqual(read.result_count_scope, "unavailable")
         self.assertIsNone(read.visible_result_count)
         self.assertIsNone(read.visible_scorer_definition_count)

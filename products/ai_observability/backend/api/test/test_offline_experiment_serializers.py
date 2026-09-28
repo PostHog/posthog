@@ -6,8 +6,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
-    OfflineEmptyQuerySerializer,
     OfflineExperimentQuerySerializer,
+    OfflineHistoryQuerySerializer,
     OfflinePageQuerySerializer,
     OfflineResultQuerySerializer,
     OfflineSummaryQuerySerializer,
@@ -21,6 +21,7 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultSubmissionSerializer,
     UploadSubmissionSerializer,
 )
+from products.ai_observability.backend.api.query import EmptyQuerySerializer
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 
 ITEM_ID = UUID("01922222-2222-7222-8222-222222222222")
@@ -30,17 +31,18 @@ SCORER_VERSION_ID = UUID("01923333-3333-7333-8333-333333333333")
 class TestOfflineReadQuerySerializers(SimpleTestCase):
     @parameterized.expand(
         [
-            ("empty", OfflineEmptyQuerySerializer, "limit"),
+            ("empty", EmptyQuerySerializer, "limit"),
             ("page", OfflinePageQuerySerializer, "scorer_version_ids"),
             ("results", OfflineResultQuerySerializer, "scorer_definition_id"),
             ("summary", OfflineSummaryQuerySerializer, "statuses"),
             ("experiments", OfflineExperimentQuerySerializer, "team_id"),
+            ("history", OfflineHistoryQuerySerializer, "scorer_definition_id"),
         ]
     )
     def test_each_surface_rejects_unsupported_filters(
         self,
         _name: str,
-        serializer_class: type[OfflineEmptyQuerySerializer] | type[OfflinePageQuerySerializer],
+        serializer_class: type[EmptyQuerySerializer] | type[OfflinePageQuerySerializer],
         field: str,
     ) -> None:
         serializer = serializer_class(data={field: "1"})
@@ -83,9 +85,14 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("limit", serializer.errors)
 
-    def test_normalizes_supported_filters_and_maximum_version_selection(self) -> None:
+    @parameterized.expand(
+        [("experiments", OfflineExperimentQuerySerializer), ("history", OfflineHistoryQuerySerializer)]
+    )
+    def test_normalizes_supported_filters_and_maximum_version_selection(
+        self, _name: str, serializer_class: type[OfflineHistoryQuerySerializer]
+    ) -> None:
         versions = tuple(UUID(int=index + 1) for index in range(20))
-        definition_id = uuid4()
+        definition_id = uuid4() if serializer_class is OfflineExperimentQuerySerializer else None
         identifiers = {
             "suite_key": " run ",
             "dataset_source": "  ",
@@ -95,12 +102,12 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
             "model_version": "model\n",
             "prompt_version": "v3\n",
         }
-        serializer = OfflineExperimentQuerySerializer(
+        serializer = serializer_class(
             data={
                 "limit": "100",
                 "run_source": "not_specified",
                 "statuses": "uploading,completed,failed",
-                "scorer_definition_id": str(definition_id),
+                **({"scorer_definition_id": str(definition_id)} if definition_id is not None else {}),
                 "scorer_version_ids": ",".join(str(version) for version in versions),
                 "date_from": "2026-09-24T10:00:00Z",
                 "date_to": "2026-09-25T10:00:00Z",

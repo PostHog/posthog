@@ -8,35 +8,30 @@ from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
-from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission, get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
 from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationReadBurstThrottle,
     OfflineEvaluationReadSustainedThrottle,
     OfflineEvaluationReadTeamBurstThrottle,
     OfflineEvaluationReadTeamSustainedThrottle,
 )
-from products.ai_observability.backend.api.offline_experiment_errors import (
-    OfflineEvaluationErrorSerializer,
-    validation_errors,
-)
+from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
-    OfflineEmptyQuerySerializer,
     OfflineExperimentPageSerializer,
     OfflineExperimentQuerySerializer,
     OfflineExperimentReadSerializer,
     OfflineHistoryPageSerializer,
+    OfflineHistoryQuerySerializer,
     OfflineItemPageSerializer,
     OfflineItemPayloadReadSerializer,
     OfflineItemReadSerializer,
@@ -46,13 +41,10 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineSummaryPageSerializer,
     OfflineSummaryQuerySerializer,
 )
+from products.ai_observability.backend.api.query import EmptyQuerySerializer
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
 from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery
-from products.ai_observability.backend.offline_evaluation_service import (
-    OfflineEvaluationNotFound,
-    OfflineEvaluationValidationError,
-)
 
 OFFLINE_READ_ERRORS = Counter(
     "aio_offline_read_errors_total", "Rejected offline evaluation reads", labelnames=["outcome"]
@@ -76,8 +68,7 @@ class OfflineReadTimedOut(APIException):
     default_detail = "This offline evaluation query took too long. Narrow the filters and try again."
 
 
-class OfflineEvaluationReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "evaluation"
+class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -89,53 +80,29 @@ class OfflineEvaluationReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         "scorer_summaries",
         "history",
     ]
-    requires_resource_level_access = True
-    authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions: list[str] = []
-    permission_classes = [AccessControlPermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "ai-observability-offline-evaluations"
+    throttle_classes = [
+        OfflineEvaluationReadBurstThrottle,
+        OfflineEvaluationReadSustainedThrottle,
+        OfflineEvaluationReadTeamBurstThrottle,
+        OfflineEvaluationReadTeamSustainedThrottle,
+    ]
     serializer_class: type[serializers.Serializer] = OfflineExperimentReadSerializer
     http_method_names = ["get", "head", "options"]
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
-        if self.action in ["create", "upload", "complete", "fail"]:
-            return ["offline_evaluation_ingestion:write"]
         if self.action in ["item_results", "result_payload", "scorer_summaries", "history"]:
             return ["evaluation:read", "llm_analytics:read"]
-        if self.action in self.scope_object_read_actions or request.method == "OPTIONS":
+        if self.action in self.scope_object_read_actions or self.action == "metadata":
             return ["evaluation:read"]
         return None
 
-    def get_throttles(self) -> list[BaseThrottle]:
-        if self.request.method not in ["GET", "HEAD", "OPTIONS"]:
-            return super().get_throttles()
-        return [
-            OfflineEvaluationReadBurstThrottle(),
-            OfflineEvaluationReadSustainedThrottle(),
-            OfflineEvaluationReadTeamBurstThrottle(),
-            OfflineEvaluationReadTeamSustainedThrottle(),
-        ]
-
     def handle_exception(self, exc: Exception) -> Response:
-        request = getattr(self, "request", None)
-        if request is None or request.method not in ["GET", "HEAD", "OPTIONS"]:
-            return super().handle_exception(exc)
-        if isinstance(exc, OfflineEvaluationNotFound):
-            exc = NotFound("Offline evaluation resource not found.")
-        elif isinstance(exc, OfflineEvaluationValidationError):
-            exc = ValidationError(exc.errors)
         response = super().handle_exception(exc)
-        if isinstance(exc, ValidationError):
-            errors = validation_errors(exc.detail)
-            if errors:
-                response.data.update(errors[0], errors=errors)
         OFFLINE_READ_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
 
     def _read_service(self, query: OfflineReadQuery | None = None) -> OfflineEvaluationReadService:
-        if self.action in ["retrieve", "item", "item_payload", "result_payload"]:
-            OfflineEmptyQuerySerializer(data=self.request.query_params).is_valid(raise_exception=True)
         scopes = get_authenticator_scopes(self.request.successful_authenticator)
         can_read_scores = scopes is None or bool(
             {"*", "llm_analytics:read", "llm_analytics:write"}.intersection(scopes)
@@ -169,6 +136,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
         return self._read_response(lambda: service.list_experiments(query), OfflineExperimentPageSerializer)
 
     @validated_request(
+        query_serializer=EmptyQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER],
         responses={200: OfflineExperimentReadSerializer, **READ_ERROR_RESPONSES},
     )
@@ -194,6 +162,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
         return self._read_response(lambda: service.list_items(self._path_id(), query), OfflineItemPageSerializer)
 
     @validated_request(
+        query_serializer=EmptyQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER, ITEM_ID_PARAMETER],
         responses={200: OfflineItemReadSerializer, **READ_ERROR_RESPONSES},
     )
@@ -207,6 +176,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
     @validated_request(
         query_serializer=OfflineSummaryQuerySerializer,
+        operation_id="ai_observability_offline_experiments_items_results_list",
         parameters=[EXPERIMENT_ID_PARAMETER, ITEM_ID_PARAMETER],
         responses={200: OfflineResultPageSerializer, **READ_ERROR_RESPONSES},
     )
@@ -222,6 +192,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
         )
 
     @validated_request(
+        query_serializer=EmptyQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER, ITEM_ID_PARAMETER],
         responses={200: OfflineItemPayloadReadSerializer, **READ_ERROR_RESPONSES},
     )
@@ -235,6 +206,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
         )
 
     @validated_request(
+        query_serializer=EmptyQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER, RESULT_ID_PARAMETER],
         responses={200: OfflineResultPayloadReadSerializer, **READ_ERROR_RESPONSES},
     )
@@ -249,6 +221,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
     @validated_request(
         query_serializer=OfflineSummaryQuerySerializer,
+        operation_id="ai_observability_offline_experiments_scorer_summaries_list",
         parameters=[EXPERIMENT_ID_PARAMETER],
         responses={200: OfflineSummaryPageSerializer, **READ_ERROR_RESPONSES},
     )
@@ -263,7 +236,8 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
     @validated_request(
-        query_serializer=OfflineExperimentQuerySerializer,
+        query_serializer=OfflineHistoryQuerySerializer,
+        operation_id="ai_observability_offline_scorers_history_list",
         parameters=[OpenApiParameter("id", UUID, OpenApiParameter.PATH, description="Scorer definition UUID.")],
         responses={200: OfflineHistoryPageSerializer, **READ_ERROR_RESPONSES},
     )

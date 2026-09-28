@@ -4,28 +4,26 @@ from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
-from rest_framework import serializers
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.monitoring import monitor
-from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission, is_service_auth
+from posthog.permissions import is_service_auth
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
 from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationIngestionBurstThrottle,
     OfflineEvaluationIngestionSustainedThrottle,
     OfflineEvaluationIngestionTeamBurstThrottle,
     OfflineEvaluationIngestionTeamSustainedThrottle,
 )
-from products.ai_observability.backend.api.offline_experiment_errors import (
-    OfflineEvaluationErrorSerializer,
-    validation_errors,
-)
+from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
 from products.ai_observability.backend.api.offline_experiment_reads import OfflineExperimentReadViewSet
 from products.ai_observability.backend.api.offline_experiment_serializers import (
@@ -38,7 +36,6 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationConflict,
     OfflineEvaluationIngestionService,
     OfflineEvaluationNotFound,
-    OfflineEvaluationValidationError,
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
@@ -117,15 +114,10 @@ EXPERIMENT_ID_PARAMETER = OpenApiParameter("id", UUID, OpenApiParameter.PATH, de
 
 
 class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
-    scope_object = "evaluation"
     scope_object_write_actions = ["create", "upload", "complete", "fail"]
-    requires_resource_level_access = True
-    authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["create", "upload", "complete", "fail"]
-    permission_classes = [AccessControlPermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "ai-observability-offline-evaluations"
     parser_classes = [OfflineEvaluationJSONParser]
-    throttle_classes = [
+    ingestion_throttle_classes = [
         OfflineEvaluationIngestionBurstThrottle,
         OfflineEvaluationIngestionSustainedThrottle,
         OfflineEvaluationIngestionTeamBurstThrottle,
@@ -134,12 +126,22 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     serializer_class = ExperimentSubmissionSerializer
     http_method_names = ["get", "post", "head", "options"]
 
+    def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
+        if self.action in self.scope_object_write_actions:
+            return ["offline_evaluation_ingestion:write"]
+        return super().dangerously_get_required_scopes(request, view)
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action in self.scope_object_write_actions:
+            return [throttle() for throttle in self.ingestion_throttle_classes]
+        return super().get_throttles()
+
     def _reference_access_control(self) -> "UserAccessControl | None":
         return None if is_service_auth(self.request) else self.user_access_control
 
     def handle_exception(self, exc: Exception) -> Response:
-        request = getattr(self, "request", None)
-        if request is not None and request.method in ["GET", "HEAD", "OPTIONS"]:
+        action_name = getattr(self, "action", None)
+        if action_name in self.scope_object_read_actions or action_name == "metadata":
             return super().handle_exception(exc)
         if isinstance(exc, OfflineEvaluationConflict):
             OFFLINE_UPLOAD_ERRORS.labels(outcome="conflict").inc()
@@ -154,15 +156,9 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
                 ).data,
                 status=409,
             )
-        if isinstance(exc, OfflineEvaluationValidationError):
-            exc = ValidationError(exc.errors)
-        elif isinstance(exc, OfflineEvaluationNotFound):
+        if isinstance(exc, OfflineEvaluationNotFound):
             exc = NotFound("Experiment not found.")
-        response = super().handle_exception(exc)
-        if isinstance(exc, ValidationError):
-            errors = validation_errors(exc.detail)
-            if errors:
-                response.data.update(errors[0], errors=errors)
+        response = OfflineEvaluationViewSet.handle_exception(self, exc)
         OFFLINE_UPLOAD_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
 

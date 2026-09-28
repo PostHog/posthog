@@ -1,6 +1,3 @@
-import json
-import base64
-import binascii
 from dataclasses import field
 from datetime import datetime
 from typing import Literal
@@ -10,26 +7,7 @@ from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
-
-
-def encode_cursor(values: list[str]) -> str:
-    return base64.urlsafe_b64encode(json.dumps(values, separators=(",", ":")).encode()).decode().rstrip("=")
-
-
-def decode_cursor(cursor: str, expected_parts: int) -> list[str]:
-    try:
-        if len(cursor) > 2048:
-            raise ValueError
-        decoded = json.loads(base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True))
-        if (
-            not isinstance(decoded, list)
-            or len(decoded) != expected_parts
-            or not all(isinstance(v, str) for v in decoded)
-        ):
-            raise ValueError
-        return decoded
-    except (ValueError, UnicodeDecodeError, binascii.Error) as error:
-        raise OfflineEvaluationValidationError("cursor", "Provide a valid continuation cursor.") from error
+from products.ai_observability.backend.read_pagination import CursorPage
 
 
 @frozen
@@ -62,13 +40,6 @@ class OfflineReadQuery:
 
 
 @frozen
-class OfflinePage[T]:
-    count: int
-    next_cursor: str | None
-    results: list[T]
-
-
-@frozen
 class OfflineExperimentRead:
     id: UUID
     name: str
@@ -83,7 +54,6 @@ class OfflineExperimentRead:
     visible_result_count: int | None
     visible_scorer_definition_count: int | None
     visible_scorer_version_count: int | None
-    result_counts_available: bool
     result_count_scope: Literal["authorized", "unavailable"]
     suite_key: str | None
     dataset_source: str | None
@@ -139,7 +109,7 @@ class OfflineItemRead:
 
 
 @frozen
-class OfflineItemPage(OfflinePage[OfflineItemRead]):
+class OfflineItemPage(CursorPage[OfflineItemRead]):
     scorer_versions: list[OfflineScorerVersionRead]
 
 

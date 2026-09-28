@@ -5,7 +5,6 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import QueryDict
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -26,14 +25,13 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.ai_observability.backend.api.offline_experiment_read_serializers import OfflineEmptyQuerySerializer
+from products.ai_observability.backend.api.query import EmptyQuerySerializer, StrictQuerySerializer
 from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinition,
     ScoreDefinitionVersion,
     StaleScoreDefinitionVersion,
 )
-from products.ai_observability.backend.offline_evaluation_read_types import OfflinePage, decode_cursor, encode_cursor
-from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
+from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 
@@ -102,25 +100,11 @@ class ScoreDefinitionVersionPageSerializer(serializers.Serializer):
     results = ScoreDefinitionVersionSerializer(many=True, help_text="Versions on this page, newest first.")
 
 
-class ScoreDefinitionVersionQuerySerializer(serializers.Serializer):
+class ScoreDefinitionVersionQuerySerializer(StrictQuerySerializer):
     limit = serializers.IntegerField(default=50, min_value=1, max_value=100, help_text="Maximum versions to return.")
     cursor = serializers.CharField(
         required=False, max_length=2048, help_text="Continuation cursor from the prior page."
     )
-
-    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
-        unknown = self.initial_data.keys() - self.fields.keys()
-        if unknown:
-            raise serializers.ValidationError(dict.fromkeys(sorted(unknown), "Unsupported query parameter."))
-        if isinstance(self.initial_data, QueryDict):
-            repeated = {
-                key: "Supply this parameter once."
-                for key in self.initial_data
-                if len(self.initial_data.getlist(key)) != 1
-            }
-            if repeated:
-                raise serializers.ValidationError(repeated)
-        return attrs
 
     def validate_cursor(self, value: str) -> tuple[int, UUID]:
         try:
@@ -129,22 +113,25 @@ class ScoreDefinitionVersionQuerySerializer(serializers.Serializer):
             if not 1 <= number <= 2147483647:
                 raise ValueError
             return number, UUID(version_id)
-        except (OfflineEvaluationValidationError, ValueError) as error:
+        except ValueError as error:
             raise serializers.ValidationError("Provide a valid continuation cursor.") from error
 
 
 def _score_definition_version_page(
     definition: ScoreDefinition, *, limit: int, cursor: tuple[int, UUID] | None = None
-) -> OfflinePage[ScoreDefinitionVersion]:
+) -> CursorPage[ScoreDefinitionVersion]:
     versions = definition.versions.select_related("definition", "created_by").order_by("-version", "id")
     count = versions.count()
     if cursor is not None:
         number, version_id = cursor
         versions = versions.filter(Q(version__lt=number) | Q(version=number, id__gt=version_id))
     rows = list(versions[: limit + 1])
-    page = rows[:limit]
-    next_cursor = encode_cursor([str(page[-1].version), str(page[-1].id)]) if len(rows) > limit else None
-    return OfflinePage(count=count, next_cursor=next_cursor, results=page)
+    return cursor_page(
+        rows,
+        count=count,
+        limit=limit,
+        cursor_for=lambda version: encode_cursor([str(version.version), str(version.id)]),
+    )
 
 
 class ScoreDefinitionCreateSerializer(serializers.Serializer):
@@ -424,12 +411,12 @@ class ScoreDefinitionViewSet(
         return Response(ScoreDefinitionVersionPageSerializer(page).data)
 
     @validated_request(
+        query_serializer=EmptyQuerySerializer,
         parameters=[OpenApiParameter("version_id", UUID, OpenApiParameter.PATH, description="Immutable version UUID.")],
         responses={200: ScoreDefinitionVersionSerializer},
     )
     @action(detail=True, methods=["get"], url_path=r"versions/(?P<version_id>[^/.]+)", pagination_class=None)
     def retrieve_version(self, request: Request, version_id: str, **kwargs: object) -> Response:
-        OfflineEmptyQuerySerializer(data=request.query_params).is_valid(raise_exception=True)
         definition = self.get_object()
         try:
             identity = serializers.UUIDField().run_validation(version_id)

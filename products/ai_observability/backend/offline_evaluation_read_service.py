@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
@@ -28,21 +28,19 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineHistoryPoint,
     OfflineItemPage,
     OfflineItemRead,
-    OfflinePage,
     OfflinePayloadRead,
     OfflineReadQuery,
     OfflineResultRead,
     OfflineScorerSummary,
     OfflineScorerVersionRead,
     OfflineStatusCounts,
-    decode_cursor,
-    encode_cursor,
 )
 from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
 )
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
+from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -196,7 +194,10 @@ class OfflineEvaluationReadService:
     def _cursor(self, query: OfflineReadQuery, scope: str, size: int) -> list[str] | None:
         if query.cursor is None:
             return None
-        parts = decode_cursor(query.cursor, size + 1)
+        try:
+            parts = decode_cursor(query.cursor, size + 1)
+        except ValueError as error:
+            raise OfflineEvaluationValidationError("cursor", "Provide a valid continuation cursor.") from error
         if parts[0] != self._cursor_scope(query, scope):
             raise OfflineEvaluationValidationError("cursor", "This cursor does not match the requested filters.")
         return parts[1:]
@@ -294,7 +295,6 @@ class OfflineEvaluationReadService:
                     visible_result_count=counts.result_count if self.can_read_scores else None,
                     visible_scorer_definition_count=counts.definition_count if self.can_read_scores else None,
                     visible_scorer_version_count=counts.version_count if self.can_read_scores else None,
-                    result_counts_available=self.can_read_scores,
                     result_count_scope="authorized" if self.can_read_scores else "unavailable",
                     suite_key=experiment.suite_key,
                     dataset_source=experiment.dataset_source,
@@ -308,7 +308,7 @@ class OfflineEvaluationReadService:
             )
         return output
 
-    def list_experiments(self, query: OfflineReadQuery) -> OfflinePage[OfflineExperimentRead]:
+    def list_experiments(self, query: OfflineReadQuery) -> CursorPage[OfflineExperimentRead]:
         self._validate_scorer_selection(query)
         scope = "experiments"
         experiments = self._filter_experiments(query)
@@ -319,13 +319,15 @@ class OfflineEvaluationReadService:
                 Q(started_at__lt=position.started_at) | Q(started_at=position.started_at, id__gt=position.experiment_id)
             )
         rows = list(experiments.order_by("-started_at", "id")[: query.limit + 1])
-        page = rows[: query.limit]
-        next_cursor = (
-            self._next_cursor(query, scope, [page[-1].started_at.isoformat(), str(page[-1].id)])
-            if len(rows) > query.limit
-            else None
+        page = cursor_page(
+            rows,
+            count=count,
+            limit=query.limit,
+            cursor_for=lambda experiment: self._next_cursor(
+                query, scope, [experiment.started_at.isoformat(), str(experiment.id)]
+            ),
         )
-        return OfflinePage(count=count, next_cursor=next_cursor, results=self._experiment_reads(page))
+        return CursorPage(count=page.count, next_cursor=page.next_cursor, results=self._experiment_reads(page.results))
 
     def get_experiment(self, experiment_id: UUID) -> OfflineExperimentRead:
         return self._experiment_reads([self._require_experiment(experiment_id)])[0]
@@ -393,7 +395,12 @@ class OfflineEvaluationReadService:
         if position is not None:
             items = items.filter(id__gt=position)
         rows = list(items.order_by("id")[: query.limit + 1])
-        page = rows[: query.limit]
+        page = cursor_page(
+            rows,
+            count=count,
+            limit=query.limit,
+            cursor_for=lambda item: self._next_cursor(query, scope, [str(item.id)]),
+        )
         scorers: dict[UUID, OfflineScorerVersionRead] = {}
         if query.scorer_version_ids:
             scorers = {
@@ -404,19 +411,18 @@ class OfflineEvaluationReadService:
                 .order_by("id")
             }
         cells: dict[UUID, list[OfflineResultRead]] = defaultdict(list)
-        if scorers and page:
+        if scorers and page.results:
             results = (
                 self._results(query)
-                .filter(item_id__in=[item.id for item in page], scorer_version_id__in=scorers)
+                .filter(item_id__in=[item.id for item in page.results], scorer_version_id__in=scorers)
                 .order_by("scorer_version_id")
             )
             for result in results:
                 cells[result.item_id].append(self._result_read(result, scorer=scorers[result.scorer_version_id]))
-        next_cursor = self._next_cursor(query, scope, [str(page[-1].id)]) if len(rows) > query.limit else None
         return OfflineItemPage(
-            count=count,
-            next_cursor=next_cursor,
-            results=[self._item_read(item, cells[item.id]) for item in page],
+            count=page.count,
+            next_cursor=page.next_cursor,
+            results=[self._item_read(item, cells[item.id]) for item in page.results],
             scorer_versions=list(scorers.values()),
         )
 
@@ -425,7 +431,7 @@ class OfflineEvaluationReadService:
 
     def list_item_results(
         self, experiment_id: UUID, item_id: UUID, query: OfflineReadQuery
-    ) -> OfflinePage[OfflineResultRead]:
+    ) -> CursorPage[OfflineResultRead]:
         if not self.can_read_scores:
             raise OfflineEvaluationNotFound
         self._require_item(experiment_id, item_id)
@@ -437,9 +443,17 @@ class OfflineEvaluationReadService:
         if position is not None:
             results = results.filter(id__gt=position)
         rows = list(results.select_related("scorer_version__definition").order_by("id")[: query.limit + 1])
-        page = rows[: query.limit]
-        next_cursor = self._next_cursor(query, scope, [str(page[-1].id)]) if len(rows) > query.limit else None
-        return OfflinePage(count=count, next_cursor=next_cursor, results=[self._result_read(result) for result in page])
+        page = cursor_page(
+            rows,
+            count=count,
+            limit=query.limit,
+            cursor_for=lambda result: self._next_cursor(query, scope, [str(result.id)]),
+        )
+        return CursorPage(
+            count=page.count,
+            next_cursor=page.next_cursor,
+            results=[self._result_read(result) for result in page.results],
+        )
 
     def get_item_payload(self, experiment_id: UUID, item_id: UUID) -> OfflinePayloadRead:
         item = self._require_item(experiment_id, item_id)
@@ -616,7 +630,7 @@ class OfflineEvaluationReadService:
             )
         return summaries
 
-    def list_summaries(self, experiment_id: UUID, query: OfflineReadQuery) -> OfflinePage[OfflineScorerSummary]:
+    def list_summaries(self, experiment_id: UUID, query: OfflineReadQuery) -> CursorPage[OfflineScorerSummary]:
         if not self.can_read_scores:
             raise OfflineEvaluationNotFound
         self._require_experiment(experiment_id)
@@ -629,28 +643,28 @@ class OfflineEvaluationReadService:
         if position is not None:
             groups = groups.filter(scorer_version_id__gt=position)
         rows = list(groups[: query.limit + 1])
-        page = rows[: query.limit]
-        next_cursor = self._next_cursor(query, scope, [str(page[-1])]) if len(rows) > query.limit else None
-        return OfflinePage(
+        page = cursor_page(
+            rows,
             count=count,
-            next_cursor=next_cursor,
+            limit=query.limit,
+            cursor_for=lambda version_id: self._next_cursor(query, scope, [str(version_id)]),
+        )
+        return CursorPage(
+            count=page.count,
+            next_cursor=page.next_cursor,
             results=list(
                 self._summaries(
-                    [_SummaryIdentity(experiment_id=experiment_id, version_id=version_id) for version_id in page]
+                    [
+                        _SummaryIdentity(experiment_id=experiment_id, version_id=version_id)
+                        for version_id in page.results
+                    ]
                 ).values()
             ),
         )
 
-    def scorer_history(self, definition_id: UUID, query: OfflineReadQuery) -> OfflinePage[OfflineHistoryPoint]:
-        if not self._definitions().filter(id=definition_id).exists():
-            raise OfflineEvaluationNotFound
+    def scorer_history(self, definition_id: UUID, query: OfflineReadQuery) -> CursorPage[OfflineHistoryPoint]:
+        query = replace(query, scorer_definition_id=definition_id)
         self._validate_scorer_selection(query)
-        if query.scorer_definition_id is not None and query.scorer_definition_id != definition_id:
-            raise OfflineEvaluationNotFound
-        if query.scorer_version_ids and self._versions().filter(
-            definition_id=definition_id, id__in=query.scorer_version_ids
-        ).count() != len(query.scorer_version_ids):
-            raise OfflineEvaluationNotFound
         scope = f"history:{definition_id}"
         results = self._results(query).filter(
             scorer_definition_id=definition_id, item__experiment__in=self._filter_experiments(query, history=True)
@@ -673,10 +687,23 @@ class OfflineEvaluationReadService:
                 )
             )
         rows = list(groups[: query.limit + 1])
-        page = rows[: query.limit]
+        page = cursor_page(
+            rows,
+            count=count,
+            limit=query.limit,
+            cursor_for=lambda row: self._next_cursor(
+                query,
+                scope,
+                [
+                    row["item__experiment__started_at"].isoformat(),
+                    str(row["item__experiment_id"]),
+                    str(row["scorer_version_id"]),
+                ],
+            ),
+        )
         identities = [
             _SummaryIdentity(experiment_id=row["item__experiment_id"], version_id=row["scorer_version_id"])
-            for row in page
+            for row in page.results
         ]
         summary_by_id = self._summaries(identities)
         experiments = {
@@ -685,22 +712,9 @@ class OfflineEvaluationReadService:
                 list(self._experiments().filter(id__in={identity.experiment_id for identity in identities}))
             )
         }
-        next_cursor = (
-            self._next_cursor(
-                query,
-                scope,
-                [
-                    page[-1]["item__experiment__started_at"].isoformat(),
-                    str(page[-1]["item__experiment_id"]),
-                    str(page[-1]["scorer_version_id"]),
-                ],
-            )
-            if len(rows) > query.limit
-            else None
-        )
-        return OfflinePage(
-            count=count,
-            next_cursor=next_cursor,
+        return CursorPage(
+            count=page.count,
+            next_cursor=page.next_cursor,
             results=[
                 OfflineHistoryPoint(experiment=experiments[identity.experiment_id], summary=summary_by_id[identity])
                 for identity in identities

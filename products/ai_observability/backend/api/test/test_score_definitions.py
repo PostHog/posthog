@@ -19,7 +19,7 @@ from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinitionVersion,
     StaleScoreDefinitionVersion,
 )
-from products.ai_observability.backend.offline_evaluation_read_types import encode_cursor
+from products.ai_observability.backend.read_pagination import encode_cursor
 
 
 class TestScoreDefinitionsApi(APIBaseTest):
@@ -303,6 +303,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
         invalid_limit = self.client.get(endpoint, {"limit": 101})
         self.assertEqual(invalid_limit.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(invalid_limit.data["attr"], "limit")
+        unexpected_query = self.client.get(f"{endpoint}{original.id}/", {"limit": 1})
+        self.assertEqual(unexpected_query.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(unexpected_query.data["attr"], "limit")
 
     @parameterized.expand(
         [
