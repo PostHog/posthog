@@ -86,8 +86,8 @@ class TestMaterializedColumnDetails(TestCase):
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     @classmethod
     def setUpClass(cls) -> None:
-        super().setUpClass()
         cls.recreate_database()
+        super().setUpClass()
 
     def tearDown(self):
         self.recreate_database()
