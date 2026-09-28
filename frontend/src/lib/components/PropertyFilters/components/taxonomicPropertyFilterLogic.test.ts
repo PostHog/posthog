@@ -183,14 +183,31 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
-        it('creates EventMetadata filter with label from item name', () => {
+        it.each([
+            ['an item with an id', { id: '$group_0', name: 'Organization' }],
+            ['an item without an id', { name: 'Organization' }],
+        ])('creates EventMetadata filter with label from item name for %s', (_, item) => {
             selectAndExpect(
                 TaxonomicFilterGroupType.EventMetadata,
                 '$group_0',
                 PropertyFilterType.EventMetadata,
                 { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
-                { id: '$group_0', name: 'Organization' }
+                item
             )
+        })
+
+        it.each([
+            ['an item without an id', { name: 'distinct_id' }],
+            ['no item', undefined],
+        ])('creates EventMetadata filter for %s', (_, item) => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventMetadata,
+                'distinct_id',
+                PropertyFilterType.EventMetadata,
+                { type: PropertyFilterType.EventMetadata, key: 'distinct_id' },
+                item
+            )
+            expect(logic.values.dropdownOpen).toBe(false)
         })
 
         it('closes the dropdown after selecting an item', () => {
