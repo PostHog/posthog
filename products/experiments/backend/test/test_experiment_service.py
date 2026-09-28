@@ -2282,6 +2282,15 @@ class TestExperimentService(APIBaseTest):
         assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
         assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
 
+    def test_analytics_metadata_reports_flag_persistence(self):
+        experiment = self._create_draft_experiment()
+        assert experiment.get_analytics_metadata()["persist_across_authentication"] is False
+
+        experiment.feature_flag.ensure_experience_continuity = True
+        experiment.feature_flag.save()
+
+        assert experiment.get_analytics_metadata()["persist_across_authentication"] is True
+
     @parameterized.expand(
         [
             ("name", {"name": "Renamed experiment"}, "name"),
