@@ -63,6 +63,16 @@ describe('postHogClassify', () => {
     it.each([
         ['a blank question', { ...payload, question: ' ' }, /Enter a question/],
         ['one category', { ...payload, categories: { spam: 'Spam' } }, /at least two categories/],
+        [
+            'seventeen categories',
+            { ...payload, categories: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`c${i}`, 'x'])) },
+            /at most 16 categories/,
+        ],
+        [
+            'a long category description',
+            { ...payload, categories: { spam: 'x'.repeat(501), support: 'Help' } },
+            /500 characters or fewer/,
+        ],
     ])('rejects %s in both mocked and live calls', async (_name, args, expected) => {
         expect(() => getAsyncFunctionHandler('postHogClassify')!.mock([args], [] as MinimalLogEntry[])).toThrow(
             expected
