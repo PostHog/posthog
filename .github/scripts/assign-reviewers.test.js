@@ -294,7 +294,7 @@ test('classifyOwners: never caps explicit users even when teams overflow the cap
     )
 })
 
-test('addedFilenames: counts new, moved and copied files, not edits, deletions or generated files', () => {
+test('addedFilenames: counts new, moved and copied files, not edits, deletions, or generated or vendored files', () => {
     const files = [
         { ...file('products/new/a.py'), status: 'added' },
         { ...file('products/new/b.py'), status: 'renamed' },
@@ -302,9 +302,11 @@ test('addedFilenames: counts new, moved and copied files, not edits, deletions o
         { ...file('posthog/api/survey.py'), status: 'modified' },
         { ...file('posthog/api/old.py'), status: 'removed' },
         { ...file('products/new/frontend/generated/api.ts'), status: 'added' },
+        { ...file('vendor/new/lib.js'), status: 'added' },
     ]
+    const resolution = { 'vendor/new/lib.js': { ...resolved([], 'vendor/owners.yaml'), status: 'vendored' } }
 
-    assert.deepEqual(addedFilenames(files), ['products/new/a.py', 'products/new/b.py', 'tools/copy.py'])
+    assert.deepEqual(addedFilenames(files, resolution), ['products/new/a.py', 'products/new/b.py', 'tools/copy.py'])
 })
 
 test('requestAdditionOwners: requests owners of additions past the team cap and takes them off the demoted list', () => {

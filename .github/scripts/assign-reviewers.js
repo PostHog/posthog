@@ -184,6 +184,21 @@ function classifyOwner(owner) {
     return null
 }
 
+// status: generated/vendored is the structured form of the excluded
+// patterns above — such trees have owners for lookup, but shouldn't
+// pull reviewers in or count toward substantive thresholds. Ownership
+// metadata files are exempt: an owners.yaml edit inside a generated
+// tree still changes future routing and must reach a reviewer.
+function isGeneratedOrVendored(filename, resolution) {
+    const basename = filename.split('/').pop()
+    const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
+    return (
+        !isOwnershipFile &&
+        Boolean(resolution) &&
+        (resolution.status === 'generated' || resolution.status === 'vendored')
+    )
+}
+
 // Build a footprint per owner from the resolver's per-file result: which
 // owners.yaml/product.yaml sources pulled them in, which (non-excluded) files
 // they own in this diff, and the total lines changed across those files. Pure
@@ -195,14 +210,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 
     for (const file of relevantFiles) {
         const resolution = resolutionByPath[file.filename]
-        // status: generated/vendored is the structured form of the excluded
-        // patterns above — such trees have owners for lookup, but shouldn't
-        // pull reviewers in or count toward substantive thresholds. Ownership
-        // metadata files are exempt: an owners.yaml edit inside a generated
-        // tree still changes future routing and must reach a reviewer.
-        const basename = file.filename.split('/').pop()
-        const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
-        if (!isOwnershipFile && resolution && (resolution.status === 'generated' || resolution.status === 'vendored')) {
+        if (isGeneratedOrVendored(file.filename, resolution)) {
             continue
         }
         const owners = (resolution && resolution.owners) || []
@@ -251,10 +259,11 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
 // that directory as much as a new file does.
 const ADDED_FILE_STATUSES = new Set(['added', 'renamed', 'copied'])
 
-function addedFilenames(changedFiles, config = CONFIG) {
+function addedFilenames(changedFiles, resolutionByPath, config = CONFIG) {
     return changedFiles
         .filter((file) => ADDED_FILE_STATUSES.has(file.status))
         .filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
+        .filter((file) => !isGeneratedOrVendored(file.filename, resolutionByPath[file.filename]))
         .map((file) => file.filename)
 }
 
@@ -630,7 +639,9 @@ async function main() {
         const resolutionByPath = resolveOwners(relevantFilenames)
 
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
-        const additionOwners = computeAdditionOwners(resolveOwners(addedFilenames(changedFiles), ['--additions']))
+        const additionOwners = computeAdditionOwners(
+            resolveOwners(addedFilenames(changedFiles, resolutionByPath), ['--additions'])
+        )
         const { requested, demoted } = requestAdditionOwners(classifyOwners(footprints), additionOwners)
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
