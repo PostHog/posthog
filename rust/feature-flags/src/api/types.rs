@@ -429,7 +429,7 @@ pub struct ConditionAnalysis {
     pub explanation: String,
 }
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
@@ -616,7 +616,7 @@ impl FlagDetails {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FlagDetailsMetadata {
     pub id: i32,
     pub version: i32,

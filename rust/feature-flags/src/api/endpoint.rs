@@ -244,19 +244,25 @@ fn get_versioned_response(
                 ))
             }
         }
+    } else if serves_flags_v3(is_from_legacy_decide, version) {
+        Ok((
+            ServiceResponse::V3(FlagsResponseV3::from_response(response)),
+            "FlagsV3",
+        ))
+    } else if version == Some(2) {
+        Ok((ServiceResponse::V2(response), "FlagsV2"))
     } else {
-        match version {
-            Some(v) if v >= 3 => Ok((
-                ServiceResponse::V3(FlagsResponseV3::from_response(response)),
-                "FlagsV3",
-            )),
-            Some(2) => Ok((ServiceResponse::V2(response), "FlagsV2")),
-            _ => Ok((
-                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
-                "FlagsV1",
-            )),
-        }
+        Ok((
+            ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+            "FlagsV1",
+        ))
     }
+}
+
+/// True when [`get_versioned_response`] returns the v3 record. The body log
+/// uses it too, so the logged record matches the record the client receives.
+fn serves_flags_v3(is_from_legacy_decide: bool, version: Option<i32>) -> bool {
+    !is_from_legacy_decide && version.is_some_and(|v| v >= 3)
 }
 
 /// Feature flag evaluation endpoint.
@@ -557,9 +563,13 @@ where
             let decoded_body = decoded_body_slot
                 .as_ref()
                 .and_then(|slot| slot.get().cloned());
-            state
-                .body_logger
-                .log_response(request_id, log.team_id, decoded_body, &response);
+            state.body_logger.log_response(
+                request_id,
+                log.team_id,
+                decoded_body,
+                &response,
+                serves_flags_v3(is_from_legacy_decide, query_version),
+            );
 
             // Determine the response format based on whether request is from decide and version
             match get_versioned_response(is_from_legacy_decide, query_version, response) {
