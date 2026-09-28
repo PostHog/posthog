@@ -1378,6 +1378,10 @@ class CustomerTaskAgentAssigneeUnavailable(Exception):
     pass
 
 
+class CustomerTaskNotFound(Exception):
+    pass
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
@@ -1468,3 +1472,13 @@ class UpdateCustomerTaskInput:
     assigned_to_agent_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@stdlib_dataclass(frozen=True)
+class ReportCustomerTaskInput:
+    """What an agent reports back on a task assigned to PostHog."""
+
+    report: str
+    outcome: str
+    task_id: str | None = None
+    task_run_id: str | None = None

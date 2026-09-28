@@ -38,6 +38,13 @@ class OwnershipRoleState(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
 
 
+class CustomerTaskAgentOutcome(models.TextChoices):
+    """How an agent's run on a customer task ended."""
+
+    COMPLETED = "completed", "Completed"
+    NEEDS_HUMAN = "needs_human", "Needs a person"
+
+
 class OwnershipRoleDiagnostic(models.TextChoices):
     HOLDER_MISSING = "holder_missing", "The active relationship has no user"
     HOLDER_INACTIVE = "holder_inactive", "The holder's user account is deactivated"
@@ -48,6 +55,7 @@ class OwnershipRoleDiagnostic(models.TextChoices):
 __all__ = [
     "AccountPropertyPinKind",
     "AccountRelationshipSource",
+    "CustomerTaskAgentOutcome",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
