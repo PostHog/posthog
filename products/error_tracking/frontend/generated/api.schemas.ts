@@ -1217,7 +1217,7 @@ export interface ErrorTrackingIssueDetailApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
@@ -1580,7 +1580,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
-     * Page size.
+     * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
      * @minimum 1
      * @maximum 100
      */
@@ -1591,7 +1591,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      */
     offset?: number
     /**
-     * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+     * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
      * @minimum 0
      * @maximum 200
      */
@@ -1633,7 +1633,7 @@ export interface ErrorTrackingIssueListItemApi {
      */
     name?: string | null
     /**
-     * Issue description.
+     * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
      * @nullable
      */
     description?: string | null
