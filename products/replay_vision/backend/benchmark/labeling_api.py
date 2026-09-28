@@ -7,12 +7,16 @@ returns a recording with all of that already resolved.
 
 import time
 from collections import defaultdict
-from typing import Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, BinaryIO
 
 from django.conf import settings
 
 import requests
 from pydantic import BaseModel
+
+from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.benchmark.consensus import CellConsensus, Question, cell_consensus
 from products.replay_vision.backend.benchmark.layout import BenchmarkCase
@@ -33,8 +37,10 @@ class ExportSnapshot(BaseModel, frozen=True):
     cases: list[BenchmarkCase]
 
 
-class PlayableRecording(BaseModel, frozen=True):
-    jsonl: bytes
+@frozen
+class PlayableRecording:
+    # The JSONL body, decoded from the route's gzip as it is read.
+    stream: BinaryIO
     image_refs: int
     images_resolved: int
 
@@ -50,11 +56,14 @@ class LabelingExportClient:
             raise ValueError("REPLAY_VISION_BENCHMARK_LABELING_URL and _TOKEN must be set")
         return cls(settings.REPLAY_VISION_BENCHMARK_LABELING_URL, settings.REPLAY_VISION_BENCHMARK_LABELING_TOKEN)
 
-    def _get(self, path: str, params: dict[str, str] | None = None) -> requests.Response:
+    def _get(self, path: str, params: dict[str, str] | None = None, stream: bool = False) -> requests.Response:
         for attempt in range(_BUSY_RETRIES + 1):
-            response = requests.get(f"{self.base}{path}", params=params, headers=self.headers, timeout=_TIMEOUT)
+            response = requests.get(
+                f"{self.base}{path}", params=params, headers=self.headers, timeout=_TIMEOUT, stream=stream
+            )
             if response.status_code != 429 or attempt == _BUSY_RETRIES:
                 break
+            response.close()
             time.sleep(_BUSY_BACKOFF_SECONDS * 2**attempt)
         response.raise_for_status()
         return response
@@ -79,14 +88,19 @@ class LabelingExportClient:
             if after is None:
                 return build_snapshot(questions, recordings)
 
-    def playable(self, recording_id: str) -> PlayableRecording:
-        # requests undoes the route's gzip content-encoding.
-        response = self._get(f"/recordings/{recording_id}/playable")
-        return PlayableRecording(
-            jsonl=response.content,
-            image_refs=int(response.headers.get("x-benchmark-image-refs", 0)),
-            images_resolved=int(response.headers.get("x-benchmark-images-resolved", 0)),
-        )
+    @contextmanager
+    def playable(self, recording_id: str) -> Iterator[PlayableRecording]:
+        """The recording as a stream, so a long one never sits whole in the worker's memory."""
+        response = self._get(f"/recordings/{recording_id}/playable", stream=True)
+        try:
+            response.raw.decode_content = True
+            yield PlayableRecording(
+                stream=response.raw,
+                image_refs=int(response.headers.get("x-benchmark-image-refs", 0)),
+                images_resolved=int(response.headers.get("x-benchmark-images-resolved", 0)),
+            )
+        finally:
+            response.close()
 
 
 def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, Any]]) -> ExportSnapshot:
@@ -117,7 +131,7 @@ def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, A
                 answers[label["questionId"]].append(label["label"])
         recording_cells = [
             consensus
-            for question_id in sorted(answers.keys() & parsed.keys())
+            for question_id in sorted(answers)
             if (
                 consensus := cell_consensus(
                     parsed[question_id],

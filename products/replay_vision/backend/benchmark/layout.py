@@ -20,7 +20,6 @@ class BenchmarkCase(BaseModel, frozen=True):
 
 class BenchmarkLayout:
     def __init__(self, version: str) -> None:
-        self.version = version
         self.bucket = settings.REPLAY_VISION_BENCHMARK_BUCKET
         self.root = f"{settings.REPLAY_VISION_BENCHMARK_PREFIX}/{version}"
 

@@ -5,8 +5,6 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
-import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
-
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { blockSourceFromS3 } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
@@ -14,7 +12,7 @@ import { config } from '~/session-replay/recording-rasterizer/config'
 import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
-import { videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
+import { renderOutputFields } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
 import { extractThumbnail } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
@@ -130,7 +128,12 @@ async function rasterizeRecordingActivity(
 
     try {
         const blockSource = input.source_s3_uri
-            ? await blockSourceFromS3(input.source_s3_uri, sourcePath, config.sourceS3Prefixes)
+            ? await blockSourceFromS3(input.source_s3_uri, sourcePath, {
+                  allowedPrefixes: config.sourceS3Prefixes,
+                  maxCompressedBytes: config.maxRecordingCompressedBytes,
+                  maxDecompressedBytes: config.maxSourceDecompressedBytes,
+                  signal: abort.signal,
+              })
             : undefined
         const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, {
             progress,
@@ -142,13 +145,6 @@ async function rasterizeRecordingActivity(
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
-
-        const periods = videoTimestampsFromFrames(
-            result.inactivity_periods,
-            result.frame_session_ms,
-            result.output_fps,
-            result.pre_roll_frames
-        )
 
         progress.phase = 'upload'
         onProgress()
@@ -174,12 +170,7 @@ async function rasterizeRecordingActivity(
 
         const output: RasterizeRecordingOutput = {
             s3_uri: s3Uri,
-            video_duration_s: result.capture_duration_s,
-            playback_speed: result.playback_speed,
-            show_metadata_footer: !!input.show_metadata_footer,
-            footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
-            truncated: result.truncated,
-            inactivity_periods: periods,
+            ...renderOutputFields(result, input),
             file_size_bytes: stat.size,
             timings,
         }

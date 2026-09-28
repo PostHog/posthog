@@ -124,7 +124,6 @@ export async function uploadToS3(
     return target
 }
 
-/** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
 export function parseS3Uri(uri: string): { bucket: string; key: string } {
     const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(uri)
     if (!match) {
@@ -133,14 +132,30 @@ export function parseS3Uri(uri: string): { bucket: string; key: string } {
     return { bucket: match[1], key: match[2] }
 }
 
-export async function downloadFromS3(bucket: string, key: string, localPath: string): Promise<void> {
+/** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
+export async function downloadFromS3(
+    bucket: string,
+    key: string,
+    localPath: string,
+    options: { maxBytes?: number; signal?: AbortSignal } = {}
+): Promise<void> {
     try {
-        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }), {
+            abortSignal: options.signal,
+        })
         if (!res.Body) {
             throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
         }
+        if (options.maxBytes !== undefined && (res.ContentLength ?? 0) > options.maxBytes) {
+            ;(res.Body as Readable).destroy()
+            throw new RasterizationError(
+                `S3 object too large: ${res.ContentLength} bytes (limit ${options.maxBytes})`,
+                false,
+                'RECORDING_TOO_LARGE'
+            )
+        }
         // Streamed, not buffered: thumbnail extraction reads several tens-of-megabytes MP4s at once.
-        await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
+        await pipeline(res.Body as Readable, fs.createWriteStream(localPath), { signal: options.signal })
     } catch (err) {
         if (err instanceof RasterizationError) {
             throw err

@@ -1,3 +1,4 @@
+import io
 import uuid
 from typing import Any
 
@@ -6,11 +7,20 @@ from unittest.mock import MagicMock, patch
 
 import temporalio.worker
 from parameterized import parameterized
-from temporalio import activity
+from temporalio import (
+    activity,
+    workflow as wf,
+)
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
+
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RasterizationActivityInput,
+    RasterizationActivityOutput,
+    RasterizeRecordingInputs,
+)
 
 from products.replay_vision.backend.benchmark import labeling_api
 from products.replay_vision.backend.benchmark.consensus import Question, cell_consensus
@@ -62,6 +72,18 @@ def _span_label(*spans: tuple[int, int]) -> dict[str, Any]:
             {"choiceIndices": [0]},
         ),
         (
+            "multi_select_disagreement_is_not_consensus",
+            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
+            [{"choiceIndices": [0, 1]}, {"choiceIndices": [2]}],
+            None,
+        ),
+        (
+            "multi_select_most_choosing_none_is_an_answer",
+            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
+            [{"choiceIndices": []}, {"choiceIndices": []}, {"choiceIndices": [1]}],
+            {"choiceIndices": []},
+        ),
+        (
             "span_moment_needs_two_labelers",
             _question("itemized"),
             [_span_label((1_000, 4_000), (30_000, 31_000)), _span_label((1_500, 5_000)), {"items": []}],
@@ -84,15 +106,16 @@ def test_majority_consensus(
 
 def test_playable_waits_out_a_busy_labeling_app() -> None:
     busy = MagicMock(status_code=429)
-    ready = MagicMock(status_code=200, content=b"{}\n", headers={"x-benchmark-images-resolved": "3"})
+    ready = MagicMock(status_code=200, raw=io.BytesIO(b"{}\n"), headers={"x-benchmark-images-resolved": "3"})
     client = LabelingExportClient("https://labeling.example.com", "lbl_test")
     with (
         patch.object(labeling_api.requests, "get", side_effect=[busy, busy, ready]),
         patch.object(labeling_api.time, "sleep"),
+        client.playable("rec-1") as playable,
     ):
-        playable = client.playable("rec-1")
+        body = playable.stream.read()
 
-    assert (playable.jsonl, playable.images_resolved) == (b"{}\n", 3)
+    assert (body, playable.images_resolved) == (b"{}\n", 3)
     busy.raise_for_status.assert_not_called()
 
 
@@ -148,6 +171,21 @@ def test_a_session_without_production_inputs_is_skipped(_name: str, fetched: Any
     assert raised.value.type == BENCHMARK_CASE_SKIPPED_ERROR_TYPE
 
 
+@wf.defn(name="rasterize-recording")
+class _FakeRasterizeWorkflow:
+    @wf.run
+    async def run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
+        assert inputs.render_input is not None
+        session_id = inputs.render_input.session_id
+        if session_id == "case-1":
+            raise ApplicationError("render crashed", type="RENDER_FAILED", non_retryable=True)
+        if session_id == "case-3":
+            raise ApplicationError("nothing to draw", type="NO_SNAPSHOTS", non_retryable=True)
+        return RasterizationActivityOutput(
+            s3_uri=f"s3://bench/{session_id}/video.mp4", video_duration_s=10, playback_speed=8
+        )
+
+
 @pytest.mark.asyncio
 async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -> None:
     cases = [
@@ -159,7 +197,7 @@ async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -
 
     @activity.defn(name="snapshot_benchmark_labels_activity")
     async def snapshot(inputs: SnapshotBenchmarkInputs) -> SnapshotBenchmarkOutput:
-        return SnapshotBenchmarkOutput(case_count=len(cases), cell_count=9)
+        return SnapshotBenchmarkOutput(case_count=len(cases))
 
     @activity.defn(name="load_benchmark_cases_activity")
     async def load(inputs: LoadBenchmarkCasesInputs) -> LoadBenchmarkCasesOutput:
@@ -169,19 +207,10 @@ async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -
     async def prepare(inputs: PrepareBenchmarkCaseInputs) -> PrepareBenchmarkCaseOutput:
         if inputs.case.case_id == "case-2":
             raise ApplicationError("ineligible: too_short", type=BENCHMARK_CASE_SKIPPED_ERROR_TYPE, non_retryable=True)
-        return PrepareBenchmarkCaseOutput(
-            source_s3_uri=f"s3://bench/{inputs.case.case_id}/events.jsonl.zst",
-            output_bucket="bench",
-            output_prefix=inputs.case.case_id,
-            image_refs=1,
-            images_resolved=1,
+        render_input = RasterizationActivityInput(
+            session_id=inputs.case.case_id, team_id=1, s3_bucket="bench", s3_key_prefix=inputs.case.case_id
         )
-
-    @activity.defn(name="rasterize-recording")
-    async def rasterize(render_input: dict[str, Any]) -> dict[str, Any]:
-        if render_input["session_id"] == "case-1":
-            raise ApplicationError("recording too large", type="RECORDING_TOO_LARGE", non_retryable=True)
-        return {"s3_uri": f"s3://bench/{render_input['session_id']}/video.mp4", "video_duration_s": 10}
+        return PrepareBenchmarkCaseOutput(render_input=render_input, image_refs=1, images_resolved=1)
 
     @activity.defn(name="record_benchmark_case_activity")
     async def record(inputs: RecordBenchmarkCaseInputs) -> None:
@@ -196,7 +225,7 @@ async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -
     runner = temporalio.worker.UnsandboxedWorkflowRunner()
     with (
         patch.object(benchmark_workflow, "CASES_PER_RUN", 2),
-        patch.object(benchmark_workflow.settings, "RASTERIZATION_TASK_QUEUE", render_queue),
+        patch.object(benchmark_workflow.settings, "SESSION_REPLAY_TASK_QUEUE", render_queue),
     ):
         async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
             async with (
@@ -207,7 +236,7 @@ async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -
                     activities=[snapshot, load, prepare, record, manifest],
                     workflow_runner=runner,
                 ),
-                Worker(env.client, task_queue=render_queue, activities=[rasterize], workflow_runner=runner),
+                Worker(env.client, task_queue=render_queue, workflows=[_FakeRasterizeWorkflow], workflow_runner=runner),
             ):
                 await env.client.execute_workflow(
                     BUILD_BENCHMARK_WORKFLOW_NAME,
@@ -216,8 +245,10 @@ async def test_build_continues_past_failed_and_skipped_cases_and_counts_them() -
                     task_queue=workflow_queue,
                 )
 
-    by_case = {r.case_id: r for r in recorded}
-    assert sorted(by_case) == ["case-0", "case-1", "case-2", "case-3"]
-    assert by_case["case-1"].render is None and by_case["case-1"].error is not None
-    assert (by_case["case-2"].skipped, by_case["case-2"].error) == ("ineligible: too_short", None)
-    assert [(m.case_count, m.built, m.failed, m.skipped) for m in manifests] == [(4, 2, 1, 1)]
+    by_case = {r.case_id: (r.outcome, r.reason) for r in recorded}
+    assert by_case["case-0"] == ("built", None)
+    assert by_case["case-1"][0] == "failed"
+    # Skipped before rendering, and a recording production would gate as ineligible.
+    assert by_case["case-2"] == ("skipped", "ineligible: too_short")
+    assert by_case["case-3"] == ("skipped", "render: NO_SNAPSHOTS")
+    assert [(m.case_count, m.built, m.failed, m.skipped) for m in manifests] == [(4, 1, 1, 2)]

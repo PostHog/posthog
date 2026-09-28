@@ -1,11 +1,20 @@
 """Types for building a labeling benchmark version, split from `types.py` like `backfill_types.py`."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RasterizationActivityInput,
+    RasterizationActivityOutput,
+)
 
 from products.replay_vision.backend.benchmark.layout import BenchmarkCase
 
 # The prepare activity's error type for a session production would not scan, which the build skips.
 BENCHMARK_CASE_SKIPPED_ERROR_TYPE = "BenchmarkCaseSkipped"
+
+CaseOutcome = Literal["built", "failed", "skipped"]
 
 
 class BuildBenchmarkInputs(BaseModel, frozen=True):
@@ -29,7 +38,6 @@ class SnapshotBenchmarkInputs(BaseModel, frozen=True):
 
 class SnapshotBenchmarkOutput(BaseModel, frozen=True):
     case_count: int
-    cell_count: int
 
 
 class LoadBenchmarkCasesInputs(BaseModel, frozen=True):
@@ -48,10 +56,7 @@ class PrepareBenchmarkCaseInputs(BaseModel, frozen=True):
 
 
 class PrepareBenchmarkCaseOutput(BaseModel, frozen=True):
-    source_s3_uri: str
-    # Where the rasterizer writes the case's video.
-    output_bucket: str
-    output_prefix: str
+    render_input: RasterizationActivityInput
     # Refs the recording carries, and images the export put back; the rest render as placeholders.
     image_refs: int
     images_resolved: int
@@ -60,13 +65,12 @@ class PrepareBenchmarkCaseOutput(BaseModel, frozen=True):
 class RecordBenchmarkCaseInputs(BaseModel, frozen=True):
     version: str
     case_id: str
-    # The rasterizer's output (s3_uri, inactivity_periods, ...) on success, None on failure.
-    render: dict | None = None
-    error: str | None = None
+    outcome: CaseOutcome
+    render: RasterizationActivityOutput | None = None
+    # Why the case failed, or why production would not scan the session when it was skipped.
+    reason: str | None = None
     image_refs: int = 0
     images_resolved: int = 0
-    # Why production would not scan the session, when it would not; a skipped case is neither built nor failed.
-    skipped: str | None = None
 
 
 class WriteBenchmarkManifestInputs(BaseModel, frozen=True):

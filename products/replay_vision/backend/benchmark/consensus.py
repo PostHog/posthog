@@ -101,10 +101,15 @@ def _median_choice(choices: list[int | None]) -> tuple[dict[str, Any], float] | 
     return {"choiceIndices": [median]}, sum(1 for choice in answered if choice == median) / len(answered)
 
 
-def _per_option_majority(definition: dict[str, Any], labels: list[dict[str, Any]]) -> tuple[dict[str, Any], float]:
+def _per_option_majority(
+    definition: dict[str, Any], labels: list[dict[str, Any]]
+) -> tuple[dict[str, Any], float] | None:
     option_count = len(definition.get("options", []))
     chosen = [set(label.get("choiceIndices") or []) for label in labels]
     majority = sorted(index for index in range(option_count) if sum(index in c for c in chosen) * 2 > len(chosen))
+    # No option with a majority is disagreement, not a shared answer of "none", unless most chose none.
+    if not majority and sum(not c for c in chosen) * 2 <= len(chosen):
+        return None
     agreement = sum(1 for c in chosen if c == set(majority)) / len(chosen)
     return {"choiceIndices": majority}, agreement
 

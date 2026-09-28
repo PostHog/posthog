@@ -4,16 +4,15 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { parseArgs } from 'util'
 
-import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
-
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { BrowserPool } from './capture/browser-pool'
 import { playerHtmlCache } from './capture/capture-page'
 import { FileBlockSource } from './capture/file-block-source'
 import { rasterizeRecording } from './capture/recorder'
+import { config } from './config'
 import { createLogger } from './logger'
-import { videoTimestampsFromFrames } from './postprocess'
+import { renderOutputFields } from './postprocess'
 import { RasterizeRecordingInput, RasterizeRecordingOutput } from './types'
 
 export type RasterizeFileOutput = Omit<RasterizeRecordingOutput, 's3_uri'> & { video_file: string }
@@ -38,24 +37,17 @@ export async function rasterizeFile(
     const videoFile = `video.${format}`
     const log = createLogger({ input: inputPath })
 
+    // A metadata file left from an earlier run would otherwise describe a video this run failed to replace.
+    await fs.rm(path.join(outDir, 'rasterize.json'), { force: true })
+
     const result = await rasterizeRecording(pool, input, path.join(outDir, videoFile), playerHtml, () => {}, {
         log,
-        blockSource: new FileBlockSource(inputPath),
+        blockSource: new FileBlockSource(inputPath, config.maxSourceDecompressedBytes),
     })
     const stat = await fs.stat(path.join(outDir, videoFile))
     const output: RasterizeFileOutput = {
         video_file: videoFile,
-        video_duration_s: result.capture_duration_s,
-        playback_speed: result.playback_speed,
-        show_metadata_footer: !!input.show_metadata_footer,
-        footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
-        truncated: result.truncated,
-        inactivity_periods: videoTimestampsFromFrames(
-            result.inactivity_periods,
-            result.frame_session_ms,
-            result.output_fps,
-            result.pre_roll_frames
-        ),
+        ...renderOutputFields(result, input),
         file_size_bytes: stat.size,
         timings: { ...result.timings, upload_s: 0, total_s: result.timings.setup_s + result.timings.capture_s },
     }

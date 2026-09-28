@@ -1,31 +1,32 @@
 """Build one labeling benchmark version: snapshot the labels, then prepare and render every labeled recording.
 
-Each case renders on the shared rasterizer at the lowest priority, so customer scans go first. A session
-production would not scan is skipped and a case that fails is recorded; the version is built from the rest. The workflow continues as
-new after each batch, so history stays bounded however many cases a version holds.
+Each case renders through the rasterize workflow, the same path production renders take, at the lowest priority
+so customer scans go first. A session production would not scan is skipped and a case that fails is recorded;
+the version is built from the rest. The workflow continues as new after each batch, so history stays bounded
+however many cases a version holds.
 """
 
 import asyncio
 import datetime as dt
 from collections import Counter
-from typing import Any, Literal
 
 from temporalio import (
     common,
     workflow as wf,
 )
-from temporalio.common import Priority
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.common import Priority, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import unwrap_temporal_cause
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.temporal.session_replay.rasterize_recording.types import (
-        RASTERIZE_RENDER_MAX_ATTEMPTS,
-        RASTERIZE_RENDER_TIMEOUT,
-        RasterizationActivityInput,
+        RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+        RasterizationActivityOutput,
+        RasterizeRecordingInputs,
     )
 
     from products.replay_vision.backend.benchmark.layout import BenchmarkCase
@@ -36,10 +37,10 @@ with wf.unsafe.imports_passed_through():
         snapshot_benchmark_labels_activity,
         write_benchmark_manifest_activity,
     )
-    from products.replay_vision.backend.temporal.activities.ensure_session_asset import analysis_export_context
     from products.replay_vision.backend.temporal.benchmark_types import (
         BENCHMARK_CASE_SKIPPED_ERROR_TYPE,
         BuildBenchmarkInputs,
+        CaseOutcome,
         LoadBenchmarkCasesInputs,
         LoadBenchmarkCasesOutput,
         PrepareBenchmarkCaseInputs,
@@ -53,31 +54,25 @@ with wf.unsafe.imports_passed_through():
 
 # Cases per run before continue-as-new. Each case adds about a dozen history events.
 CASES_PER_RUN = 200
-# Temporal's lowest priority, so benchmark renders queue behind every customer render.
+# Temporal's lowest priority, so benchmark renders queue behind every customer render. The child's
+# render activity inherits it.
 BENCHMARK_RENDER_PRIORITY = Priority(priority_key=5)
-# The rasterizer refuses a render without a positive team id; a source render reads no team data.
-BENCHMARK_RENDER_TEAM_ID = 1
+# Rasterizer codes for a recording production gates as ineligible rather than failed: nothing to draw, or
+# too large to render. The benchmark skips those the same way.
+_INELIGIBLE_RENDER_TYPES = frozenset({"NO_SNAPSHOTS", "RECORDING_TOO_LARGE"})
 
 _RETRY = common.RetryPolicy(maximum_attempts=3)
 
-CaseOutcome = Literal["built", "failed", "skipped"]
 
-
-def _render_input(case_id: str, prepared: PrepareBenchmarkCaseOutput) -> dict[str, Any]:
-    """A render with the same settings a production scan's analysis video uses."""
-    render_settings = {
-        key: value for key, value in analysis_export_context(case_id).items() if key != "session_recording_id"
-    }
-    return RasterizationActivityInput.model_validate(
-        {
-            **render_settings,
-            "session_id": case_id,
-            "team_id": BENCHMARK_RENDER_TEAM_ID,
-            "source_s3_uri": prepared.source_s3_uri,
-            "s3_bucket": prepared.output_bucket,
-            "s3_key_prefix": prepared.output_prefix,
-        }
-    ).model_dump(exclude_none=True)
+def _skip_reason(error: BaseException) -> str | None:
+    cause = error if isinstance(error, ApplicationError) else unwrap_temporal_cause(error)
+    if cause is None:
+        return None
+    if cause.type == BENCHMARK_CASE_SKIPPED_ERROR_TYPE:
+        return cause.message
+    if cause.type in _INELIGIBLE_RENDER_TYPES:
+        return f"render: {cause.type}"
+    return None
 
 
 @wf.defn(name=BUILD_BENCHMARK_WORKFLOW_NAME)
@@ -127,7 +122,10 @@ class BuildBenchmarkWorkflow(PostHogWorkflow):
 
     async def _build_case(self, version: str, case: BenchmarkCase, slots: asyncio.Semaphore) -> CaseOutcome:
         async with slots:
-            record = RecordBenchmarkCaseInputs(version=version, case_id=case.case_id)
+            outcome: CaseOutcome = "built"
+            render: RasterizationActivityOutput | None = None
+            reason: str | None = None
+            image_refs = images_resolved = 0
             try:
                 prepared: PrepareBenchmarkCaseOutput = await wf.execute_activity(
                     prepare_benchmark_case_activity,
@@ -135,32 +133,35 @@ class BuildBenchmarkWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=_RETRY,
                 )
-                record = record.model_copy(
-                    update={"image_refs": prepared.image_refs, "images_resolved": prepared.images_resolved}
-                )
-                render: dict[str, Any] = await wf.execute_activity(
+                image_refs, images_resolved = prepared.image_refs, prepared.images_resolved
+                render = await wf.execute_child_workflow(
                     "rasterize-recording",
-                    _render_input(case.case_id, prepared),
+                    RasterizeRecordingInputs(render_input=prepared.render_input, product="replay_vision_benchmark"),
+                    result_type=RasterizationActivityOutput,
+                    id=f"{BUILD_BENCHMARK_WORKFLOW_NAME}-{version}-{case.case_id}",
                     # Not replay-checked, like the rasterize workflow's own task queue setting.
-                    task_queue=settings.RASTERIZATION_TASK_QUEUE,
-                    start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
-                    heartbeat_timeout=dt.timedelta(seconds=30),
-                    retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
                     priority=BENCHMARK_RENDER_PRIORITY,
                 )
-                record = record.model_copy(update={"render": render})
-            except ActivityError as error:
-                cause = error.cause
-                if isinstance(cause, ApplicationError) and cause.type == BENCHMARK_CASE_SKIPPED_ERROR_TYPE:
-                    record = record.model_copy(update={"skipped": cause.message})
-                else:
-                    record = record.model_copy(update={"error": str(cause or error)})
+            except Exception as error:
+                reason = _skip_reason(error)
+                outcome = "skipped" if reason else "failed"
+                reason = reason or str(unwrap_temporal_cause(error) or error)
             await wf.execute_activity(
                 record_benchmark_case_activity,
-                record,
+                RecordBenchmarkCaseInputs(
+                    version=version,
+                    case_id=case.case_id,
+                    outcome=outcome,
+                    render=render,
+                    reason=reason,
+                    image_refs=image_refs,
+                    images_resolved=images_resolved,
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=_RETRY,
             )
-            if record.render is not None:
-                return "built"
-            return "skipped" if record.skipped else "failed"
+            return outcome
