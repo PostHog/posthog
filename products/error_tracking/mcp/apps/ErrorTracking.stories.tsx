@@ -247,3 +247,27 @@ export const ErrorDetails: Story = {
     render: () => <ErrorDetailsView data={sampleErrorDetails} />,
     name: 'Error details with stack trace',
 }
+
+export const ErrorEventsSummary: Story = {
+    render: () => (
+        <ErrorDetailsView
+            data={{
+                summary: {
+                    occurrences: 128,
+                    users: 42,
+                    sessions: 57,
+                    first_seen: '2025-12-08T09:12:00Z',
+                    last_seen: '2025-12-15T14:30:00Z',
+                    top_urls: ['https://app.posthog.com/dashboard/1', 'https://app.posthog.com/insights'],
+                    top_browsers: ['Chrome', 'Safari', 'Firefox'],
+                    top_os: ['macOS', 'Windows'],
+                    top_libraries: ['posthog-js'],
+                    top_library_versions: ['1.200.0', '1.199.2'],
+                    sample_session_ids: ['019b4f6d-4a76-7000-8000-000000000001'],
+                },
+                _posthogUrl: 'https://us.posthog.com/project/1/error_tracking/issue-1',
+            }}
+        />
+    ),
+    name: 'Error events summary',
+}

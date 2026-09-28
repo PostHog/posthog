@@ -83,6 +83,24 @@ EVENT_PROPERTY_SELECTS = list(
 )
 EVENT_SELECTS = ["uuid", "timestamp", "distinct_id", *EVENT_PROPERTY_SELECTS]
 EVENT_SEARCH_PROPERTIES = ["properties.$exception_types", "properties.$exception_values", "properties.$current_url"]
+EVENT_SUMMARY_TOP_VALUES = 5
+MAX_SUMMARY_VALUE_CHARS = 300
+EVENT_SUMMARY_COUNT_SELECTS = {
+    "occurrences": "count()",
+    "users": "uniq(person_id)",
+    "sessions": "uniq(nullIf(properties.$session_id, ''))",
+    "first_seen": "min(timestamp)",
+    "last_seen": "max(timestamp)",
+}
+EVENT_SUMMARY_VALUE_SELECTS = {
+    "top_urls": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$current_url)",
+    "top_browsers": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$browser)",
+    "top_os": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$os)",
+    "top_libraries": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$lib)",
+    "top_library_versions": f"topK({EVENT_SUMMARY_TOP_VALUES})(properties.$lib_version)",
+    "sample_session_ids": f"groupUniqArray({EVENT_SUMMARY_TOP_VALUES})(nullIf(properties.$session_id, ''))",
+}
+EVENT_SUMMARY_SELECTS = {**EVENT_SUMMARY_COUNT_SELECTS, **EVENT_SUMMARY_VALUE_SELECTS}
 PROPERTY_COLUMN_NAMES = {
     select.removeprefix("properties.") for select in [*CONTEXT_EVENT_SELECTS, *EVENT_PROPERTY_SELECTS]
 }
@@ -210,11 +228,11 @@ def parse_jsonish(value: object) -> object:
     return parsed
 
 
-def truncate_text(value: object) -> object:
-    if not isinstance(value, str) or len(value) <= MAX_NORMALIZED_TEXT_CHARS:
+def truncate_text(value: object, max_chars: int = MAX_NORMALIZED_TEXT_CHARS) -> object:
+    if not isinstance(value, str) or len(value) <= max_chars:
         return value
     suffix = f"… [truncated from {len(value)} chars]"
-    return f"{value[: MAX_NORMALIZED_TEXT_CHARS - len(suffix)]}{suffix}"
+    return f"{value[: max_chars - len(suffix)]}{suffix}"
 
 
 def as_record(value: object) -> dict[str, object] | None:
@@ -361,6 +379,26 @@ def map_event_row(
         else:
             event[column] = value
     return event
+
+
+def map_event_summary(data: dict[str, object]) -> dict[str, object]:
+    rows = data.get("results")
+    row = rows[0] if isinstance(rows, list) and rows else None
+    values = row if isinstance(row, list) else []
+    summary: dict[str, object] = {}
+    for index, key in enumerate(EVENT_SUMMARY_SELECTS):
+        value = values[index] if index < len(values) else None
+        if key in EVENT_SUMMARY_VALUE_SELECTS:
+            items = value if isinstance(value, list) else []
+            summary[key] = [truncate_text(item, MAX_SUMMARY_VALUE_CHARS) for item in items if item not in (None, "")]
+        elif key in {"first_seen", "last_seen"}:
+            summary[key] = value
+        else:
+            summary[key] = value if isinstance(value, int) else 0
+    if not summary["occurrences"]:
+        summary["first_seen"] = None
+        summary["last_seen"] = None
+    return summary
 
 
 def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:

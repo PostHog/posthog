@@ -798,6 +798,9 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
             if (params.issueId !== undefined) {
                 body['issueId'] = params.issueId
             }
+            if (params.mode !== undefined) {
+                body['mode'] = params.mode
+            }
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }

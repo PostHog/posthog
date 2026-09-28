@@ -12,8 +12,23 @@ export interface ErrorDetailsEventData {
     properties?: Record<string, unknown>
 }
 
+export interface ErrorDetailsSummaryData {
+    occurrences?: number
+    users?: number
+    sessions?: number
+    first_seen?: string | null
+    last_seen?: string | null
+    top_urls?: string[]
+    top_browsers?: string[]
+    top_os?: string[]
+    top_libraries?: string[]
+    top_library_versions?: string[]
+    sample_session_ids?: string[]
+}
+
 export interface ErrorDetailsData {
     results?: ErrorDetailsEventData[]
+    summary?: ErrorDetailsSummaryData
     _posthogUrl?: string
 }
 
@@ -41,8 +56,47 @@ function extractExceptions(properties: Record<string, unknown>): ExceptionData[]
     return []
 }
 
+function joinValues(values: string[] | undefined): string | undefined {
+    return values && values.length > 0 ? values.join(', ') : undefined
+}
+
+function ErrorEventsSummaryView({ summary }: { summary: ErrorDetailsSummaryData }): ReactElement {
+    return (
+        <div className="p-4">
+            <Card>
+                <CardContent>
+                    <DescriptionList
+                        items={[
+                            { label: 'Occurrences', value: summary.occurrences ?? 0 },
+                            { label: 'Users', value: summary.users ?? 0 },
+                            { label: 'Sessions', value: summary.sessions ?? 0 },
+                            {
+                                label: 'First seen',
+                                value: summary.first_seen ? formatDate(summary.first_seen, true) : undefined,
+                            },
+                            {
+                                label: 'Last seen',
+                                value: summary.last_seen ? formatDate(summary.last_seen, true) : undefined,
+                            },
+                            { label: 'Top URLs', value: joinValues(summary.top_urls) },
+                            { label: 'Browsers', value: joinValues(summary.top_browsers) },
+                            { label: 'OS', value: joinValues(summary.top_os) },
+                            { label: 'Libraries', value: joinValues(summary.top_libraries) },
+                            { label: 'Library versions', value: joinValues(summary.top_library_versions) },
+                        ]}
+                    />
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
 export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactElement {
     const events = data.results ?? (Array.isArray(data) ? data : [])
+
+    if (data.summary) {
+        return <ErrorEventsSummaryView summary={data.summary} />
+    }
 
     if (events.length === 0) {
         return (

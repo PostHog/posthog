@@ -1232,7 +1232,7 @@ export const getErrorTrackingQueryIssueEventsCreateUrl = (projectId: string) => 
 }
 
 /**
- * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
+ * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue, or a compact aggregate summary of its events with mode=summary.
  * @summary List sampled exception events for an error tracking issue
  */
 export const errorTrackingQueryIssueEventsCreate = async (

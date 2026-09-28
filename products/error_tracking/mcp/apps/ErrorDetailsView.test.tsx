@@ -6,7 +6,15 @@ import { ErrorDetailsView } from './ErrorDetailsView'
 jest.mock(
     '@posthog/mcp-ui',
     () => ({
-        DescriptionList: (): null => null,
+        DescriptionList: ({ items }: { items: { label: string; value: unknown }[] }): ReactElement => (
+            <dl>
+                {items.map((item) => (
+                    <div key={item.label}>
+                        {item.label}: {String(item.value)}
+                    </div>
+                ))}
+            </dl>
+        ),
         formatDate: (value: string): string => value,
     }),
     { virtual: true }
@@ -53,5 +61,17 @@ describe('ErrorDetailsView', () => {
         )
 
         expect(screen.getByText('Synthetic')).toBeTruthy()
+    })
+
+    it('shows the aggregate instead of the empty state in summary mode', () => {
+        render(
+            <ErrorDetailsView
+                data={{ summary: { occurrences: 3, users: 1, sessions: 2, top_browsers: ['Chrome', 'Safari'] } }}
+            />
+        )
+
+        expect(screen.queryByText('No error events')).toBeNull()
+        expect(screen.getByText('Occurrences: 3')).toBeTruthy()
+        expect(screen.getByText('Browsers: Chrome, Safari')).toBeTruthy()
     })
 })

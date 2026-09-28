@@ -25,6 +25,7 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     DEFAULT_EVENT_CONTEXT_INCLUDES,
+    EVENT_SUMMARY_SELECTS,
     ISSUE_FIELDS,
     LIST_ISSUE_FIELDS,
     build_date_range,
@@ -42,11 +43,13 @@ from products.error_tracking.backend.facade.query_utils import (
     get_page_info,
     map_context_event_properties,
     map_event_row,
+    map_event_summary,
     normalize_volume_resolution,
     pick_fields,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueDetailSerializer,
+    ErrorTrackingIssueEventsMode,
     ErrorTrackingIssueEventsQueryRequestSerializer,
     ErrorTrackingIssueEventsResponseSerializer,
     ErrorTrackingIssueQueryRequestSerializer,
@@ -217,7 +220,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         operation_id="error_tracking_query_issue_events_create",
         summary="List sampled exception events for an error tracking issue",
-        description="Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.",
+        description=(
+            "Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one "
+            "issue, or a compact aggregate summary of its events with mode=summary."
+        ),
     )
     @action(methods=["POST"], detail=False, url_path="issue_events", required_scopes=["error_tracking:read"])
     def issue_events(self, request: ValidatedRequest, **kwargs: object) -> Response:
@@ -228,6 +234,23 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not facade_api.issue_exists_by_id(self.team.id, issue_id):
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
+        where = build_issue_event_where(issue_id, cast(str | None, params.get("searchQuery")))
+        properties = cast(list[dict[str, object]], params.get("filterGroup", []))
+        filter_test_accounts = cast(bool, params.get("filterTestAccounts", True))
+        if params.get("mode") == ErrorTrackingIssueEventsMode.SUMMARY:
+            summary_query = EventsQuery(
+                kind="EventsQuery",
+                event="$exception",
+                select=list(EVENT_SUMMARY_SELECTS.values()),
+                where=where,
+                properties=properties,
+                filterTestAccounts=filter_test_accounts,
+                after=date_range.get("date_from"),
+                before=date_range.get("date_to"),
+                limit=1,
+                tags={"productKey": "error_tracking"},
+            )
+            return Response({"summary": map_event_summary(self._run_events_query(summary_query, request))})
         requested_includes = params.get("include")
         includes = (
             cast(list[str], requested_includes)
@@ -239,9 +262,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             kind="EventsQuery",
             event="$exception",
             select=event_selects,
-            where=build_issue_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
-            properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
-            filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+            where=where,
+            properties=properties,
+            filterTestAccounts=filter_test_accounts,
             after=date_range.get("date_from"),
             before=date_range.get("date_to"),
             orderBy=[f"timestamp {params.get('orderDirection', 'DESC')}"],
@@ -249,15 +272,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             offset=offset,
             tags={"productKey": "error_tracking"},
         )
-        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            try:
-                data = (
-                    EventsQueryRunner(team=self.team, query=query, user=request.user)
-                    .calculate()
-                    .model_dump(mode="json")
-                )
-            except ResolutionError as error:
-                raise ValidationError(str(error)) from error
+        data = self._run_events_query(query, request)
         raw_columns = data.get("columns")
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
         raw_results_value = data.get("results")
@@ -274,3 +289,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if next_offset is not None:
             payload["nextOffset"] = next_offset
         return Response(payload)
+
+    def _run_events_query(self, query: EventsQuery, request: ValidatedRequest) -> dict[str, object]:
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+            try:
+                return (
+                    EventsQueryRunner(team=self.team, query=query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+            except ResolutionError as error:
+                raise ValidationError(str(error)) from error

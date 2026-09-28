@@ -185,8 +185,23 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingIssueEventsMode(models.TextChoices):
+    EVENTS = "events", "events"
+    SUMMARY = "summary", "summary"
+
+
 class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
     issueId = serializers.UUIDField(help_text="Error tracking issue ID.")
+    mode = serializers.ChoiceField(
+        choices=ErrorTrackingIssueEventsMode.choices,
+        required=False,
+        default=ErrorTrackingIssueEventsMode.EVENTS,
+        help_text=(
+            "events returns sampled exception events. summary returns one compact aggregate over all matching events: "
+            "counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and "
+            "sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events."
+        ),
+    )
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
         help_text="Date range for sampled exception events. Defaults to the last 7 days.",
@@ -334,11 +349,45 @@ class ErrorTrackingEventSerializer(serializers.Serializer):
     properties = JSONObjectField(required=False, help_text="Normalized sampled exception event properties.")
 
 
+class ErrorTrackingIssueEventsSummarySerializer(serializers.Serializer):
+    occurrences = serializers.IntegerField(help_text="Number of matching exception events.")
+    users = serializers.IntegerField(help_text="Unique users across matching events.")
+    sessions = serializers.IntegerField(help_text="Unique sessions across matching events.")
+    first_seen = serializers.DateTimeField(allow_null=True, help_text="Earliest matching event timestamp.")
+    last_seen = serializers.DateTimeField(allow_null=True, help_text="Latest matching event timestamp.")
+    top_urls = serializers.ListField(
+        child=serializers.CharField(), help_text="Most common $current_url values, most frequent first."
+    )
+    top_browsers = serializers.ListField(
+        child=serializers.CharField(), help_text="Most common $browser values, most frequent first."
+    )
+    top_os = serializers.ListField(
+        child=serializers.CharField(), help_text="Most common $os values, most frequent first."
+    )
+    top_libraries = serializers.ListField(
+        child=serializers.CharField(), help_text="Most common $lib values, most frequent first."
+    )
+    top_library_versions = serializers.ListField(
+        child=serializers.CharField(), help_text="Most common $lib_version values, most frequent first."
+    )
+    sample_session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to 5 $session_id values from matching events, for session recording lookups.",
+    )
+
+
 class ErrorTrackingIssueEventsResponseSerializer(serializers.Serializer):
-    results = ErrorTrackingEventSerializer(many=True, help_text="Sampled exception events.")
-    hasMore = serializers.BooleanField(help_text="Whether more results are available.")
-    limit = serializers.IntegerField(help_text="Page size.")
-    offset = serializers.IntegerField(help_text="Current offset.")
+    results = ErrorTrackingEventSerializer(
+        many=True, required=False, help_text="Sampled exception events. Omitted in summary mode."
+    )
+    hasMore = serializers.BooleanField(
+        required=False, help_text="Whether more results are available. Omitted in summary mode."
+    )
+    limit = serializers.IntegerField(required=False, help_text="Page size. Omitted in summary mode.")
+    offset = serializers.IntegerField(required=False, help_text="Current offset. Omitted in summary mode.")
     nextOffset = serializers.IntegerField(
         required=False, help_text="Offset to fetch the next page when hasMore is true."
+    )
+    summary = ErrorTrackingIssueEventsSummarySerializer(
+        required=False, help_text="Aggregate over all matching events. Returned only in summary mode."
     )

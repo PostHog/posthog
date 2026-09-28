@@ -8141,7 +8141,7 @@ export const ErrorTrackingQueryIssueCreateBody = () => zod.object({
 })
 
 /**
- * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
+ * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue, or a compact aggregate summary of its events with mode=summary.
  * @summary List sampled exception events for an error tracking issue
  */
 export const ErrorTrackingQueryIssueEventsCreateParams = () => zod.object({
@@ -8152,6 +8152,7 @@ export const ErrorTrackingQueryIssueEventsCreateParams = () => zod.object({
         ),
 })
 
+export const errorTrackingQueryIssueEventsCreateBodyModeDefault = `events`
 export const errorTrackingQueryIssueEventsCreateBodyFilterTestAccountsDefault = true
 export const errorTrackingQueryIssueEventsCreateBodyFilterGroupItemOperatorDefault = `exact`
 export const errorTrackingQueryIssueEventsCreateBodyFilterGroupItemTypeDefault = `event`
@@ -8168,6 +8169,13 @@ export const errorTrackingQueryIssueEventsCreateBodyOnlyAppFramesDefault = true
 
 export const ErrorTrackingQueryIssueEventsCreateBody = () => zod.object({
     issueId: zod.string().describe('Error tracking issue ID.'),
+    mode: zod
+        .enum(['events', 'summary'])
+        .describe('\* `events` - events\n\* `summary` - summary')
+        .default(errorTrackingQueryIssueEventsCreateBodyModeDefault)
+        .describe(
+            'events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events.\n\n\* `events` - events\n\* `summary` - summary'
+        ),
     dateRange: zod
         .object({
             date_from: zod

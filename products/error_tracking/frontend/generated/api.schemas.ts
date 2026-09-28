@@ -1265,6 +1265,18 @@ export interface ErrorTrackingIssueDetailApi {
 }
 
 /**
+ * * `events` - events
+ * * `summary` - summary
+ */
+export type ErrorTrackingIssueEventsModeEnumApi =
+    (typeof ErrorTrackingIssueEventsModeEnumApi)[keyof typeof ErrorTrackingIssueEventsModeEnumApi]
+
+export const ErrorTrackingIssueEventsModeEnumApi = {
+    Events: 'events',
+    Summary: 'summary',
+} as const
+
+/**
  * * `exact` - exact
  * * `is_not` - is_not
  * * `icontains` - icontains
@@ -1433,6 +1445,11 @@ export const IncludeEnumApi = {
 export interface ErrorTrackingIssueEventsQueryRequestApi {
     /** Error tracking issue ID. */
     issueId: string
+    /** events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events.
+     *
+     * * `events` - events
+     * * `summary` - summary */
+    mode?: ErrorTrackingIssueEventsModeEnumApi
     /** Date range for sampled exception events. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -1482,17 +1499,50 @@ export interface ErrorTrackingEventApi {
     properties?: ErrorTrackingEventApiProperties
 }
 
+export interface ErrorTrackingIssueEventsSummaryApi {
+    /** Number of matching exception events. */
+    occurrences: number
+    /** Unique users across matching events. */
+    users: number
+    /** Unique sessions across matching events. */
+    sessions: number
+    /**
+     * Earliest matching event timestamp.
+     * @nullable
+     */
+    first_seen: string | null
+    /**
+     * Latest matching event timestamp.
+     * @nullable
+     */
+    last_seen: string | null
+    /** Most common $current_url values, most frequent first. */
+    top_urls: string[]
+    /** Most common $browser values, most frequent first. */
+    top_browsers: string[]
+    /** Most common $os values, most frequent first. */
+    top_os: string[]
+    /** Most common $lib values, most frequent first. */
+    top_libraries: string[]
+    /** Most common $lib_version values, most frequent first. */
+    top_library_versions: string[]
+    /** Up to 5 $session_id values from matching events, for session recording lookups. */
+    sample_session_ids: string[]
+}
+
 export interface ErrorTrackingIssueEventsResponseApi {
-    /** Sampled exception events. */
-    results: ErrorTrackingEventApi[]
-    /** Whether more results are available. */
-    hasMore: boolean
-    /** Page size. */
-    limit: number
-    /** Current offset. */
-    offset: number
+    /** Sampled exception events. Omitted in summary mode. */
+    results?: ErrorTrackingEventApi[]
+    /** Whether more results are available. Omitted in summary mode. */
+    hasMore?: boolean
+    /** Page size. Omitted in summary mode. */
+    limit?: number
+    /** Current offset. Omitted in summary mode. */
+    offset?: number
     /** Offset to fetch the next page when hasMore is true. */
     nextOffset?: number
+    /** Aggregate over all matching events. Returned only in summary mode. */
+    summary?: ErrorTrackingIssueEventsSummaryApi
 }
 
 /**

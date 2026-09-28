@@ -583,14 +583,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
 
-    def test_issue_events_honors_user_property_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("events", "$referrer", {"include": ["navigation"]}),
+            ("summary", "$current_url", {"mode": "summary"}),
+        ]
+    )
+    def test_issue_events_honors_user_property_access(
+        self, _name: str, restricted_property: str, data: dict[str, object]
+    ) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
         property_definition = PropertyDefinition.objects.create(
             team=self.team,
-            name="$referrer",
+            name=restricted_property,
             type=PropertyDefinition.Type.EVENT,
         )
         PropertyAccessControl.objects.create(
@@ -603,12 +611,49 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
-            data={"issueId": self.issue_id, "include": ["navigation"]},
+            data={"issueId": self.issue_id, **data},
             format="json",
         )
 
         assert response.status_code == 400
-        assert "Access to property '$referrer' is restricted" in str(response.json())
+        assert f"Access to property '{restricted_property}' is restricted" in str(response.json())
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_summary_aggregates_matching_events(self) -> None:
+        self.create_issue()
+        for url, session_id in [
+            ("https://example.test/checkout", "session-id-1"),
+            ("https://example.test/checkout", "session-id-2"),
+            ("https://example.test/cart", ""),
+        ]:
+            self.create_exception_event(
+                properties={"$current_url": url, "$session_id": session_id, "$browser": "Chrome", "$lib": "posthog-js"}
+            )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "mode": "summary",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert set(body) == {"summary"}
+        summary = body["summary"]
+        assert summary["occurrences"] == 3
+        assert summary["users"] == 1
+        assert summary["sessions"] == 2
+        assert summary["first_seen"] is not None
+        assert summary["top_urls"] == ["https://example.test/checkout", "https://example.test/cart"]
+        assert summary["top_browsers"] == ["Chrome"]
+        assert summary["top_os"] == []
+        assert summary["top_libraries"] == ["posthog-js"]
+        assert sorted(summary["sample_session_ids"]) == ["session-id-1", "session-id-2"]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
