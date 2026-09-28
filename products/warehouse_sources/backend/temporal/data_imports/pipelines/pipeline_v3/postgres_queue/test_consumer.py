@@ -1646,8 +1646,18 @@ class TestFailRun:
 
         mock_status.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "server login has been failing, cached error: the database system is in recovery mode (server_login_retry)",
+            # The app DB's own host briefly stopping resolving — not a customer source, so
+            # this must not be treated like a permanently misconfigured host.
+            "[Errno -2] Name or service not known",
+        ],
+        ids=["pooler_login_retry_cooldown", "app_db_host_dns_blip"],
+    )
     @pytest.mark.asyncio
-    async def test_does_not_report_app_db_not_ready_error(self):
+    async def test_does_not_report_app_db_not_ready_error(self, error_message):
         # Same self-healing app-DB refusal as TestReconcileFailedRuns, but hit while
         # fail_run marks the job Failed directly rather than via the reconcile sweep.
         consumer = _make_consumer()
@@ -1660,10 +1670,7 @@ class TestFailRun:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
-                side_effect=DjangoOperationalError(
-                    "server login has been failing, cached error: the database system is in "
-                    "recovery mode (server_login_retry)"
-                ),
+                side_effect=DjangoOperationalError(error_message),
             ),
             patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
         ):
@@ -2350,8 +2357,18 @@ class TestReconcileFailedRuns:
 
         assert mock_mark.call_count == 2  # error on the first ref does not abort the sweep
 
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "server login has been failing, cached error: the database system is in recovery mode (server_login_retry)",
+            # The app DB's own host briefly stopping resolving — not a customer source, so
+            # this must not be treated like a permanently misconfigured host.
+            "[Errno -2] Name or service not known",
+        ],
+        ids=["pooler_login_retry_cooldown", "app_db_host_dns_blip"],
+    )
     @pytest.mark.asyncio
-    async def test_does_not_report_app_db_not_ready_error(self):
+    async def test_does_not_report_app_db_not_ready_error(self, error_message):
         # Reproduces the reported issue: the app DB (read via the Django ORM, not the queue
         # DB) briefly refuses connections during a failover while the reconcile sweep is
         # marking a job Failed. This self-heals within seconds and the sweep already retries
@@ -2387,10 +2404,7 @@ class TestReconcileFailedRuns:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
-                side_effect=DjangoOperationalError(
-                    "server login has been failing, cached error: the database system is in "
-                    "recovery mode (server_login_retry)"
-                ),
+                side_effect=DjangoOperationalError(error_message),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
@@ -2401,8 +2415,18 @@ class TestReconcileFailedRuns:
 
         mock_capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "server login has been failing, cached error: the database system is in recovery mode (server_login_retry)",
+            # The app DB's own host briefly stopping resolving — not a customer source, so
+            # this must not be treated like a permanently misconfigured host.
+            "[Errno -2] Name or service not known",
+        ],
+        ids=["pooler_login_retry_cooldown", "app_db_host_dns_blip"],
+    )
     @pytest.mark.asyncio
-    async def test_stranded_run_sweep_does_not_report_app_db_not_ready_error(self):
+    async def test_stranded_run_sweep_does_not_report_app_db_not_ready_error(self, error_message):
         # Same self-healing app-DB refusal, but hit by the stranded-run sweep the reconcile
         # sweep runs after the main failed-runs pass, on the same mark_job_failed_if_not_terminal seam.
         consumer = _make_consumer()
@@ -2448,10 +2472,7 @@ class TestReconcileFailedRuns:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
-                side_effect=DjangoOperationalError(
-                    "server login has been failing, cached error: the database system is in "
-                    "recovery mode (server_login_retry)"
-                ),
+                side_effect=DjangoOperationalError(error_message),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
