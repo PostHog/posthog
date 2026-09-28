@@ -13,6 +13,7 @@ import {
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
     getHogFunctionEventKind,
+    LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     PendingLogsAlertNotification,
@@ -27,6 +28,9 @@ function getPendingNotificationDestination(
     }
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
         return { title: 'Microsoft Teams', detail: notification.webhookUrl }
+    }
+    if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+        return { title: 'PagerDuty', detail: `Severity: ${notification.severity}` }
     }
     return { title: 'Webhook', detail: notification.webhookUrl }
 }
@@ -44,6 +48,8 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         slackChannelValue,
         webhookUrl,
         urlInput,
+        pagerdutyRoutingKey,
+        pagerdutySeverity,
         addDisabledReason,
     } = useValues(logsAlertNotificationLogic)
     const {
@@ -53,6 +59,8 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        setPagerdutyRoutingKey,
+        setPagerdutySeverity,
         loadIntegrations,
     } = useActions(logsAlertNotificationLogic)
 
@@ -121,6 +129,16 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                 onChannelValueChange: setSlackChannelValue,
             }}
             url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+            pagerduty={
+                selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ? {
+                          routingKey: pagerdutyRoutingKey,
+                          onRoutingKeyChange: setPagerdutyRoutingKey,
+                          severity: pagerdutySeverity,
+                          onSeverityChange: setPagerdutySeverity,
+                      }
+                    : undefined
+            }
             add={{ onClick: addSelectedNotification, disabledReason: addDisabledReason }}
         />
     )

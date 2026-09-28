@@ -420,11 +420,15 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
  */
+export const logsAlertsDestinationsCreateBodyPagerdutyRoutingKeyMax = 64
+
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -432,6 +436,20 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
     webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    pagerduty_routing_key: zod
+        .string()
+        .max(logsAlertsDestinationsCreateBodyPagerdutyRoutingKeyMax)
+        .optional()
+        .describe(
+            'Integration key of an Events API v2 integration on the PagerDuty service. Required when type=pagerduty. PostHog stores it encrypted and never returns it.'
+        ),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .optional()
+        .describe(
+            'PagerDuty severity for the incidents this destination opens. Used when type=pagerduty. Defaults to error.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
 })
 
 /**

@@ -89,7 +89,7 @@ const LogsAlertsDestinationsCreateSchema = () => {
         .extend(LogsAlertsDestinationsCreateBody.shape)
         .extend({
             type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
-                'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+                'Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.'
             ),
             slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
                 'Slack workspace integration ID. Required when type is slack.'
@@ -102,6 +102,12 @@ const LogsAlertsDestinationsCreateSchema = () => {
             ),
             webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
                 'Required when type is webhook or teams.'
+            ),
+            pagerduty_routing_key: LogsAlertsDestinationsCreateBody.shape['pagerduty_routing_key'].describe(
+                'Integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty. Ask the user for it; never guess it.'
+            ),
+            pagerduty_severity: LogsAlertsDestinationsCreateBody.shape['pagerduty_severity'].describe(
+                'One of critical, error, warning, or info. Used when type is pagerduty. Defaults to error.'
             ),
         })
 }
@@ -129,6 +135,12 @@ const logsAlertsDestinationsCreate = (): ToolBase<
         }
         if (params.webhook_url !== undefined) {
             body['webhook_url'] = params.webhook_url
+        }
+        if (params.pagerduty_routing_key !== undefined) {
+            body['pagerduty_routing_key'] = params.pagerduty_routing_key
+        }
+        if (params.pagerduty_severity !== undefined) {
+            body['pagerduty_severity'] = params.pagerduty_severity
         }
         const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
             method: 'POST',

@@ -516,7 +516,7 @@ class AlertDeliverySerializer(serializers.Serializer):
     template = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
+        help_text="Destination template: 'slack', 'discord', 'webhook', 'teams', or 'pagerduty'. Null for email.",
     )
     status = serializers.CharField(help_text="Delivery status. Always 'accepted', for a confirmed send.")
     at = serializers.DateTimeField(allow_null=True, help_text="When the delivery was recorded.")

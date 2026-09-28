@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -16,8 +17,10 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertIncidentRole,
     DestinationType,
     EventKindSpec,
+    PagerDutySeverity,
 )
 from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
@@ -38,18 +41,24 @@ from products.alerts.backend.logic.destinations import (
 )
 from products.cdp.backend.facade.models import HogFunction
 
-ALLOWED_EVENT_IDS = (
-    "$logs_alert_firing",
-    "$logs_alert_resolved",
-    "$logs_alert_errored",
-    "$logs_alert_auto_disabled",
-)
+_INCIDENT_ROLE_BY_EVENT_ID = {
+    "$logs_alert_firing": AlertIncidentRole.OPEN,
+    "$logs_alert_resolved": AlertIncidentRole.RESOLVE,
+    "$logs_alert_errored": AlertIncidentRole.CHECK_FAILURE,
+    "$logs_alert_auto_disabled": AlertIncidentRole.CHECK_FAILURE,
+}
+ALLOWED_EVENT_IDS = tuple(_INCIDENT_ROLE_BY_EVENT_ID)
 
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.SLACK: {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"},
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.WEBHOOK: {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.PAGERDUTY: {
+        "type": DestinationType.PAGERDUTY,
+        "pagerduty_routing_key": "abcdef0123456789abcdef0123456789",
+        "pagerduty_severity": PagerDutySeverity.CRITICAL,
+    },
 }
 
 
@@ -132,6 +141,7 @@ def _config_for(destination_type: DestinationType, event_id: str) -> AlertDestin
         spec=EventKindSpec(
             event_id=event_id,
             display_kind=event_id,
+            incident_role=_INCIDENT_ROLE_BY_EVENT_ID[event_id],
             header=f"Logs alert {event_id}",
             details=(("Event", event_id),),
             primary_action_url="https://example.com/alert",
@@ -154,13 +164,14 @@ class TestAlertDestinationGroupKey:
     def test_a_config_built_for_any_destination_type_is_readable(self, destination_type: DestinationType) -> None:
         assert _group_key_of(_config_for(destination_type, "$logs_alert_firing")).is_config_readable
 
-    def test_every_event_kind_of_one_destination_shares_a_group_key(self) -> None:
-        configs = [_config_for(DestinationType.SLACK, event_id) for event_id in ALLOWED_EVENT_IDS]
+    @pytest.mark.parametrize("destination_type", list(DestinationType))
+    def test_every_event_kind_of_one_destination_shares_a_group_key(self, destination_type: DestinationType) -> None:
+        configs = [_config_for(destination_type, event_id) for event_id in ALLOWED_EVENT_IDS]
 
         assert len({_group_key_of(config) for config in configs}) == 1
-        assert {config.payload["inputs"]["text"]["value"] for config in configs} == {
-            f"Logs alert {event_id}" for event_id in ALLOWED_EVENT_IDS
-        }
+        assert len({json.dumps(config.payload["inputs"], sort_keys=True) for config in configs}) == len(
+            ALLOWED_EVENT_IDS
+        )
 
     def test_template_ids_and_destination_types_name_each_other_one_to_one(self) -> None:
         assert set(SPEC_BY_TEMPLATE_ID) == {spec.template_id for spec in DESTINATION_SPECS.values()}

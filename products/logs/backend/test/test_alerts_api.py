@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
+from posthog.cdp.templates.pagerduty.template_pagerduty import template as template_pagerduty
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -816,6 +817,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # which looks up a HogFunctionTemplate by template_id.
         sync_template_to_db(template_slack)
         sync_template_to_db(template_microsoft_teams)
+        sync_template_to_db(template_pagerduty)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
             defaults={
@@ -935,6 +937,32 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_pagerduty_routing_key_is_stored_encrypted_and_never_read_back(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        routing_key = "abcdef0123456789abcdef0123456789"
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "pagerduty", "pagerduty_routing_key": routing_key, "pagerduty_severity": "critical"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        for hf in HogFunction.objects.filter(id__in=ids):
+            assert hf.template_id == "template-pagerduty"
+            assert "routing_key" not in (hf.inputs or {})
+            assert (hf.encrypted_inputs or {})["routing_key"]["value"] == routing_key
+
+        read_response = self.client.get(f"{self.base_url}{created['id']}/")
+        assert read_response.status_code == status.HTTP_200_OK
+        destinations = read_response.json()["destinations"]
+        assert len(destinations) == 1
+        assert destinations[0]["type"] == "pagerduty"
+        assert destinations[0]["pagerduty_severity"] == "critical"
+        assert routing_key not in read_response.content.decode()
+
     def test_reading_an_alert_groups_its_destinations_and_strips_webhook_credentials(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1021,6 +1049,11 @@ class TestLogsAlertAPI(APIBaseTest):
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
             ("teams_missing_url", {"type": "teams"}),
             ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
+            ("pagerduty_missing_routing_key", {"type": "pagerduty"}),
+            (
+                "pagerduty_invalid_severity",
+                {"type": "pagerduty", "pagerduty_routing_key": "abc", "pagerduty_severity": "high"},
+            ),
         ]
     )
     def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:

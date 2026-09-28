@@ -30,6 +30,7 @@ import {
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
+    AlertNotificationPagerDutySeverity,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
 import { AlertPreviewCard } from './AlertPreviewCard'
@@ -146,16 +147,19 @@ function AdvancedOptionsStory(): JSX.Element {
     )
 }
 
-type StoryNotificationType = 'slack' | 'webhook'
+type StoryNotificationType = 'slack' | 'webhook' | 'pagerduty'
 
 const NOTIFICATION_TYPE_OPTIONS: LemonSelectOptions<StoryNotificationType> = [
     { label: 'Slack', value: 'slack' },
     { label: 'Webhook', value: 'webhook' },
+    { label: 'PagerDuty', value: 'pagerduty' },
 ]
 
-function NotificationsStory(): JSX.Element {
-    const [selectedType, setSelectedType] = useState<StoryNotificationType>('webhook')
+function NotificationsStory({ initialType = 'webhook' }: { initialType?: StoryNotificationType }): JSX.Element {
+    const [selectedType, setSelectedType] = useState<StoryNotificationType>(initialType)
     const [urlValue, setUrlValue] = useState('https://example.com/alerts')
+    const [routingKey, setRoutingKey] = useState('')
+    const [severity, setSeverity] = useState<AlertNotificationPagerDutySeverity>('error')
     const [slackChannelValue, setSlackChannelValue] = useState<string | null>(null)
     const [existingDestinations, setExistingDestinations] = useState<AlertNotificationDestinationView[]>([
         {
@@ -197,6 +201,8 @@ function NotificationsStory(): JSX.Element {
     let addDisabledReason: string | undefined
     if (selectedType === 'slack') {
         addDisabledReason = 'Connect Slack first'
+    } else if (selectedType === 'pagerduty') {
+        addDisabledReason = routingKey ? undefined : 'Enter a PagerDuty routing key'
     } else if (!urlValue) {
         addDisabledReason = 'Enter a webhook URL'
     }
@@ -231,6 +237,16 @@ function NotificationsStory(): JSX.Element {
                               input: { placeholder: 'https://example.com/webhook' },
                               value: urlValue,
                               onChange: setUrlValue,
+                          }
+                        : undefined
+                }
+                pagerduty={
+                    selectedType === 'pagerduty'
+                        ? {
+                              routingKey,
+                              onRoutingKeyChange: setRoutingKey,
+                              severity,
+                              onSeverityChange: setSeverity,
                           }
                         : undefined
                 }
@@ -495,6 +511,7 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsPagerDuty: Story = { render: () => <NotificationsStory initialType="pagerduty" /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }

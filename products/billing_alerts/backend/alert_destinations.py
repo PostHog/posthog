@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
+from products.alerts.backend.facade.contracts import AlertIncidentRole, DestinationType, EventKindSpec
 from products.alerts.backend.facade.destinations import destination_template_id, list_owned_alert_destinations
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
@@ -38,6 +38,7 @@ def _spec(
     *,
     event: str,
     display_kind: str,
+    incident_role: AlertIncidentRole,
     header: str,
     details: tuple[tuple[str, str], ...],
     extra_data: dict[str, str] | None = None,
@@ -45,6 +46,7 @@ def _spec(
     return EventKindSpec(
         event_id=f"$billing_alert_{event}",
         display_kind=display_kind,
+        incident_role=incident_role,
         header=header,
         details=details,
         primary_action_url="{event.properties.alert_url}",
@@ -63,6 +65,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": _spec(
         event="firing",
         display_kind="firing",
+        incident_role=AlertIncidentRole.OPEN,
         header="Billing alert '{event.properties.alert_name}' is firing",
         details=(
             ("Metric", "{event.properties.metric}"),
@@ -74,6 +77,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "resolved": _spec(
         event="resolved",
         display_kind="resolved",
+        incident_role=AlertIncidentRole.RESOLVE,
         header="Billing alert '{event.properties.alert_name}' has resolved",
         details=(
             ("Metric", "{event.properties.metric}"),
@@ -85,6 +89,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "errored": _spec(
         event="errored",
         display_kind="errored",
+        incident_role=AlertIncidentRole.CHECK_FAILURE,
         header="Billing alert '{event.properties.alert_name}' could not evaluate",
         details=(
             ("Error", "{event.properties.error_message}"),
@@ -95,6 +100,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "broken": _spec(
         event="auto_disabled",
         display_kind="auto-disabled",
+        incident_role=AlertIncidentRole.CHECK_FAILURE,
         header="Billing alert '{event.properties.alert_name}' was auto-disabled",
         details=(
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),

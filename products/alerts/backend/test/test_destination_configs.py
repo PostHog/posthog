@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -7,8 +8,10 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from products.alerts.backend.facade.contracts import (
     AlertDestinationAction,
     AlertDestinationData,
+    AlertIncidentRole,
     DestinationType,
     EventKindSpec,
+    PagerDutySeverity,
 )
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
@@ -20,6 +23,7 @@ from products.alerts.backend.logic.destination_configs import (
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
     display_kind="firing",
+    incident_role=AlertIncidentRole.OPEN,
     header="Insight alert firing",
     details=(("Threshold", "30"),),
     primary_action_url="https://example.com/insight",
@@ -30,6 +34,7 @@ DEFAULT_SPEC = EventKindSpec(
 MULTI_DETAIL_SPEC = EventKindSpec(
     event_id="$insight_alert_broken",
     display_kind="broken",
+    incident_role=AlertIncidentRole.CHECK_FAILURE,
     header="Insight alert broken",
     details=(("Reason", "5 consecutive check failures."), ("Last error", "Query is too expensive.")),
     primary_action_url="https://example.com/insight",
@@ -40,6 +45,7 @@ MULTI_DETAIL_SPEC = EventKindSpec(
 PROSE_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
     display_kind="firing",
+    incident_role=AlertIncidentRole.OPEN,
     header="Insight alert firing",
     details=(),
     primary_action_url="https://example.com/insight",
@@ -107,6 +113,11 @@ _TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.PAGERDUTY: {
+        "type": DestinationType.PAGERDUTY,
+        "pagerduty_routing_key": "abcdef0123456789abcdef0123456789",
+        "pagerduty_severity": PagerDutySeverity.WARNING,
+    },
 }
 
 
@@ -136,7 +147,70 @@ class TestDestinationTemplateContract:
 
         stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
 
-        assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
+        destination_spec = DESTINATION_SPECS[destination_type]
+        assert destination_spec.read(stored_inputs) == {
+            key: value for key, value in data.items() if key not in destination_spec.write_only_fields
+        }
+
+    @pytest.mark.parametrize(
+        "incident_role,event_action,dedup_key",
+        [
+            (AlertIncidentRole.OPEN, "trigger", "posthog-alert-{event.properties.alert_id}"),
+            (AlertIncidentRole.RESOLVE, "resolve", "posthog-alert-{event.properties.alert_id}"),
+            (
+                AlertIncidentRole.CHECK_FAILURE,
+                "trigger",
+                "posthog-alert-{event.properties.alert_id}-check-failure",
+            ),
+        ],
+    )
+    def test_pagerduty_event_action_and_dedup_key_follow_the_incident_role(
+        self, incident_role: AlertIncidentRole, event_action: str, dedup_key: str
+    ) -> None:
+        config = build_alert_destination_config(
+            spec=replace(DEFAULT_SPEC, incident_role=incident_role),
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=_DESTINATION_DATA[DestinationType.PAGERDUTY],
+            slack_context_elements=(),
+        )
+
+        inputs = config.payload["inputs"]
+        assert inputs["event_action"]["value"] == event_action
+        assert inputs["dedup_key"]["value"] == dedup_key
+        assert inputs["severity"]["value"] == "warning"
+
+    @pytest.mark.parametrize(
+        "spec,summary,links",
+        [
+            (
+                DEFAULT_SPEC,
+                "Insight alert firing: 30",
+                [{"href": "https://example.com/insight", "text": "View insight"}],
+            ),
+            (
+                PROSE_SPEC,
+                "Insight alert firing",
+                [
+                    {"href": "https://example.com/insight", "text": "View insight"},
+                    {"href": "https://example.com/alert", "text": "Manage alert"},
+                ],
+            ),
+        ],
+    )
+    def test_pagerduty_summary_names_the_breach_and_links_back_to_posthog(
+        self, spec: EventKindSpec, summary: str, links: list[dict[str, str]]
+    ) -> None:
+        config = build_alert_destination_config(
+            spec=spec,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=_DESTINATION_DATA[DestinationType.PAGERDUTY],
+            slack_context_elements=(),
+        )
+
+        assert config.payload["inputs"]["summary"]["value"] == summary
+        assert config.payload["inputs"]["links"]["value"] == links
 
     def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
         data: AlertDestinationData = {
