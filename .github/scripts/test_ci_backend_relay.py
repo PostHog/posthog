@@ -298,7 +298,7 @@ def test_poll_does_not_use_an_ambiguous_plain_named_wait() -> None:
     ],
 )
 def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | None) -> None:
-    code, lines = relay.relay_gate(result, EVENT, "123")
+    code, lines = relay.relay_gate(result, EVENT)
     assert code == exit_code
     if first_line is None:
         assert lines == []
@@ -308,7 +308,7 @@ def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | 
 
 def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
     _, lines = relay.relay_gate(
-        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT, "123"
+        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT
     )
     assert any("push a new commit" in line for line in lines)
     assert any("routing rules choose the engine" in line for line in lines)
@@ -431,7 +431,7 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
         clock=clock,
         sleep=clock.sleep,
     )
-    code, lines = relay.relay_gate(result, EVENT, "123")
+    code, lines = relay.relay_gate(result, EVENT)
     assert code == 1
     if state == "failure" and workflow == "live" and newer is None:
         assert clock.now == 0

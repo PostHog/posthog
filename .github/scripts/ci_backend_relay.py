@@ -388,7 +388,7 @@ def poll(
         sleep(60 if current.phase == Phase.RUNNING else 30)
 
 
-def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]:
+def retry_instructions(event: Event, details_url: str) -> list[str]:
     return [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result.",
         f"Depot run: {details_url or 'not found'}",
@@ -398,7 +398,7 @@ def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]
     ]
 
 
-def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[str]]:
+def relay_gate(result: Progress, event: Event) -> tuple[int, list[str]]:
     """The exit code and log lines of the `Django Tests Pass` relay for the gate's progress."""
     if result.phase == Phase.FINISHED and result.state == "success":
         return 0, []
@@ -410,12 +410,12 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     if result.phase == Phase.FINISHED:
         return 1, [
             f"::error::Backend tests on Depot CI concluded {result.state}. This step's log lists the retry options.",
-            *retry_instructions(event, result.details_url, run_id),
+            *retry_instructions(event, result.details_url),
         ]
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url, run_id),
+            *retry_instructions(event, result.details_url),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
@@ -436,7 +436,7 @@ def main(argv: Sequence[str]) -> int:
     except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
-    code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
+    code, lines = relay_gate(result, event)
     sys.stdout.writelines(f"{line}\n" for line in lines)
     if code:
         if summary := env.get("GITHUB_STEP_SUMMARY"):

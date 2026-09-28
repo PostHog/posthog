@@ -16,8 +16,9 @@ import selectors
 import subprocess
 import urllib.parse
 import urllib.request
+from email.message import Message
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from ci_backend_relay import (
     API_ROOT,
@@ -47,6 +48,7 @@ SECRET = re.compile(
     r"[a-f0-9]{64,}|-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)|"
     r"https?://[^\s/@]+:[^\s/@]+@[^\s]+)"
 )
+FAILURE = re.compile(r"FAILED|ERROR|Error|Exception|Assertion|fatal|panic|timed out|exit(?:ed)? (?:with )?code")
 
 
 class Unavailable(ValueError):
@@ -75,6 +77,20 @@ def publish(lines: list[str]) -> None:
             stream.write("\n\n".join(safe_text(line, 1600) for line in lines)[:MAX_REPORT] + "\n")
 
 
+class ArtifactRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: BinaryIO, code: int, msg: str, headers: Message, newurl: str
+    ) -> urllib.request.Request | None:
+        target = urllib.parse.urlparse(newurl)
+        if target.scheme != "https":
+            raise Unavailable("insecure redirect")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        # Signed artifact URLs must not receive the GitHub credential.
+        if redirected and target.netloc != "api.github.com":
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 class GitHub:
     def __init__(self, token: str) -> None:
         self.token = token
@@ -85,18 +101,7 @@ class GitHub:
             headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json"},
         )
 
-        # Artifact downloads redirect to signed storage URLs. urllib strips neither header,
-        # so explicitly remove authorization when leaving api.github.com.
-        class Redirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
-                if urllib.parse.urlparse(newurl).scheme != "https":
-                    raise Unavailable("insecure redirect")
-                redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
-                if redirected and urllib.parse.urlparse(newurl).hostname != "api.github.com":
-                    redirected.remove_header("Authorization")
-                return redirected
-
-        with urllib.request.build_opener(Redirect()).open(request, timeout=15) as response:
+        with urllib.request.build_opener(ArtifactRedirect()).open(request, timeout=15) as response:
             raw = response.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise Unavailable("response size limit")
@@ -121,6 +126,13 @@ class GitHub:
         if not isinstance(value, dict):
             raise Unavailable("invalid artifact JSON")
         return value
+
+    def handoff(self, run: int, attempt: int) -> str | None:
+        body = self.read(f"actions/runs/{run}/attempts/{attempt}/jobs?per_page=100")
+        if body["total_count"] > 100:
+            raise Unavailable("job listing incomplete")
+        jobs = [job for job in body["jobs"] if job["name"] == "Hand off backend tests to Depot CI"]
+        return jobs[0]["conclusion"] if len(jobs) == 1 else None
 
 
 class Depot:
@@ -171,7 +183,7 @@ class Depot:
         return json.loads(raw)
 
 
-def validate_request(request: dict[str, Any], run: dict[str, Any], jobs: list[dict[str, Any]]) -> Event:
+def validate_request(request: dict[str, Any], run: dict[str, Any], handoff: str | None) -> Event:
     if (
         set(request)
         != {"repo", "sha", "pr", "event_at", "github_run", "github_attempt", "workflow", "root_check_id", "check_id"}
@@ -193,8 +205,7 @@ def validate_request(request: dict[str, Any], run: dict[str, Any], jobs: list[di
         or not any(pr["number"] == request["pr"] and pr["head"]["sha"] == request["sha"] for pr in run["pull_requests"])
     ):
         raise Unavailable("request identity mismatch")
-    handoffs = [j for j in jobs if j["name"] == "Hand off backend tests to Depot CI"]
-    if len(handoffs) != 1 or handoffs[0]["conclusion"] != "success":
+    if handoff != "success":
         raise Unavailable("no successful GitHub handoff")
     return Event(REPO, request["sha"], request["pr"], request["event_at"])
 
@@ -214,10 +225,6 @@ def validate_workflow(body: dict[str, Any], event: Event, workflow: str) -> None
         or not ID.fullmatch(run["run_id"])
     ):
         raise Unavailable("Depot workflow identity mismatch")
-
-
-def latest_attempt(job: dict[str, Any]) -> dict[str, Any] | None:
-    return max(job["attempts"], key=lambda a: a["attempt"], default=None)
 
 
 def deterministic_boundary(logs: list[dict[str, Any]], job_key: str) -> bool:
@@ -249,10 +256,12 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
     validate_workflow(body, event, workflow)
     run_id = body["run"]["run_id"]
     lines = [f"Depot run {run_id}; workflow {workflow}; PR head {event.sha}; merge SHA {body['run']['sha']}."]
-    failed = [
-        j for j in body["jobs"] if j["status"] == "failed" and (latest_attempt(j) or {}).get("status") == "failed"
-    ]
-    roots = [job for job in failed if job["job_key"] != "ci-backend.yml:django_tests"]
+    failed: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for job in body["jobs"]:
+        attempt = max(job["attempts"], key=lambda a: a["attempt"], default=None)
+        if job["status"] == "failed" and attempt and attempt["status"] == "failed":
+            failed.append((job, attempt))
+    roots = [(job, attempt) for job, attempt in failed if job["job_key"] != "ci-backend.yml:django_tests"]
     if roots and len(roots) != len(failed):
         lines.append("Downstream Django Tests Pass gate failed after prerequisite failures.")
         failed = roots
@@ -276,9 +285,7 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
         raise Unavailable("diagnosis identity mismatch")
     deterministic = False
     recovered_attempts: list[str] = []
-    for job in failed[:MAX_FAILURES]:
-        attempt = latest_attempt(job)
-        assert attempt is not None
+    for job, attempt in failed[:MAX_FAILURES]:
         if not ID.fullmatch(attempt["attempt_id"]):
             raise Unavailable("invalid attempt")
         lines.append(f"Failed job: {job['job_key']}; attempt {attempt['attempt']} ({attempt['attempt_id']}).")
@@ -289,12 +296,17 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
             recovered_attempts.append(
                 f"{job['job_key']} previously passed attempt {max(prior_successes, key=lambda a: a['attempt'])['attempt_id']}"
             )
-        representatives = [
-            r
-            for r in diagnosis["representative_attempts"]
-            if r["job_id"] == job["job_id"] and r["attempt_id"] == attempt["attempt_id"]
-        ]
-        for representative in representatives[:1]:
+        representative = next(
+            (
+                r
+                for r in diagnosis["representative_attempts"]
+                if r["job_id"] == job["job_id"] and r["attempt_id"] == attempt["attempt_id"]
+            ),
+            None,
+        )
+        if representative is None:
+            lines.append("Step diagnostics unavailable for this attempt.")
+        else:
             if (
                 representative["run_id"] != run_id
                 or representative["workflow_id"] != workflow
@@ -308,27 +320,22 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
             lines.append(f"Failed step: {representative['error_message']}")
             # diagnosis / possible_fix are AI advice, not failure or retryability evidence.
             excerpts = sorted(
-                (
-                    e
-                    for e in representative["relevant_lines"]
-                    if re.search(
-                        r"FAILED|ERROR|Error|Exception|Assertion|fatal|panic|timed out|exit(?:ed)? (?:with )?code",
-                        e["content"],
-                    )
-                ),
-                key=lambda e: not e["content"].startswith(("FAILED ", "ERROR ", "E ")),
+                (e["content"] for e in representative["relevant_lines"] if FAILURE.search(e["content"])),
+                key=lambda text: not text.startswith(("FAILED ", "ERROR ", "E ")),
             )
             for excerpt in excerpts[:4]:
-                lines.append(f"Evidence: {excerpt['content']}")
-        if not representatives:
-            lines.append("Step diagnostics unavailable for this attempt.")
+                lines.append(f"Evidence: {excerpt}")
         if job["job_key"] in ("ci-backend.yml:repo-checks", "ci-backend.yml:check-openapi-types"):
             logs = depot.read("logs", attempt["attempt_id"], json_lines=True)
             deterministic |= deterministic_boundary(logs, job["job_key"])
     # Don't publish an attempt that was replaced during collection.
     current = depot.read("workflow", "show", workflow)
     validate_workflow(current, event, workflow)
-    if current["jobs"] != body["jobs"] or current["executions"] != body["executions"]:
+    if (
+        current["jobs"] != body["jobs"]
+        or current["executions"] != body["executions"]
+        or any(current["run"][key] != body["run"][key] for key in ("run_id", "sha"))
+    ):
         raise Unavailable("Depot attempts changed during collection")
     if diagnosis.get("bounds", {}).get("truncated") or len(failed) > MAX_FAILURES:
         lines.append("Diagnostics truncated: only a bounded subset of failures is shown.")
@@ -350,14 +357,6 @@ def collect(depot: Depot, event: Event, workflow: str) -> list[str]:
     return lines
 
 
-def request_name(run: int, attempt: int) -> str:
-    return f"backend-diagnostics-request-{run}-{attempt}"
-
-
-def report_name(run: int, attempt: int) -> str:
-    return f"backend-diagnostics-report-{run}-{attempt}"
-
-
 def await_request(github: GitHub, trigger: dict[str, Any], destination: Path) -> None:
     run_id, attempt = trigger["id"], trigger["run_attempt"]
     if os.environ.get("HAS_DEPOT_CREDENTIAL") != "true":
@@ -370,20 +369,13 @@ def await_request(github: GitHub, trigger: dict[str, Any], destination: Path) ->
         if run["run_attempt"] != attempt:
             return
         if not handed_off:
-            jobs = github.read(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
-            if jobs["total_count"] > 100:
-                raise Unavailable("job listing incomplete")
-            handoffs = [j for j in jobs["jobs"] if j["name"] == "Hand off backend tests to Depot CI"]
-            if len(handoffs) == 1:
-                if handoffs[0]["conclusion"] in ("skipped", "cancelled", "failure"):
-                    return
-                handed_off = handoffs[0]["conclusion"] == "success"
-        request = github.artifact(run_id, request_name(run_id, attempt))
+            handoff = github.handoff(run_id, attempt)
+            if handoff in ("skipped", "cancelled", "failure"):
+                return
+            handed_off = handoff == "success"
+        request = github.artifact(run_id, f"backend-diagnostics-request-{run_id}-{attempt}")
         if request:
-            jobs = github.read(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
-            if jobs["total_count"] > 100:
-                raise Unavailable("job listing incomplete")
-            validate_request(request, run, jobs["jobs"])
+            validate_request(request, run, github.handoff(run_id, attempt))
             destination.write_text(json.dumps(request))
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
                 stream.write("ready=true\n")
@@ -415,31 +407,27 @@ def validate_selection(github: GitHub, request: dict[str, Any]) -> Event:
 def collector(github: GitHub, request: dict[str, Any], destination: Path) -> None:
     if len(json.dumps(request).encode()) > 4000:
         raise Unavailable("oversized request")
-    report: dict[str, Any] = {"request": request}
     try:
         if not os.environ.get("DEPOT_TOKEN"):
             raise Unavailable("missing Depot credential")
         event = validate_selection(github, request)
-        report["lines"] = [
-            safe_text(line, 1600, markdown=False) for line in collect(Depot(), event, request["workflow"])
-        ]
+        lines = [safe_text(line, 1600, markdown=False) for line in collect(Depot(), event, request["workflow"])]
     except Exception:
-        report["lines"] = ["Diagnostics unavailable: collection failed or evidence could not be validated."]
+        lines = ["Diagnostics unavailable: collection failed or evidence could not be validated."]
+    report = {"request": request, "lines": lines}
     if len(json.dumps(report).encode()) > MAX_REPORT:
-        report["lines"].append("Diagnostics truncated to the report size limit.")
+        lines.append("Diagnostics truncated to the report size limit.")
         while len(json.dumps(report).encode()) > MAX_REPORT:
-            longest = max(range(len(report["lines"])), key=lambda index: len(report["lines"][index]))
-            line = report["lines"][longest]
-            report["lines"][longest] = line[: len(line) // 2]
+            lines.pop(-2)
     destination.write_text(json.dumps(report))
 
 
 def receive(github: GitHub, request: dict[str, Any]) -> list[str]:
     if not request.get("workflow"):
         return ["Diagnostics unavailable: no selected Depot workflow."]
+    name = f"backend-diagnostics-report-{request['github_run']}-{request['github_attempt']}"
     deadline = time.monotonic() + 150
     while time.monotonic() < deadline:
-        name = report_name(request["github_run"], request["github_attempt"])
         artifacts = github.read(f"actions/artifacts?name={name}&per_page=100")
         if artifacts["total_count"] > 1:
             raise Unavailable("ambiguous diagnostic reports")

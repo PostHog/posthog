@@ -1,11 +1,14 @@
 import io
 import json
 import zipfile
+import urllib.request
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import yaml
 import ci_backend_diagnostics as diagnostics
 from ci_backend_relay import Event
 
@@ -87,9 +90,17 @@ class Depot:
         return self.logs
 
 
-@pytest.mark.parametrize("key", ["repo-checks", "check-openapi-types"])
-@pytest.mark.parametrize("boundary", [True, False])
-def test_failure_diagnostics_require_the_classifier_boundary(key: str, boundary: bool) -> None:
+@pytest.mark.parametrize(
+    "key,boundary,drift",
+    [
+        ("repo-checks", True, False),
+        ("repo-checks", False, False),
+        ("check-openapi-types", True, True),
+        ("check-openapi-types", False, True),
+        ("check-openapi-types", True, False),
+    ],
+)
+def test_failure_diagnostics_require_the_classifier_boundary(key: str, boundary: bool, drift: bool) -> None:
     body, report = workflow(), diagnosis()
     body["jobs"][0]["job_key"] = report["representative_attempts"][0]["job_key"] = f"ci-backend.yml:{key}"
     logs = [
@@ -100,13 +111,20 @@ def test_failure_diagnostics_require_the_classifier_boundary(key: str, boundary:
             "body": '##[group]Run echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"',
         }
     ]
-    if key == "check-openapi-types" and boundary:
-        logs.append({"step_id": "openapi-check", "body": "::error::OpenAPI types are out of date!"})
+    if key == "check-openapi-types":
+        logs.append(
+            {
+                "step_id": "openapi-check",
+                "body": "::error::OpenAPI types are out of date!"
+                if drift
+                else "fatal: Could not resolve host: github.com",
+            }
+        )
     output = "\n".join(diagnostics.collect(Depot(body, report, logs), EVENT, "workflow1"))
     assert "Step 3 (Validate widgets)" in output
     assert "test_widget_contract" in output
     assert "Definitely flaky" not in output and "echo unsafe" not in output
-    if boundary:
+    if boundary and (key == "repo-checks" or drift):
         assert "confirmed deterministic" in output and "Expected downstream cancellations: 1" in output
         assert "to retry" not in output
     else:
@@ -280,26 +298,36 @@ def test_request_cannot_cross_the_github_identity_boundary(field: str, value: An
     original = request()
     original[field] = value
     with pytest.raises(diagnostics.Unavailable):
-        diagnostics.validate_request(
-            original, github_run(), [{"name": "Hand off backend tests to Depot CI", "conclusion": "success"}]
-        )
+        diagnostics.validate_request(original, github_run(), "success")
 
 
-@pytest.mark.parametrize("handoff", ["failure", "skipped", "pending", None])
-def test_diagnostics_require_successful_github_authorization(handoff: str | None) -> None:
+@pytest.mark.parametrize(
+    "states,total",
+    [(["failure"], 1), (["skipped"], 1), ([None], 1), ([], 0), (["success", "success"], 2), (["success"], 101)],
+)
+def test_diagnostics_require_successful_github_authorization(states: list[str | None], total: int) -> None:
+    class GitHub(diagnostics.GitHub):
+        def read(self, path: str, *, binary: bool = False) -> Any:
+            return {
+                "total_count": total,
+                "jobs": [{"name": "Hand off backend tests to Depot CI", "conclusion": state} for state in states],
+            }
+
     with pytest.raises(diagnostics.Unavailable):
-        diagnostics.validate_request(
-            request(), github_run(), [{"name": "Hand off backend tests to Depot CI", "conclusion": handoff}]
-        )
+        diagnostics.validate_request(request(), github_run(), GitHub("token").handoff(1, 1))
 
 
-def test_diagnostics_reject_attempt_replaced_during_collection() -> None:
+@pytest.mark.parametrize("changed", ["attempt", "run_id", "sha"])
+def test_diagnostics_reject_attempt_replaced_during_collection(changed: str) -> None:
     class ChangingDepot(Depot):
         def read(self, *args: str, **kwargs: Any) -> Any:
             result = super().read(*args, **kwargs)
             if args[0] == "workflow" and len(self.calls) > 1:
                 result = json.loads(json.dumps(result))
-                result["jobs"][0]["attempts"].append({"attempt_id": "attempt2", "attempt": 2, "status": "pending"})
+                if changed == "attempt":
+                    result["jobs"][0]["attempts"].append({"attempt_id": "attempt2", "attempt": 2, "status": "pending"})
+                else:
+                    result["run"][changed] = "newrun" if changed == "run_id" else "c" * 40
             return result
 
     with pytest.raises(diagnostics.Unavailable):
@@ -317,8 +345,6 @@ def test_retry_history_can_support_possible_flake() -> None:
 
 
 def test_collector_workflow_is_isolated_from_pr_execution() -> None:
-    import yaml
-
     path = Path(__file__).parents[1] / "workflows/ci-backend-diagnostics.yml"
     workflow = yaml.safe_load(path.read_text())
     assert workflow[True] == {"workflow_run": {"workflows": ["Backend CI"], "types": ["in_progress"]}}
@@ -370,15 +396,36 @@ def test_receiver_rejects_reports_from_untrusted_workflow_runs(
     assert now[0] == 150
 
 
-def test_openapi_network_failure_flag_does_not_prove_determinism() -> None:
-    logs = [
-        {
-            "type": "line",
-            "step_id": "deterministic-failure",
-            "step_name": "Flag deterministic failure",
-            "body": '##[group]Run echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"',
-        },
-        {"step_id": "openapi-check", "body": "fatal: Could not resolve host: github.com"},
-    ]
-    assert diagnostics.deterministic_boundary(logs, "ci-backend.yml:repo-checks")
-    assert not diagnostics.deterministic_boundary(logs, "ci-backend.yml:check-openapi-types")
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://storage.example.com/artifact",
+        "https://api.github.com:8443/artifact",
+        "http://storage.example.com/artifact",
+    ],
+)
+def test_artifact_redirects_do_not_forward_github_credentials(target: str) -> None:
+    request = urllib.request.Request(
+        "https://api.github.com/artifact", headers={"Authorization": "Bearer invented_credential"}
+    )
+    redirect = diagnostics.ArtifactRedirect()
+    if target.startswith("http:"):
+        with pytest.raises(diagnostics.Unavailable):
+            redirect.redirect_request(request, io.BytesIO(), 302, "Found", Message(), target)
+    else:
+        redirected = redirect.redirect_request(request, io.BytesIO(), 302, "Found", Message(), target)
+        assert redirected is not None and redirected.get_header("Authorization") is None
+
+
+def test_collector_report_budget_preserves_complete_excerpts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DEPOT_TOKEN", "invented_credential")
+    monkeypatch.setattr(diagnostics, "validate_selection", lambda *args: EVENT)
+    excerpt = "Evidence: " + "界" * 1500
+    monkeypatch.setattr(diagnostics, "collect", lambda *args: [excerpt] * 20)
+    destination = tmp_path / "report.json"
+    diagnostics.collector(diagnostics.GitHub("token"), request(), destination)
+    report = json.loads(destination.read_text())
+    assert len(destination.read_bytes()) <= diagnostics.MAX_REPORT
+    assert report["request"] == request()
+    assert report["lines"][-1] == "Diagnostics truncated to the report size limit."
+    assert report["lines"][:-1] and all(line == excerpt for line in report["lines"][:-1])
