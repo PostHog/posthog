@@ -28,10 +28,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
-from posthog.temporal.ai_observability.metrics import (
-    increment_backfill_child_start_failures,
-    increment_backfill_remainder_outcome,
-)
+from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     INGESTION_LAG_MARGIN_SECONDS,
     RunAggregateEvaluationInputs,
@@ -156,6 +153,8 @@ class AdvanceCursorInputs:
     dispatched_delta: int
     skipped_delta: int
     exhausted: bool
+    # Defaulted so an advance recorded before this field existed still deserializes.
+    failed_delta: int = 0
 
 
 @frozen
@@ -316,6 +315,7 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     updates: dict[str, Any] = {
         "dispatched_count": F("dispatched_count") + inputs.dispatched_delta,
         "skipped_count": F("skipped_count") + inputs.skipped_delta,
+        "failed_count": F("failed_count") + inputs.failed_delta,
     }
     if inputs.new_cursor_timestamp is not None:
         updates["cursor_timestamp"] = datetime.fromisoformat(inputs.new_cursor_timestamp)
@@ -342,6 +342,7 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
         team_id=inputs.team_id,
         dispatched=inputs.dispatched_delta,
         skipped=inputs.skipped_delta,
+        failed=inputs.failed_delta,
         exhausted=inputs.exhausted,
         applied=bool(updated),
     )
@@ -392,7 +393,9 @@ def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
         rerun_existing=False,
     )
     in_flight = row.dispatched_count + row.skipped_count
-    remaining = max(0, scope.to_evaluate - in_flight)
+    # A unit that failed to start has no evaluation on the way, so the discount cannot absorb it.
+    floor = 0 if row.rerun_existing else row.failed_count
+    remaining = max(floor, scope.to_evaluate - in_flight)
     EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(remaining_count=remaining)
     logger.info(
         "llma.evaluation_backfill_remainder",
@@ -451,14 +454,13 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         )
         # A page whose children mostly went out must not be re-dispatched because one start
         # raised: the retry would collide with every child already running. The unit that failed
-        # is left to a later backfill, and counted as neither dispatched nor skipped, because
-        # skipped means the live path already graded it.
+        # is left to a later backfill and counted as failed, not skipped, because skipped means
+        # the live path already has it.
         results = await asyncio.gather(
             *(self._start_child(inputs, tick, candidate) for candidate in found.candidates),
             return_exceptions=True,
         )
         failed = [result for result in results if isinstance(result, BaseException)]
-        increment_backfill_child_start_failures(len(failed))
         for error in failed:
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_start_failed",
@@ -477,6 +479,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 new_cursor_unit_id=found.next_cursor_unit_id,
                 dispatched_delta=dispatched,
                 skipped_delta=skipped,
+                failed_delta=len(failed),
                 exhausted=found.exhausted,
             ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,

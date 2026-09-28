@@ -1496,12 +1496,14 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
-    /** Units matched at creation; the ceiling on dispatched_count. */
+    /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
     readonly dispatched_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
+    /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+    readonly failed_count: number
     /**
      * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
      * @nullable
