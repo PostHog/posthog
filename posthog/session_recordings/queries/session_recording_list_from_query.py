@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tags_context
@@ -36,6 +37,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_person_property_check_enabled,
     is_session_property,
     test_account_scoped_query,
 )
@@ -303,7 +305,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 next_cursor = self._paginator.get_next_cursor()
 
             return SessionRecordingQueryResult(
-                results=(self._data_to_return(self._paginator.results)),
+                results=self._without_person_blocked_sessions(self._data_to_return(self._paginator.results)),
                 has_more_recording=self._paginator.has_more(),
                 timings=paginated_response.timings,
                 next_cursor=next_cursor,
@@ -479,6 +481,120 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def matches_on_events(self) -> bool:
         """Whether any filter narrows sessions by their events, so `events_timestamp_floor` can cost results."""
         return any(b.get_queries_for_session_id_matching() for b in self._events_filter_builders())
+
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._without_person_blocked_sessions")
+    def _without_person_blocked_sessions(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop fetched sessions whose person a negative person-property filter excludes.
+
+        In PoE mode those filters are events-based, so a session with no events passes them even
+        when its person matches the excluded value (the "filter out internal and test users" case).
+        The check needs the fetched rows' distinct ids, so it runs after selection: the page can
+        come back short, but the cursor comes from the unfiltered rows, so pagination skips
+        nothing. A session is dropped when any of its replay rows' distinct ids resolves to a
+        blocked person, matching the events blocklist's any-event semantics. Fail-open on error,
+        which returns the page the listing already produced.
+        """
+        # Callers that set skip_negative_blocklists evaluate negative filters against the fetched
+        # rows themselves, so the person check stays out of their way too.
+        if not results or self._skip_negative_blocklists:
+            return results
+
+        page_distinct_ids = list({row["distinct_id"] for row in results if row.get("distinct_id")})
+        if not page_distinct_ids:
+            return results
+
+        subqueries = [PersonsPropertiesSubQuery(self._team, self._query)]
+        if self._test_account_filters:
+            subqueries.append(
+                PersonsPropertiesSubQuery(
+                    self._team, test_account_scoped_query(self._query, self._test_account_filters)
+                )
+            )
+        # Probe with the page's own ids: a None from every subquery means no negative person
+        # filter applies, so neither the flag read nor the queries below are needed.
+        if not any(sq.get_blocked_distinct_ids_query(page_distinct_ids) for sq in subqueries):
+            return results
+        if not is_person_property_check_enabled(self._team):
+            return results
+
+        try:
+            session_distinct_ids = self._session_distinct_ids(results)
+            all_distinct_ids = list({distinct_id for ids in session_distinct_ids.values() for distinct_id in ids})
+
+            blocked_distinct_ids: set[str] = set()
+            for subquery in subqueries:
+                blocked_query = subquery.get_blocked_distinct_ids_query(all_distinct_ids)
+                if blocked_query is None:
+                    continue
+                response = execute_hogql_query(
+                    query=blocked_query,
+                    team=self._team,
+                    # Same user as the listing query, so per-user property restrictions apply here too.
+                    user=self._user,
+                    query_type="SessionRecordingListPersonPropertyCheck",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=self._person_check_query_settings(),
+                )
+                blocked_distinct_ids |= {row[0] for row in response.results or []}
+
+            blocked_sessions = {
+                session_id
+                for session_id, distinct_ids in session_distinct_ids.items()
+                if distinct_ids & blocked_distinct_ids
+            }
+        except Exception as e:
+            capture_exception(e)
+            return results
+
+        if not blocked_sessions:
+            return results
+        return [row for row in results if row["session_id"] not in blocked_sessions]
+
+    def _person_check_query_settings(self) -> HogQLGlobalSettings:
+        """The caller's execution-time limit also bounds the post-fetch person check queries.
+
+        A timeout must throw, not return partial rows: a partial blocked-id set would keep a
+        blocked session without entering the fail-open exception handler.
+        """
+        if self._max_execution_time is not None:
+            return HogQLGlobalSettings(max_execution_time=self._max_execution_time, timeout_overflow_mode="throw")
+        return HogQLGlobalSettings(timeout_overflow_mode="throw")
+
+    def _session_distinct_ids(self, results: list[dict[str, Any]]) -> dict[str, set[str]]:
+        """Every distinct id the fetched sessions' replay rows were written under, per session id.
+
+        The page carries one distinct id per session (`any(s.distinct_id)`), but a session
+        recorded under several distinct ids must be excluded when any of them resolves to a
+        blocked person. Bounded by the fetched rows' own time range, so the lookup stays on
+        the table's date-first sort key.
+        """
+        query = parse_select(
+            """
+            SELECT session_id, distinct_id
+            FROM raw_session_replay_events
+            WHERE session_id IN {session_ids}
+              AND min_first_timestamp >= {date_from}
+              AND min_first_timestamp <= {date_to}
+            GROUP BY session_id, distinct_id
+            """,
+            {
+                "session_ids": ast.Constant(value=[row["session_id"] for row in results]),
+                "date_from": ast.Constant(value=min(row["start_time"] for row in results)),
+                "date_to": ast.Constant(value=max(row["end_time"] for row in results)),
+            },
+        )
+        response = execute_hogql_query(
+            query=query,
+            team=self._team,
+            user=self._user,
+            query_type="SessionRecordingListPersonPropertyCheckDistinctIds",
+            modifiers=self._hogql_query_modifiers,
+            settings=self._person_check_query_settings(),
+        )
+        session_distinct_ids: dict[str, set[str]] = {}
+        for row in response.results or []:
+            session_distinct_ids.setdefault(row[0], set()).add(row[1])
+        return session_distinct_ids
 
     def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
         """Every builder that can contribute an events subquery: the query's own, plus test accounts."""

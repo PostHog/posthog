@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
     delta_merge_spill_kwargs,
+    ensure_table_properties,
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
@@ -483,6 +485,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
 
             if mode == "append":
@@ -494,11 +497,13 @@ class DeltaWriter:
                 # column's type in place.
                 data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
+            # Bound outside the lambdas: mypy does not carry the None narrowing into a closure.
+            overwrite_target = delta_table
             try:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=PARTITION_KEY if use_partitioning else None,
                         mode=mode,
@@ -515,7 +520,7 @@ class DeltaWriter:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=None,
                         mode=mode,
@@ -537,6 +542,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
@@ -548,10 +554,11 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
+            append_target = delta_table
             await execute_with_conflict_retry(
                 delta_table,
                 lambda: _write_deltalake(
-                    delta_table,
+                    append_target,
                     data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="append",
@@ -564,6 +571,8 @@ class DeltaWriter:
 
         delta_table = await self._table.get_delta_table()
         assert delta_table is not None
+
+        await ensure_table_properties(delta_table, self._logger)
 
         return delta_table
 
