@@ -2634,14 +2634,14 @@ Today (14): `assets`, `controls`, `devices`, `events`, `evidence_library`, `fram
 Diffed against: <https://developers.drata.com/page-data/openapi/reference/v2/tag/Assets/page-data.json>
 
 - [x] `GET /workspaces/{workspaceId}/framework-requirements` — the requirement catalogue each synced framework is composed of — without it frameworks are opaque IDs (high)
-- [ ] `GET /workspaces/{workspaceId}/controls/{controlId}/requirements` — control↔requirement mapping, the junction that makes compliance coverage queryable (high)
+- [x] `GET /workspaces/{workspaceId}/controls/{controlId}/requirements` — control↔requirement mapping, the junction that makes compliance coverage queryable (high) — added as `control_requirements`, fanning out over the already-synced controls.
 - [x] `GET /workspaces/{workspaceId}/monitoring-tests/{testId}/failures` — test failure history — the headline continuous-monitoring metric; monitoring_tests today gives only current state (high)
 - [x] `GET /workspaces/{workspaceId}/tasks` — remediation tasks with owners and due dates; the core operational work queue (high)
 - [x] `GET /users/{userId}/assigned-policies` — policy acceptance per user — the compliance metric auditors ask for; policies sync but attestation does not (high)
 - [ ] `GET /roles and GET /roles/{roleId}/users` — role lookup plus role↔user membership for the already-synced users table (medium)
-- [ ] `GET /workspaces/{workspaceId}/audits` — audit engagements that scope frameworks and evidence (medium)
-- [ ] `GET /workspaces/{workspaceId}/audits/{auditId}/requests` — auditor evidence requests and their fulfillment state (medium)
-- [ ] `GET /workspaces/{workspaceId}/controls/{controlId}/owners` — control↔personnel ownership junction (medium)
+- [x] `GET /workspaces/{workspaceId}/audits` — audit engagements that scope frameworks and evidence (medium) — added as `audits`.
+- [x] `GET /workspaces/{workspaceId}/audits/{auditId}/requests` — auditor evidence requests and their fulfillment state (medium) — added as `audit_requests`, fanning out over `audits`.
+- [x] `GET /workspaces/{workspaceId}/controls/{controlId}/owners` — control↔personnel ownership junction (medium) — added as `control_owners`. The rows carry user records, so they join to `users` rather than `personnel`.
 - [ ] `GET /vendor-security-reviews` — vendor security review records and outcomes across all synced vendors (medium)
 - [ ] `GET /vendor-types` — lookup resolving the type ID on every synced vendor (medium)
 - [ ] `GET /policies/{policyId}/policy-versions` — policy version history for change tracking (low)
