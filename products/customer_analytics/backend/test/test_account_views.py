@@ -70,6 +70,14 @@ class TestAccountViews(APIBaseTest):
             status.HTTP_404_NOT_FOUND,
         )
 
+    def test_malformed_view_id_returns_not_found(self) -> None:
+        malformed_id = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+        self.assertEqual(self.client.get(f"{self.endpoint}{malformed_id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            self.client.patch(f"{self.endpoint}{malformed_id}/", {"version": 1}, format="json").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
     def test_patch_rejects_team_visibility(self) -> None:
         view = self._create()
 

@@ -964,7 +964,9 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
 
 class AccountViewMarkdownAttributesSerializer(serializers.Serializer):
     nodeId = serializers.CharField(help_text="Stable identifier for this document.")
-    markdown = serializers.CharField(help_text="Component-only Markdown stored by the account view editor.")
+    markdown = serializers.CharField(
+        max_length=256 * 1024, help_text="Component-only Markdown stored by the account view editor."
+    )
 
 
 class AccountViewMarkdownNodeSerializer(serializers.Serializer):
@@ -1050,10 +1052,15 @@ class AccountViewUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Views can only be private.")
         return value
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if "version" not in attrs:
-            raise serializers.ValidationError({"version": "This field is required."})
-        return attrs
+    # The endpoint is a PATCH, so the schema generator marks every field optional. Every update needs
+    # `version`, and the generated types and MCP tool must say so.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, _value: bool) -> None:
+        pass
 
 
 class AccountViewDeleteQuerySerializer(serializers.Serializer):
