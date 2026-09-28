@@ -340,7 +340,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             }
         },
         loadIntegrationsSuccess: () => {
-            if (!values.firstSlackIntegration) {
+            if (!values.firstSlackIntegration && values.selectedType === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
                 actions.setSelectedType(LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
         },

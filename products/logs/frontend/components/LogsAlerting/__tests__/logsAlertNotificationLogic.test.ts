@@ -54,6 +54,24 @@ describe('logsAlertNotificationLogic', () => {
         ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({ results: [] })
     })
 
+    describe('default notification type', () => {
+        it.each([
+            ['slack', 'webhook'],
+            ['pagerduty', 'pagerduty'],
+            ['teams', 'teams'],
+        ] as const)('moves %s to %s when integrations load without Slack', async (selected, expected) => {
+            const logic = logsAlertNotificationLogic({ alertId: undefined })
+            logic.mount()
+
+            logic.actions.setSelectedType(selected)
+            logic.actions.loadIntegrationsSuccess([])
+
+            expect(logic.values.selectedType).toEqual(expected)
+
+            logic.unmount()
+        })
+    })
+
     describe('pending notifications', () => {
         it('adds a pending notification', () => {
             const logic = logsAlertNotificationLogic({ alertId: undefined })
