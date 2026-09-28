@@ -114,9 +114,10 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         [
             ("one_category", {"categories": {"spam": "Spam"}}),
             ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
+            ("oversized_context", {"context": {"message": "x" * 65_536}}),
         ]
     )
-    def test_rejects_categories_the_model_cannot_answer(self, _name: str, body: dict) -> None:
+    def test_rejects_inputs_the_model_cannot_answer(self, _name: str, body: dict) -> None:
         with patch(_BUILD) as build:
             response = self._post(body)
 
