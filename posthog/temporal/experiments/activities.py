@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,11 +8,13 @@ from django.db.models import Q
 
 import structlog
 import temporalio.activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -45,6 +48,23 @@ from products.experiments.stats.shared.statistics import StatisticError
 logger = structlog.get_logger(__name__)
 
 EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
+
+# The long hourly batches overlap for hours, so a saturated cluster stays saturated well past the
+# RetryPolicy's 10-20s interval. Jitter spreads the retries of the metrics that failed together.
+CLICKHOUSE_AT_CAPACITY_RETRY_DELAY_MIN = timedelta(minutes=1)
+CLICKHOUSE_AT_CAPACITY_RETRY_DELAY_MAX = timedelta(minutes=3)
+
+
+def _clickhouse_at_capacity_retry(error: ClickHouseAtCapacity) -> ApplicationError:
+    delay = random.uniform(
+        CLICKHOUSE_AT_CAPACITY_RETRY_DELAY_MIN.total_seconds(),
+        CLICKHOUSE_AT_CAPACITY_RETRY_DELAY_MAX.total_seconds(),
+    )
+    return ApplicationError(
+        str(error.detail),
+        type="ClickHouseAtCapacity",
+        next_retry_delay=timedelta(seconds=delay),
+    )
 
 
 @database_sync_to_async
@@ -333,9 +353,12 @@ async def calculate_experiment_regular_metric(
     fingerprint: str,
 ) -> ExperimentRegularMetricResult:
     """Calculate timeseries results for a single experiment-metric combination."""
-    return await _calculate_experiment_regular_metric_sync(
-        experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
-    )
+    try:
+        return await _calculate_experiment_regular_metric_sync(
+            experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
+        )
+    except ClickHouseAtCapacity as e:
+        raise _clickhouse_at_capacity_retry(e) from e
 
 
 @database_sync_to_async
@@ -633,9 +656,12 @@ async def calculate_experiment_saved_metric(
     fingerprint: str,
 ) -> ExperimentSavedMetricResult:
     """Calculate timeseries results for a single experiment-saved metric combination."""
-    return await _calculate_experiment_saved_metric_sync(
-        experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
-    )
+    try:
+        return await _calculate_experiment_saved_metric_sync(
+            experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
+        )
+    except ClickHouseAtCapacity as e:
+        raise _clickhouse_at_capacity_retry(e) from e
 
 
 @database_sync_to_async
