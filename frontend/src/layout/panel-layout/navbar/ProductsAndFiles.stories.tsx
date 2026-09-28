@@ -70,6 +70,7 @@ function SidebarStory({
     empty = false,
     recentsCollapsed = false,
     allProductsOpen = true,
+    aiConsent = true,
     folderToOpen,
 }: {
     tab?: NavExperimentTab
@@ -79,6 +80,7 @@ function SidebarStory({
     empty?: boolean
     recentsCollapsed?: boolean
     allProductsOpen?: boolean
+    aiConsent?: boolean
     folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
@@ -86,8 +88,10 @@ function SidebarStory({
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch, setAllProductsOpen } = useActions(navProductsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
+    const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
     useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
+        loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: aiConsent })
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
         setNavOverlayOpen(overlay)
@@ -202,6 +206,7 @@ export const CustomizeSidebar: Story = {
     },
 }
 export const CustomizeSidebarWithoutAIConsent: Story = {
+    args: { aiConsent: false },
     decorators: [
         mswDecorator({
             get: {
@@ -212,13 +217,7 @@ export const CustomizeSidebarWithoutAIConsent: Story = {
             },
         }),
     ],
-    play: async (context) => {
-        organizationLogic.actions.loadCurrentOrganizationSuccess({
-            ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: false,
-        })
-        await CustomizeSidebar.play!(context)
-    },
+    play: CustomizeSidebar.play,
 }
 export const CustomizeSidebarSaveFailure: Story = {
     parameters: {
