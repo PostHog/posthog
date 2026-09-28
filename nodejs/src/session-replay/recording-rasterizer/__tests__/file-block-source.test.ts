@@ -1,9 +1,12 @@
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
+import { PassThrough, Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { zstdCompressSync } from 'zlib'
 
 import { FileBlockSource, isAllowedSource } from '~/session-replay/recording-rasterizer/capture/file-block-source'
+import { byteLimit } from '~/session-replay/recording-rasterizer/storage'
 
 describe('FileBlockSource', () => {
     let dir: string
@@ -45,5 +48,15 @@ describe('FileBlockSource', () => {
         ['s3://bench/rv-benchmark/../exports/mp4/x.mp4', false],
     ])('isAllowedSource(%s) is %s under s3://bench/rv-benchmark', (uri, expected) => {
         expect(isAllowedSource(uri, ['s3://bench/rv-benchmark'])).toBe(expected)
+    })
+
+    // A source download with no Content-Length to check up front still stops at the size gate.
+    it('byteLimit fails a download once it passes the limit', async () => {
+        const sink = new PassThrough()
+        sink.resume()
+
+        await expect(
+            pipeline(Readable.from([Buffer.alloc(6), Buffer.alloc(6)]), byteLimit(10), sink)
+        ).rejects.toMatchObject({ code: 'RECORDING_TOO_LARGE' })
     })
 })

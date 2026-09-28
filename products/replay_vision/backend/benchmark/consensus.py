@@ -140,7 +140,8 @@ def _median_ratings(labels: list[dict[str, Any]]) -> tuple[dict[str, Any], None]
 def _span(edges: dict[str, Any]) -> list[Span]:
     """A span with both edges, or none: an answer missing one is dropped rather than failing the snapshot."""
     start, end = edges.get("startMs"), edges.get("endMs")
-    return [Span(start_ms=start, end_ms=end)] if isinstance(start, int) and isinstance(end, int) else []
+    # `type(...) is int` rather than isinstance, which would pass True and False as millisecond edges.
+    return [Span(start_ms=start, end_ms=end)] if type(start) is int and type(end) is int else []
 
 
 def _itemized_spans(label: dict[str, Any]) -> list[Span]:

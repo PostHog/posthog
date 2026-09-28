@@ -100,6 +100,12 @@ def _span_label(*spans: tuple[int, int]) -> dict[str, Any]:
             [{"choiceIndices": [0]}, {"choiceIndices": [3]}],
             None,
         ),
+        (
+            "span_with_a_boolean_edge_is_dropped",
+            _question("itemized"),
+            [_span_label((1_000, 4_000)), _span_label((1_500, 5_000)), {"items": [{"startMs": True, "endMs": 9}]}],
+            {"present": True, "moments": [{"startMs": 1_250, "endMs": 4_500, "labelers": 2}]},
+        ),
         ("single_label_is_not_consensus", _question("binary"), [{"choice": True}], None),
         ("free_text_has_no_consensus", _question("freeform_long"), [{"response": "a"}, {"response": "a"}], None),
     ]

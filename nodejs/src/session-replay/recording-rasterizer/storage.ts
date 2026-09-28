@@ -4,7 +4,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
 
 import { config } from './config'
@@ -132,6 +132,23 @@ export function parseS3Uri(uri: string): { bucket: string; key: string } {
     return { bucket: match[1], key: match[2] }
 }
 
+/** Fails the download once more than `maxBytes` arrive, for a response that sent no Content-Length to check first. */
+export function byteLimit(maxBytes: number): Transform {
+    let seen = 0
+    return new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+            seen += chunk.length
+            if (seen > maxBytes) {
+                callback(
+                    new RasterizationError(`S3 object too large: over ${maxBytes} bytes`, false, 'RECORDING_TOO_LARGE')
+                )
+                return
+            }
+            callback(null, chunk)
+        },
+    })
+}
+
 /** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
 export async function downloadFromS3(
     bucket: string,
@@ -155,7 +172,8 @@ export async function downloadFromS3(
             )
         }
         // Streamed, not buffered: thumbnail extraction reads several tens-of-megabytes MP4s at once.
-        await pipeline(res.Body as Readable, fs.createWriteStream(localPath), { signal: options.signal })
+        const stages: NodeJS.ReadWriteStream[] = options.maxBytes !== undefined ? [byteLimit(options.maxBytes)] : []
+        await pipeline([res.Body as Readable, ...stages, fs.createWriteStream(localPath)], { signal: options.signal })
     } catch (err) {
         if (err instanceof RasterizationError) {
             throw err
