@@ -134,3 +134,6 @@ class EmailThreadParticipant(TeamScopedRootMixin, UUIDModel):
                 name="unique_email_thread_participant",
             ),
         ]
+        indexes = [
+            models.Index(fields=["team", "thread", "kind"], name="email_participant_kind_idx"),
+        ]
