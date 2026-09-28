@@ -146,7 +146,8 @@ Look in this checkout first: `git status --short`, then inspect the complete sta
 Follow constants and wrappers as well as the literal key. Only a diff that removes a runtime check counts as cleanup.
 Uncommitted cleanup is work already prepared here. Report it and stop unless the user asked you to continue it.
 
-For each relevant remote, run `git fetch <remote>` before comparing branches with the current base branch.
+For each relevant remote, run `git fetch --prune <remote>` before comparing branches with the current base branch.
+Pruning drops refs to branches deleted on the remote, so a deleted cleanup branch does not look like work in flight.
 Check the fetch refspec and shallow-clone state. Fetch missing branch refs or history when the host permits it.
 If required refs remain unavailable, report that existing-work detection is incomplete and stop before editing.
 A repository with no remote needs only the local checks; do not invent a hosting requirement.
