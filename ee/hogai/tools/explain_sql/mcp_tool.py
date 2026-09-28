@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from posthog.schema import CostPlanStep, HogLanguage, HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import CostPlanStep, HogLanguage, HogQLMetadata, HogQLMetadataResponse, ScanEstimate
 
 from posthog.hogql.metadata import _scan_estimate_enabled, get_hogql_metadata
 
@@ -86,11 +86,19 @@ def _format_plan(response: HogQLMetadataResponse, *, enabled: bool) -> str:
     for step in response.cost_plan:
         lines.append(_format_step(step))
     lines.append("")
-    lines.append(
-        "Rows read, not rows returned. A filter with no index behind it does not lower the number. "
-        "Narrow the timestamp range or the event names to read less."
-    )
+    lines.append(_advice(estimate))
     return "\n".join(lines)
+
+
+def _advice(estimate: ScanEstimate) -> str:
+    if any(table.source == "events" for table in estimate.tables):
+        return (
+            "Rows read, not rows returned. A filter with no index behind it does not lower the number. "
+            "Narrow the timestamp range or the event names to read less."
+        )
+    if estimate.upper_bound:
+        return "Table sizes, not rows read. The number is the most the query can read, and a selective filter may read less."
+    return "Rows read, not rows returned. A filter with no index behind it does not lower the number."
 
 
 def _format_step(step: CostPlanStep) -> str:

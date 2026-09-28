@@ -503,10 +503,10 @@ class SnowflakeImplementation(
                     f"""
                     SELECT TABLE_SCHEMA, TABLE_NAME, ROW_COUNT
                     FROM INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_CATALOG = %s
+                    WHERE TABLE_CATALOG = CURRENT_DATABASE()
                       AND ({pair_predicate})
                     """,
-                    (config.database, *(value for pair in pairs for value in pair)),
+                    tuple(value for pair in pairs for value in pair),
                 )
                 for table_schema, table_name, row_count in cursor:
                     display_name = display_by_pair.get((table_schema, table_name))

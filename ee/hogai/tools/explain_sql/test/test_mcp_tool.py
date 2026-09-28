@@ -47,6 +47,21 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
             )
 
         assert result.content.startswith("Reads about 36,500,000 rows from 1 of 2 tables. Not sized: persons.")
+        assert result.content.endswith("Narrow the timestamp range or the event names to read less.")
+
+    async def test_advice_for_a_sized_table_does_not_mention_events(self):
+        provider = FixedStatisticsProvider(table_rows={(self.team.pk, "person"): 812_000})
+        with (
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.metadata.ClickHouseStatisticsProvider", return_value=provider),
+        ):
+            result = await self.tool.execute(
+                ExplainSQLMCPToolArgs(query="SELECT count() FROM persons WHERE properties.plan = 'pro'")
+            )
+
+        assert result.content.startswith("Reads up to 812,000 rows from one table.")
+        assert result.content.endswith("and a selective filter may read less.")
+        assert "event names" not in result.content
 
     async def test_says_when_estimates_are_not_enabled_for_the_project(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):

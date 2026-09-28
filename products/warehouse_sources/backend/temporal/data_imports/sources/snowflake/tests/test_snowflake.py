@@ -573,7 +573,8 @@ class TestGetRowEstimates:
         assert out == {"users": 812000}
         sql, params = cursor.execute.call_args.args
         assert "INFORMATION_SCHEMA.TABLES" in sql and "ROW_COUNT" in sql
-        assert params == ("DB", "PUBLIC", "orders", "PUBLIC", "users")
+        assert "CURRENT_DATABASE()" in sql
+        assert params == ("PUBLIC", "orders", "PUBLIC", "users")
 
     def test_is_empty_when_the_catalog_is_not_readable(self, impl, cursor):
         cursor.execute.side_effect = Exception("perm")
