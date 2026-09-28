@@ -44,7 +44,11 @@ export function ReportExpectedImpactChart({
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: goalGrain === 'whole_window' && aggregateQuery !== null,
     }
-    const { response: aggregateResponse, responseError: aggregateError } = useValues(dataNodeLogic(aggregateProps))
+    const {
+        response: aggregateResponse,
+        responseError: aggregateError,
+        responseLoading: aggregateLoading,
+    } = useValues(dataNodeLogic(aggregateProps))
     const aggregate = reportMetricAggregate(aggregateResponse)
 
     if (responseLoading && !response) {
@@ -73,11 +77,13 @@ export function ReportExpectedImpactChart({
                 <div className="text-xs text-secondary">
                     <div className="mb-1 flex justify-between">
                         <span>
-                            {aggregateError
-                                ? 'Current total unavailable'
-                                : aggregate == null
-                                  ? 'Loading current total'
-                                  : `Current window: ${formatReportMetricValue(metric, aggregate)}`}
+                            {aggregateLoading && aggregateResponse == null
+                                ? 'Loading current total'
+                                : aggregateError
+                                  ? 'Current total unavailable'
+                                  : aggregate == null
+                                    ? 'No total for this window'
+                                    : `Current window: ${formatReportMetricValue(metric, aggregate)}`}
                         </span>
                         <span>Goal: {formatReportMetricValue(metric, goal)}</span>
                     </div>
