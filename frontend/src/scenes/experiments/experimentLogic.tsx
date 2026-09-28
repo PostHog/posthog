@@ -569,23 +569,6 @@ export interface experimentLogicActions {
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
     } // eventUsageLogic
-    reportExperimentCreated: (
-        experiment: Experiment,
-        metadata?:
-            | {
-                  creation_source?: string
-                  has_linked_flag?: boolean
-              }
-            | undefined
-    ) => {
-        experiment: Experiment
-        metadata:
-            | {
-                  creation_source?: string | undefined
-                  has_linked_flag?: boolean | undefined
-              }
-            | undefined
-    } // eventUsageLogic
     reportExperimentDashboardCreated: (
         experiment: Experiment,
         dashboardId: number
@@ -661,9 +644,6 @@ export interface experimentLogicActions {
         forceRefresh: boolean
     } // eventUsageLogic
     reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => {
-        experimentId: ExperimentIdType
-    } // eventUsageLogic
-    reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentSharedMetricAssigned: (
@@ -1359,12 +1339,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['loadTags'],
             eventUsageLogic,
             [
-                'reportExperimentCreated',
                 'reportExperimentViewed',
 
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantScreenshotUploaded',
-                'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
