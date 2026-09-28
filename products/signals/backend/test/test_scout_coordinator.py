@@ -481,7 +481,7 @@ def test_resolve_global_max_runs_per_tick(payload, expected):
         ({"max_runs_per_tick_global": 5000}, 200),
     ],
 )
-def test_resolve_global_max_operational_runs_per_tick(payload, expected):
+def test_resolve_global_max_operational_runs_per_tick(payload: dict[str, object] | None, expected: int) -> None:
     assert _resolve_global_max_operational_runs_per_tick(payload, 200) == expected
 
 
@@ -1189,18 +1189,20 @@ async def test_global_cap_is_split_fairly_across_teams(ateam, aother_team):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_operational_scouts_have_their_own_tick_budget(ateam, aother_team):
+@pytest.mark.parametrize("seeded", [True, False])
+async def test_operational_scouts_have_their_own_tick_budget(ateam: Team, aother_team: Team, seeded: bool) -> None:
     # Never-run operational lanes are maximally overdue. In a shared budget they would take every
-    # slot from the product scouts, so each pool is capped on its own.
+    # slot from the product scouts, so each pool is capped on its own. A team's own scout that
+    # shares the operational name is a product scout and gets no operational slot.
     now = timezone.now()
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-product")
     await database_sync_to_async(_create_config)(
         ateam, "signals-scout-product", enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=5)
     )
-    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT, seeded=seeded)
     await database_sync_to_async(_create_config)(ateam, _OPERATIONAL_SCOUT, enabled=True, auto_pause_exempt=True)
 
-    def _seed_other():
+    def _seed_other() -> None:
         with team_scope(aother_team.id, canonical=True):
             _create_skill(aother_team, _OPERATIONAL_SCOUT)
             _create_config(aother_team, _OPERATIONAL_SCOUT, enabled=True, auto_pause_exempt=True)
@@ -1213,9 +1215,27 @@ async def test_operational_scouts_have_their_own_tick_budget(ateam, aother_team)
     ):
         planned = await _run_activity()
 
-    assert sorted((p.team_id, p.skill_name) for p in planned) == sorted(
-        [(ateam.id, "signals-scout-product"), (min(ateam.id, aother_team.id), _OPERATIONAL_SCOUT)]
-    )
+    if seeded:
+        expected = [(ateam.id, "signals-scout-product"), (min(ateam.id, aother_team.id), _OPERATIONAL_SCOUT)]
+    else:
+        expected = [(ateam.id, _OPERATIONAL_SCOUT), (aother_team.id, _OPERATIONAL_SCOUT)]
+    assert sorted((p.team_id, p.skill_name) for p in planned) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    "default_cfg,runs_today",
+    [
+        ({"max_runs_per_tick": 1}, {}),
+        ({"max_runs_per_day": 3}, {7: 2}),
+    ],
+)
+def test_per_team_caps_count_both_budgets(default_cfg: dict[str, int], runs_today: dict[int, int]) -> None:
+    due = [
+        _DueRun(overdue_s=10 * 3600, config_pk="p", team_id=7, skill_name="signals-scout-product"),
+        _DueRun(overdue_s=float("inf"), config_pk="o", team_id=7, skill_name=_OPERATIONAL_SCOUT, operational=True),
+    ]
+    selected = _allocate_tick_budget(due, {}, default_cfg, runs_today)
+    assert [d.skill_name for d in selected] == [_OPERATIONAL_SCOUT]
 
 
 # ── Per-team config overrides via the flag payload (optional, opt-in per team) ───

@@ -378,7 +378,7 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
 GLOBAL_MAX_OPERATIONAL_RUNS_PER_TICK_KEY = "max_operational_runs_per_tick_global"
 
 
-def _resolve_global_max_operational_runs_per_tick(payload: dict | None, default: int) -> int:
+def _resolve_global_max_operational_runs_per_tick(payload: dict[str, object] | None, default: int) -> int:
     """Effective per-tick dispatch ceiling for operational scouts: the flag override if valid, else `default`."""
     if payload is None:
         return default

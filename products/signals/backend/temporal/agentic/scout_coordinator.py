@@ -25,12 +25,13 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import (
     canonical_operational_skill_names,
+    harness_seeded_operational_lanes,
     live_scout_skill_names,
     operational_configs_needing_reconcile,
     reconcile_operational_configs,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import is_operational_scout, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
     COORDINATOR_INTERVAL_MINUTES,
@@ -345,6 +346,7 @@ class _DueRun:
     config_pk: str
     team_id: int
     skill_name: str
+    operational: bool = False
 
 
 def _collect_planned_runs(
@@ -435,16 +437,13 @@ def _collect_planned_runs(
         d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
     }
     runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
-    # Operational scouts draw from their own budget, so they never defer a product scout.
-    product_due = [d for d in due if not is_operational_scout(d.skill_name)]
-    operational_due = [d for d in due if is_operational_scout(d.skill_name)]
-    selected = _allocate_tick_budget(product_due, team_configs, default_team_config, runs_today, max_runs_per_tick)
-    selected += _allocate_tick_budget(
-        operational_due,
-        team_configs,
-        default_team_config,
-        runs_today,
-        max_operational_runs_per_tick if max_operational_runs_per_tick is not None else MAX_OPERATIONAL_RUNS_PER_TICK,
+    # Only the harness-seeded canonical scout takes the operational budget. A team's own scout
+    # that shares the name is a product scout.
+    operational_lanes = harness_seeded_operational_lanes({d.team_id for d in due})
+    for d in due:
+        d.operational = (d.team_id, d.skill_name) in operational_lanes
+    selected = _allocate_tick_budget(
+        due, team_configs, default_team_config, runs_today, max_runs_per_tick, max_operational_runs_per_tick
     )
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
@@ -458,6 +457,7 @@ def _allocate_tick_budget(
     default_team_config: dict | None = None,
     runs_today: dict[int, int] | None = None,
     max_runs_per_tick: int | None = None,
+    max_operational_runs_per_tick: int | None = None,
 ) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
@@ -468,6 +468,9 @@ def _allocate_tick_budget(
 
     The global budget is `max_runs_per_tick` (the flag-resolved ceiling the activity passes in),
     falling back to the `MAX_RUNS_PER_TICK` code constant for direct callers that don't supply one.
+    Operational runs fill a separate global budget, `max_operational_runs_per_tick` (falling back
+    to `MAX_OPERATIONAL_RUNS_PER_TICK`), so they never defer a product scout. The per-team caps
+    count both kinds together, so a team's per-tick and daily bounds hold across both budgets.
 
     The effective per-team cap is the tighter of two bounds: the per-tick cap
     (`_resolve_max_runs_per_tick`) and the day's remaining headroom under the per-team daily
@@ -479,6 +482,9 @@ def _allocate_tick_budget(
     default_team_config = default_team_config or {}
     runs_today = runs_today or {}
     global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
+    operational_cap = (
+        max_operational_runs_per_tick if max_operational_runs_per_tick is not None else MAX_OPERATIONAL_RUNS_PER_TICK
+    )
 
     def _team_cap(team_id: int) -> int:
         per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
@@ -516,6 +522,13 @@ def _allocate_tick_budget(
                 )
             del runs[cap:]
 
+    product_by_team = {team_id: [d for d in runs if not d.operational] for team_id, runs in by_team.items()}
+    operational_by_team = {team_id: [d for d in runs if d.operational] for team_id, runs in by_team.items()}
+    return _fill_global_budget(product_by_team, global_cap) + _fill_global_budget(operational_by_team, operational_cap)
+
+
+def _fill_global_budget(by_team: dict[int, list[_DueRun]], global_cap: int) -> list[_DueRun]:
+    """Fill one global budget round-robin across teams, from runs already trimmed to per-team caps."""
     # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
     # sort never indexes into an empty list.
     by_team = {team_id: runs for team_id, runs in by_team.items() if runs}
