@@ -4,8 +4,14 @@ import { useMemo } from 'react'
 import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { SURVEY_RESPONSE_CONTEXT_COLUMNS, getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
+import {
+    getSurveyResponseStatus,
+    isScaleTwoRating,
+    surveyResponseColumnId,
+    surveyResponseColumnLabel,
+} from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
@@ -39,7 +45,7 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
  * - On thumb questions, render the icon + "Thumbs up/down" instead of the raw `1`/`2` value.
  */
 export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
-    const { survey } = useValues(surveyLogic)
+    const { survey, responseColumns } = useValues(surveyLogic)
 
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {
@@ -60,9 +66,11 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                 render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
             },
             ...Object.fromEntries(
-                SURVEY_RESPONSE_CONTEXT_COLUMNS.map((column): [string, QueryContextColumn] => [
-                    column.key,
-                    { title: column.label },
+                responseColumns.map((column): [string, QueryContextColumn] => [
+                    surveyResponseColumnId(column),
+                    column.type === 'person_id'
+                        ? { title: surveyResponseColumnLabel(column) }
+                        : { renderTitle: () => <PropertyKeyInfo value={column.key} type={column.type} disableIcon /> },
                 ])
             ),
             actions: {
@@ -115,5 +123,5 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
         })
 
         return columns
-    }, [survey.questions])
+    }, [survey.questions, responseColumns])
 }

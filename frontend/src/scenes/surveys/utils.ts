@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -17,7 +18,8 @@ import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -750,8 +752,8 @@ function buildMergedSubmissionsSubquery(
     questions: QuestionWithIndex[],
     {
         includeRespondentMetadata = false,
-        includeCurrentUrl = false,
-    }: { includeRespondentMetadata?: boolean; includeCurrentUrl?: boolean } = {}
+        propertyReads = [],
+    }: { includeRespondentMetadata?: boolean; propertyReads?: PropertyRead[] } = {}
 ): string {
     const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
@@ -767,10 +769,10 @@ function buildMergedSubmissionsSubquery(
                   'person.properties AS person_properties',
               ]
             : []),
-        // Read only when the user turns its column on, because an unconditional read costs every
+        // Read only when the user adds its column, because an unconditional read costs every
         // responses query one more property read and one more argMax. The metadata columns above
         // always reach a caller, so they stay unconditional.
-        ...(includeCurrentUrl ? ['properties.`$current_url` AS current_url'] : []),
+        ...propertyReads.map(({ alias, expression }) => `${expression} AS ${alias}`),
         `${completedEventExpr} AS is_completed_event`,
         'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
@@ -793,7 +795,7 @@ function buildMergedSubmissionsSubquery(
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
               ]
             : []),
-        ...(includeCurrentUrl ? ['argMax(current_url, tuple(timestamp, event_uuid)) AS current_url'] : []),
+        ...propertyReads.map(({ alias }) => `argMax(${alias}, tuple(timestamp, event_uuid)) AS ${alias}`),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
             return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
@@ -903,32 +905,71 @@ export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<S
 }
 
 /**
- * Respondent context the responses table can show. Both the table and the export select only the
- * columns the user turned on, so the file carries the same context the table shows.
+ * A column the user adds to the responses table. Both the table and the export select only the
+ * columns the user added, so the file carries the same context the table shows.
  */
-export const SURVEY_RESPONSE_CONTEXT_COLUMNS = [
-    { key: 'person_id', label: 'Person ID' },
-    { key: 'session_id', label: 'Session ID' },
-    { key: 'current_url', label: 'Current URL' },
-] as const
+export type SurveyResponseColumn =
+    | { type: 'person_id' }
+    | {
+          type: TaxonomicFilterGroupType.EventProperties | TaxonomicFilterGroupType.PersonProperties
+          key: string
+      }
 
-export type SurveyResponseContextColumn = (typeof SURVEY_RESPONSE_CONTEXT_COLUMNS)[number]['key']
+export function surveyResponseColumnId(column: SurveyResponseColumn): string {
+    switch (column.type) {
+        case 'person_id':
+            return 'person_id'
+        case TaxonomicFilterGroupType.EventProperties:
+            return `properties.${column.key}`
+        case TaxonomicFilterGroupType.PersonProperties:
+            return `person.properties.${column.key}`
+    }
+}
 
-function selectedContextColumns(
-    contextColumns: SurveyResponseContextColumn[]
-): { key: SurveyResponseContextColumn; label: string }[] {
-    return SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => contextColumns.includes(column.key))
+export function surveyResponseColumnLabel(column: SurveyResponseColumn): string {
+    return column.type === 'person_id' ? 'Person ID' : getFilterLabel(column.key, column.type)
+}
+
+interface PropertyRead {
+    alias: string
+    expression: string
+}
+
+interface ChosenColumn {
+    column: SurveyResponseColumn
+    source: string
+    read: PropertyRead | null
+}
+
+function chooseColumns(columns: SurveyResponseColumn[]): ChosenColumn[] {
+    return columns.map((column, index) => {
+        if (column.type === 'person_id') {
+            return { column, source: 'person_id', read: null }
+        }
+        const alias = `column_${index}`
+        const object = column.type === TaxonomicFilterGroupType.PersonProperties ? 'person.properties' : 'properties'
+        return {
+            column,
+            source: alias,
+            read: { alias, expression: `${object}.${escapeRawPropertyAsHogQLIdentifier(column.key)}` },
+        }
+    })
+}
+
+function propertyReadsFor(chosen: ChosenColumn[]): PropertyRead[] {
+    return chosen.flatMap(({ read }) => (read ? [read] : []))
 }
 
 export function buildSurveyResponsesQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
-    contextColumns: SurveyResponseContextColumn[] = []
+    responseColumns: SurveyResponseColumn[] = []
 ): string {
     const questions = getAnswerableQuestions(survey)
+    const chosen = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        includeCurrentUrl: contextColumns.includes('current_url'),
+        propertyReads: propertyReadsFor(chosen),
     })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
@@ -942,7 +983,9 @@ export function buildSurveyResponsesQuery(
         'outcome AS status',
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
-        ...selectedContextColumns(contextColumns).map((column) => `${column.key} AS ${column.key}`),
+        ...chosen.map(
+            ({ column, source }) => `${source} AS ${escapePropertyAsHogQLIdentifier(surveyResponseColumnId(column))}`
+        ),
         // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
     ]
@@ -952,12 +995,13 @@ export function buildSurveyResponsesQuery(
 export function buildSurveyResponsesExportQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
-    contextColumns: SurveyResponseContextColumn[] = []
+    responseColumns: SurveyResponseColumn[] = []
 ): DataTableNode & { source: HogQLQuery } {
     const questions = getAnswerableQuestions(survey)
+    const chosen = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        includeCurrentUrl: contextColumns.includes('current_url'),
+        propertyReads: propertyReadsFor(chosen),
     })
     const columns = ['Respondent ID', 'Email', 'Submitted at (UTC)', 'Status']
     const expressions = [
@@ -967,9 +1011,9 @@ export function buildSurveyResponsesExportQuery(
         "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
     ]
 
-    for (const column of selectedContextColumns(contextColumns)) {
-        columns.push(column.label)
-        expressions.push(column.key)
+    for (const { column, source } of chosen) {
+        columns.push(surveyResponseColumnLabel(column))
+        expressions.push(source)
     }
 
     for (const { question, index } of questions) {
