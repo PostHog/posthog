@@ -163,7 +163,7 @@ Otherwise the live answer stands.
 Applying a seed never touches the replay marks of the live path.
 
 The check compares two clocks, not property versions: the seeder's scan instant and the client's event time.
-The margin, 15 minutes by default, covers ClickHouse replication lag and client clock skew.
+The margin, `COHORT_SEED_PERSON_LIVE_MARGIN_MS`, 15 minutes by default, covers ClickHouse replication lag and client clock skew.
 A property change that reaches ClickHouse later than the margin, or a client clock skewed by more than it, lets a scan with older properties overwrite the live answer.
 Person seeds have no apply fence to catch that.
 
@@ -204,7 +204,8 @@ The final guard against stamping a stale definition is Django's: supersession on
 
 When a cohort's markers come up short, the seeder settles it anyway.
 If the shape hash of the run's kind moved or cannot be read, or the cohort was deleted, its participation is superseded.
-Otherwise it is a retryable shortfall, even after an edit that left that hash alone, and the run waits in `reconciling` until an operator dispatches reconcile again.
+Otherwise it is a retryable shortfall, and the run waits in `reconciling` until an operator dispatches reconcile again.
+An edit that owes this kind a repair run never gets that far, because Django supersedes the participation when the edit commits.
 [Completion and readiness](completion-and-readiness.md#deciding-the-outcome) explains this.
 
 ## Run lifecycle

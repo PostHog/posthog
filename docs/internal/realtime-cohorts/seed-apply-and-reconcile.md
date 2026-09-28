@@ -36,7 +36,7 @@ It starts only after the first catalog load.
 Each poll, it decides per partition which seeds may go to the worker now.
 
 - **The fence.**
-  A day tile may apply only when the partition's **live watermark** is past the tile's `S_chunk` plus a margin, 10 minutes by default.
+  A day tile may apply only when the partition's **live watermark** is past the tile's `S_chunk` plus a margin, `COHORT_SEED_FENCE_MARGIN_MS`, 10 minutes by default.
   The live watermark is the newest broker timestamp of a live event the worker has folded and marked processed.
   It is reset whenever the partition is assigned, and a partition with no watermark keeps its fence closed.
   Person seeds and reconcile requests have no fence of their own.

@@ -317,7 +317,7 @@ Nothing in Stage 1 runs until the sweep reaches A's deadline.
 
 - **One Stage 1 read and one Stage 1 write per event.**
   A person's Stage 1 state is clustered under one key prefix, so the snapshot is one batched read of a few adjacent blocks, after one tombstone lookup.
-  A flip that recomposes a cohort adds a few reads and a second write batch per cohort.
+  A flip that recomposes cohorts adds a few reads per cohort and one more write batch for all of them.
   In a same-load comparison, clustering the keys this way and folding all person-property state into one record with fingerprints cut reads and CPU per event by more than an order of magnitude.
 - **The event-name gate.**
   Conditions are bucketed by the event their leaf names.

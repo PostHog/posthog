@@ -115,7 +115,9 @@ Each short participation gets one of these outcomes:
 | Markers missing, and this kind's shape hash moved or cannot be read, or the cohort is deleted  | Superseded                                                                  |
 
 Missing markers with an unchanged hash usually mean the processor discarded or skipped the request, for example because reconcile was disabled on it.
-An edit that moved only the other kind's hash, or only the composition, also leaves this kind's hash unchanged and gives a retryable shortfall.
+An edit that moved only the other kind's hash also leaves this kind's hash unchanged and gives a retryable shortfall.
+A composition-only edit that owes this kind a repair run is different: Django supersedes the participation when the edit commits, so the seeder never settles it.
+For a behavioral participation, that is any composition-only edit on a cohort with a hashed behavioral leaf.
 A retryable shortfall needs an operator to dispatch the run again.
 Until then the run keeps the cohort's run slot for that kind, and the automatic driver never retries an observed run.
 

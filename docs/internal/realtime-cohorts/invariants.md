@@ -16,17 +16,20 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - If broken: tiles miss their leaves, and a compiler change that alters the bytecode of an unchanged filter moves every affected hash.
 - See [definitions and eligibility](definitions-and-eligibility.md#bytecode-and-the-condition-hash).
 
-**2. The leaf state key derivation is frozen, and Django's behavioral shape hash moves whenever it would.**
+**2. The leaf state key derivation is frozen, and Django's behavioral shape hash moves whenever the LSK fields of the cohort's leaves change.**
 
 - Why: behavioral state is keyed by it, and readiness is invalidated by the shape hash.
 - Kept by: a golden vector test in Rust, and a Python shape hash over the same normalized fields.
 - If broken: every stored row is orphaned at once, or an edit changes state without clearing readiness.
 
-**3. The processor and the seeder interpret a definition with the same code.**
+**3. The processor and the seeder parse and classify a definition with the same code.**
 
 - Why: seeded state and live state must mean the same thing.
 - Kept by: both link `cohort-core` for parsing, classification, state keys, windows, the HogVM configuration and day math.
-  The seeder never enables cascades, so cohorts with references are the one place their verdicts differ.
+  The seeder never enables cascades, so cohorts with references are the one place their classes differ.
+- Limit: composition is not shared.
+  The processor folds the tree in its own crate, and the seeder's relevance pruning runs a separate three-valued fold that agrees with it only by inspection, with no test tying the two together.
+  A change to the processor's fold has to be made in the seeder's too.
 - If broken: backfills write state the live path reads differently.
 
 **4. A cohort with any leaf the pipeline cannot represent emits nothing.**
@@ -39,7 +42,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: a read set that is too small silently changes answers, while one that is too wide only costs time.
 - Kept by: every construct the analysis does not model, and any analysis over budget, falls back to "reads everything".
-  Property-based tests compare evaluation on pruned and full inputs.
+  A property-based test in `cohort-core` covers the seeder's pruned scan, and a fixture test covers the processor's planned globals.
 
 ## Routing and the runtime
 
@@ -67,14 +70,16 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Kept by: every consumer forces the write-ahead log to disk before each commit, and skips the commit if that fails.
 - If broken: a crash loses writes whose inputs are never redelivered.
 - Limit: it covers writes that succeeded.
-  A live event skipped on a store error, a wiped slice, and a follower rewind that failed after a checkpoint restore are outside it.
+  A live event skipped on a store error, the batch the events consumer drops when boot recovery settles, a wiped slice, and a follower rewind that failed after a checkpoint restore are outside it.
 - See [state store and durability](state-store-and-durability.md#the-durability-invariant).
 
 **9. A later success never commits past an earlier failure that set a floor.**
 
 - Why: merges, cascades, seeds and reconcile requests must be retried, not skipped.
 - Kept by: held and deferred floors in each offset tracker, and holdovers that retry older messages before newer ones.
-- Note: the live event path sets no floor, which is why live output is at most once.
+- Note: the live event path sets no floor.
+  Live output is at most once because state commits before the produce, so a redelivered event is a replay and emits nothing.
+  A floor would only stall the commit, not bring a lost change back.
 
 **10. Live work comes first.**
 
@@ -99,10 +104,11 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Limit: the marks live inside their row.
   Once the sweep deletes a row, or the person record time-to-live expires a record, a redelivered old event is folded again.
 
-**13. Stage 1 never reads the wall clock.**
+**13. The live path's Stage 1 fold never reads the wall clock.**
 
 - Why: replaying the same events must give the same state.
-- Kept by: windows advance with event time on the live path, and only the sweep moves them with time.
+- Kept by: on the live path, windows advance only with event time.
+  The sweep and backfill tile apply move them to the current wall-clock day, so applying the same tiles on a later day can slide a window and flip a leaf.
 - Consequence: a leaf's answer "as of now" is right only after the sweep has run.
 
 **14. Stage 2 recomputes the whole cohort from stored state and compares it with the stored bit.**
@@ -147,10 +153,11 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **19. Seeds carry absolute values and merge idempotently.**
 
 - Why: seeds are produced at least once and applied again after failures.
-- Kept by: day tiles carry absolute counts merged with `max`, and a person seed applies only when its scan instant beats the record's stamp by a margin.
+- Kept by: day tiles carry absolute counts merged with `max`.
+  A person seed applies when the person has no record, when its scan instant beats the record's stamp by a margin, or when the record was evaluated live against a different set of person conditions and the scan is not older than its stamp.
 - Limit: a person seed that changes nothing leaves no stamp, so person seeds from different runs are not ordered by scan time.
 - Limit: the person check compares clocks, not property versions.
-  A property change that reaches ClickHouse later than the margin can lose to an older scan.
+  A property change that reaches ClickHouse later than the margin can lose to an older scan, and after any change to the team's person conditions, the third case lets a scan inside the margin overwrite live state.
 
 **20. A day tile applies only after the live path should have folded every event the tile counted.**
 
@@ -215,7 +222,8 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **28. The newest change for a cohort and person wins.**
 
 - Why: changes arrive late, twice, and out of order.
-- Kept by: the consumer applies a change only if its version is at least the stored one, and versions increase strictly within one worker's tenure on a processor partition.
+- Kept by: with `COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED` on, the consumer applies a change only if its version is at least the stored one, and versions increase strictly within one worker's tenure on a processor partition.
+  With it off, which is the default, the last message in Kafka order wins.
 - Limit: across a restart or a partition move, version order follows the wall clock.
   A change with no usable version bypasses the ordering.
 - See [membership output and readers](membership-output-and-readers.md).
@@ -238,15 +246,17 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 ## Delivery, in one table
 
-| Path                                                                                                    | Guarantee                            | What repairs a loss                 |
-| ------------------------------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------- |
-| Firehose to stream topic                                                                                | At least once, with counted abandons | Backfill                            |
-| Node to person merge events                                                                             | At most once, uncounted              | Backfill, for the survivor's counts |
-| Live event to membership change                                                                         | At most once                         | Reconcile                           |
-| Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                         | Reconcile                           |
-| Single-leaf sweep output, cascade handling, merge state                                                 | At least once                        | Retries within the path             |
-| Seeds and reconcile, including their first-hop cascades                                                 | At least once                        | Replays after holds                 |
-| Membership consumer                                                                                     | At least once, applied idempotently  | The version guard                   |
+| Path                                                                                                    | Guarantee                                                                              | What repairs a loss                           |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Firehose to stream topic                                                                                | At least once, with counted abandons                                                   | Backfill                                      |
+| Node to person merge events                                                                             | At most once, uncounted                                                                | Backfill, for the survivor's counts           |
+| Live event to membership change                                                                         | At most once                                                                           | Reconcile                                     |
+| Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                                                                           | Reconcile                                     |
+| Single-leaf sweep output                                                                                | At least once while the worker runs, and across a restart only with durable restore on | Retries within the path                       |
+| Cascade messages consumed                                                                               | At least once                                                                          | Holds and replays                             |
+| Merge state and its transfer                                                                            | At least once while the partition stays assigned. A revoke deletes a pending transfer  | The outbox and its redrive                    |
+| Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                          | Replays after holds                           |
+| Membership consumer                                                                                     | At least once, applied idempotently                                                    | The version guard, when version writes are on |
 
 "At most once" means the path never retries a failed produce.
 It does not rule out duplicates: a store that loses unflushed writes, or is wiped, replays its inputs against older state and can emit a change a second time.

@@ -178,6 +178,7 @@ Some rows are never swept:
 ## Feature flags
 
 The Rust flags service reads the table when a flag condition targets a realtime cohort.
+Its connection pool, cache and timeout settings are in [the flags service overview](../feature-flags/rust-service-overview.md#behavioral-cohorts), and its lookup metrics are in [database interaction patterns](../feature-flags/database-interaction-patterns.md#prometheus-metrics).
 
 ### When a cohort is read from the table
 
@@ -196,8 +197,8 @@ Every other non-static cohort is evaluated dynamically from the person's propert
 
 1. The service collects every routed cohort among the cohorts in the team's flags payload, or among all the team's cohorts when the payload carries none.
 2. It makes at most one query per request for the person, for the routed cohorts its cache does not already hold: which of them have an `in_cohort = true` row.
-3. Answers are cached per pod, per team and person, for about a minute.
-   Adding a cohort to an existing entry restarts the timer for the whole entry, so an older answer can outlive that minute.
+3. Answers are cached per pod, per team and person, for `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`, 60 seconds by default.
+   Adding a cohort to an existing entry restarts the timer for the whole entry, so an older answer can outlive the TTL.
 4. The routed cohorts' answers are merged into the cohort matches before flag conditions are evaluated.
 
 Because the routed set comes from every flag in the team's payload, one flag on a routed cohort adds this lookup to every request of the team that evaluates person properties.
@@ -208,7 +209,7 @@ A query error, a timeout, or a person with no known id makes every routed cohort
 A condition "in cohort 42" then fails, and a condition "not in cohort 42" **passes**.
 The error is counted and logged, and not cached.
 
-If the team list is set but the read database is not configured, the service installs a provider that answers false for every routed cohort on every request.
+If the team list is set but `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is empty, the service installs a provider that answers false for every routed cohort on every request.
 
 ### Authoring versus reading
 

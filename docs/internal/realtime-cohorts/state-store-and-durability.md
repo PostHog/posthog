@@ -111,7 +111,7 @@ An incompatible key or value change bumps the version, and the store is rebuilt 
 
 ## Restarting
 
-Durable restore is off by default, and with it off the store is wiped at every start.
+Durable restore, `DURABLE_RESTORE_ENABLED`, is off by default, and with it off the store is wiped at every start.
 A deployment that relies on backfilled state must enable it.
 
 With durable restore on, the processor picks where its store comes from at boot, in this order:
@@ -121,7 +121,7 @@ With durable restore on, the processor picks where its store comes from at boot,
 3. **A remote checkpoint** downloaded from object storage, if checkpoints are enabled.
 4. **An empty store**, the cold start.
 
-Checkpoints are disabled by default, so in practice the choice is between reopening the live store and starting empty.
+Checkpoints, `CHECKPOINT_ENABLED`, are disabled by default, so in practice the choice is between reopening the live store and starting empty.
 A checkpoint restore that fails to clear the store, copy or download the checkpoint, or read its offsets falls back to a cold start.
 The restore never opens the RocksDB files, so a checkpoint whose files cannot open passes it, and the store open that follows fails the pod instead.
 A live store that fails to open does not fall back either: the pod fails to start.
@@ -154,7 +154,7 @@ State never moves between pods, which is why the processor runs as a single pod.
 
 - **Behavioral rows** leave through the sweep, which deletes rows that aged out and emits `left` on the way.
   They are never expired by RocksDB itself, because an expiry that RocksDB performs silently would skip the `left`.
-- **Person records** can be expired by a compaction filter on a last-seen time, when a time-to-live is configured.
+- **Person records** can be expired by a compaction filter on a last-seen time, when `COHORT_PERSON_RECORD_TTL_DAYS` sets a time-to-live. It defaults to 0, which turns expiry off.
   An expired record loses its matched set and its replay marks.
   On the person's next event, current matches re-emit `entered` for single-leaf cohorts, and a condition that stopped matching while the person was dormant cannot emit `left`.
   Keep the time-to-live well beyond topic retention.
@@ -181,7 +181,7 @@ State never moves between pods, which is why the processor runs as a single pod.
 Workers are async tasks, and RocksDB calls block.
 By default every store call runs on a blocking thread pool, and reads and whole maintenance sections take permits from two pools:
 
-- an **event** pool, for live-path reads and for Stage 2 recomposition on every path,
+- an **event** pool, for live-path reads and for Stage 2 recomposition on the live, sweep, merge and cascade paths,
 - a smaller **maintenance** pool, for the sweep's state reads, merge drains and applies, garbage collection, reconcile pages and backfill seed runs.
 
 Plain writes and the write-ahead-log flush take no permit, so the commit cadence never waits behind reads.

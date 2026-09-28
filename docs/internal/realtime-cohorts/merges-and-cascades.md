@@ -111,7 +111,7 @@ An event the old person already counted is skipped, and a new one is counted.
 
 A leaf that the survivor's current catalog no longer knows is dropped.
 The person record does not travel: the survivor's matched person conditions follow its own person properties on its next event.
-When register transfer is enabled, the old person's Stage 2 rows ride along too, but they only fill rows the survivor lacks.
+When register transfer is enabled with `COHORT_REGISTER_TRANSFER_ENABLED`, the old person's Stage 2 rows ride along too, but they only fill rows the survivor lacks.
 
 ### Stragglers and tombstones
 
@@ -178,7 +178,7 @@ A cohort can include another cohort as a leaf: "in cohort 51 and email is set".
 Its membership depends on the referenced cohort's membership, which the processor also computes.
 When cohort 51 flips for a person, every cohort that references 51 must be recomposed for that person.
 
-Cascades are disabled by default.
+Cascades are disabled by default, and `COHORT_CASCADE_ENABLED` turns them on.
 With cascades off, a cohort that holds any cohort reference is excluded and emits nothing.
 With cascades on, the catalog promotes a referencing cohort to `Stage2ComposableRef` when every cohort it references positively is in the team's catalog and itself single-leaf or composable, and there is no reference cycle.
 

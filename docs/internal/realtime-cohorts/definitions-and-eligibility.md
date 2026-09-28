@@ -336,7 +336,9 @@ Two consumers use it.
 The analysis fails wide.
 Any construct it does not model, and any program that exceeds its budget, falls back to "reads everything".
 A read set that is too small would silently change answers, while one that is too wide only costs time.
-Property-based tests check that evaluating on the pruned globals always matches evaluating on the full globals.
+Each consumer has its own test in `rust/cohort-core/tests/`.
+A property-based test in `analysis_equivalence.rs` covers the seeder: evaluating on an event pruned to the read set, the way the projected scan returns it, must match evaluating on the full event.
+A fixture test in `analysis_parity_corpus.rs` covers the processor: each fixture must decide the same way from globals that hold only its planned roots.
 
 ## What an edit changes
 
@@ -455,11 +457,4 @@ They are parsed and `H_p` runs when the person has no record yet or the properti
 
 ## Invariants on this page
 
-- A condition hash is a pure function of the compiled matcher, and every service treats it as the same 16 bytes.
-- The LSK derivation is frozen, and Django's behavioral shape hash moves whenever the LSK fields of the cohort's leaves change.
-- The processor and the seeder parse and classify through the same `cohort-core` code.
-  Composition is not shared: the processor folds the tree in its own crate, and the seeder's relevance pruning runs a separate three-valued fold that only inspection keeps in agreement with it.
-- A cohort with any leaf the pipeline cannot represent emits nothing, rather than emitting a wrong answer.
-- While a cohort stays realtime and its hash maintenance succeeds, a readiness stamp is cleared in the same write that changes the definition it vouches for.
-
-[Invariants](invariants.md) collects these with the rest of the system's invariants.
+Invariants 1 to 5 and 26 in [invariants](invariants.md#definitions-and-the-catalog) state the rules this page depends on.
