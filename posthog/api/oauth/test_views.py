@@ -3736,6 +3736,7 @@ class TestOAuthAPI(APIBaseTest):
             ("organization", "invalid", "invalid"),
         ]
     )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_auto_approval_inherits_token_access_instead_of_query_parameters(
         self, access_level, teams_param, orgs_param
     ):
