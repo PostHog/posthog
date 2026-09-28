@@ -398,9 +398,10 @@ class PullRequestTimelinesQuery:
         )
         runs = [row for row in rows if row[6] is not None]
         # A run on its first attempt that did not fail has exactly one attempt, and its run row already
-        # describes it. Only re-runs (earlier attempts) and failures (failed job names) need the jobs.
+        # describes it. Only re-runs (earlier attempts), failures (failed job names) and runs that stopped
+        # reporting (whose job rows are the only settled outcome) need the jobs.
         job_attempts = self._query_job_attempts(
-            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS],
+            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS or row[10]],
             run_from,
         )
 

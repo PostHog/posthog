@@ -98,6 +98,7 @@ class TestPRFrictionView(_WarehouseMixin):
                 _merged(41, 180),
                 _merged(42, 200),
                 _merged(43, 120),
+                _merged(44, 120),
                 _pr_row(39, "alice", "closed", 0, _ago(70), merged_at=_at(60), default_branch="master"),
             ],
         )
@@ -143,6 +144,9 @@ class TestPRFrictionView(_WarehouseMixin):
                 _run(4203, "sha42b", "success", 150, 10, pr_number=42),
                 # 43: stopped reporting with a stale conclusion, which must not turn the run red.
                 _run(4301, "sha43", "failure", 0, 20, pr_number=43, status="in_progress"),
+                # 44: a first attempt stopped reporting, but its job row settled as a failure before a fixing push.
+                _run(4401, "sha44a", None, 0, 0, pr_number=44),
+                _run(4402, "sha44b", "success", 60, 10, pr_number=44),
             ],
         )
         self._create_table(
@@ -163,6 +167,7 @@ class TestPRFrictionView(_WarehouseMixin):
                 _job(12, 4201, "build", "failure", 90, 10, run_attempt=2),
                 _job(13, 4202, "lint", "failure", 0, 10),
                 _job(14, 4202, "lint", "failure", 30, 10, run_attempt=2),
+                _job(15, 4401, "build", "failure", 0, 10),
             ],
         )
         self._create_table(
@@ -244,7 +249,7 @@ class TestPRFrictionView(_WarehouseMixin):
             if number in timeline_figures
         }
 
-        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43}
+        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43, 44}
         assert view_figures == timeline_figures
 
     def test_view_counts_what_the_author_went_through(self) -> None:
@@ -293,6 +298,7 @@ class TestPRFrictionView(_WarehouseMixin):
             41: {**base, "push_count": 2, "own_red_count": 2, "futile_rerun_count": 1},
             42: {**base, "push_count": 2, "own_red_count": 1, "futile_rerun_count": 2},
             43: base,
+            44: {**base, "push_count": 2, "own_red_count": 1},
         }
         assert self._github_source is not None
         assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}

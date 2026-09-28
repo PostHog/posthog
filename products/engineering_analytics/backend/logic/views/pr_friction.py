@@ -235,8 +235,9 @@ run_rows AS (
         r.status = 'completed' OR r.stopped_reporting AS run_completed,
         r.status = 'completed' AND ifNull(r.conclusion, '') IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}) AS run_failed,
         r.status = 'completed' AND ifNull(r.conclusion, '') = 'success' AS run_success,
-        -- Only re-runs and failures need job rows: a first attempt that did not fail is its run row.
-        if(ifNull(r.run_attempt, 1) > 1 OR ifNull(r.conclusion, '') IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), ja.jas, []) AS jas,
+        -- Only re-runs, failures and stopped runs need job rows: a first attempt that did not fail is its run row.
+        if(ifNull(r.run_attempt, 1) > 1 OR ifNull(r.conclusion, '') IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+            OR r.stopped_reporting, ja.jas, []) AS jas,
         m.fails AS master_fails
     FROM ({runs}) AS r
     INNER JOIN bounds AS b ON b.number = r.pr_number
