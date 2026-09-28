@@ -1135,18 +1135,30 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     ).exists()
 
 
-def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
+def get_in_progress_runs_for_github_integration(
+    team_id: int, integration_id: int, user_id: int | None
+) -> contracts.InProgressGithubRunsDTO:
     """In-progress runs whose task uses this team GitHub integration.
 
     Used by core's integration API to block disconnecting a GitHub integration while
     live runs still depend on it for credential refresh — deleting the row SET_NULLs
     ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    The count covers every run, but the named task is the oldest one ``user_id`` can read.
     """
-    return TaskRun.objects.filter(
+    runs = TaskRun.objects.filter(
         team_id=team_id,
         status=TaskRun.Status.IN_PROGRESS,
         task__github_integration_id=integration_id,
-    ).count()
+    )
+    count = runs.count()
+    if not count:
+        return contracts.InProgressGithubRunsDTO(count=0)
+    oldest = runs.filter(task_run_visibility_q(user_id)).order_by("created_at").values("task_id", "task__title").first()
+    if oldest is None:
+        return contracts.InProgressGithubRunsDTO(count=count)
+    return contracts.InProgressGithubRunsDTO(
+        count=count, oldest_task_id=oldest["task_id"], oldest_task_title=oldest["task__title"] or None
+    )
 
 
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
@@ -5295,6 +5307,21 @@ def resolve_task_run_preview_redirect(
         outcome="ready",
         redirect_url=f"{credentials.url.rstrip('/')}/?_modal_connect_token={credentials.token}",
     )
+
+
+def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+    """Whether ``sandbox_url`` is the configured hogland control-plane origin.
+
+    Thin facade wrapper: presentation may not import ``logic`` directly (see
+    products/architecture.md § Presentation Layer), so both the sandbox-URL allowlist gate
+    and the request-transport decision in the command relay view go through this one edge
+    instead of reaching into ``logic.services.agent_command`` themselves.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        is_hogland_sandbox_url as _is_hogland_sandbox_url,
+    )
+
+    return _is_hogland_sandbox_url(sandbox_url)
 
 
 # Relay control verbs whose outcome PostHog AI funnels track. Captured here (gated on

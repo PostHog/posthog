@@ -324,7 +324,7 @@ def _apply_primary_key_columns(
     elif not payload.get("primary_key_columns"):
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
-            "Provide primary_key_columns or refresh schema discovery to pick one up."
+            "Choose a primary key for it, or add one on the source table and resync."
         )
 
 
@@ -1005,7 +1005,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
-                    "Set primary_key_columns for it, or choose full_refresh."
+                    "Choose a primary key for it, or switch it to full table replication."
                 )
             # Only the names this request supplies. A key stored against older metadata must not
             # block an edit that leaves it alone.

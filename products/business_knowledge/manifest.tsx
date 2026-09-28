@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'BusinessKnowledge',
@@ -54,11 +54,14 @@ export const manifest: ProductManifest = {
         {
             path: 'Business knowledge',
             intents: [ProductKey.CONVERSATIONS],
-            category: ProductItemCategory.AI_ENGINEERING,
+            category: ProductItemCategory.DATA,
             href: urls.businessKnowledge(),
             tags: ['alpha'],
-            iconType: 'conversations',
-            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            iconType: 'business_knowledge',
+            iconColor: [
+                'var(--color-product-business-knowledge-light)',
+                'var(--color-product-business-knowledge-dark)',
+            ],
             flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
             sceneKey: 'BusinessKnowledge',
         },

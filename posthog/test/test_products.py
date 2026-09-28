@@ -37,11 +37,12 @@ class TestProducts(BaseTest):
 
         expected_categories = {
             "Analytics",
+            "Data",
             "AI engineering",
-            "Behavior",
+            "Product engineering",
             "Messaging",
-            "App monitoring",
-            "Features",
+            "Monitoring",
+            "Schema",
             "Tools",
             "Unreleased",
         }
