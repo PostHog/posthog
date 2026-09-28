@@ -367,8 +367,8 @@ export function BroadcastSummary(): JSX.Element {
                                 : undefined
                         }
                     >
-                        This broadcast didn't send. Its launch didn't finish, so nothing is scheduled. Move it back to
-                        draft to launch it again.
+                        This broadcast didn't send, and nothing is scheduled.
+                        {canMoveToDraft ? ' Move it back to draft to launch it again.' : null}
                     </LemonBanner>
                 ) : null}
                 <LemonTabs
