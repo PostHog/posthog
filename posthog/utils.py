@@ -1763,7 +1763,9 @@ def safe_cache_delete(cache_key: str) -> None:
         logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
 
 
-def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int) -> bool:
+def capture_exception_throttled(
+    throttle_key: str, exc: BaseException, ttl: int, additional_properties: dict[str, Any] | None = None
+) -> bool:
     """Capture an exception at most once per ``ttl`` window across processes (gated on
     an atomic set-if-absent in the cache). Returns True if this caller captured, False
     if it was throttled, so the caller can record which happened.
@@ -1772,7 +1774,7 @@ def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int)
     of each racing past a non-atomic get-then-set."""
     captured = safe_cache_add(throttle_key, True, ttl)
     if captured:
-        capture_exception(exc)
+        capture_exception(exc, additional_properties=additional_properties)
     return captured
 
 

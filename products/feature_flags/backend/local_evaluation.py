@@ -389,12 +389,25 @@ def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> b
 # cache so many workers skipping at once report at most once per window.
 _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL = 60  # seconds
 
+_GROUP_MAPPING_EMPTIED_FINGERPRINT = "feature_flags.flag_cache.group_type_mapping_emptied"
 
-def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, message: str, **log_fields: Any) -> None:
+
+def _capture_flag_cache_skip_throttled(
+    throttle_key: str,
+    exc: BaseException,
+    message: str,
+    fingerprint: str | None = None,
+    **log_fields: Any,
+) -> None:
     """Log a skipped flag-cache rebuild and capture the exception, throttling the
     capture across processes. Each log line records whether the capture ran or was
     throttled."""
-    captured = capture_exception_throttled(throttle_key, exc, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
+    captured = capture_exception_throttled(
+        throttle_key,
+        exc,
+        _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL,
+        additional_properties={"$exception_fingerprint": fingerprint} if fingerprint else None,
+    )
     logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
 
 
@@ -432,6 +445,9 @@ def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) 
         # line below for debugging.
         Exception("group_type_mapping would be emptied for a team with populated group types"),
         "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
+        # The exception is never raised, so the SDK builds its traceback from the caller's
+        # stack. Each trigger path would get its own issue without a fixed fingerprint.
+        fingerprint=_GROUP_MAPPING_EMPTIED_FINGERPRINT,
         team_id=team.id,
     )
     return True

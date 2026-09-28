@@ -290,12 +290,22 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
             "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
             return_value={self.team.project_id: []},
         ):
-            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+            with (
+                patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
+                patch("products.feature_flags.backend.local_evaluation.capture_exception_throttled") as mock_capture,
+            ):
                 update_flag_caches(self.team)
                 mock_set.assert_not_called()
 
         mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
         assert self._cached_group_type_mapping() == {"0": "organization"}
+        self._assert_captured_with_fixed_fingerprint(mock_capture)
+
+    def _assert_captured_with_fixed_fingerprint(self, mock_capture: MagicMock) -> None:
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["additional_properties"] == {
+            "$exception_fingerprint": "feature_flags.flag_cache.group_type_mapping_emptied"
+        }
 
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_refresh_path_skips_write_when_mapping_would_be_emptied(self, mock_emptied_counter):
@@ -308,12 +318,16 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
             "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
             return_value={self.team.project_id: []},
         ):
-            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+            with (
+                patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
+                patch("products.feature_flags.backend.local_evaluation.capture_exception_throttled") as mock_capture,
+            ):
                 assert _update_flag_definitions(self.team) is False
                 mock_set.assert_not_called()
 
         mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
         assert self._cached_group_type_mapping() == {"0": "organization"}
+        self._assert_captured_with_fixed_fingerprint(mock_capture)
 
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_single_project_empty_success_does_not_defeat_guard(self, mock_emptied_counter):
