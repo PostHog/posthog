@@ -134,7 +134,7 @@ const makeWorkflow = (status: HogFlow['status'], step: StepAction): HogFlow => (
         { from: 'trigger_node', to: STEP_ID, type: 'continue' },
         { from: STEP_ID, to: 'exit_node', type: 'continue' },
     ],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { window: '7d', filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status,
