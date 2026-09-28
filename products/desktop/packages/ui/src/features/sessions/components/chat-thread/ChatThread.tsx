@@ -340,7 +340,13 @@ export function groupToolRuns(
   let toolCount = 0;
 
   const flush = () => {
-    if (toolCount >= 2) {
+    const hasEarlierRenderableCall = buffer.some(
+      (item) =>
+        isToolCallItem(item) &&
+        hasUiAppResult(item) &&
+        lastRenderableIds.get(item.turnContext) !== item.id,
+    );
+    if (toolCount >= 2 || hasEarlierRenderableCall) {
       out.push({
         type: "tool_group",
         // Keyed on the first tool call so the id survives thoughts appending around it.

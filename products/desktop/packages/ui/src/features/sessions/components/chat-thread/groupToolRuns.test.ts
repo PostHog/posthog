@@ -203,6 +203,40 @@ describe("groupToolRuns", () => {
     });
   });
 
+  it("groups an earlier chart even when it's the only other call in the run", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns([chart("chart-1"), chart("chart-2")]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+    ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
   it("holds every chart-rendering call inside its group until the turn completes", () => {
     const turnContext = {
       toolCalls: new Map(),
@@ -371,9 +405,12 @@ describe("groupToolRuns", () => {
     );
 
     expect(out.map((row) => row.type)).toEqual([
-      "session_update",
+      "tool_group",
       "session_update",
     ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
     expect(out[1]).toMatchObject({ id: "chart-2" });
   });
 
@@ -407,10 +444,13 @@ describe("groupToolRuns", () => {
     ]);
 
     expect(out.map((row) => row.type)).toEqual([
-      "session_update",
+      "tool_group",
       "session_update",
       "session_update",
     ]);
+    expect(out[0]).toMatchObject({
+      items: [expect.objectContaining({ id: "chart-1" })],
+    });
     expect(out[1]).toMatchObject({ id: "chart-2" });
   });
 
