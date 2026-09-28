@@ -26,7 +26,6 @@ import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,
     getOrderedMetricsWithResults,
-    initializeMetricOrdering,
     isExperimentConflictError,
     toConcurrencyPayload,
 } from '../utils'
@@ -643,6 +642,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             // carry the handshake and absorb the response — otherwise every open tab of a running
             // experiment goes silently stale on results load and later scalar saves 409.
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${currentProjectId}/experiments/${props.experiment.id}`,
                     {
@@ -650,7 +650,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         running_time_calculation: updatedRunningTimeCalculation,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     running_time_calculation: response.running_time_calculation ?? updatedRunningTimeCalculation,
                 })
@@ -662,10 +662,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // and resync the snapshot so this tab stops being stale (and the guard above stops
                 // re-persisting the same values against fresh server state).
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                     const fresh: Experiment = await api.get(
                         `api/projects/${currentProjectId}/experiments/${props.experiment.id}`
                     )
-                    actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(fresh)))
+                    actions.setUnmodifiedExperiment(structuredClone(fresh))
                     actions.setExperiment({ running_time_calculation: fresh.running_time_calculation })
                 } catch {
                     // Leave state as-is; the next full experiment load resyncs the snapshot.

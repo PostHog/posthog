@@ -76,6 +76,7 @@ def _make_table_ref(**kwargs):
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
         "get_delta_table": AsyncMock(return_value=None),
+        "invalidate_cached_table": Mock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -1223,6 +1224,36 @@ class TestResumeSwapWithMissingLive:
         schema.clear_repartition_pending.assert_called_once()
         assert result == {"outcome": "skipped", "reason": "no_delta_table"}
 
+    def test_recovery_finishes_swap_and_invalidates_cache(self) -> None:
+        # Live is gone but temp is intact and complete: the recovery finishes the swap from temp. The
+        # cached delta-table handle still points at the now-deleted live files, so it must be dropped
+        # or a subsequent read in the same run would keep serving the pre-swap listing.
+        table_ref = _make_table_ref()
+        schema = _schema(id="s1")
+        target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+            patch.object(repartition_module, "_persist_resolved_scheme", new=AsyncMock()) as persist,
+        ):
+            result = asyncio.run(
+                repartition_module._resume_swap_with_missing_live(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    temp_uri="s3://bucket/live__repartitioned",
+                    live_uri="s3://bucket/live",
+                    storage_options={},
+                    logger=logger,
+                )
+            )
+
+        swap.assert_awaited_once()
+        persist.assert_awaited_once()
+        table_ref.invalidate_cached_table.assert_called_once()
+        assert result == {"outcome": "completed", "row_count": 2, "recovered": True}
+
 
 class TestLiveUnreadable:
     """`get_delta_table()` *raising* (a DeltaError/FileNotFoundError from an OOM-crashed merge or an
@@ -1757,6 +1788,9 @@ class TestSwapSchemeIsRecorded:
 
         assert result["outcome"] == "completed"
         assert finalize.call_args.kwargs["partition_format"] == "day"
+        # The cached delta-table handle still points at pre-swap files; a subsequent read must not
+        # reuse it, or an incremental merge scopes its predicate to a partition that no longer exists.
+        table_ref.invalidate_cached_table.assert_called_once()
 
     def test_a_swap_that_already_landed_is_finished_without_rewriting_the_table(self, tmp_path):
         # temp is gone because the swap deleted it — only the scheme write was lost. Live is on the
@@ -1782,6 +1816,7 @@ class TestSwapSchemeIsRecorded:
         rewrite.assert_not_awaited()
         swap.assert_not_awaited()
         assert finalize.call_args.kwargs["partition_format"] == "day"
+        table_ref.invalidate_cached_table.assert_called_once()
 
     def test_a_lost_scheme_write_raises_instead_of_reporting_success(self, tmp_path):
         # The swap has already landed, so a database blip here is not the noise it looks like: every
@@ -2005,6 +2040,60 @@ class TestRewriteCheckpointResume:
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
+
+    @pytest.mark.parametrize(
+        "version_offset,expected_restart",
+        [
+            pytest.param(0, True, id="resumed_checkpoint_is_a_restart"),
+            pytest.param(999, False, id="rejected_checkpoint_is_not_a_restart"),
+        ],
+    )
+    def test_only_a_usable_checkpoint_makes_an_over_budget_attempt_a_restart(
+        self, version_offset, expected_restart, tmp_path
+    ):
+        # `had_prior_checkpoint` decides whether the activity charges this attempt against the cap.
+        # A checkpoint the resume path rejected was left by an attempt killed at an arbitrary point
+        # (a transient S3 error minutes in), so the budget spent past it is the first anybody spent
+        # on those rows, not a re-run of ground already covered. Charging it abandons a converging
+        # table after three such runs and throws away the checkpoint this attempt just saved.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + version_offset,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
+            patch.object(
+                repartition_module,
+                "_rewrite_into_temp",
+                new=AsyncMock(side_effect=RepartitionBudgetExceededError("out of budget", rows_written=1)),
+            ),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError) as raised:
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        assert raised.value.had_prior_checkpoint is expected_restart
+        assert raised.value.checkpoint_saved is True
 
     def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
         # The discarded checkpoint above is only harmless while a restart can finish. Once a full

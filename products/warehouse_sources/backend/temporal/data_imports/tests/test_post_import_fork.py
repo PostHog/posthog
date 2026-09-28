@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     CreateSourceTemplateInputs,
     ExternalDataJobWorkflow,
     UpdateExternalDataJobStatusInputs,
+    _started_by_own_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 _JOB_ID = "01960000-0000-0000-0000-000000000000"
+_SCHEMA_ID = uuid.UUID("01960000-0000-0000-0000-000000000001")
 
 
 def _stub_activities(
@@ -63,6 +65,8 @@ def _stub_activities(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
+    repartition_needed: bool = True,
 ) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
@@ -92,6 +96,8 @@ def _stub_activities(
             statistics_needed=True,
             person_property_sync_enabled=True,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
+            repartition_needed=repartition_needed,
         )
 
     @activity.defn(name="check_billing_limits_activity")
@@ -106,6 +112,8 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
+        if inputs.scheduled_full_refresh:
+            executed.append("import_data_activity_sync:scheduled_full_refresh")
         if inputs.fast_return_eligible and not source_has_new_data:
             return PipelineResult(
                 should_trigger_cdp_producer=False,
@@ -151,6 +159,8 @@ async def _run_workflow(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
+    repartition_needed: bool = True,
 ) -> tuple[list[str], list[str]]:
     """Run the workflow with stubbed activities; return (executed activities + child starts in
     order, started child ids)."""
@@ -181,6 +191,8 @@ async def _run_workflow(
                     skip_post_import_activities=skip_post_import_activities,
                     fast_return_eligible=fast_return_eligible,
                     source_has_new_data=source_has_new_data,
+                    scheduled_full_refresh=scheduled_full_refresh,
+                    repartition_needed=repartition_needed,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -286,6 +298,42 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
         assert child_ids == []
     else:
         assert "create_source_templates" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheduled_full_refresh", [True, False])
+async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_full_refresh: bool):
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
+    )
+
+    assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
+    assert ("maybe_repartition_table_activity" in executed) is not scheduled_full_refresh
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repartition_needed", [True, False])
+async def test_repartition_activity_is_scheduled_only_when_job_creation_finds_work(repartition_needed: bool):
+    # The activity round trip is most of what a healthy sync paid for repartitioning; the
+    # job-creation activity already knows whether anything is queued or due for measurement.
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, repartition_needed=repartition_needed
+    )
+
+    assert ("maybe_repartition_table_activity" in executed) is repartition_needed
+    assert "import_data_activity_sync" in executed
+
+
+@pytest.mark.parametrize(
+    "search_attributes,expected",
+    [
+        pytest.param({"TemporalScheduledById": [str(_SCHEMA_ID)]}, True, id="own_schedule"),
+        pytest.param({"TemporalScheduledById": [str(uuid.uuid4())]}, False, id="another_schedule"),
+        pytest.param({}, False, id="started_directly"),
+    ],
+)
+def test_only_the_schemas_own_schedule_counts_as_scheduled(search_attributes: dict, expected: bool):
+    assert _started_by_own_schedule(search_attributes, _SCHEMA_ID) is expected
 
 
 @pytest.mark.asyncio

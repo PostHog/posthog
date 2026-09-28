@@ -16,7 +16,6 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
-import uuid
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -49,17 +48,21 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_check_artefacts import write_check_expired
 from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_SOAK_HOURS,
+    MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
     CheckConfigValidationError,
     CheckOutcome,
     MetricThresholdConfig,
     parse_check_config,
+    soak_minutes_from_gap,
 )
 from products.signals.backend.report_metric_refresh import measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
@@ -83,14 +86,8 @@ MAX_CHECK_ERROR_REASON_LENGTH = 300
 # a fix that stopped holding is a finding somebody already decided was worth fixing once.
 CHECK_FAILURE_SIGNAL_WEIGHT = 1.0
 
-# A check stops running while its report is soft-deleted or suppressed, and runs again when the report
-# comes back. Its horizon keeps advancing meanwhile: a check that outlives `expires_at` while paused
-# expires like any other, because the soak window is the author's deadline, not the report's.
-CHECKABLE_REPORT_STATUSES = tuple(
-    status
-    for status in SignalReport.Status.values
-    if status not in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
-)
+# Rows moved back to `pending` per tick because their report is not resolved. Bounded the same way.
+MAX_CHECK_PARKS_PER_TICK = 500
 
 
 @frozen
@@ -267,6 +264,8 @@ def record_check_verdict(
     now: datetime | None = None,
     attribution: ArtefactAttribution | None = None,
     run_id: str | None = None,
+    skill_name: str | None = None,
+    refusal_reason: str | None = None,
 ) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
@@ -274,7 +273,8 @@ def record_check_verdict(
     records nothing.
 
     `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
-    has neither, so it keeps the `system()` attribution the executor writes under.
+    has neither, so it keeps the `system()` attribution the executor writes under. `skill_name` and
+    `refusal_reason` name the scout and the gate when the fleet refused to run an `agent` check.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -288,6 +288,9 @@ def record_check_verdict(
     config = parsed if isinstance(parsed, MetricThresholdConfig) else None
 
     with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
             .select_for_update()
@@ -345,7 +348,16 @@ def record_check_verdict(
         # the caller's row, where both call paths already select it with its organization; the
         # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
         # on `Team`.
-        transaction.on_commit(partial(capture_report_check_evaluated, check.team, current, run_id=run_id))
+        transaction.on_commit(
+            partial(
+                capture_report_check_evaluated,
+                check.team,
+                current,
+                run_id=run_id,
+                skill_name=skill_name,
+                reason=refusal_reason,
+            )
+        )
 
 
 def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
@@ -372,8 +384,10 @@ def resurface_failed_check(
     """Emit the breach as a signal, so the pipeline authors a fresh report for the relapse.
 
     This is the same rule the grouping stage already applies to a resolved report: a signal that
-    would have joined it starts a new report linked by `related_to` rather than reopening a
-    terminal one. Best-effort — the verdict is already on the report's log, and losing the
+    would have joined it starts a new report rather than reopening a terminal one. Grouping reads
+    the `report_id` in `extra` and writes a typed `follow_up_of` link from the fresh report back to
+    this one, carrying the verdict as the link's reason, so research starts from the fix the check
+    was measuring. Best-effort, because the verdict is already on the report's log and losing the
     re-surface must not fail the tick that recorded it.
     """
     from asgiref.sync import async_to_sync  # noqa: PLC0415
@@ -422,8 +436,10 @@ def expire_overdue_checks(now: datetime) -> int:
     """
 
     overdue = list(
-        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).values_list(
-            "id", "team_id", "last_run_at"
+        # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
+        # a copied-in query, and a full tick hydrates five hundred rows.
+        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).only(
+            "id", "team_id", "report_id", "kind", "title", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
     if not overdue:
@@ -432,24 +448,49 @@ def expire_overdue_checks(now: datetime) -> int:
     # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
     # status alone would retire a check that has just been given a clock.
     expired = SignalReportCheck.all_teams.filter(
-        id__in=[check_id for check_id, _, _ in overdue],
+        id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
         expires_at__lte=now,
     ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
+        _log_expired_checks(overdue, now, expired)
         _report_expired_checks(overdue)
     return expired
 
 
-def _report_expired_checks(overdue: list[tuple[uuid.UUID, int, datetime | None]]) -> None:
+def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime, expired: int) -> None:
+    """Write one `check_expired` entry per row this sweep actually retired.
+
+    Which rows those are is re-read when the write took fewer than the selection, because it skips
+    a check whose report resolved in between. Telemetry can live with counting that row; the
+    activity log cannot, because an entry saying a check retired is permanent and a reader acts on
+    it. One transaction rather than one per row, so a full tick is a single commit ahead of the
+    runs it delays.
+    """
+    retired = (
+        {check.id for check in overdue}
+        if expired == len(overdue)
+        else set(
+            SignalReportCheck.all_teams.filter(
+                id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
+            ).values_list("id", flat=True)
+        )
+    )
+    with transaction.atomic():
+        for check in overdue:
+            if check.id in retired:
+                write_check_expired(check, now)
+
+
+def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
     """Emit one expiry event per project for the rows a sweep selected.
 
     Counted from the selection rather than the write, so a row armed in between is over-counted by
     one. That is acceptable for telemetry and saves a second read of every retired row.
     """
     per_team: dict[int, list[datetime | None]] = {}
-    for _, team_id, last_run_at in overdue:
-        per_team.setdefault(team_id, []).append(last_run_at)
+    for check in overdue:
+        per_team.setdefault(check.team_id, []).append(check.last_run_at)
     try:
         teams = Team.objects.filter(id__in=per_team.keys()).select_related("organization")
         for team in teams:
@@ -461,6 +502,54 @@ def _report_expired_checks(overdue: list[tuple[uuid.UUID, int, datetime | None]]
             )
     except Exception:
         logger.exception("signals.report_check.expired_report_failed")
+
+
+def park_checks_on_unresolved_reports(now: datetime) -> int:
+    """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
+
+    A check can be active on an unresolved report in three ways: a report that left `resolved`
+    (reopened, archived, or restored somewhere else), a row written active before the create path
+    made the report decide, and any write path that skips `create_check`. Such a check must not run
+    or spend its error budget before a fix is live. As a pending row, the next resolve arms it
+    through `arm_pending_checks` with a fresh soak, and the expiry sweep retires it if the report
+    never resolves.
+
+    A dated row keeps the gap its author left as its soak. The error streak and any open dispatch
+    are cleared, so retry accounting starts again after the next resolve.
+    """
+    active = list(
+        SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
+        .exclude(report__status=SignalReport.Status.RESOLVED)
+        .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
+            :MAX_CHECK_PARKS_PER_TICK
+        ]
+    )
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    if parked:
+        logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
+    return parked
 
 
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
@@ -476,7 +565,10 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
             expires_at__gt=now,
-            report__status__in=CHECKABLE_REPORT_STATUSES,
+            # A check re-measures a fix, so it runs only while its report is resolved. The park step
+            # moves any other active row back to `pending`; this filter keeps a row it has not reached
+            # yet out of the tick.
+            report__status=SignalReport.Status.RESOLVED,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -505,7 +597,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire what timed out, then advance every check due this tick by one step.
+    """Expire what timed out, park what lost its resolve, then advance every due check by one step.
 
     A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
     its overdue dispatch is written off), and the run it started records the verdict later, so the
@@ -514,6 +606,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
 
     now = now or timezone.now()
     expired = expire_overdue_checks(now)
+    park_checks_on_unresolved_reports(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {"passed": 0, "failed": 0, "errored": 0, "dispatched": 0, "deferred": 0}
     for check in collect_due_checks(now, limit=limit):

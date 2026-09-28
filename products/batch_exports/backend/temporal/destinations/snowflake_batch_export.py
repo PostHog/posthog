@@ -489,6 +489,8 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     Temporal payload.
     """
 
+    data_interval_end: str
+
     database: str
     warehouse: str
     schema: str

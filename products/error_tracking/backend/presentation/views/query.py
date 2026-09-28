@@ -26,18 +26,19 @@ from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     DEFAULT_EVENT_CONTEXT_INCLUDES,
     ISSUE_FIELDS,
-    LIST_ISSUE_FIELDS,
     build_date_range,
     build_event_selects,
     build_impact,
     build_issue_event_where,
     build_issue_filters,
     build_issue_where,
+    build_list_issue,
     build_property_group,
     build_search_query,
     build_sparkline,
     build_top_in_app_frame,
     compact_dict,
+    dedupe_repeated_stacktraces,
     extract_latest_release,
     get_page_info,
     map_context_event_properties,
@@ -71,7 +72,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def issues(self, request: ValidatedRequest, **kwargs: object) -> Response:
         params = dict(request.validated_data)
         filters = build_issue_filters(params)
-        limit = cast(int, params.get("limit", 25))
+        limit = cast(int, params.get("limit", 10))
         offset = cast(int, params.get("offset", 0))
         assignee = params.get("assignee")
         person_id = params.get("personId")
@@ -98,7 +99,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
-        results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
+        results = [
+            build_list_issue(cast(dict[str, object], issue), include_volume=volume_resolution > 0)
+            for issue in raw_results[:limit]
+        ]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
@@ -265,10 +269,12 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_stacktrace = "stacktrace" in includes or "code_variables" in includes
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
         include_code_variables = "code_variables" in includes
-        results = [
-            map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
-            for row in raw_results[:limit]
-        ]
+        results = dedupe_repeated_stacktraces(
+            [
+                map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
+                for row in raw_results[:limit]
+            ]
+        )
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:

@@ -1,7 +1,10 @@
-from datetime import datetime
+import operator
+from datetime import datetime, timedelta
+from functools import reduce
 from typing import Any, Optional
 
 from django.db.models import Q
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -20,6 +23,21 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.product_analytics.backend.facade.models import Insight
+
+# The bell shows the ten newest changes. Without a lower bound the ordered walk reads down the
+# whole team history, which grows forever, so only look this far back.
+NOTIFICATION_HISTORY_WINDOW = timedelta(days=30)
+
+NOTIFIED_SCOPES = ["FeatureFlag", "Insight", "Notebook", "Comment", "Cohort", "HogFunction"]
+
+INTERESTING_CHANGES = [
+    "updated",
+    "exported",
+    "sharing enabled",
+    "sharing disabled",
+    "deleted",
+    "commented",
+]
 
 
 class MyNotificationsSerializer(serializers.ModelSerializer):
@@ -50,6 +68,81 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MyNotificationsSerializer
     filter_rewrite_rules = {"project_id": "team_id"}
 
+    def _items_the_user_owns(self, user: User) -> dict[str, set[str]]:
+        project_id = self.team.project_id
+        return {
+            "Insight": self._as_item_ids(
+                Insight.objects.filter(created_by=user, team__project_id=project_id).values_list("id", flat=True)
+            ),
+            "FeatureFlag": self._as_item_ids(
+                FeatureFlag.objects_including_soft_deleted.filter(
+                    created_by=user, team__project_id=project_id
+                ).values_list("id", flat=True)
+            ),
+            "Notebook": self._as_item_ids(notebooks.get_notebook_short_ids_for_creator(project_id, user.id)),
+            "Comment": self._as_item_ids(
+                Comment.objects.filter(created_by=user, team__project_id=project_id).values_list("id", flat=True)
+            ),
+            "Cohort": self._as_item_ids(
+                Cohort.objects.filter(created_by=user, team__project_id=project_id).values_list("id", flat=True)
+            ),
+            "HogFunction": self._as_item_ids(
+                HogFunction.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+            ),
+        }
+
+    def _items_the_user_changed(self, user: User, owned: dict[str, set[str]], since: datetime) -> dict[str, set[str]]:
+        changed: dict[str, set[str]] = {scope: set() for scope in NOTIFIED_SCOPES}
+        rows = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            activity__in=INTERESTING_CHANGES,
+            user_id=user.pk,
+            scope__in=NOTIFIED_SCOPES,
+            created_at__gte=since,
+        ).values_list("scope", "item_id")
+        for scope, item_id in rows:
+            if item_id is not None and item_id not in owned[scope]:
+                changed[scope].add(item_id)
+        return changed
+
+    @staticmethod
+    def _as_item_ids(values: Any) -> set[str]:
+        return {str(value) for value in values}
+
+    @staticmethod
+    def _scope_filter(items_per_scope: dict[str, set[str]]) -> Optional[Q]:
+        """One OR branch per scope that actually has items, so empty scopes cost nothing."""
+        branches = [Q(scope=scope, item_id__in=item_ids) for scope, item_ids in items_per_scope.items() if item_ids]
+        return reduce(operator.or_, branches) if branches else None
+
+    def _deduplicated_notebook_activity_ids(self, user: User, since: datetime) -> list[str]:
+        """Notebooks save while you type, so one logical edit logs several activities."""
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
+        rows = ActivityLog.objects.raw(
+            """
+            SELECT id
+            FROM (SELECT
+                    Row_number() over (
+                        PARTITION BY five_minute_window, activity, item_id, scope ORDER BY created_at DESC
+                    ) AS row_number,
+                    *
+                    FROM (
+                        -- copied from https://stackoverflow.com/a/43028800
+                        SELECT to_timestamp(floor(Extract(epoch FROM created_at) / extract(epoch FROM interval '5 min')) *
+                                            extract(epoch FROM interval '5 min')) AS five_minute_window,
+                               activity, item_id, scope, id, created_at
+                        FROM posthog_activitylog
+                        WHERE team_id = %s
+                        AND scope = 'Notebook'
+                        AND (user_id != %s OR user_id IS NULL)
+                        AND date_trunc('millisecond', created_at) > %s
+                        ORDER BY created_at DESC) AS inner_q) AS counted_q
+            WHERE row_number = 1
+            """,
+            [self.team_id, user.pk, since],
+        )
+        return [row.id for row in rows]
+
     @extend_schema(exclude=True)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = self.request.user
@@ -61,181 +154,46 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         unread = params.get("unread", None) == "true"
 
         timer = ServerTimingsGathered()
+        history_cutoff = timezone.now() - NOTIFICATION_HISTORY_WINDOW
 
         with timer("gather_query_parts"):
-            # first things this user created
-            my_insights = list(
-                Insight.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "id", flat=True
-                )
-            )
-            my_feature_flags = list(
-                FeatureFlag.objects_including_soft_deleted.filter(
-                    created_by=user, team__project_id=self.team.project_id
-                ).values_list("id", flat=True)
-            )
-            my_notebooks = notebooks.get_notebook_short_ids_for_creator(self.team.project_id, user.id)
-            my_comments = list(
-                Comment.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "id", flat=True
-                )
-            )
-            my_cohorts = list(
-                Cohort.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "id", flat=True
-                )
-            )
-            my_hog_functions = list(
-                HogFunction.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
-            )
-
-            # then things they edited
-            interesting_changes = [
-                "updated",
-                "exported",
-                "sharing enabled",
-                "sharing disabled",
-                "deleted",
-                "commented",
-            ]
-            my_changed_insights = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="Insight",
-                )
-                .exclude(item_id__in=my_insights)
-                .values_list("item_id", flat=True)
-            )
-
-            my_changed_notebooks = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="Notebook",
-                )
-                .exclude(item_id__in=my_notebooks)
-                .values_list("item_id", flat=True)
-            )
-
-            my_changed_feature_flags = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="FeatureFlag",
-                )
-                .exclude(item_id__in=my_feature_flags)
-                .values_list("item_id", flat=True)
-            )
-
-            my_changed_comments = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="Comment",
-                )
-                .exclude(item_id__in=my_comments)
-                .values_list("item_id", flat=True)
-            )
-
-            my_changed_cohorts = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="Cohort",
-                )
-                .exclude(item_id__in=my_cohorts)
-                .values_list("item_id", flat=True)
-            )
-
-            my_changed_hog_functions = list(
-                ActivityLog.objects.filter(
-                    team_id=self.team.id,
-                    activity__in=interesting_changes,
-                    user_id=user.pk,
-                    scope="HogFunction",
-                )
-                .exclude(item_id__in=my_hog_functions)
-                .values_list("item_id", flat=True)
-            )
+            owned_items = self._items_the_user_owns(user)
+            changed_items = self._items_the_user_changed(user, owned_items, history_cutoff)
 
             last_read_date = (
                 NotificationViewed.objects.filter(user=user).values_list("last_viewed_activity_date", flat=True).first()
             )
-            last_read_date_filter = last_read_date if (last_read_date and unread) else datetime.min
+            activity_since = max(last_read_date, history_cutoff) if (last_read_date and unread) else history_cutoff
 
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
             # we need to deduplicate too frequent changes
             # we only really need to do this on notebooks
-            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
-            deduplicated_notebook_activity_ids_query = ActivityLog.objects.raw(
-                """
-                SELECT id
-                FROM (SELECT
-                        Row_number() over (
-                            PARTITION BY five_minute_window, activity, item_id, scope ORDER BY created_at DESC
-                        ) AS row_number,
-                        *
-                        FROM (
-                            -- copied from https://stackoverflow.com/a/43028800
-                            SELECT to_timestamp(floor(Extract(epoch FROM created_at) / extract(epoch FROM interval '5 min')) *
-                                                extract(epoch FROM interval '5 min')) AS five_minute_window,
-                                   activity, item_id, scope, id, created_at
-                            FROM posthog_activitylog
-                            WHERE team_id = %s
-                            -- we only really care about de-duplicating Notebook changes,
-                            -- as multiple actual activities are logged for one logical activity
-                            AND scope = 'Notebook'
-                            AND (user_id != %s OR user_id IS NULL)
-                            AND date_trunc('millisecond', created_at) > %s
-                            ORDER BY created_at DESC) AS inner_q) AS counted_q
-                WHERE row_number = 1
-                """,
-                [self.team_id, user.pk, last_read_date_filter],
-            )
-            deduplicated_notebook_activity_ids = [c.id for c in deduplicated_notebook_activity_ids_query]
+            deduplicated_notebook_activity_ids: list[str] = []
+            if owned_items["Notebook"] or changed_items["Notebook"]:
+                deduplicated_notebook_activity_ids = self._deduplicated_notebook_activity_ids(user, activity_since)
 
         with timer("construct_query"):
+            owned_filter = self._scope_filter(owned_items)
+            changed_filter = self._scope_filter(changed_items)
+            if changed_filter is not None:
+                # don't want to see creation of these things since that was before the user edited these things
+                changed_filter = Q(activity__in=INTERESTING_CHANGES) & changed_filter
+
+            filters = [f for f in (owned_filter, changed_filter) if f is not None]
+            interesting = reduce(operator.or_, filters) if filters else None
+
             other_peoples_changes = (
-                self.queryset.exclude(user=user)
-                .filter(team_id=self.team.id)
-                .filter(
-                    Q(
-                        Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
-                        | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
-                        | Q(
-                            Q(scope="Notebook")
-                            & Q(item_id__in=my_notebooks)
-                            & Q(id__in=deduplicated_notebook_activity_ids)
-                        )
-                        | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
-                        | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
-                        | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
-                    )
-                    | Q(
-                        # don't want to see creation of these things since that was before the user edited these things
-                        Q(activity__in=interesting_changes)
-                        & Q(
-                            Q(Q(scope="FeatureFlag") & Q(item_id__in=my_changed_feature_flags))
-                            | Q(Q(scope="Insight") & Q(item_id__in=my_changed_insights))
-                            | Q(
-                                Q(scope="Notebook")
-                                & Q(item_id__in=my_changed_notebooks)
-                                & Q(id__in=deduplicated_notebook_activity_ids)
-                            )
-                            | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
-                            | Q(Q(scope="Cohort") & Q(item_id__in=my_changed_cohorts))
-                            | Q(Q(scope="HogFunction") & Q(item_id__in=my_changed_hog_functions))
-                        )
-                    )
+                self.queryset.none()
+                if interesting is None
+                else (
+                    self.queryset.exclude(user=user)
+                    .filter(team_id=self.team.id, created_at__gte=history_cutoff)
+                    .filter(interesting)
+                    # notebooks log several activities per logical edit, so only the deduplicated ones count
+                    .filter(~Q(scope="Notebook") | Q(id__in=deduplicated_notebook_activity_ids))
+                    .order_by("-created_at")
                 )
-                .order_by("-created_at")
             )
 
             if last_read_date and unread:

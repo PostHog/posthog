@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from itertools import batched
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode, urlsplit
@@ -862,14 +863,30 @@ def _repository_resolves(
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
-    """Sleep until GitHub's advertised rate-limit reset when it gave us one
-    (capped, plus a little jitter so the sources sharing one installation's
-    budget don't all wake at the same reset instant); otherwise fall back to
-    exponential backoff."""
+    """Sleep until the limit that shed this call frees, whichever limit it was.
+
+    Both twins get a timed wait, capped, plus a little jitter so the sources sharing one
+    installation's budget don't all wake at the same instant:
+
+    - ``GitHubRateLimitError`` is GitHub's own limit, and it advertises the reset.
+    - ``GitHubEgressBudgetExhausted`` is *our* limit, and the limiter knows the pace — the
+      same question :func:`_pace_before_request` asks before every request.
+
+    Only the fall-through is blind exponential backoff, which is capped at 30 seconds and so
+    cannot outlast either window. Leaving our own budget on that path meant a shed page
+    retried five times inside ~2 minutes, failed the activity, and let Temporal restart the
+    whole extraction — the shape behind a burst of ~9,700 shed-call errors in one hour.
+    """
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
         if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
             return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            # Zero means the budget already refilled between the denial and now, so fall through
+            # rather than returning a no-wait retry that would just hammer the gate again.
+            pace = github_installation_pace_seconds(exc.scope, priority=Priority.BATCH)
+            if pace > 0:
+                return min(pace, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 
@@ -901,6 +918,20 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         activity.wait_for_worker_shutdown_sync(timeout=pace)
     else:
         time.sleep(pace)
+
+
+def _is_unmapped_client_status(status_code: int) -> bool:
+    """A 4xx `HTTPStatus` doesn't recognize, like the nginx-style 499 ("client closed request")
+    GitHub's edge has been observed returning from `/graphql` on an upstream hiccup. It's not a
+    denial GitHub meant to send us, so group it with the 5xx path instead of crashing the sync on
+    an unclassified HTTPError. Mirrors the Hubspot source's `_is_retryable_status`."""
+    if not (400 <= status_code < 500):
+        return False
+    try:
+        HTTPStatus(status_code)
+    except ValueError:
+        return True
+    return False
 
 
 # Transient failures every GitHub call retries on, REST and GraphQL alike.
@@ -958,7 +989,7 @@ def _fetch_page(
     )
 
     # Transient server errors: retry with plain exponential backoff.
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
     # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
@@ -1345,18 +1376,26 @@ def _has_only_graphql_access_errors(errors: Any) -> bool:
     )
 
 
+# GitHub's GraphQL API has been observed using both spellings for this condition: the documented
+# "RATE_LIMITED" and, for the primary rate limit specifically, "RATE_LIMIT" (with code
+# "graphql_rate_limit"). Match both so neither shape falls through to the generic retryable path,
+# whose plain backoff is capped at 30 seconds and cannot outlast the hourly window this resets on.
+_GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+
+
 def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
     """Map GraphQL's own primary rate limit onto the error the REST path raises.
 
-    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
-    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
-    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
-    the GraphQL limit resets on.
+    GraphQL reports that limit as a 200 whose `errors` carry a rate-limit type (see
+    `_GRAPHQL_RATE_LIMIT_ERROR_TYPES`). `raise_if_github_rate_limited` cannot see that shape, because
+    it only inspects 429 and 403 responses. Without this mapping the retry falls back to the plain
+    backoff, which is capped at 30 seconds and so cannot outlast the hourly window the GraphQL limit
+    resets on.
     """
     errors = body.get("errors")
     if not isinstance(errors, list):
         return
-    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+    if not any(_graphql_error_type(error) in _GRAPHQL_RATE_LIMIT_ERROR_TYPES for error in errors):
         return
 
     try:
@@ -1463,7 +1502,7 @@ def _fetch_merge_commit_shas(
         },
     )
 
-    if response.status_code >= 500:
+    if response.status_code >= 500 or _is_unmapped_client_status(response.status_code):
         raise GithubRetryableError(f"Github GraphQL error (retryable): status={response.status_code}")
     raise_if_github_rate_limited(response)
     if response.status_code in {401, 403, 404}:
@@ -1693,6 +1732,10 @@ def _normalize_primary_key(primary_key: str | list[str]) -> list[str]:
     return [primary_key] if isinstance(primary_key, str) else list(primary_key)
 
 
+# Lifecycle order of the status field on workflow runs, workflow jobs and check runs.
+_STATUS_STAGE = {"requested": 1, "waiting": 1, "pending": 1, "queued": 1, "in_progress": 2, "completed": 3}
+
+
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
     ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
@@ -1707,23 +1750,29 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
 
         ids = table.column(primary_key).to_pylist()
         version_columns = [table.column(key).to_pylist() for key in present_version_keys]
+        statuses = table.column("status").to_pylist() if "status" in table.column_names else None
 
         def rank(row_index: int) -> tuple[tuple[int, Any], ...]:
             # A present value beats NULL (NULLS LAST); among present values a larger one is newer
             # (ISO-8601 timestamps compare correctly as strings). The leading flag keeps NULLs from
             # ever being order-compared against a real value.
-            return tuple(
+            version = tuple(
                 (1, column[row_index]) if column[row_index] is not None else (0, "") for column in version_columns
             )
+            if statuses is None:
+                return version
+            # GitHub timestamps are second-coarse, so a run that GitHub skips at once sends its
+            # in_progress and completed events with the same updated_at. GitHub does not deliver
+            # webhooks in order, so the stale in_progress event can arrive last. On a timestamp tie,
+            # the further lifecycle stage wins. Otherwise the row stays in_progress forever.
+            return (*version, (_STATUS_STAGE.get(statuses[row_index] or "", 0), ""))
 
         best_index_by_id: dict[Any, int] = {}
         for index, object_id in enumerate(ids):
             if object_id is None:
                 continue
             best = best_index_by_id.get(object_id)
-            # On a tie (>=, not >) the later-arriving row wins. GitHub timestamps are second-coarse,
-            # so a fast in_progress -> completed transition can share an updated_at; rows arrive in
-            # chronological order (files read oldest-first), so the later index is the newer event.
+            # On a full tie (>=, not >) the later-arriving row wins, because files are read oldest-first.
             if best is None or rank(index) >= rank(best):
                 best_index_by_id[object_id] = index
 

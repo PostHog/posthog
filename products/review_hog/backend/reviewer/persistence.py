@@ -395,9 +395,9 @@ def persist_perspective_results(
     report_id: str,
     head_sha: str,
     results: dict[tuple[int, int], IssuesReview],
-    review_model: str,
+    review_arm: ReviewArm,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk) reviewed this turn, stamped with its model."""
+    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration."""
     if not results:
         return
     with transaction.atomic():
@@ -410,29 +410,29 @@ def persist_perspective_results(
                     pass_number=pass_number,
                     chunk_id=chunk_id,
                     review=review,
-                    review_model=review_model,
+                    review_model=review_arm.model,
+                    review_config=json.dumps(asdict(review_arm), sort_keys=True),
                 ),
                 attribution=ArtefactAttribution.system(),
             )
 
 
 def load_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, review_model: str
+    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm
 ) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
     tuple[int, int], IssuesReview
 ]:
-    """The (pass, chunk) reviews already computed for this turn by `review_model` (latest wins per key).
+    """The (pass, chunk) reviews already computed with this arm (latest wins per key).
 
-    The cache is per commit, so results another model wrote at the same commit (a flash turn before a
-    full one, or the reverse) are skipped: reusing them would hand this turn findings its own reviewer
-    never produced.
+    The cache is per commit, so another model or effort's findings must not skip this reviewer's work.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
+    review_config = json.dumps(asdict(review_arm), sort_keys=True)
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
-        if content.review_model != review_model:
+        if content.review_config != review_config:
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out

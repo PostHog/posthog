@@ -27,6 +27,7 @@ class TestDoItSource:
             "Report no longer exists",
             "Request to get report failed with status: 404",
             "invalid or revoked access key",
+            "invalid token: missing expiration",
         ],
     )
     def test_non_retryable_errors_includes_pattern(self, pattern):
@@ -34,10 +35,11 @@ class TestDoItSource:
 
         assert pattern in errors
 
-    def test_non_retryable_errors_tells_the_customer_to_reconnect_on_a_bad_key(self):
+    @pytest.mark.parametrize("pattern", ["invalid or revoked access key", "invalid token: missing expiration"])
+    def test_non_retryable_errors_tells_the_customer_to_reconnect_on_a_bad_key(self, pattern: str):
         errors = self.source.get_non_retryable_errors()
 
-        assert "reconnect" in (errors["invalid or revoked access key"] or "")
+        assert "reconnect" in (errors[pattern] or "")
 
     def test_get_schemas_stamps_the_report_id_so_renames_stay_resolvable(self):
         with patch(

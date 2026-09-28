@@ -52,6 +52,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresence,
     AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -1091,6 +1092,23 @@ class AccountPresenceViewerSerializer(DataclassSerializer):
         fields = ["user_id", "display_name"]
 
 
+class AccountPresenceListRequestSerializer(serializers.Serializer):
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=100,
+        help_text="Up to 100 account IDs to read presence for.",
+    )
+
+
+class AccountPresenceSerializer(DataclassSerializer):
+    account_id = serializers.UUIDField(read_only=True, help_text="Customer analytics account ID.")
+    viewers = AccountPresenceViewerSerializer(many=True, read_only=True, help_text="People viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresence
+        fields = ["account_id", "viewers"]
+
+
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
     """Slim organization-member representation for Customer analytics account rows."""
 
@@ -1459,11 +1477,22 @@ class CalendarSyncStatusSerializer(DataclassSerializer):
         read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
     )
     is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+    sync_interval_minutes = serializers.IntegerField(read_only=True, help_text="Minutes between scheduled syncs.")
 
     class Meta:
         dataclass = CalendarSyncStatus
         ref_name = "CalendarSyncStatus"
-        fields = ["integration_id", "last_synced_at", "is_syncing"]
+        fields = ["integration_id", "last_synced_at", "is_syncing", "sync_interval_minutes"]
+
+
+class CalendarSyncIntervalSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the connected Google account.")
+    sync_interval_minutes = serializers.IntegerField(help_text="Minutes between scheduled syncs: 5, 15, 30, or 60.")
+
+    def validate_sync_interval_minutes(self, value: int) -> int:
+        if value not in (5, 15, 30, 60):
+            raise serializers.ValidationError("Choose 5, 15, 30, or 60 minutes.")
+        return value
 
 
 class CalendarSyncTriggerSerializer(serializers.Serializer):

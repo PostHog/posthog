@@ -110,6 +110,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert len(db_results) == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
         assert "first_visit" not in [r["name"] for r in db_results]
 
+    @parameterized.expand(
+        [
+            ["malformed excluded_properties", "excluded_properties=abc"],
+            ["malformed event_names", "event_names=%27"],
+        ]
+    )
+    def test_list_property_definitions_rejects_malformed_json_query_params(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_list_property_definitions_with_exclude_restricted(self):
         from posthog.constants import AvailableFeature
 
@@ -1074,6 +1085,7 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
         [
             ["defaults", {}],
             ["event with event_names", {"type": "event", "event_names": '["foo","bar"]'}],
+            ["empty excluded_properties list", {"excluded_properties": "[]"}],
             ["person", {"type": "person"}],
             ["group with valid index", {"type": "group", "group_type_index": 3}],
         ]
@@ -1084,6 +1096,11 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["event_names not JSON", {"type": "event", "event_names": "abc"}],
+            ["event_names not a list", {"type": "event", "event_names": '{"foo": 1}'}],
+            ["excluded_properties not JSON", {"excluded_properties": "abc"}],
+            ["excluded_properties not a list", {"excluded_properties": "1"}],
+            ["excluded_properties with nested list", {"excluded_properties": '[["foo"]]'}],
             ["group type without index", {"type": "group"}],
             ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
             ["negative group_type_index", {"type": "group", "group_type_index": -1}],

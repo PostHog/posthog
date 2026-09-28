@@ -8,6 +8,8 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
+from posthog.slack.formatting import escape_slack_mrkdwn
+
 JSON = dict[str, Any]
 
 # Pre-compiled regexes for performance (compiled once at module load)
@@ -38,17 +40,6 @@ _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
 _RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
 _RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
 _RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
-
-
-def escape_slack_mrkdwn(text: str) -> str:
-    """Escape Slack mrkdwn control characters in user-supplied text.
-
-    Unescaped `<...>` sequences are live in mrkdwn: `<!channel>` broadcasts,
-    `<@U…>` pings a user, and `<url|label>` renders a disguised link.
-    """
-    if not text:
-        return ""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _slack_unicode_to_char(unicode_hex: str) -> str | None:

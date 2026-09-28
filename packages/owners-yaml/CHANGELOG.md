@@ -7,6 +7,29 @@ Notable changes to the `owners-yaml` package. The format follows
 `publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
+## 0.3.0
+
+### Added
+
+- `--producer NAME` on `owners resolve` and on `python -m owners_yaml`, and a `producer` argument on `OwnersResolver`. Without it, a team that maps `notifications` per producer was never matched, so every bot fell back to the team's `slack` channel. A name the root file's `producers` list does not declare is an error, because it would silently route to the people channel. SPEC section 7.1 now defines the producer as part of a resolver request.
+- An optional `additions` field, at file level and in rules, names the owners of additions below a directory, separate from the owners of the files in it. The format only names them; a consumer decides what counts as an addition and what to do with the list. Unlike `owners`, the owners of additions from every file on the walk and every matching rule add up, and `inherit: false` still cuts them. `SPEC.md` section 3.6 defines it.
+- The resolver response carries an `additions` member, and `Resolution` an `additions` field. Consumers that ignore unknown members, as SPEC section 7.4 requires, are unaffected. SPEC section 7.4 requires a consumer to treat a missing member as an empty array.
+- `lint` fails on a rule that names a tracked directory without the trailing `/`, such as `docs` for `docs/`. A literal last segment also matches a file of that name, so the slash says which one is meant.
+- Conformance cases may state `additions`. A case that leaves it out expects an empty list, so existing cases need no edit.
+
+### Changed
+
+- Path normalization removes a trailing `/`. `products/new/` and `products/new` now resolve alike; before, the slash put the directory's own ownership file on the walk.
+- Every matching rule in a file now applies, and each replaces only the fields it sets. Before, the last matching rule replaced the earlier ones entirely, so a rule that set only `status` dropped the `owners` an earlier rule had set. `SPEC.md` section 3.4 records the amendment.
+
+### Docs
+
+- The PyPI project page links to the new website, [owners-yaml.posthog.dev](https://owners-yaml.posthog.dev), as its homepage. The README links to it too.
+- The `notifications` example in the README and the command next to it now agree: a per-producer mapping needs `--purpose notifications --producer review-bot`. A plain channel string covers all automation.
+- The install section warns that the PyPI project named `owners` is a different package. Always write `owners-yaml`.
+- "Lint in CI" says what plain `lint` does not check: it does not know which teams exist, `lint --live` asks GitHub through the `gh` CLI, and `who` and `resolve` answer from the parent directory when a file does not parse.
+- SPEC section 10 and the README record a non-goal: CODEOWNERS is an export target and a one-time migration source, never a second input format.
+
 ## 0.2.0
 
 First release on PyPI, as `owners-yaml`. The package was developed in the monorepo as `posthog-owners` and never published under that name.

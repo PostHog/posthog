@@ -456,6 +456,34 @@ class TestAgreementFanout:
         assert [r["id"] for r in endclauses] == [9]
         assert any(url.endswith("/agreements/A/summary") for url in clause_urls)
 
+    def test_versions_read_a_bare_array_response(self):
+        rows, urls, _ = self._run(
+            "agreement_versions",
+            agreements=[{"uuid": "A"}],
+            child=[{"id": 1, "displayVersion": "1.0"}, {"id": 2, "displayVersion": "2.0"}],
+        )
+        assert [(r["agreement_uuid"], r["id"]) for r in rows] == [("A", 1), ("A", 2)]
+        assert any(url.endswith("/agreements/A/versions") for url in urls)
+
+    @parameterized.expand(
+        [
+            ("approval", "agreement_approval", {"status": "PENDING", "blockThirdPartySignature": True}),
+            ("signature", "agreement_signature", {"enforceOrder": True, "signatureProvider": "CONCORD"}),
+            ("metadata", "agreement_metadata", {"title": "NDA", "status": "DRAFT"}),
+        ]
+    )
+    def test_single_object_child_becomes_one_row_per_agreement(self, _name, endpoint, child):
+        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
+        assert [r["agreement_uuid"] for r in rows] == ["A", "B"]
+        # the object's own fields land on the row alongside the parent uid
+        assert set(child) <= set(rows[0])
+
+    @parameterized.expand([("approval", "agreement_approval"), ("signature", "agreement_signature")])
+    def test_single_object_child_skips_an_agreement_with_nothing_configured(self, _name, endpoint):
+        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}], child={})
+        # an empty body would otherwise seed a row carrying nothing but the parent uid
+        assert rows == []
+
     @parameterized.expand([("forbidden", 403), ("not_found", 404)])
     def test_skips_an_agreement_the_key_cannot_read(self, _name, status_code):
         def child(url):
