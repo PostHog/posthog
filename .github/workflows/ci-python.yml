@@ -320,9 +320,14 @@ jobs:
             # node_modules. Keep the step after "Install Python dependencies": the taxonomy
             # and object-tag renderers import posthog/__init__.py, which pulls in Django,
             # so they need the full synced dependency set, not just stdlib.
+            # Skip on unrebased branches: the build:projections command may not exist yet.
             - name: Check if the generated projections are up to date
               shell: bash
               run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
+                      echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
                   ./bin/hogli build:projections --check
 
             # Warn-only while the pre-existing violation backlog settles: findings annotate
