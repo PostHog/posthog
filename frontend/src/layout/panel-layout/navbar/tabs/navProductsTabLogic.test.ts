@@ -129,6 +129,27 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
     })
 
+    it('fills in the link of product stars the backend created without one', async () => {
+        const results = [
+            { id: 'backend-star', path: 'Session replay', type: 'session_replay' },
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+        ]
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system_shortcut/': { results },
+                '/api/projects/:team_id/file_system_shortcut/': { results },
+            },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic, () =>
+            projectTreeDataLogic.actions.loadShortcuts()
+        ).toFinishAllListeners()
+        expect(projectTreeDataLogic.values.shortcutData).toEqual([
+            { id: 'backend-star', path: 'Session replay', type: 'session_replay', href: urls.replay() },
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+        ])
+    })
+
     it('filters starred products with the product search', async () => {
         const starredTree = projectTreeLogic({
             key: PRODUCTS_STARRED_TREE_KEY,

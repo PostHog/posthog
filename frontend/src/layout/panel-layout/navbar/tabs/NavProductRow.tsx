@@ -18,6 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { findProductShortcut } from '../../ProjectTree/utils'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { NavProductIcon } from './NavProductIcon'
 import { NavProductMenu } from './NavProductMenu'
 import { navProductsTabLogic } from './navProductsTabLogic'
@@ -76,7 +77,11 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
 
     return (
         <div className="group/product-row relative flex items-center gap-px min-w-0">
-            <Tooltip title={disabledReason || <NavProductTooltip item={item} />} placement="right">
+            <Tooltip
+                title={disabledReason || <NavProductTooltip item={item} />}
+                docLink={disabledReason ? undefined : sidebarProductMeta(item).docsHref}
+                placement="right"
+            >
                 <Link
                     to={disabledReason ? undefined : href}
                     disabledReason={disabledReason}

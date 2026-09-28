@@ -30,6 +30,7 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
@@ -1047,7 +1048,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         SHORTCUTS_LOADER_TIMEOUT_MS,
                         'loadShortcuts timed out'
                     )
-                    return response.results
+                    return response.results.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item }) => {
                     const shortcutItem = shortcutFromEntry(item)

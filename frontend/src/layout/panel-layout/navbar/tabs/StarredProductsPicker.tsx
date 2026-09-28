@@ -8,6 +8,7 @@ import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { JevProductSuggestions } from './JevProductSuggestions'
 import { NavProductIcon } from './NavProductIcon'
 import { navProductsTabLogic } from './navProductsTabLogic'
+import { NavProductTooltip } from './NavProductTooltip'
 import { productsItemName } from './productsCatalog'
 
 export function StarredProductsPicker(): JSX.Element {
@@ -89,7 +90,8 @@ export function StarredProductsPicker(): JSX.Element {
                                                 <IconStar className="text-tertiary" />
                                             )
                                         }
-                                        tooltip={sidebarProductMeta(item).description}
+                                        tooltip={<NavProductTooltip item={item} />}
+                                        tooltipDocLink={sidebarProductMeta(item).docsHref}
                                         tooltipPlacement="top"
                                         onClick={() => setDraftStarred(item.path, !starred)}
                                         data-attr="configure-starred-app-toggle"

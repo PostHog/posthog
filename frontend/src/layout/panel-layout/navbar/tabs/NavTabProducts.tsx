@@ -9,6 +9,7 @@ import { getSidebarProduct } from '../../ProjectTree/defaultTree'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
@@ -59,6 +60,10 @@ export function NavTabProducts(): JSX.Element {
                                 renderItemTooltip={(treeItem) => {
                                     const product = getSidebarProduct(treeItem.record?.href)
                                     return product ? <NavProductTooltip item={product} /> : undefined
+                                }}
+                                renderItemTooltipDocLink={(treeItem) => {
+                                    const product = getSidebarProduct(treeItem.record?.href)
+                                    return product ? sidebarProductMeta(product).docsHref : undefined
                                 }}
                             />
                         </div>
