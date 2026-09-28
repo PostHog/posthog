@@ -1119,6 +1119,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert res.status_code == status.HTTP_200_OK, res.json()
 
+    @parameterized.expand(
+        [
+            ("resend_stored_mapping", [], status.HTTP_200_OK),
+            ("add_duplicate_to_mapping", [{"key": "added", "type": "string"}] * 2, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stored_duplicate_mapping_keys_do_not_block_full_saves(
+        self, _name: str, extra_schema: list[dict], expected_status: int
+    ) -> None:
+        mapping = {
+            "name": "Signed up",
+            "inputs_schema": [{"key": "click_id", "type": "string"}, {"key": "click_id", "type": "string"}],
+            "inputs": {"click_id": {"value": "{event.properties.click_id}"}},
+        }
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy mapping duplicates",
+            type="destination",
+            hog="print(inputs.click_id)",
+            inputs_schema=[],
+            inputs={},
+            mappings=[mapping],
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "name": "Renamed",
+                "mappings": [{**mapping, "inputs_schema": [*mapping["inputs_schema"], *extra_schema]}],
+            },
+        )
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert res.json()["attr"] == "mappings__0__inputs_schema"
+
     @parameterized.expand([("clean", ["message"]), ("already_duplicated", ["message", "message"])])
     def test_newly_duplicated_input_key_is_rejected(self, _name: str, stored_keys: list[str]) -> None:
         function = HogFunction.objects.create(

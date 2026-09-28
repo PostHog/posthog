@@ -1136,6 +1136,9 @@ class FunctionInputsSerializer(serializers.Serializer):
 class MappingsSerializer(FunctionInputsSerializer):
     name = serializers.CharField(required=False)
     filters = HogFunctionFiltersSerializer(required=False)
+    # The hog function serializer compares repeated keys against the stored mappings, because the UI
+    # resends every mapping on each save and some stored mappings already repeat a key.
+    inputs_schema = InputsSchemaSerializer(required=False, unique_keys=False)
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, dict) and "inputs_schema" in data:

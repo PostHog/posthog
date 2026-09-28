@@ -655,6 +655,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         stored_duplicates = duplicate_input_keys(existing.inputs_schema if existing else None)
         if duplicate_input_keys(attrs.get("inputs_schema")) - stored_duplicates:
             raise serializers.ValidationError({"inputs_schema": DUPLICATE_INPUT_KEYS_ERROR})
+        stored_mapping_duplicates: set[str] = set()
+        for stored_mapping in (existing.mappings if existing else None) or []:
+            if isinstance(stored_mapping, dict):
+                stored_mapping_duplicates |= duplicate_input_keys(stored_mapping.get("inputs_schema"))
+        for index, mapping in enumerate(attrs.get("mappings") or []):
+            if duplicate_input_keys(mapping.get("inputs_schema")) - stored_mapping_duplicates:
+                raise serializers.ValidationError(
+                    {"mappings": {str(index): {"inputs_schema": [DUPLICATE_INPUT_KEYS_ERROR]}}}
+                )
 
         if not self.context.get("allow_managed_alert_destination"):
             current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}

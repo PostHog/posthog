@@ -19,11 +19,11 @@ def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
     that split are the ones that reach the browser.
     """
     exposed: set[str] = set()
-    configs: list[Any] = [
-        {"inputs_schema": hog_function.inputs_schema, "inputs": hog_function.inputs},
-        *(hog_function.mappings or []),
+    configs: list[tuple[Any, bool]] = [
+        ({"inputs_schema": hog_function.inputs_schema, "inputs": hog_function.inputs}, False),
+        *((mapping, True) for mapping in hog_function.mappings or []),
     ]
-    for config in configs:
+    for config, is_mapping in configs:
         if not isinstance(config, dict):
             continue
         inputs = config.get("inputs") or {}
@@ -31,9 +31,12 @@ def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
             if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
                 continue
             value = inputs.get(schema["key"])
-            # A mapping input the caller left out falls back to the schema default below, so a
-            # default carries into the browser the same way a stored value does.
-            if (isinstance(value, dict) and value.get("value") is not None) or schema.get("default") is not None:
+            if isinstance(value, dict) and value.get("value") is not None:
+                exposed.add(str(schema["key"]))
+            # The transpiler falls back to the schema default only for a mapping input the caller left
+            # out. It builds the top-level inputs from stored values alone, so a top-level default never
+            # reaches the browser.
+            elif is_mapping and schema["key"] not in inputs and schema.get("default") is not None:
                 exposed.add(str(schema["key"]))
     return exposed
 

@@ -404,14 +404,17 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         assert result == []
 
-    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(self) -> None:
+    @parameterized.expand([("no_default", {}), ("top_level_default", {"default": "abc"})])
+    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(
+        self, _name: str, default: dict[str, str]
+    ) -> None:
         # `move_secret_inputs` leaves the value in `encrypted_inputs`, which the transpiler never
         # reads, so the function has to stay published.
         function = HogFunction.objects.create(
             team=self.team,
             type="site_destination",
             enabled=True,
-            inputs_schema=[{"key": "token", "type": "string", "secret": True}],
+            inputs_schema=[{"key": "token", "type": "string", "secret": True, **default}],
             inputs={"token": {"value": "example-private-browser-value"}},
         )
         assert (function.inputs or {}) == {}
@@ -423,14 +426,20 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert str(function.id) in result
         assert "example-private-browser-value" not in result
 
-    @parameterized.expand([("mapping", True), ("legacy_plaintext_inputs", False)])
+    @parameterized.expand(
+        [
+            ("mapping", True, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+            ("mapping_default", True, {"inputs": {}, "default": "example-private-browser-value"}),
+            ("legacy_plaintext_inputs", False, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+        ]
+    )
     def test_site_functions_are_not_published_while_a_secret_sits_in_plaintext(
-        self, _name: str, in_mapping: bool
+        self, _name: str, in_mapping: bool, stored: dict
     ) -> None:
-        config = {
-            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
-            "inputs": {"token": {"value": "example-private-browser-value"}},
-        }
+        schema = {"key": "token", "type": "string", "secret": True}
+        if "default" in stored:
+            schema["default"] = stored["default"]
+        config = {"inputs_schema": [schema], "inputs": stored["inputs"]}
         unsafe = HogFunction.objects.create(
             team=self.team,
             type="site_destination",
