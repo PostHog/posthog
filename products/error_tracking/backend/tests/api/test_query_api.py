@@ -161,18 +161,26 @@ RESOLVE_NOW = datetime(2026, 4, 24, 12, 0, tzinfo=ZoneInfo("UTC"))
             "2026-01-10T23:59:59.999999-08:00",
         ),
         ("default_is_last_7_days", None, "2026-04-17T05:00:00-07:00", "2026-04-24T05:00:00-07:00"),
+        (
+            "repeated_dst_hour_compares_instants",
+            {"date_from": "2026-11-01T01:30:00-07:00", "date_to": "2026-11-01T01:15:00-08:00"},
+            "2026-11-01T01:30:00-07:00",
+            "2026-11-01T01:15:00-08:00",
+        ),
     ]
 )
 def test_resolve_date_range(_name: str, raw: object, expected_from: str, expected_to: str) -> None:
-    date_from, date_to = resolve_date_range(raw, LOS_ANGELES, now=RESOLVE_NOW)
+    resolved = resolve_date_range(raw, LOS_ANGELES, now=RESOLVE_NOW)
 
-    assert (date_from.isoformat(), date_to.isoformat()) == (expected_from, expected_to)
+    assert (resolved.date_from.isoformat(), resolved.date_to.isoformat()) == (expected_from, expected_to)
 
 
 @parameterized.expand(
     [
         ("inverted", {"date_from": "2026-04-21", "date_to": "2026-04-20"}),
         ("all_as_date_to", {"date_from": "-7d", "date_to": "all"}),
+        ("unreadable_date_from", {"date_from": "banana"}),
+        ("unreadable_date_to", {"date_from": "-7d", "date_to": "last week"}),
     ]
 )
 def test_resolve_date_range_rejects_invalid_range(_name: str, raw: object) -> None:

@@ -593,7 +593,7 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe(
-            'Date range for issue impact and latest-event metadata. Defaults to the last 7 days. A date-only date_to includes that whole day. Dates without an offset use the project timezone.'
+            'Date range for issue impact and latest-event metadata. Defaults to the last 7 days. Without date_from, the range starts 7 days before date_to. A relative date_to counts back from now. A date-only date_to includes that whole day. Dates without an offset use the project timezone.'
         ),
     filterTestAccounts: zod
         .boolean()

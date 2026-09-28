@@ -10,6 +10,7 @@ from dateutil import parser
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
+from posthog.dataclasses import frozen
 from posthog.utils import relative_date_parse
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
@@ -129,6 +130,7 @@ def build_date_range(raw_date_range: object) -> dict[str, object]:
 
 
 DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+RELATIVE_DATE_PATTERN = re.compile(r"^[+-]?\d*[hdwmqysHDWMQY](Start|End)?$")
 ALL_TIME_DAYS = 365 * 4
 DEFAULT_WINDOW_DAYS = 7
 
@@ -145,9 +147,24 @@ def _parse_absolute_date(value: str, timezone_info: ZoneInfo) -> datetime.dateti
     return parsed.replace(tzinfo=timezone_info) if parsed.tzinfo is None else parsed.astimezone(timezone_info)
 
 
+@frozen
+class ResolvedDateRange:
+    date_from: datetime.datetime
+    date_to: datetime.datetime
+
+
+def _parse_relative_date(
+    value: str, timezone_info: ZoneInfo, now: datetime.datetime, **kwargs: bool
+) -> datetime.datetime:
+    # relative_date_parse returns `now` for text it cannot read, so check the format first.
+    if not RELATIVE_DATE_PATTERN.match(value):
+        raise ValueError(f"'{value}' is not an ISO date or a relative date such as -7d.")
+    return relative_date_parse(value, timezone_info, now=now, **kwargs)
+
+
 def resolve_date_range(
     raw_date_range: object, timezone_info: ZoneInfo, now: datetime.datetime | None = None
-) -> tuple[datetime.datetime, datetime.datetime]:
+) -> ResolvedDateRange:
     """Resolve a tool date range to exact bounds in the project timezone.
 
     A date-only `date_to` includes that whole day, and relative values count back from now.
@@ -162,7 +179,7 @@ def resolve_date_range(
             raise ValueError("date_to cannot be 'all'.")
         absolute_date_to = _parse_absolute_date(raw_date_to, timezone_info)
         if absolute_date_to is None:
-            date_to = relative_date_parse(raw_date_to, timezone_info, now=current, increase=raw_date_to.startswith("+"))
+            date_to = _parse_relative_date(raw_date_to, timezone_info, current, increase=raw_date_to.startswith("+"))
         elif DATE_ONLY_PATTERN.match(raw_date_to):
             date_to = absolute_date_to + datetime.timedelta(days=1) - datetime.timedelta(microseconds=1)
         else:
@@ -172,16 +189,17 @@ def resolve_date_range(
     if raw_date_from == "all":
         date_from = current - datetime.timedelta(days=ALL_TIME_DAYS)
     elif isinstance(raw_date_from, str) and raw_date_from:
-        date_from = _parse_absolute_date(raw_date_from, timezone_info) or relative_date_parse(
-            raw_date_from, timezone_info, now=current, always_truncate=True
+        date_from = _parse_absolute_date(raw_date_from, timezone_info) or _parse_relative_date(
+            raw_date_from, timezone_info, current, always_truncate=True
         )
     else:
         # Anchor the default window to the range end so a historical date_to keeps a valid range.
         date_from = date_to - datetime.timedelta(days=DEFAULT_WINDOW_DAYS)
 
-    if date_from > date_to:
+    # Compare instants, because two times in one zone compare by wall clock across a DST change.
+    if date_from.timestamp() > date_to.timestamp():
         raise ValueError("date_from must be before date_to.")
-    return date_from, date_to
+    return ResolvedDateRange(date_from=date_from, date_to=date_to)
 
 
 def add_event_filter(filters: list[dict[str, object]], key: str, operator: str, value: str | list[str]) -> None:

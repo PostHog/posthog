@@ -125,10 +125,12 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = dict(request.validated_data)
         issue_id = str(params["issueId"])
         try:
-            date_from, date_to = resolve_date_range(params.get("dateRange"), self.team.timezone_info)
+            resolved_range = resolve_date_range(params.get("dateRange"), self.team.timezone_info)
         except ValueError as error:
             raise ValidationError({"dateRange": str(error)}) from error
-        date_range: dict[str, object] = {"date_from": date_from.isoformat(), "date_to": date_to.isoformat()}
+        date_from = resolved_range.date_from.isoformat()
+        date_to = resolved_range.date_to.isoformat()
+        date_range: dict[str, object] = {"date_from": date_from, "date_to": date_to}
         effective_date_range = {**date_range, "timezone": self.team.timezone}
         include_sparkline = cast(bool, params.get("includeSparkline", False))
         volume_resolution = cast(int, params.get("volumeResolution", 0))
@@ -178,8 +180,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 select=CONTEXT_EVENT_SELECTS,
                 where=build_issue_where(issue_id),
                 filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                after=date_from.isoformat(),
-                before=date_to.isoformat(),
+                after=date_from,
+                before=date_to,
                 orderBy=["timestamp DESC"],
                 limit=1,
                 tags={"productKey": "error_tracking"},
