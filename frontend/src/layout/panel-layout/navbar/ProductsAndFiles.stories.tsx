@@ -334,6 +334,7 @@ export const FilesOptions: Story = {
 export const OpenFolder: Story = { args: { collapsed: true, folderToOpen: 'Product research' } }
 export const Chat: Story = {
     args: { tab: 'chat' },
+    parameters: { mockDate: '2026-01-01T12:00:00Z' },
     decorators: [
         mswDecorator({
             get: {
@@ -345,8 +346,8 @@ export const Chat: Story = {
                             title,
                             status: 'idle',
                             type: 'assistant',
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
+                            created_at: '2026-01-01T11:59:00Z',
+                            updated_at: '2026-01-01T11:59:00Z',
                             user: MOCK_DEFAULT_BASIC_USER,
                         })),
                         next: null,
@@ -355,6 +356,11 @@ export const Chat: Story = {
             },
         }),
     ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('Review signup trends')
+        await canvas.findByText('Explore checkout events')
+    },
 }
 export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
 export const FilesFiltered: Story = { args: { tab: 'files', search: 'type:notebook' } }
