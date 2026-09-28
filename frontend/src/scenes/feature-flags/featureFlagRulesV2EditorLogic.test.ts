@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -22,6 +23,11 @@ import {
     rulesV2WriteBody,
     withRuleType,
 } from './featureFlagRulesV2EditorLogic'
+
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    refreshTreeItem: jest.fn(),
+}))
 
 const V2_FLAG = {
     ...NEW_FLAG,
@@ -155,6 +161,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(body.tags).toEqual(['checkout'])
         expect(body.filters.rules).toEqual([NEW_TARGETED_RELEASE_RULE])
         expect(router.values.location.pathname).toContain(urls.featureFlag(8))
+        expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '8')
     })
 
     describe('editing a stored flag', () => {
@@ -183,6 +190,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(body.version).toBe(3)
             expect(body.filters.rules.map((rule: { id: string }) => rule.id)).toEqual(['rule-rollout', 'rule-beta'])
             expect(JSON.stringify(body)).not.toContain('seed')
+            expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '7')
         })
 
         it.each([

@@ -24,6 +24,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     FeatureFlagConfig,
     FeatureFlagRulesV2DraftConfig,
@@ -457,6 +458,9 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         },
         saveRulesV2FlagSuccess: ({ flag }) => {
             lemonToast.success('Flag saved')
+            if (flag.id) {
+                refreshTreeItem('feature_flag', String(flag.id))
+            }
             if (props.id === 'new') {
                 router.actions.push(urls.featureFlag(flag.id ?? 'new'))
                 return
