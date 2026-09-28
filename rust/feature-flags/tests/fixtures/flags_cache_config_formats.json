@@ -1,5 +1,5 @@
 {
-  "description": "Stored feature flag rows for one team, and what the internal flags.json builders must publish for each. Both the Python builders (products/feature_flags/backend/flags_cache.py) and the Rust builder (rust/feature-flags/src/flags/cache_builder.rs) run this file. A `type: flag` property whose `key` names another fixture key references that row; the harness rewrites it to the inserted id before building. `$missing` becomes `missing_dependency_id`. `expect` is `kept` when the row appears in the published payload; otherwise it is `unsupported` (a document the builders reject, logged under unsupported_flag_ids), `dependent` (a row whose dependency conditions reference an unsupported row, transitively, logged under dependent_flag_ids) or `omitted` (left out for another reason); `blanked` marks a kept row whose filters are published as {\"groups\": []}; `missing_dependency` marks a kept row listed in flags_with_missing_deps.",
+  "description": "Stored feature flag rows for one team, and what the internal flags.json builders must publish for each. Both the Python builders (products/feature_flags/backend/flags_cache.py) and the Rust builder (rust/feature-flags/src/flags/cache_builder.rs) run this file. A `type: flag` property whose `key` names another fixture key references that row; the harness rewrites it to the inserted id before building. `$missing` becomes `missing_dependency_id`. `expect` is `kept` when the row appears in the published payload (a supported active config version 2 row is kept verbatim); otherwise it is `unsupported` (a document the builders reject, including an inactive or archived version 2 row, logged under unsupported_flag_ids), `dependent` (a row whose dependency conditions reference an unsupported row, transitively, logged under dependent_flag_ids) or `omitted` (left out for another reason); `blanked` marks a kept row whose filters are published as {\"groups\": []}; `missing_dependency` marks a kept row listed in flags_with_missing_deps.",
   "missing_dependency_id": 2147480000,
   "flags": [
     {
@@ -94,12 +94,35 @@
           }
         ]
       },
-      "expect": "unsupported"
+      "expect": "kept"
     },
     {
       "key": "v2-malformed-active",
       "active": true,
       "filters": { "version": 2, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "v2-unsupported-family-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": false,
+        "rules": [
+          {
+            "id": "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5",
+            "rule_type": "experiment",
+            "targeting": { "properties": [] },
+            "experiment_id": 1,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "release-experiment",
+            "variants": [{ "key": "control", "value": false, "rollout_percentage": 100 }]
+          }
+        ]
+      },
       "expect": "unsupported"
     },
     {
@@ -193,7 +216,7 @@
           }
         ]
       },
-      "expect": "dependent"
+      "expect": "kept"
     },
     {
       "key": "depends-false-on-v2-valid-inactive",
@@ -253,7 +276,7 @@
           }
         ]
       },
-      "expect": "dependent"
+      "expect": "kept"
     },
     {
       "key": "depends-false-on-inactive-v1",

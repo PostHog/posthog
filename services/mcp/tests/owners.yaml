@@ -2,6 +2,8 @@ version: 1
 owners:
     - team-context-mcp
 rules:
+    - match: '/**/__snapshots__/'
+      status: generated
     - match:
           - '/hono/analytics.test.ts'
           - '/unit/posthog/analytics.test.ts'

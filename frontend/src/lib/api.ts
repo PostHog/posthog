@@ -2859,13 +2859,7 @@ const api = {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
-                .create({
-                    signal,
-                    data: {
-                        ...query,
-                        dateRange: query?.dateRange ?? { date_from: '-24h' },
-                    },
-                })
+                .create({ signal, data: { ...query } })
         },
         async sparkline(
             query: {

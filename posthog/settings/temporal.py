@@ -37,6 +37,9 @@ TEMPORAL_TARGET_MEMORY_USAGE: float | None = get_from_env(
 TEMPORAL_TARGET_CPU_USAGE: float | None = get_from_env(
     "TEMPORAL_TARGET_CPU_USAGE", None, optional=True, type_cast=float
 )
+TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
+)
 
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(

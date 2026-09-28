@@ -1564,7 +1564,7 @@ const LlmaPromptUpdateSchema = () => {
     const LlmPromptsNamePartialUpdateParams = orvalSchemas.LlmPromptsNamePartialUpdateParams()
     return LlmPromptsNamePartialUpdateParams.omit({ project_id: true })
         .extend(LlmPromptsNamePartialUpdateBody.shape)
-        .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].unwrap() })
+        .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].nonoptional() })
 }
 
 const llmaPromptUpdate = (): ToolBase<ReturnType<typeof LlmaPromptUpdateSchema>, Schemas.LLMPrompt> => ({
