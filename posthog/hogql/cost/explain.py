@@ -37,8 +37,11 @@ def build_cost_plan(estimate: ScanEstimate | None, report: IndexEligibilityRepor
     steps: list[CostPlanStep] = []
     for table in estimate.tables:
         steps.append(_scan_step(table))
+        # Each modelled filter is spent on one predicate, so two filters on the same property each get their
+        # own share, and a predicate the model did not cover, such as ``!=``, gets none.
+        unspent = list(table.filters)
         for predicate in _filters_for(table, estimate, predicates):
-            steps.append(_filter_step(predicate, table))
+            steps.append(_filter_step(predicate, table, _take_modelled_filter(predicate, unspent)))
     if len(estimate.tables) > 1 and estimate.has_join:
         steps.append(
             CostPlanStep(
@@ -109,8 +112,7 @@ def _filters_for(
             (
                 candidate
                 for candidate in estimate.tables
-                if predicate.scope == PropertyScope.EVENT
-                and any(f.property_name == predicate.property_name for f in candidate.filters)
+                if predicate.scope == PropertyScope.EVENT and any(_models(f, predicate) for f in candidate.filters)
             ),
             None,
         )
@@ -130,12 +132,13 @@ def _scan_for_scope(
     return events_scan
 
 
-def _filter_step(predicate: PredicateIndexEligibility, table: TableScanEstimate) -> CostPlanStep:
+def _filter_step(
+    predicate: PredicateIndexEligibility, table: TableScanEstimate, modelled: FilterEstimate | None
+) -> CostPlanStep:
     prefixes = {PropertyScope.PERSON: "person.", PropertyScope.GROUP: "group."}
     name = f"{prefixes.get(predicate.scope, '')}{predicate.property_name}"
     operator = "=" if predicate.operator.value == "==" else predicate.operator.value
     head = f"Filter {name} {operator} …"
-    modelled = _modelled_filter(predicate, table)
     if modelled is not None and modelled.granules_read is not None:
         skipped = 1 - modelled.granules_read
         if skipped >= 0.995:
@@ -161,10 +164,19 @@ def _filter_step(predicate: PredicateIndexEligibility, table: TableScanEstimate)
     )
 
 
-def _modelled_filter(predicate: PredicateIndexEligibility, table: TableScanEstimate) -> FilterEstimate | None:
-    if predicate.scope != PropertyScope.EVENT:
-        return None
-    return next((f for f in table.filters if f.property_name == predicate.property_name), None)
+def _models(filter_estimate: FilterEstimate, predicate: PredicateIndexEligibility) -> bool:
+    return (
+        predicate.scope == PropertyScope.EVENT
+        and filter_estimate.property_name == predicate.property_name
+        and filter_estimate.operator == predicate.operator
+    )
+
+
+def _take_modelled_filter(predicate: PredicateIndexEligibility, unspent: list[FilterEstimate]) -> FilterEstimate | None:
+    for index, filter_estimate in enumerate(unspent):
+        if _models(filter_estimate, predicate):
+            return unspent.pop(index)
+    return None
 
 
 def _rows(rows: int | None) -> str:

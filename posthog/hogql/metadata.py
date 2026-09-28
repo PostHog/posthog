@@ -201,7 +201,7 @@ def get_hogql_metadata(
             # The estimate covers a direct connection too: its tables carry the remote catalog's size.
             if query.indexUsage and _scan_estimate_enabled(team):
                 estimate = _attach_scan_estimate(response, hogql_ast, context, statistics_provider)
-                _attach_cost_plan(response, estimate, report)
+                _attach_cost_plan(response, estimate, report, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -324,9 +324,17 @@ def _attach_scan_estimate(
 
 
 def _attach_cost_plan(
-    response: HogQLMetadataResponse, estimate: ScanEstimateResult | None, report: IndexEligibilityReport | None
+    response: HogQLMetadataResponse,
+    estimate: ScanEstimateResult | None,
+    report: IndexEligibilityReport | None,
+    context: HogQLContext,
 ) -> None:
-    steps = build_cost_plan(estimate, report)
+    try:
+        steps = build_cost_plan(estimate, report)
+    except Exception:
+        # Advisory like the estimate: a plan that fails to render must not mark a compiling query invalid.
+        logger.exception("hogql_cost_plan_failed", team_id=context.team_id)
+        return
     if not steps:
         return
     response.cost_plan = [

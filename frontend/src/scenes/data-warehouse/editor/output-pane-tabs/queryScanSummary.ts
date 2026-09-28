@@ -54,10 +54,18 @@ function describeRange(table: TableScanEstimate): string | null {
     return table.days >= 2 ? `${Math.round(table.days)} days` : `${Math.round(table.days * 24)} hours`
 }
 
+function countTables(count: number): string {
+    return count === 1 ? '1 table' : `${count} tables`
+}
+
 export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
     const sized = sizedTables(estimate)
-    if (sized.length === 0) {
+    if (estimate.tables.length === 0) {
         return null
+    }
+    if (sized.length === 0) {
+        // The header still tells the reader why there is no number, and the plan under it names each table.
+        return { text: `No size estimate. ${countTables(estimate.tables.length)} without statistics`, warn: false }
     }
     const rows = humanFriendlyLargeNumber(estimate.rows)
     // "Up to" when an indexed filter may skip data by an amount the estimate does not model.
@@ -75,7 +83,7 @@ export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
     // "Sized" and not "estimated": a size-only table is in the total, but its read is not modeled.
     const coverage =
         sized.length === estimate.tables.length
-            ? `${estimate.tables.length} tables`
+            ? countTables(estimate.tables.length)
             : `${sized.length} of ${estimate.tables.length} tables sized`
     return { text: `Reads ${qualifier} ${rows} rows · ${coverage}`, warn }
 }

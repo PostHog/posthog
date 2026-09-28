@@ -81,6 +81,8 @@ class FilterEstimate:
     """How much of an events scan one indexed property filter is expected to leave."""
 
     property_name: str
+    # With the name, tells this filter apart from another on the same property that the model did not cover.
+    operator: ast.CompareOperationOp
     # How many constants the property is compared against: one for ``=``, the set size for IN.
     values: int
     # Share of granules still read after this filter alone, or None when the property has no distinct count.
@@ -268,7 +270,10 @@ def _estimate_events_scan(
             unmodelled = True
             filters.append(
                 FilterEstimate(
-                    property_name=property_filter.property_name, values=property_filter.values, granules_read=None
+                    property_name=property_filter.property_name,
+                    operator=property_filter.operator,
+                    values=property_filter.values,
+                    granules_read=None,
                 )
             )
             continue
@@ -278,7 +283,10 @@ def _estimate_events_scan(
         granules_read = min(granules_read, share)
         filters.append(
             FilterEstimate(
-                property_name=property_filter.property_name, values=property_filter.values, granules_read=share
+                property_name=property_filter.property_name,
+                operator=property_filter.operator,
+                values=property_filter.values,
+                granules_read=share,
             )
         )
     unfiltered = volume.per_day * scan.days * fraction
@@ -334,6 +342,7 @@ class _PropertyFilter:
     """An equality or IN on an event property that a bloom filter index can prune granules for."""
 
     property_name: str
+    operator: ast.CompareOperationOp
     # How many constants the property is compared against: one for ``=``, the set size for IN.
     values: int
 
@@ -685,7 +694,7 @@ class _WherePredicates(TraversingVisitor):
             self._unmodelled_filter = True
             return
         self._property_filters.setdefault(table.alias, []).append(
-            _PropertyFilter(property_name=plan.access.property_name, values=values)
+            _PropertyFilter(property_name=plan.access.property_name, operator=plan.operator, values=values)
         )
 
     def _record_timestamp(

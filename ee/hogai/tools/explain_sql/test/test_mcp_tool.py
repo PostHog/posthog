@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.tools.explain_sql.mcp_tool import ExplainSQLMCPTool, ExplainSQLMCPToolArgs
 
 
@@ -62,6 +62,12 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
         assert result.content.startswith("Reads up to 812,000 rows from one table.")
         assert result.content.endswith("and a selective filter may read less.")
         assert "event names" not in result.content
+
+    async def test_denies_a_member_without_query_access(self):
+        with patch("ee.hogai.tools.explain_sql.mcp_tool.UserAccessControl") as access_control:
+            access_control.return_value.check_access_level_for_resource.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT count() FROM events"))
 
     async def test_says_when_estimates_are_not_enabled_for_the_project(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):

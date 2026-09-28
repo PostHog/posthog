@@ -6,8 +6,10 @@ from posthog.hogql.metadata import _scan_estimate_enabled, get_hogql_metadata
 
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 
 
 class ExplainSQLMCPToolArgs(BaseModel):
@@ -36,6 +38,10 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
         query = args.query.strip().rstrip(";").strip()
         if not query:
             raise MaxToolRetryableError("Query is empty")
+        # The token scope says the caller may read queries. The project's access controls may still deny this
+        # member, and an estimate leaks table sizes, so it is gated the way the query endpoint is.
+        if not await self._can_read_queries():
+            raise MaxToolAccessDeniedError(resource="query", required_level="viewer")
         response = await self._metadata(query, args.connectionId)
         if not response.isValid:
             errors = "; ".join(error.message for error in response.errors) or "unknown error"
@@ -49,6 +55,10 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
                 "cost_plan": [step.model_dump(mode="json", exclude_none=True) for step in response.cost_plan or []],
             },
         )
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _can_read_queries(self) -> bool:
+        return UserAccessControl(user=self._user, team=self._team).check_access_level_for_resource("query", "viewer")
 
     @database_sync_to_async(thread_sensitive=False)
     def _enabled(self) -> bool:

@@ -86,7 +86,7 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
             f"VALUES {values}"
         )
 
-    def test_sums_across_libs_and_days_and_counts_distinct_days(self):
+    def test_sums_across_libs_and_days_and_spans_the_window_from_the_first_day(self):
         cache.delete(f"hogql_cost:event_volume:{self.team_id}")
         self._seed(
             [
@@ -99,7 +99,16 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
 
         volume = ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id)
 
-        assert volume == EventVolume(total=205, by_event={"$pageview": 200, "signup": 5}, days=2)
+        assert volume == EventVolume(total=205, by_event={"$pageview": 200, "signup": 5}, days=3)
+
+    def test_a_single_sparse_day_does_not_read_as_a_daily_rate(self):
+        cache.delete(f"hogql_cost:event_volume:{self.team_id}")
+        self._seed([(TODAY - timedelta(days=8), "web", "$pageview", 800)])
+
+        volume = ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id)
+
+        assert volume == EventVolume(total=800, by_event={"$pageview": 800}, days=8)
+        assert volume.per_day == 100.0
 
     # The day past the window coincides with the table TTL, so it cannot be seeded reliably and is not a case here.
     @parameterized.expand(

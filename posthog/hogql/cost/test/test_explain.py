@@ -19,9 +19,9 @@ EVENTS = TableScanEstimate(
     events=("$pageview",),
     time_range="bounded",
     filters=(
-        FilterEstimate(property_name="order_id", values=1, granules_read=0.0008),
-        FilterEstimate(property_name="plan", values=1, granules_read=1.0),
-        FilterEstimate(property_name="uncounted", values=1, granules_read=None),
+        FilterEstimate(property_name="order_id", operator=ast.CompareOperationOp.Eq, values=1, granules_read=0.0008),
+        FilterEstimate(property_name="plan", operator=ast.CompareOperationOp.Eq, values=1, granules_read=1.0),
+        FilterEstimate(property_name="uncounted", operator=ast.CompareOperationOp.Eq, values=1, granules_read=None),
     ),
 )
 ORDERS = TableScanEstimate(name="orders", source="warehouse", precision="size_only", rows=1_200_000, bytes=356_515_840)
@@ -34,7 +34,7 @@ def _predicate(
     return PredicateIndexEligibility(
         property_name=name,
         scope=scope,
-        operator=ast.CompareOperationOp.Eq,
+        operator=overrides.get("operator", ast.CompareOperationOp.Eq),
         source_kind=PropertySourceKind.MATERIALIZED_COLUMN,
         source_label="materialized column",
         column_name=None,
@@ -57,6 +57,41 @@ def _predicate(
 class TestBuildCostPlan(SimpleTestCase):
     def test_no_estimate_means_no_plan(self):
         assert build_cost_plan(None, IndexEligibilityReport()) == ()
+
+    def test_a_modelled_filter_is_spent_on_the_predicate_it_models(self):
+        events = dataclasses.replace(
+            EVENTS,
+            filters=(
+                FilterEstimate(
+                    property_name="order_id", operator=ast.CompareOperationOp.Eq, values=1, granules_read=0.0008
+                ),
+                FilterEstimate(
+                    property_name="order_id", operator=ast.CompareOperationOp.In, values=3, granules_read=0.6
+                ),
+            ),
+        )
+        report = IndexEligibilityReport(
+            predicates=(
+                _predicate("order_id", PropertyScope.EVENT, PredicateIndexVerdict.INDEXED),
+                _predicate(
+                    "order_id",
+                    PropertyScope.EVENT,
+                    PredicateIndexVerdict.BLOCKED,
+                    operator=ast.CompareOperationOp.NotEq,
+                ),
+                _predicate(
+                    "order_id", PropertyScope.EVENT, PredicateIndexVerdict.INDEXED, operator=ast.CompareOperationOp.In
+                ),
+            )
+        )
+
+        steps = build_cost_plan(ScanEstimate(rows=41_000_000, upper_bound=False, tables=(events,)), report)
+
+        assert [step.message for step in steps[1:]] == [
+            "Filter order_id = … skips over 99% of the scan",
+            "Filter order_id != … index unused, reads every row",
+            "Filter order_id in … skips about 40% of the scan",
+        ]
 
     def test_scans_come_in_from_order_with_their_filters_and_one_join_line(self):
         report = IndexEligibilityReport(
@@ -120,7 +155,13 @@ class TestBuildCostPlan(SimpleTestCase):
     def test_a_modelled_filter_goes_to_the_scan_that_modelled_it_in_a_self_join(self):
         left = dataclasses.replace(EVENTS, alias="a", filters=())
         right = dataclasses.replace(
-            EVENTS, alias="b", filters=(FilterEstimate(property_name="order_id", values=1, granules_read=0.0008),)
+            EVENTS,
+            alias="b",
+            filters=(
+                FilterEstimate(
+                    property_name="order_id", operator=ast.CompareOperationOp.Eq, values=1, granules_read=0.0008
+                ),
+            ),
         )
         report = IndexEligibilityReport(
             predicates=(_predicate("order_id", PropertyScope.EVENT, PredicateIndexVerdict.INDEXED),)

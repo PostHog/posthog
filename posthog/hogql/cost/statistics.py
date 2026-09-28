@@ -75,7 +75,7 @@ class EventVolume:
 
     total: int
     by_event: Mapping[str, int]
-    # Distinct days that had data. Divides ``total`` into a daily rate the estimator can scale to any range.
+    # Days from the first day with data to the end of the window. Divides ``total`` into a daily rate.
     days: int
     # Volume of the event names not listed in ``by_event``. An unlisted name is taken to be at most all of it.
     other: int = 0
@@ -278,7 +278,7 @@ class ClickHouseStatisticsProvider:
                 # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id and the dates are bound as parameters
                 totals = sync_execute(
                     f"""
-                    SELECT uniqExact(date), sumMerge(event_count)
+                    SELECT min(date), sumMerge(event_count), count()
                     FROM {settings.CLICKHOUSE_DATABASE}.{USAGE_REPORT_EVENTS_PREAGG_TABLE}
                     WHERE team_id = %(team_id)s AND date >= %(since)s AND date < %(today)s
                     """,
@@ -288,7 +288,7 @@ class ClickHouseStatisticsProvider:
                     team_id=team_id,
                     readonly=True,
                 )
-                if not totals or not totals[0][0]:
+                if not totals or not totals[0][2]:
                     return None
                 # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id, the dates and the limit are bound as parameters
                 rows = sync_execute(
@@ -311,7 +311,11 @@ class ClickHouseStatisticsProvider:
             logger.warning("hogql_cost_event_volume_unavailable", team_id=team_id, exc_info=True)
             return None
 
-        days, total = int(totals[0][0]), int(totals[0][1])
+        first_day, total = totals[0][0], int(totals[0][1])
+        # The rate divides by elapsed days, not days with data: a team that sent events on one day of the
+        # window is not sending that much every day. A team younger than the window is measured from its
+        # first day, so it is not diluted by days before it existed.
+        days = max(1, min(EVENT_VOLUME_WINDOW_DAYS, (today - first_day).days))
         by_event = {str(event): int(count) for event, count in rows}
         return EventVolume(total=total, by_event=by_event, days=days, other=total - sum(by_event.values()))
 

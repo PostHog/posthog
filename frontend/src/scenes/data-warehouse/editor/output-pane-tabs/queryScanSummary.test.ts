@@ -80,12 +80,32 @@ describe('queryScanSummary', () => {
             estimate({ tables: [eventsTable(), unknownTable('persons')] }),
             'Reads about 42M rows · 1 of 2 tables sized',
         ],
+        [
+            'a single sized table is singular',
+            estimate({
+                rows: 812_000,
+                upper_bound: true,
+                tables: [
+                    {
+                        name: 'persons',
+                        source: ScanEstimateSource.Clickhouse,
+                        precision: ScanEstimatePrecision.SizeOnly,
+                        rows: 812_000,
+                    },
+                ],
+            }),
+            'Reads up to 812K rows · 1 table',
+        ],
     ])('%s', (_name, input, expected) => {
         expect(summarizeScan(input)?.text).toBe(expected)
     })
 
-    it('says nothing when no table has a number', () => {
-        expect(summarizeScan(estimate({ rows: 0, tables: [unknownTable('persons')] }))).toBeNull()
+    it('says why there is no number when no table has one', () => {
+        expect(summarizeScan(estimate({ rows: 0, tables: [unknownTable('persons')] }))).toEqual({
+            text: 'No size estimate. 1 table without statistics',
+            warn: false,
+        })
+        expect(summarizeScan(estimate({ rows: 0, tables: [] }))).toBeNull()
     })
 
     it('warns at the large-scan threshold and not below it', () => {
