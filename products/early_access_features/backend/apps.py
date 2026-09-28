@@ -40,7 +40,7 @@ class EarlyAccessFeaturesConfig(AppConfig):
                 # deletion, so importing it here keeps that chain off AppConfig.ready() / startup.
                 from products.feature_flags.backend.facade.api import clear_feature_enrollment  # noqa: PLC0415
 
-                clear_feature_enrollment(feature_flag, team=feature_flag.team)
+                clear_feature_enrollment(feature_flag.id, team=feature_flag.team)
 
         def _post_delete(context, feature):
             organization = context.organization

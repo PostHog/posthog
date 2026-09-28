@@ -318,7 +318,10 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     feature_flag_id=related_feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-                clear_feature_enrollment(related_feature_flag, team=self.context["get_team"]())
+                clear_feature_enrollment(related_feature_flag.id, team=self.context["get_team"]())
+                # The facade writes its own row, so the instance this response serializes still
+                # carries the enrollment marker until it reads the cleared filters back.
+                related_feature_flag.refresh_from_db(fields=["filters"])
 
         updated_instance = super().update(instance, validated_data)
 
@@ -545,7 +548,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 resource_scope="early_access_feature:write",
             )
             assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-            clear_feature_enrollment(related_feature_flag, team=self.team)
+            clear_feature_enrollment(related_feature_flag.id, team=self.team)
 
         return super().destroy(request, *args, **kwargs)
 

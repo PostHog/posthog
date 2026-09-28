@@ -250,7 +250,7 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
 
 
-def clear_feature_enrollment(flag: FeatureFlag, *, team: Team) -> None:
+def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
     """Clear the enrollment marker on an early access feature's linked flag (feature demoted or deleted).
 
     Cleanup must never fail: a linked flag can hold stored filter shapes the current
@@ -259,7 +259,13 @@ def clear_feature_enrollment(flag: FeatureFlag, *, team: Team) -> None:
     Prefer the gated facade write (validation, activity logging); fall back to a raw
     model write when it raises. This is a system write (user=None): an enabled approval
     policy must never block cleanup with a 409, and activity is logged as system.
+
+    A flag the team no longer holds is already gone, so there is nothing to clear.
     """
+    flag = FeatureFlag.objects.filter(pk=flag_id, team=team).first()
+    if flag is None:
+        return
+
     cleared_filters = set_feature_enrollment(flag.get_filters() or {}, None)
     # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
     # filters and returns the stored ones — silently skipping the cleanup entirely.
