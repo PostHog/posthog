@@ -142,7 +142,8 @@ export function CategoricalEvaluationConfig({
                 </div>
             ) : (
                 <p className="text-muted text-sm">
-                    Results stay neutral without a passing rule. Add a rule to enable pass rates and reports.
+                    Results show their categories without a pass or fail status. Add a passing rule to enable pass rates
+                    and reports.
                 </p>
             )}
         </div>
