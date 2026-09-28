@@ -1,12 +1,13 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
@@ -249,12 +250,9 @@ def _status_response(status_code: int, body: dict[str, Any] | None = None) -> Ma
 class TestFetchPageRetry:
     @pytest.fixture(autouse=True)
     def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Zero the tenacity backoff so retry tests don't actually sleep.
-        monkeypatch.setattr(vercel._fetch_page.retry, "wait", lambda *a, **k: 0)  # type: ignore[attr-defined]
+        monkeypatch.setattr(cast(Any, vercel._fetch_page).retry, "wait", wait_none())
 
     def test_408_is_retried_then_succeeds(self) -> None:
-        # 408 is a transient timeout on Vercel's side, not a bad request; a single 408 must not
-        # kill the sync with a fatal HTTPError.
         session = MagicMock()
         session.get.side_effect = [_status_response(408), _status_response(200, {"deployments": []})]
 
@@ -271,7 +269,6 @@ class TestFetchPageRetry:
             vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
 
     def test_400_is_not_retried(self) -> None:
-        # Guards against the 408 fix widening to swallow genuine client errors.
         session = MagicMock()
         session.get.return_value = _status_response(400)
 
@@ -281,11 +278,9 @@ class TestFetchPageRetry:
 
 
 class TestOpenBillingStreamRetry:
-    # billing_charges streams via _open_billing_stream, a separate retry wrapper from _fetch_page;
-    # the fix must cover both or a 408 on the billing endpoint stays fatal.
     @pytest.fixture(autouse=True)
     def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(vercel._open_billing_stream.retry, "wait", lambda *a, **k: 0)  # type: ignore[attr-defined]
+        monkeypatch.setattr(cast(Any, vercel._open_billing_stream).retry, "wait", wait_none())
 
     def test_408_is_retried_then_succeeds(self) -> None:
         session = MagicMock()
