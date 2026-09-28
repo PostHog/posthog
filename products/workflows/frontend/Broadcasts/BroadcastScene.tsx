@@ -74,10 +74,9 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!isBroadcast && (broadcast.origin_product || !isBroadcastShaped(broadcast.actions as any))) {
             return <NotFound object="broadcast" />
         }
-        if (
-            broadcast.status !== 'draft' ||
-            (!isBroadcast && !canEditInWizard(broadcast.actions as any, broadcast.edges as any))
-        ) {
+        // The wizard saves a broadcast back as its three-step graph, so any other graph (an edit made in the
+        // workflow editor, or an agent-created one) stays read-only here rather than losing its extra steps.
+        if (broadcast.status !== 'draft' || !canEditInWizard(broadcast.actions as any, broadcast.edges as any)) {
             return <BroadcastSummary />
         }
     }

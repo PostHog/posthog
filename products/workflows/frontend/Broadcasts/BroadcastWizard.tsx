@@ -13,11 +13,13 @@ import { BroadcastGoalStep } from './steps/BroadcastGoalStep'
 import { BroadcastRecipientsStep } from './steps/BroadcastRecipientsStep'
 import { BroadcastReviewStep } from './steps/BroadcastReviewStep'
 import { BroadcastScheduleStep } from './steps/BroadcastScheduleStep'
+import { useBroadcastAgentPanel } from './useBroadcastAgentPanel'
 
 export function BroadcastWizard(): JSX.Element {
     const { currentStep, name, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
     const { setStep, prevStep, continueStep, launchBroadcast, setName } = useActions(broadcastWizardLogic)
+    useBroadcastAgentPanel()
 
     return (
         <div className="min-h-full w-full shrink-0 bg-bg-light">

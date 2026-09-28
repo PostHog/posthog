@@ -12,8 +12,8 @@ export const NEW_BROADCAST_AGENT_HEADLINES: string[] = ['What would you like to 
 export const NEW_BROADCAST_SUGGESTIONS: AiFirstSuggestion[] = [
     {
         title: 'Announce a feature',
-        description: 'Tell active users about something new',
-        prompt: 'Announce our newest feature to users who were active in the last 30 days',
+        description: 'Tell your users about something new',
+        prompt: 'Announce our newest feature to all our users',
     },
     {
         title: 'Monthly product update',
