@@ -33,6 +33,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    PagerDutySeverity,
 )
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
@@ -183,6 +184,11 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     webhook_url = serializers.CharField(
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=list(PagerDutySeverity),
+        required=False,
+        help_text="PagerDuty severity for the incidents this destination opens. The routing key is never returned.",
     )
 
 
@@ -787,6 +793,22 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     webhook_url = serializers.URLField(
         required=False,
         help_text="HTTPS endpoint to post to. Required for webhook and teams.",
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        write_only=True,
+        max_length=64,
+        help_text=(
+            "Integration key of an Events API v2 integration on the PagerDuty service. Required when "
+            "type=pagerduty. PostHog stores it encrypted and never returns it."
+        ),
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=list(PagerDutySeverity),
+        required=False,
+        help_text=(
+            "PagerDuty severity for the incidents this destination opens. Used when type=pagerduty. Defaults to error."
+        ),
     )
 
     def validate(self, attrs: dict) -> dict:

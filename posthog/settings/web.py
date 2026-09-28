@@ -644,6 +644,8 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            # Logs alerts also offer PagerDuty, so their set no longer matches the one above.
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
