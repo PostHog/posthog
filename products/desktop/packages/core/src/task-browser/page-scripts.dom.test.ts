@@ -59,6 +59,7 @@ describe("page scripts", () => {
       <input type="text" autocomplete="current-password" name="shown" value="hunter2" />
       <textarea name="card-number">4242 4242 4242 4242</textarea>
       <input name="field-7" aria-label="Card number" value="5555 5555 5555 4444" />
+      <div contenteditable="plaintext-only" aria-label="Card number">3782 822463 10005</div>
       <input type="email" name="email" value="me@example.com" />
       <label><input type="checkbox" /> I agree</label>
       <div role="switch" aria-checked="true" tabindex="0">Dark mode</div>
@@ -69,6 +70,7 @@ describe("page scripts", () => {
     expect(snapshot).not.toContain("hunter2");
     expect(snapshot).not.toContain("4242");
     expect(snapshot).not.toContain("4444");
+    expect(snapshot).not.toContain("10005");
     expect(snapshot).toContain('value="me@example.com"');
     expect(snapshot).toMatch(/input "I agree" type=checkbox/);
     expect(snapshot).toContain("checked=true");

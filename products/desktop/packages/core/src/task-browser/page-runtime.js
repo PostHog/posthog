@@ -75,7 +75,7 @@ export function pageKit() {
       ));
 
   const isPayment = (field) =>
-    isField(field) &&
+    (isField(field) || field.isContentEditable) &&
     /cc-|card|cvc|cvv|iban|expir|exp-|security code/i.test(
       [
         autocompleteOf(field),
@@ -145,7 +145,7 @@ export function pageKit() {
 
 export function snapshot(kit, { maxChars }) {
   const INTERACTIVE =
-    "a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[role=textbox],[contenteditable=true],[tabindex]:not([tabindex='-1'])";
+    "a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[role=textbox],[contenteditable]:not([contenteditable=false]),[tabindex]:not([tabindex='-1'])";
   const TEXT =
     "h1,h2,h3,h4,h5,h6,p,li,td,th,label,dt,dd,figcaption,blockquote,[role=alert],[role=status]";
   const LOOSE = "div,span";
