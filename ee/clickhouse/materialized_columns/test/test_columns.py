@@ -84,15 +84,17 @@ class TestMaterializedColumnDetails(TestCase):
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    def setUp(self):
-        self.recreate_database()
-        return super().setUp()
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.recreate_database()
 
     def tearDown(self):
         self.recreate_database()
         super().tearDown()
 
-    def recreate_database(self):
+    @staticmethod
+    def recreate_database() -> None:
         # Dropping the database removes materialized columns behind the metadata cache's back.
         for table in MATERIALIZATION_VALID_TABLES:
             _clear_materialized_columns_cache(table)
