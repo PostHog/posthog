@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 from io import StringIO
-from typing import Any
+from typing import TYPE_CHECKING
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -25,6 +25,9 @@ from products.workflows.backend.models.hog_flow.search_text import (
     email_body_text,
     find_step_matches,
 )
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 _ExpectedMatches = dict[str, list[tuple[str, str, str]]]
 
@@ -191,8 +194,9 @@ class TestHogFlowSearchMatching(APIBaseTest):
 
 
 class TestHogFlowSearchAPI(APIBaseTest):
-    def _search(self, query: str, **params: Any):
-        return self.client.get(_search_url(self.team.id), {"q": query, **params})
+    def _search(self, query: str, **params: int) -> "_MonkeyPatchedResponse":
+        query_params: dict[str, str | int] = {"q": query, **params}
+        return self.client.get(_search_url(self.team.id), query_params)
 
     def test_search_returns_an_excerpt_around_a_body_match(self) -> None:
         body = " ".join(["Filler words before the part that matters."] * 5)
@@ -309,7 +313,7 @@ class TestHogFlowSearchAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
-_TRICKY_EMAILS: list[tuple[str, dict[str, Any]]] = [
+_TRICKY_EMAILS: list[tuple[str, dict[str, object]]] = [
     ("text_export_wins", {"text": "Plain text", "html": "<p>Html</p>"}),
     ("empty_text_uses_html", {"text": "", "html": "<p>Html <b>body</b></p>"}),
     ("boolean_text", {"text": False, "html": "<p>Html</p>"}),
@@ -330,7 +334,7 @@ _TRICKY_EMAILS: list[tuple[str, dict[str, Any]]] = [
 
 class TestEmailBodyTextMatchesSql(TestCase):
     @parameterized.expand(_TRICKY_EMAILS)
-    def test_email_body_text_matches_the_sql_rule(self, _name: str, email: dict[str, Any]) -> None:
+    def test_email_body_text_matches_the_sql_rule(self, _name: str, email: dict[str, object]) -> None:
         action = {"config": {"inputs": {"email": {"value": email}}}}
         with connection.cursor() as cursor:
             cursor.execute(
