@@ -181,7 +181,9 @@ export class BrowserPool {
         return page
     }
 
-    async releasePage(page: Page): Promise<void> {
+    // discardBrowser closes the browser instead of returning it to the idle pool, so a render that
+    // left Chrome in a bad state (e.g. a wedged compositor) cannot poison the next render.
+    async releasePage(page: Page, { discardBrowser = false }: { discardBrowser?: boolean } = {}): Promise<void> {
         const slot = this.slots.get(page)
         this.slots.delete(page)
 
@@ -195,7 +197,11 @@ export class BrowserPool {
             return
         }
 
-        if (slot.usageCount >= this.recycleAfter) {
+        if (discardBrowser) {
+            log.warn({ usage_count: slot.usageCount }, 'discarding browser instead of reusing it')
+            RasterizationMetrics.browserDiscarded(slot.usageCount > 1)
+            await this.closeBrowser(slot)
+        } else if (slot.usageCount >= this.recycleAfter) {
             log.info({ usage_count: slot.usageCount }, 'recycling browser')
             RasterizationMetrics.browserRecycled()
             await this.closeBrowser(slot)
