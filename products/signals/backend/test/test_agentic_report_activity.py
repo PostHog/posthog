@@ -32,6 +32,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.impact_measurement_plans import latest_measurement_plans
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -1258,6 +1259,55 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("pending_input", [False, True])
+async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(ateam, pending_input):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    metric = (
+        _metric("measured-outcome")
+        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
+        .model_dump(mode="json")
+    )
+    if pending_input:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Draft title",
+                summary="Draft summary",
+                reason="Needs input",
+                metrics=[metric],
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                metrics=[metric],
+            )
+        )
+
+    def stored_outcome():
+        updated_report = SignalReport.objects.get(id=report.id)
+        return updated_report.metrics, latest_measurement_plans(updated_report)["measured-outcome"][1]
+
+    observations, plan = await database_sync_to_async(stored_outcome)()
+    assert observations[0]["metric_id"] == plan.metric_id
+    assert not any(field in observations[0] for field in REPORT_METRIC_GOAL_FIELDS)
+    assert plan.goal_value == 0
+    assert plan.activated is False
 
 
 @pytest.mark.asyncio

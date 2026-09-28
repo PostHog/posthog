@@ -526,6 +526,19 @@ describe('inboxTaskKickoffLogic', () => {
     describe('buildDiscussReportPrompt', () => {
         const url = 'https://app.posthog.com/project/1/inbox/report-1'
 
+        it('keeps measurement edits separate from state changes on a resolved report', () => {
+            const prompt = buildDiscussReportPrompt(
+                makeReport({ status: SignalReportStatus.RESOLVED }),
+                url,
+                'Fewer failed checkouts',
+                'measurement_plan'
+            )
+            expect(prompt).toContain('Fewer failed checkouts')
+            expect(prompt).toContain('inbox-report-artefacts-create')
+            expect(prompt).toContain('Do not create a check, start monitoring, change the report state')
+            expect(prompt).not.toContain('inbox-reports-set-state')
+        })
+
         it.each([SignalReportStatus.READY, SignalReportStatus.PENDING_INPUT])(
             'tells the agent to carry out actions for a %s report',
             (status) => {

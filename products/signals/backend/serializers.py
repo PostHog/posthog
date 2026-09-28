@@ -1061,6 +1061,12 @@ class ReportMetricSerializer(serializers.Serializer):
         default=None,
         help_text="Whether success means at most or at least goal_value.",
     )
+    goal_grain = serializers.ChoiceField(
+        choices=("whole_window", "per_interval"),
+        required=False,
+        default="whole_window",
+        help_text="Whether the goal compares with the whole query window or each chart bucket.",
+    )
     decision_window_days = serializers.IntegerField(
         min_value=1,
         max_value=30,
@@ -1106,6 +1112,16 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if any(
+            attrs.get(field) is not None
+            for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
+        ):
+            raise serializers.ValidationError(
+                "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
+            )
+        return attrs
 
 
 class ReportMetricListSerializer(ReportMetricSerializer):
@@ -2068,6 +2084,19 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if obj.type == SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN and isinstance(parsed, dict):
+            policy = report_metric_access_policy(self.context)
+            if not policy.may_read_query(parsed) or (
+                parsed.get("eligibility_query") is not None
+                and not policy.may_read_query({"query": parsed["eligibility_query"]})
+            ):
+                return {
+                    "metric_id": parsed.get("metric_id"),
+                    "title": parsed.get("title"),
+                    "activated": parsed.get("activated", False),
+                    "retired": parsed.get("retired", False),
+                }
 
         return parsed
 

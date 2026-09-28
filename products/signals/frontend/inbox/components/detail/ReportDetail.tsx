@@ -24,7 +24,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -172,6 +172,8 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
+    impactArtefacts?: SignalReportArtefact[] | null
+    onImpactApproved?: () => void
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -202,6 +204,8 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
+    impactArtefacts,
+    onImpactApproved,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -323,6 +327,7 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
@@ -330,8 +335,13 @@ export function InboxDetailFrame({
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
     const expectedImpact =
-        useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY') && !summaryPending ? (
-            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
+        expectedImpactEnabled && !summaryPending ? (
+            <ReportExpectedImpact
+                report={report}
+                reportUrl={reportUrl}
+                artefacts={impactArtefacts}
+                onApprovalComplete={onImpactApproved}
+            />
         ) : null
 
     const summaryColumn = (
@@ -616,7 +626,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest } = useActions(logic)
+    const { selectPullRequest, loadReportArtefacts } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -646,6 +656,8 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
+            impactArtefacts={reportArtefacts}
+            onImpactApproved={loadReportArtefacts}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (

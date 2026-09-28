@@ -90,10 +90,41 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
-            200,
-            mockArtefacts(req.params.reportId as string),
-        ],
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const reportId = req.params.reportId as string
+            const artefacts = mockArtefacts(reportId)
+            if (reportId !== reportTabReports[0].id) {
+                return [200, artefacts]
+            }
+            return [
+                200,
+                {
+                    ...artefacts,
+                    count: artefacts.count + 1,
+                    results: [
+                        {
+                            id: `${reportId}-impact`,
+                            type: 'impact_measurement_plan',
+                            content: {
+                                metric_id: reportMetricsFixture[0].metric_id,
+                                title: reportMetricsFixture[0].title,
+                                kind: reportMetricsFixture[0].kind,
+                                query: reportMetricsFixture[0].query,
+                                value_format: reportMetricsFixture[0].value_format,
+                                unit: reportMetricsFixture[0].unit,
+                                goal_value: 50,
+                                goal_direction: 'at_most',
+                                goal_grain: 'per_interval',
+                                decision_window_days: 7,
+                                activated: false,
+                            },
+                            created_at: '2026-08-29T00:00:00Z',
+                        },
+                        ...artefacts.results,
+                    ],
+                },
+            ]
+        },
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
@@ -266,14 +297,7 @@ export const ReportWithExpectedImpact: Story = {
                         '## Solution',
                         'Show the validation error in the form.',
                     ].join('\n\n'),
-                    metrics: [
-                        {
-                            ...reportMetricsFixture[0],
-                            goal_value: 50,
-                            goal_direction: 'at_most',
-                            decision_window_days: 7,
-                        },
-                    ],
+                    metrics: reportMetricsFixture.slice(0, 1),
                 })}
             />
         </Frame>

@@ -35099,6 +35099,18 @@ export namespace Schemas {
       AtLeast: 'at_least',
     } as const;
 
+    /**
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval
+     */
+    export type GoalGrainEnum = typeof GoalGrainEnum[keyof typeof GoalGrainEnum];
+
+
+    export const GoalGrainEnum = {
+      WholeWindow: 'whole_window',
+      PerInterval: 'per_interval',
+    } as const;
+
     export interface ReportMetricComparison {
       /** Baseline or previous value, formatted like the current value. */
       value: number;
@@ -35188,6 +35200,11 @@ export namespace Schemas {
        * * `at_most` - at_most
        * * `at_least` - at_least */
       goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
       /**
          * Suggested days after release before assessing impact, not a monitoring schedule.
          * @minimum 1
@@ -66906,6 +66923,7 @@ export namespace Schemas {
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
      * * `ranking_score` - Ranking Score
+     * * `impact_measurement_plan` - Impact Measurement Plan
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -66942,6 +66960,7 @@ export namespace Schemas {
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
       RankingScore: 'ranking_score',
+      ImpactMeasurementPlan: 'impact_measurement_plan',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -67217,6 +67236,11 @@ export namespace Schemas {
        * * `at_most` - at_most
        * * `at_least` - at_least */
       goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
       /**
          * Suggested days after release before assessing impact, not a monitoring schedule.
          * @minimum 1
@@ -87159,6 +87183,11 @@ export namespace Schemas {
        * * `at_most` - at_most
        * * `at_least` - at_least */
       goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
       /**
          * Suggested days after release before assessing impact, not a monitoring schedule.
          * @minimum 1
@@ -91124,7 +91153,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;

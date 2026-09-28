@@ -34,6 +34,7 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.impact_measurement_plans import persist_authored_measurement_plans
 from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
@@ -501,6 +502,7 @@ class SignalReportSummaryWorkflow:
                         source_products=source_products,
                         charts=decision.charts,
                         metrics=decision.metrics,
+                        plans_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
@@ -523,6 +525,7 @@ class SignalReportSummaryWorkflow:
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
+                    plans_task_id=decision.research_task_id,
                     checks=decision.checks,
                     checks_task_id=decision.research_task_id,
                     layers=decision.layers,
@@ -832,6 +835,7 @@ class MarkReportReadyInput:
     charts: list[dict[str, Any]] | None = None
     # Typed impact metrics written atomically with the prose and chart set.
     metrics: list[dict[str, Any]] | None = None
+    plans_task_id: str | None = None
     # Check specs the research run's verification turn authored, written as rows in the same
     # transaction as the metrics they reference. Empty or `None` writes none, which is also what an
     # older workflow history that predates the field replays as.
@@ -927,7 +931,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
             if input.metrics is not None:
-                report.metrics = input.metrics
+                report.metrics = persist_authored_measurement_plans(
+                    report,
+                    input.metrics,
+                    ArtefactAttribution.from_task(input.plans_task_id)
+                    if input.plans_task_id
+                    else ArtefactAttribution.system(),
+                )
                 updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
@@ -1161,6 +1171,7 @@ class MarkReportPendingInput:
     charts: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.metrics — same transaction and replay-safe default.
     metrics: list[dict[str, Any]] | None = None
+    plans_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.charts_enabled — reported, never stored.
@@ -1189,7 +1200,13 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
             if input.metrics is not None:
-                report.metrics = input.metrics
+                report.metrics = persist_authored_measurement_plans(
+                    report,
+                    input.metrics,
+                    ArtefactAttribution.from_task(input.plans_task_id)
+                    if input.plans_task_id
+                    else ArtefactAttribution.system(),
+                )
                 updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts

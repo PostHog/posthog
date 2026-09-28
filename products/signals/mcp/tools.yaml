@@ -36,7 +36,12 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake), `note` (free-form: note). Status types are latest-wins — appending a new version
+            always a mistake), `note` (free-form: note). `impact_measurement_plan` stores one proposed outcome: metric_id,
+            title, kind, bounded InsightVizNode Trends query, goal_value, goal_direction, goal_grain (whole_window or
+            per_interval), and decision_window_days or minimum_data_points (which requires an eligibility_query counting
+            qualifying opportunities). Read existing plans first, then append a
+            new version with the same metric_id to revise one without changing the others. Leave activated=false;
+            approval is a separate action. This proposal never starts monitoring. Status types are latest-wins — appending a new version
             supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority
             P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
             (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status

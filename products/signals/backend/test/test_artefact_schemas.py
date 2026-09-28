@@ -11,6 +11,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,
+    ImpactMeasurementPlan,
     NoteArtefact,
     RelevantCommit,
     SuggestedReviewerEntry,
@@ -24,6 +25,11 @@ from products.signals.backend.models import SignalReportArtefact
 
 
 class TestArtefactSchemas(SimpleTestCase):
+    def test_impact_plan_rejects_boolean_decision_rules(self):
+        for field in ("decision_window_days", "minimum_data_points"):
+            with self.assertRaises(ValidationError):
+                ImpactMeasurementPlan.model_validate({field: True})
+
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):
             SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)

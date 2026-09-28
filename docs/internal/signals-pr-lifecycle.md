@@ -21,6 +21,9 @@ The roll-up runs on the step's own status change, so a merged PR, a manual resol
 A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
+## Proposed impact measurement
+
+The organization authoring flag lets research propose an `impact_measurement_plan` artefact for each measurable outcome. Its bounded query, goal, aggregation grain, and decision rule live in the artefact, not in the report's observation metrics. A minimum-data rule also needs an eligibility query for qualifying opportunities. A later proposal with the same `metric_id` supersedes the earlier one; earlier versions remain for review. A person can activate the latest version from the report when the display flag is on. Activation appends a new version and does not schedule a check or change the report state. The approval action currently accepts an authenticated person; the artefact schema does not require a person as its approver.
 
 ## Repository selection
 

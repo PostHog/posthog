@@ -409,7 +409,7 @@ export const SignalsReportArtefactsCreateBody = () => zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -1708,6 +1708,7 @@ export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
 
+export const signalsScoutEditReportBodyMetricsItemGoalGrainDefault = `whole_window`
 export const signalsScoutEditReportBodyMetricsItemDecisionWindowDaysMax = 30
 
 export const signalsScoutEditReportBodyMetricsItemMinimumDataPointsMax = 1000
@@ -1958,6 +1959,13 @@ export const SignalsScoutEditReportBody = () => zod
                             .describe(
                                 'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
                             ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEditReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
+                            ),
                         decision_window_days: zod
                             .number()
                             .min(1)
@@ -2111,6 +2119,7 @@ export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
 
+export const signalsScoutEmitReportBodyMetricsItemGoalGrainDefault = `whole_window`
 export const signalsScoutEmitReportBodyMetricsItemDecisionWindowDaysMax = 30
 
 export const signalsScoutEmitReportBodyMetricsItemMinimumDataPointsMax = 1000
@@ -2372,6 +2381,13 @@ export const SignalsScoutEmitReportBody = () => zod
                             .optional()
                             .describe(
                                 'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
+                            ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEmitReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
                             ),
                         decision_window_days: zod
                             .number()

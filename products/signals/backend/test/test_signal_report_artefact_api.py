@@ -28,6 +28,10 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_pr import ImplementationPr
+from products.signals.backend.impact_measurement_plans import (
+    latest_measurement_plans,
+    persist_authored_measurement_plans,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalActorKind,
@@ -53,6 +57,138 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
+    def _impact_plan(self) -> dict:
+        return {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "value_format": "count",
+            "unit": "users",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-14d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    "trendsFilter": {"display": "ActionsBar"},
+                },
+            },
+            "goal_value": 0,
+            "goal_direction": "at_most",
+            "decision_window_days": 7,
+        }
+
+    def test_impact_plan_approval_appends_a_version_and_rejects_stale_approval(self):
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+        response = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        plan_id = response.json()["id"]
+        approval_url = f"{self._detail_url(str(report.id), plan_id)}activate/"
+        approved = self.client.post(approval_url)
+        assert approved.status_code == status.HTTP_200_OK, approved.json()
+        assert approved.json()["content"]["activated"] is True
+        assert approved.json()["id"] != plan_id
+        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 2
+        assert self.client.post(approval_url).status_code == status.HTTP_409_CONFLICT
+
+    def test_revised_plan_needs_new_approval_without_changing_other_outcomes(self):
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+        original = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
+        )
+        assert original.status_code == status.HTTP_201_CREATED, original.json()
+        approved = self.client.post(f"{self._detail_url(str(report.id), original.json()['id'])}activate/")
+        assert approved.status_code == status.HTTP_200_OK, approved.json()
+
+        another_outcome = {**self._impact_plan(), "metric_id": "another-outcome", "title": "Another outcome"}
+        assert (
+            self.client.post(
+                url, {"artefact_type": "impact_measurement_plan", "content": another_outcome}, format="json"
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+
+        revised = {**self._impact_plan(), "goal_value": 1}
+        revision = self.client.post(
+            url, {"artefact_type": "impact_measurement_plan", "content": revised}, format="json"
+        )
+        assert revision.status_code == status.HTTP_201_CREATED, revision.json()
+        latest = latest_measurement_plans(report)
+        assert str(latest["affected-users"][0].id) == revision.json()["id"]
+        assert latest["affected-users"][1].activated is False
+        assert latest["another-outcome"][1].goal_value == 0
+        assert (
+            self.client.post(f"{self._detail_url(str(report.id), approved.json()['id'])}activate/").status_code
+            == status.HTTP_409_CONFLICT
+        )
+
+    def test_impact_plan_cannot_be_activated_by_generic_write_or_changed_in_place(self):
+        report = self._create_report()
+        plan = self._impact_plan()
+        plan["activated"] = True
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        plan["activated"] = False
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        detail_url = self._detail_url(str(report.id), response.json()["id"])
+        assert (
+            self.client.patch(detail_url, {"content": plan}, format="json").status_code == status.HTTP_400_BAD_REQUEST
+        )
+        assert self.client.delete(detail_url).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_research_moves_goals_into_proposals_without_replacing_existing_versions(self):
+        report = self._create_report()
+        metric = self._impact_plan()
+        clean = persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
+        assert "goal_value" not in clean[0]
+        assert clean[0]["query"] == metric["query"]
+        first, proposal = latest_measurement_plans(report)["affected-users"]
+        assert proposal.goal_value == 0
+        assert proposal.activated is False
+        changed = {**metric, "goal_value": 7}
+        persist_authored_measurement_plans(report, [changed], ArtefactAttribution.system())
+        latest, unchanged = latest_measurement_plans(report)["affected-users"]
+        assert latest.id == first.id
+        assert unchanged.goal_value == 0
+
+    def test_minimum_sample_requires_a_query_for_eligible_opportunities(self):
+        report = self._create_report()
+        plan = {**self._impact_plan(), "minimum_data_points": 30}
+        url = self._list_url(str(report.id))
+        payload = {"artefact_type": "impact_measurement_plan", "content": plan}
+        assert self.client.post(url, payload, format="json").status_code == status.HTTP_400_BAD_REQUEST
+
+        eligible_query = json.loads(json.dumps(plan["query"]))
+        eligible_query["source"]["series"][0]["math"] = "total"
+        payload["content"] = {**plan, "eligibility_query": eligible_query}
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_impact_plan_redacts_the_goal_if_query_access_is_denied(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        with patch(
+            "products.signals.backend.report_metric_access.ReportMetricAccessPolicy.may_read_query", return_value=False
+        ):
+            listed = self.client.get(self._list_url(str(report.id)))
+        content = listed.json()["results"][0]["content"]
+        assert "query" not in content
+        assert "goal_value" not in content
+
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 

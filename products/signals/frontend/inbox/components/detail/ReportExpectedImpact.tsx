@@ -3,85 +3,209 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import api from 'lib/api'
+
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { SignalReport } from '../../types'
+import { SignalReport, SignalReportArtefact } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportExpectedImpactChart } from './ReportExpectedImpactChart'
 
-export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
+interface MeasurementPlan {
+    metric_id: string
+    title: string
+    kind: ReportMetricApi['kind']
+    query?: unknown
+    value_format?: ReportMetricApi['value_format']
+    unit?: string | null
+    goal_value?: number | null
+    goal_direction?: ReportMetricApi['goal_direction']
+    goal_grain?: 'whole_window' | 'per_interval'
+    decision_window_days?: number | null
+    minimum_data_points?: number | null
+    eligibility_query?: unknown
+    activated?: boolean
+    retired?: boolean
+}
+
+function planFromArtefact(artefact: SignalReportArtefact): MeasurementPlan | null {
+    if (artefact.type !== 'impact_measurement_plan') {
+        return null
+    }
+    const content: unknown = artefact.content
+    if (
+        !content ||
+        typeof content !== 'object' ||
+        !('metric_id' in content) ||
+        typeof content.metric_id !== 'string' ||
+        !('title' in content) ||
+        typeof content.title !== 'string'
+    ) {
+        return null
+    }
+    return content as MeasurementPlan
+}
+
+export function ReportExpectedImpact({
+    report,
+    reportUrl,
+    artefacts,
+    onApprovalComplete,
+}: {
+    report: SignalReport
+    reportUrl: string
+    artefacts?: SignalReportArtefact[] | null
+    onApprovalComplete?: () => void
+}): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
     const [description, setDescription] = useState('')
+    const [approvingId, setApprovingId] = useState<string | null>(null)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
-    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    const proposedMetrics =
-        report.metrics?.filter(
-            (metric) =>
-                metric.goal_value != null &&
-                metric.goal_direction &&
-                (metric.decision_window_days || metric.minimum_data_points)
-        ) ?? []
+    const newest = new Map<string, { artefact: SignalReportArtefact; plan: MeasurementPlan }>()
+    for (const artefact of artefacts ?? []) {
+        const plan = planFromArtefact(artefact)
+        if (plan && !newest.has(plan.metric_id)) {
+            newest.set(plan.metric_id, { artefact, plan })
+        }
+    }
+    const measurements: {
+        metric: ReportMetricApi
+        artefact: SignalReportArtefact | null
+        eligibilityQuery?: unknown
+        goalGrain: 'whole_window' | 'per_interval'
+        activated: boolean | undefined
+    }[] = [...newest.values()]
+        .filter(({ plan }) => !plan.retired)
+        .map(({ plan, artefact }) => ({
+            metric: {
+                metric_id: plan.metric_id,
+                title: plan.title,
+                kind: plan.kind ?? 'custom',
+                query: plan.query,
+                value_format: plan.value_format,
+                unit: plan.unit,
+                goal_value: plan.goal_value,
+                goal_direction: plan.goal_direction,
+                decision_window_days: plan.decision_window_days,
+                minimum_data_points: plan.minimum_data_points,
+            },
+            artefact,
+            eligibilityQuery: plan.eligibility_query,
+            goalGrain: plan.goal_grain ?? 'whole_window',
+            activated: plan.activated,
+        }))
+    if (artefacts !== null) {
+        for (const metric of report.metrics ?? []) {
+            if (metric.goal_value != null && metric.goal_direction && !newest.has(metric.metric_id)) {
+                measurements.push({ metric, artefact: null, goalGrain: 'whole_window', activated: false })
+            }
+        }
+    }
 
     const submit = (): void => {
         const request = description.trim()
         if (!request) {
             return
         }
-        const agentQuestion = `Update only the Expected impact section and proposed measurement on this report. Investigate which data is available, then use the inbox report edit tool to write a clear, testable success goal. Add or update a live report metric with a bounded query, goal_value, goal_direction, and a short decision_window_days or minimum_data_points justified by the expected volume. Count eligible opportunities, not failures, as data points. Keep the other report metrics and sections intact. If the data is not available, say what is missing; do not invent a chart or a threshold. Do not create a follow-up check, start monitoring, change the report status, or open a PR. The user's idea: ${request}`
         openReportDiscussion(report, reportUrl)
-        discussReport(report, reportUrl, request, agentQuestion)
-        // Task creation can still fail after the modal closes, so the text stays for a retry.
+        discussReport(report, reportUrl, request, undefined, 'measurement_plan')
         setModalOpen(false)
+    }
+
+    const approve = async (artefact: SignalReportArtefact): Promise<void> => {
+        setApprovingId(artefact.id)
+        try {
+            await api.signalReports.activateMeasurement(report.id, artefact.id)
+            onApprovalComplete?.()
+            lemonToast.success('Measurement approved')
+        } catch {
+            lemonToast.error('Could not approve this measurement. Please try again.')
+        } finally {
+            setApprovingId(null)
+        }
     }
 
     return (
         <div className="flex flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
-            {proposedMetrics.length ? (
-                proposedMetrics.map((metric) => {
+            {measurements.length ? (
+                measurements.map(({ metric, artefact, eligibilityQuery, goalGrain, activated }) => {
                     const query = asReportMetricSeriesQuery(metric)
                     return (
                         <div key={metric.metric_id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
-                                {metric.title}: {metric.goal_direction === 'at_most' ? 'at most' : 'at least'}{' '}
-                                {formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}
+                                {metric.title}:{' '}
+                                {metric.goal_value == null
+                                    ? 'goal unavailable'
+                                    : `${metric.goal_direction === 'at_most' ? 'at most' : 'at least'} ${formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}`}
                             </p>
-                            {metricsEnabled &&
-                                (query ? (
-                                    <ReportExpectedImpactChart
-                                        reportId={report.id}
-                                        metric={metric}
-                                        query={query.source}
-                                    />
-                                ) : (
-                                    <p className="text-tertiary m-0">The query is not available to you.</p>
-                                ))}
                             <p className="m-0 text-secondary text-sm">
-                                Suggested decision:{' '}
-                                {[
-                                    metric.decision_window_days && `${metric.decision_window_days} days after release`,
-                                    metric.minimum_data_points &&
-                                        `${metric.minimum_data_points} qualifying observations`,
-                                ]
-                                    .filter(Boolean)
-                                    .join(' and ')}
-                                .
+                                {activated ? 'Approved measurement' : 'Proposed measurement'} ·{' '}
+                                {goalGrain === 'per_interval'
+                                    ? 'Goal per chart interval'
+                                    : 'Goal for the full query window'}
                             </p>
+                            {query ? (
+                                <ReportExpectedImpactChart
+                                    reportId={report.id}
+                                    metric={metric}
+                                    query={query.source}
+                                    goalGrain={goalGrain}
+                                    version={artefact?.id ?? 'legacy'}
+                                />
+                            ) : (
+                                <p className="text-tertiary m-0">The query is not available to you.</p>
+                            )}
+                            {(metric.decision_window_days || metric.minimum_data_points) && (
+                                <p className="m-0 text-secondary text-sm">
+                                    Suggested decision:{' '}
+                                    {[
+                                        metric.decision_window_days &&
+                                            `${metric.decision_window_days} days after release`,
+                                        metric.minimum_data_points &&
+                                            `${metric.minimum_data_points} qualifying observations`,
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' and ')}
+                                    .
+                                </p>
+                            )}
                             {metric.query != null && (
                                 <details className="text-sm">
                                     <summary className="cursor-pointer">View measurement query</summary>
                                     <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
-                                        {JSON.stringify(metric.query, null, 2)}
+                                        {JSON.stringify(
+                                            eligibilityQuery
+                                                ? { metric: metric.query, qualifying_opportunities: eligibilityQuery }
+                                                : metric.query,
+                                            null,
+                                            2
+                                        )}
                                     </pre>
                                 </details>
+                            )}
+                            {artefact && !activated && metric.query != null && (
+                                <div className="flex">
+                                    <LemonButton
+                                        data-attr="report-expected-impact-approve"
+                                        type="secondary"
+                                        size="small"
+                                        loading={approvingId === artefact.id}
+                                        onClick={() => approve(artefact)}
+                                    >
+                                        Approve measurement
+                                    </LemonButton>
+                                </div>
                             )}
                         </div>
                     )
                 })
             ) : (
                 <p className="m-0 text-secondary text-sm">
-                    No measurement proposed yet. Ask AI to find a metric and set a goal.
+                    {artefacts === null
+                        ? 'Loading proposed measurements…'
+                        : 'No measurement proposed yet. Ask AI to find a metric and set a goal.'}
                 </p>
             )}
             <div className="flex flex-wrap gap-2">

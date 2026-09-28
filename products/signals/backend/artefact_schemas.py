@@ -1017,9 +1017,59 @@ class CheckCancelled(CheckLifecycleEntry):
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
+
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
+class ImpactMeasurementPlan(BaseModel):
+    """One version of a proposed impact measurement, keyed by metric_id within a report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str = Field(max_length=100)
+    title: str = Field(max_length=200)
+    kind: str
+    query: dict[str, Any]
+    value_format: str = "number"
+    unit: str | None = None
+    goal_value: float
+    goal_direction: Literal["at_most", "at_least"]
+    goal_grain: Literal["whole_window", "per_interval"] = "whole_window"
+    decision_window_days: int | None = Field(default=None, ge=1, le=30)
+    minimum_data_points: int | None = Field(default=None, ge=1, le=1000)
+    eligibility_query: dict[str, Any] | None = None
+    activated: bool = Field(default=False, strict=True)
+    retired: bool = Field(default=False, strict=True)
+
+    @field_validator("decision_window_days", "minimum_data_points", mode="before")
+    @classmethod
+    def reject_coerced_flags_and_counts(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("provide a number, not a boolean")
+        return value
+
+    @model_validator(mode="after")
+    def validate_measurement(self) -> ImpactMeasurementPlan:
+        from products.signals.backend.report_metrics import ReportMetric
+
+        ReportMetric.model_validate(
+            self.model_dump(exclude={"activated", "retired", "goal_grain", "eligibility_query"})
+        )
+        if self.minimum_data_points is not None and self.eligibility_query is None:
+            raise ValueError("minimum_data_points requires an eligibility_query for qualifying opportunities")
+        if self.eligibility_query is not None:
+            ReportMetric.model_validate(
+                {
+                    "metric_id": "eligible",
+                    "title": "Qualifying opportunities",
+                    "kind": "occurrences",
+                    "value_format": "count",
+                    "query": self.eligibility_query,
+                }
+            )
+        return self
+
+
 StatusArtefactContent = (
     SafetyJudgment
     | ActionabilityAssessment
@@ -1051,6 +1101,7 @@ LogArtefactContent = (
     | CheckCancelled
     | ImplementationReplacement
     | ImplementationHandover
+    | ImpactMeasurementPlan
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -1088,6 +1139,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
+    "impact_measurement_plan": ImpactMeasurementPlan,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}

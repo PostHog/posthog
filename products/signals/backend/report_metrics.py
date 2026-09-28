@@ -358,7 +358,14 @@ class ReportMetricComparison(BaseModel):
         return normalized
 
 
-REPORT_METRIC_GOAL_FIELDS = ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
+REPORT_METRIC_GOAL_FIELDS = (
+    "goal_value",
+    "goal_direction",
+    "goal_grain",
+    "decision_window_days",
+    "minimum_data_points",
+    "eligibility_query",
+)
 
 
 class ReportMetric(BaseModel):
@@ -441,6 +448,10 @@ class ReportMetric(BaseModel):
         default=None,
         description="Whether success means reaching or going below/above goal_value.",
     )
+    goal_grain: Literal["whole_window", "per_interval"] | None = Field(
+        default=None,
+        description="Whether the goal compares with the whole query window or each chart bucket.",
+    )
     decision_window_days: int | None = Field(
         default=None,
         ge=1,
@@ -453,6 +464,14 @@ class ReportMetric(BaseModel):
         le=1000,
         description="Optional minimum qualifying observations for the suggested decision window.",
     )
+    eligibility_query: dict[str, Any] | None = Field(
+        default=None, description="Bounded live query counting opportunities eligible for a minimum-data rule."
+    )
+
+    @field_validator("eligibility_query")
+    @classmethod
+    def eligibility_query_must_be_bounded(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_live_metric_query(value) if value is not None else None
 
     @field_validator("metric_id")
     @classmethod
