@@ -83,9 +83,8 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
             prompt=_PRICING_PROMPT,
             setup=seed_pricing_crosses_login,
             expected={
-                # A surface that crosses login is no longer a reason to set a knob: the skill reports
-                # the identity mix and leaves the choice to the user. The agent reached for continuity
-                # here unprompted before, so this case checks that it stops.
+                # Crossing login is not a reason to set a knob: the skill reports the identity mix
+                # and leaves the choice to the user.
                 "bucketing_fits_surface": BUCKETING_DEFAULT,
                 "primary_metric_shape": {"metric_types": ["funnel"], "event": "upgraded_plan"},
                 "running_time_stored": True,

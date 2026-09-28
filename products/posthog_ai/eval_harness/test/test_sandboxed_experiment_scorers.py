@@ -318,6 +318,14 @@ _SIGN_OFF = "Left everything as a draft."
             ],
             [_SUMMARY, _SIGN_OFF],
         ),
+        # The same bookkeeping tool also reaches the agent under the `mcp__posthog__` server.
+        (
+            [
+                _assistant(_text(_SUMMARY), _tool("mcp__posthog__task_summary_update")),
+                _assistant(_text(_SIGN_OFF)),
+            ],
+            [_SUMMARY, _SIGN_OFF],
+        ),
         (
             [
                 _assistant(_text("Creating it now."), _tool("mcp__posthog__exec")),

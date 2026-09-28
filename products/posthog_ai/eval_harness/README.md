@@ -83,6 +83,8 @@ python -m products.posthog_ai.eval_harness.harness --list
 
 Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--mcp-flag`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
+`--mcp-flag` takes any string. The MCP server merges overrides on top of the evaluated flags and keeps unknown keys, so a misspelled key turns nothing on, and the run becomes a second control arm that still records the key in its metadata. Check the tool actually appears in the agent's calls before you read an arm comparison.
+
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
 

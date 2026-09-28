@@ -315,7 +315,18 @@ class SingleFlagCreated(_CreatedExperimentScorer):
         )
 
 
-_HARNESS_TOOL_PREFIX = "mcp__posthog-code-tools__"
+_BOOKKEEPING_TOOLS = frozenset({"finish", "show_actions", "task_summary_update", "upload_artifact"})
+
+
+def _is_bookkeeping(name: str) -> bool:
+    """Session control rather than work.
+
+    Matched on the bare name, because the same tool reaches the agent under more than one
+    server: run logs carry both `mcp__posthog-code-tools__task_summary_update` and
+    `mcp__posthog__task_summary_update`. A server-prefix match misses the second and ends
+    the closing-text scan one message early.
+    """
+    return name.rsplit("__", 1)[-1] in _BOOKKEEPING_TOOLS
 
 
 def closing_texts(messages: Sequence[Any]) -> list[str]:
@@ -324,8 +335,8 @@ def closing_texts(messages: Sequence[Any]) -> list[str]:
     The harness's `last_message` is only the final assistant text block. An agent that
     writes its summary, calls a harness-control tool, then signs off leaves the summary
     one block further back, so a judge reading `last_message` sees the sign-off alone.
-    The `posthog-code-tools` calls are session bookkeeping rather than work, so prose on
-    either side of one belongs to the same closing statement.
+    Bookkeeping calls are session control rather than work, so prose on either side of
+    one belongs to the same closing statement.
     """
     texts: list[str] = []
     for message in reversed(messages):
@@ -333,8 +344,7 @@ def closing_texts(messages: Sequence[Any]) -> list[str]:
             continue
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
         if any(
-            block.get("type") == "tool_use" and not str(block.get("name") or "").startswith(_HARNESS_TOOL_PREFIX)
-            for block in blocks
+            block.get("type") == "tool_use" and not _is_bookkeeping(str(block.get("name") or "")) for block in blocks
         ):
             break
         texts = [
