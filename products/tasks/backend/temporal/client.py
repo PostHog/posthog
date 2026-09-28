@@ -20,7 +20,6 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
-    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
@@ -53,7 +52,6 @@ _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Stat
 _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
     ("agent_proxy_keep_stream_open", AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG),
     ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
-    ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
 )
 
 
