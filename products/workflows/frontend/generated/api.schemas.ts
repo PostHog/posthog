@@ -2592,6 +2592,10 @@ export type HogFlowsSummariesListParams = {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string
     created_at?: string
     /**
      * Filter to workflows created by the user with this uuid.
@@ -2607,11 +2611,15 @@ export type HogFlowsSummariesListParams = {
      */
     offset?: number
     /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean
+    /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
     origin_product?: HogFlowsSummariesListOriginProduct
     /**
-     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
+     * Case-insensitive search over workflow name, description, step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
     /**

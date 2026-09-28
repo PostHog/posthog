@@ -4818,6 +4818,16 @@ LIST_QUERY_PARAMETERS: Final[list[OpenApiParameter]] = [
 ]
 
 
+SUMMARIES_QUERY_PARAMETERS: Final[list[OpenApiParameter]] = [
+    OpenApiParameter(
+        "search",
+        OpenApiTypes.STR,
+        description="Case-insensitive search over workflow name, description, step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+    ),
+    *(parameter for parameter in LIST_QUERY_PARAMETERS if parameter.name != "search"),
+]
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
@@ -5120,9 +5130,13 @@ class HogFlowViewSet(
         # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
         # workflow name, is still found.
         by_name = Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern)
+        by_content = Q(_action_content_matches(regex_pattern))
+        # `summaries` callers filter rows in the browser, so a name match must not hide the content matches.
+        if self.action == "summaries":
+            return queryset.filter(by_name | by_content)
         if queryset.filter(by_name).exists():
             return queryset.filter(by_name)
-        return queryset.filter(Q(_action_content_matches(regex_pattern)))
+        return queryset.filter(by_content)
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
@@ -5136,9 +5150,9 @@ class HogFlowViewSet(
         summary="List workflow summaries",
         description=(
             "Workflow rows without the step graph, for loading a whole project's list page by page. "
-            "Sorted newest created first. Takes the same filters and search as the list."
+            "Sorted newest created first. Takes the same filters as the list."
         ),
-        parameters=LIST_QUERY_PARAMETERS,
+        parameters=SUMMARIES_QUERY_PARAMETERS,
         responses={200: HogFlowListSummarySerializer(many=True)},
     )
     @action(detail=False, methods=["GET"], url_path="summaries")

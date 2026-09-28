@@ -350,6 +350,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
 
+    def test_summaries_search_returns_name_and_step_matches_together(self):
+        HogFlow.objects.create(team=self.team, name="March campaign", created_by=self.user)
+        HogFlow.objects.create(
+            team=self.team,
+            name="Billing",
+            created_by=self.user,
+            actions=[_email_step("email_1", "Monthly invoice email", subject="Your invoice for March is ready")],
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=march")
+        assert {flow["name"] for flow in list_response.json()["results"]} == {"March campaign"}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries?search=march")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"March campaign", "Billing"}
+
     def test_list_search_step_tier_counts_every_match_across_pages(self):
         for name in ("Alpha", "Beta"):
             HogFlow.objects.create(

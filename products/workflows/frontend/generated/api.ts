@@ -1311,7 +1311,7 @@ export const getHogFlowsSummariesListUrl = (projectId: string, params?: HogFlows
 }
 
 /**
- * Workflow rows without the step graph, for loading a whole project's list page by page. Sorted newest created first. Takes the same filters and search as the list.
+ * Workflow rows without the step graph, for loading a whole project's list page by page. Sorted newest created first. Takes the same filters as the list.
  * @summary List workflow summaries
  */
 export const hogFlowsSummariesList = async (
