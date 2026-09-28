@@ -104,21 +104,24 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(logic.values.failingSyncCount).toEqual(1)
     })
 
-    it('leaves materialized views out of the health list', async () => {
-        // The endpoint answers for the whole warehouse. This scene is about imports, so a broken
-        // view belongs on Pipeline status, not here, where nothing can be done about it.
+    it('keeps only import issues in the health list', async () => {
+        // The endpoint answers for the whole warehouse. Its `destination` type is a batch export
+        // or a CDP destination, not a warehouse destination, so showing it here would label
+        // another product's failure as one of this scene's pipelines.
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({
-            count: 3,
+            count: 5,
             results: [
                 issue({ id: 'a', type: 'materialized_view' }),
                 issue({ id: 'b', type: 'external_data_sync' }),
                 issue({ id: 'c', type: 'destination' }),
+                issue({ id: 'd', type: 'source' }),
+                issue({ id: 'e', type: 'transformation' }),
             ],
         })
 
         await expectLogic(logic, () => logic.actions.loadHealthIssues()).toFinishAllListeners()
 
-        expect(logic.values.issuesBySeverity.map((i: any) => i.id)).toEqual(['b', 'c'])
+        expect(logic.values.issuesBySeverity.map((i: any) => i.id).sort()).toEqual(['b', 'd'])
     })
 
     it('leaves materialized view runs out of the failures list', async () => {
