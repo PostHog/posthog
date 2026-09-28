@@ -1211,7 +1211,7 @@ class AutoLogoutImpersonateMiddleware:
 
 class Fix204Middleware:
     """
-    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
     """
 
     def __init__(self, get_response):
@@ -1222,7 +1222,8 @@ class Fix204Middleware:
 
         if response.status_code == 204:
             response.content = b""
-            for h in ["Content-Type", "X-Content-Type-Options"]:
+            # Envoy rejects a 204 that has a non-zero Content-Length, then retries the request.
+            for h in ["Content-Type", "Content-Length", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
 
         return response
