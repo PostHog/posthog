@@ -1,6 +1,8 @@
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { urls } from 'scenes/urls'
+
+import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 // pinned: MCP tool name from products/workflows/mcp/tools.yaml
 const CREATE_BROADCAST_TOOL = 'broadcasts-create'
@@ -14,7 +16,11 @@ export async function findCreatedBroadcastId(name: unknown): Promise<string | nu
     if (!search) {
         return null
     }
-    const { results } = await api.hogFlows.getHogFlows({ search, type: ['broadcast'], limit: 5 })
+    const { results } = await hogFlowsList(String(ApiConfig.getCurrentTeamId()), {
+        search,
+        origin_product: 'broadcasts',
+        limit: 5,
+    })
     const match = results
         .filter((broadcast) => broadcast.name === search)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]

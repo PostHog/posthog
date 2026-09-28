@@ -13,8 +13,8 @@ describe('findCreatedBroadcastId', () => {
         requestedTypes = null
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/': ({ request }) => {
-                    requestedTypes = new URL(request.url).searchParams.get('type')
+                '/api/projects/:team_id/hog_flows/': ({ request }) => {
+                    requestedTypes = new URL(request.url).searchParams.get('origin_product')
                     return [
                         200,
                         {
@@ -34,7 +34,7 @@ describe('findCreatedBroadcastId', () => {
 
     // A workflow can share the name, so the lookup must only consider broadcasts.
     it.each([
-        { name: 'the newest exact match among broadcasts', input: NAME, expected: BROADCAST_ID, types: 'broadcast' },
+        { name: 'the newest exact match among broadcasts', input: NAME, expected: BROADCAST_ID, types: 'broadcasts' },
         { name: 'null for a blank name', input: '  ', expected: null, types: null },
     ])('returns $name', async ({ input, expected, types }) => {
         await expect(findCreatedBroadcastId(input)).resolves.toBe(expected)
