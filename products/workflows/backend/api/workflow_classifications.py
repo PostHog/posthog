@@ -117,7 +117,8 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 model=JEV_MODEL,
                 ai_product="workflows",
                 distinct_id=team_distinct_id(team.id),
-                properties={"hog_flow_id": cast(str, request.auth)},
+                # The AI usage report charges spend to the team_id label. The distinct ID does not set it.
+                properties={"hog_flow_id": cast(str, request.auth), "team_id": str(team.id)},
                 timeout=TIMEOUT_SECONDS,
             )
             result = client.decide(
