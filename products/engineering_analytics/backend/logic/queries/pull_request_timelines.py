@@ -420,9 +420,11 @@ class PullRequestTimelinesQuery:
         ) in runs:
             run_attempts = job_attempts.get(int(run_id), [])
             queued_at = created_at or started_at
-            # A run that stopped reporting ends at its last update, neither failed nor passed.
-            completed = status == "completed" or bool(stopped_reporting)
-            run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
+            # A run that stopped reporting ends at its last update, but its conclusion is not settled, so only
+            # a failed job row can mark it failed. The friction view applies the same split.
+            settled = status == "completed"
+            ended = settled or bool(stopped_reporting)
+            run_failed = settled and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:
                 # The run row decides its newest attempt's outcome and end: the jobs sync can still hold a
@@ -432,9 +434,9 @@ class PullRequestTimelinesQuery:
                 failed = bool(job_attempt.failed_jobs) or (is_newest and run_failed)
                 completed_at = job_attempt.completed_at
                 succeeded = job_attempt.succeeded and not failed
-                if is_newest and completed:
+                if is_newest and ended:
                     completed_at = updated_at or completed_at
-                    succeeded = conclusion == "success" and not failed
+                    succeeded = settled and conclusion == "success" and not failed
                 attempts[int(number)].append(
                     RunAttempt(
                         run_id=int(run_id),
@@ -461,9 +463,9 @@ class PullRequestTimelinesQuery:
                     attempt=newest_attempt,
                     queued_at=queued_at,
                     started_at=started_at,
-                    completed_at=updated_at if completed else None,
+                    completed_at=updated_at if ended else None,
                     failed=run_failed,
-                    succeeded=completed and conclusion == "success",
+                    succeeded=settled and conclusion == "success",
                     failed_jobs=(),
                 )
             )

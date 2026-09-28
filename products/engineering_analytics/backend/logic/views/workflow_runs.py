@@ -93,7 +93,8 @@ _MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column
 # An unfinished run with no update for a day. The webhook sync can miss or misorder the final event of a
 # run, most often a workflow that GitHub skips at once, and the row then stays in_progress or queued
 # forever. A consumer that treats an unfinished run as still running would count it open until the pull
-# request merges, so the timeline reads such a run as ended at its last update, with no outcome.
+# request merges, so the timeline reads such a run as ended at its last update. The run row then gives
+# it no outcome, and only a failed job row can mark it failed.
 STOPPED_REPORTING_SQL = "(status != 'completed' AND updated_at < now() - INTERVAL 1 DAY)"
 
 # The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).

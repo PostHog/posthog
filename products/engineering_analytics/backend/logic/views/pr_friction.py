@@ -231,7 +231,7 @@ run_rows AS (
         b.started_at AS s0, b.ended_at AS e0,
         NOT r.is_merge_queue AND ifNull(r.conclusion, '') != 'skipped' AS is_ci_run,
         ifNull(r.run_attempt, 1) AS newest,
-        -- A run that stopped reporting ends at its last update, neither failed nor passed.
+        -- A run that stopped reporting ends at its last update. Only a failed job row can mark it failed.
         r.status = 'completed' OR r.stopped_reporting AS run_completed,
         r.status = 'completed' AND ifNull(r.conclusion, '') IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}) AS run_failed,
         r.status = 'completed' AND ifNull(r.conclusion, '') = 'success' AS run_success,
@@ -312,7 +312,7 @@ workflow_spans AS (
             arrayMap(i -> tuple(xs[i].3, least(coalesce(xs[i].4, {_FAR}), if(i < length(xs), xs[i + 1].3, {_FAR}))), arrayEnumerate(xs)),
             if(length(xs) > 0, [tuple(arrayMin(arrayMap(y -> if(y.1 = 1, y.2, {_FAR}), xs)), xs[1].3)], [])
         )) AS runs,
-        arrayMap(x -> x.1, arrayFilter(x -> x.1 > 1 AND x.5, xs)) AS futile_attempts
+        arrayMap(x -> toStartOfFiveMinutes(x.3), arrayFilter(x -> x.1 > 1 AND x.5, xs)) AS futile_rerun_starts
     FROM workflows
 ),
 commits AS (
@@ -320,9 +320,9 @@ commits AS (
         any(s0) AS c_s0, any(e0) AS c_e0,
         min(first_created) AS pushed_at,
         arrayFlatten(groupArray(reds)) AS reds, arrayFlatten(groupArray(runs)) AS runs,
-        -- One "Re-run all" gives every workflow of the commit the same new attempt number. It is one action
-        -- of the author, so a commit counts each failed attempt number once, whatever the workflow count.
-        arrayDistinct(arrayFlatten(groupArray(futile_attempts))) AS futile_attempts,
+        -- One "Re-run all" starts a new attempt of every failed workflow of the commit at once. It is one
+        -- action of the author, so a commit counts failed re-runs that start in the same five minutes once.
+        arrayDistinct(arrayFlatten(groupArray(futile_rerun_starts))) AS futile_rerun_starts,
         any(gate_start) AS gate_start, any(gate_end) AS gate_end, max(has_gate) AS has_gate, max(gate_failed) AS gate_failed
     FROM workflow_spans
     GROUP BY number, is_merge_queue, key
@@ -332,7 +332,7 @@ per_pr AS (
         arraySort(p -> tuple(p.1, p.4), groupArrayIf(tuple(pushed_at, reds, runs, key), NOT is_merge_queue AND pushed_at <= c_e0)) AS pushes,
         groupArrayIf(tuple(gate_start, gate_end), is_merge_queue AND has_gate) AS gates,
         countIf(is_merge_queue AND has_gate AND gate_failed) AS kickouts,
-        sumIf(length(futile_attempts), NOT is_merge_queue AND pushed_at <= c_e0) AS futile_reruns
+        sumIf(length(futile_rerun_starts), NOT is_merge_queue AND pushed_at <= c_e0) AS futile_reruns
     FROM commits
     GROUP BY number
 ),

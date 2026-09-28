@@ -50,7 +50,7 @@ def _run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     start, end = _span(offset, duration)
-    status = "completed" if conclusion else "in_progress"
+    status = kwargs.pop("status", None) or ("completed" if conclusion else "in_progress")
     row = _run_row(run_id, kwargs.pop("name", "CI"), sha, status, conclusion, start, end, **kwargs)
     # The runs snapshot keeps the newest attempt's start, but the run was created with its first attempt.
     if created_offset is not None:
@@ -96,6 +96,8 @@ class TestPRFrictionView(_WarehouseMixin):
                 _merged(38, 60, login="dependabot[bot]"),
                 _merged(40, 190),
                 _merged(41, 180),
+                _merged(42, 200),
+                _merged(43, 120),
                 _pr_row(39, "alice", "closed", 0, _ago(70), merged_at=_at(60), default_branch="master"),
             ],
         )
@@ -135,6 +137,12 @@ class TestPRFrictionView(_WarehouseMixin):
                 _run(4101, "sha41a", "failure", 30, 10, pr_number=41, run_attempt=2, created_offset=0),
                 _run(4102, "sha41a", "failure", 30, 10, pr_number=41, run_attempt=2, created_offset=0, name="Lint"),
                 _run(4103, "sha41b", "success", 120, 10, pr_number=41),
+                # 42: two failed workflows re-run separately, an hour apart, and both failed again.
+                _run(4201, "sha42a", "failure", 90, 10, pr_number=42, run_attempt=2, created_offset=0),
+                _run(4202, "sha42a", "failure", 30, 10, pr_number=42, run_attempt=2, created_offset=0, name="Lint"),
+                _run(4203, "sha42b", "success", 150, 10, pr_number=42),
+                # 43: stopped reporting with a stale conclusion, which must not turn the run red.
+                _run(4301, "sha43", "failure", 0, 20, pr_number=43, status="in_progress"),
             ],
         )
         self._create_table(
@@ -151,6 +159,10 @@ class TestPRFrictionView(_WarehouseMixin):
                 _job(8, 4101, "build", "failure", 30, 10, run_attempt=2),
                 _job(9, 4102, "lint", "failure", 0, 10),
                 _job(10, 4102, "lint", "failure", 30, 10, run_attempt=2),
+                _job(11, 4201, "build", "failure", 0, 10),
+                _job(12, 4201, "build", "failure", 90, 10, run_attempt=2),
+                _job(13, 4202, "lint", "failure", 0, 10),
+                _job(14, 4202, "lint", "failure", 30, 10, run_attempt=2),
             ],
         )
         self._create_table(
@@ -232,7 +244,7 @@ class TestPRFrictionView(_WarehouseMixin):
             if number in timeline_figures
         }
 
-        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41}
+        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43}
         assert view_figures == timeline_figures
 
     def test_view_counts_what_the_author_went_through(self) -> None:
@@ -279,6 +291,8 @@ class TestPRFrictionView(_WarehouseMixin):
             39: {**base, "push_count": 0},
             40: {**base, "push_count": 2, "kickout_count": 1},
             41: {**base, "push_count": 2, "own_red_count": 2, "futile_rerun_count": 1},
+            42: {**base, "push_count": 2, "own_red_count": 1, "futile_rerun_count": 2},
+            43: base,
         }
         assert self._github_source is not None
         assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}
