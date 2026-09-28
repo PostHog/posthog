@@ -2,6 +2,7 @@ import { screenshotArea } from "@posthog/shared/screenshot-area";
 import { WEB_PAGE_BACKGROUND } from "@posthog/ui/features/task-preview/pageBackground";
 import type {
   TaskPreviewFrameProps,
+  TaskPreviewNavigationRequest,
   TaskPreviewPin,
   TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
@@ -82,6 +83,30 @@ async function captureAround(
   }
 }
 
+function applyNavigation(
+  webview: TaskPreviewWebviewElement,
+  request: TaskPreviewNavigationRequest,
+  session: TaskPreviewFrameProps["session"],
+): void {
+  if (request.kind === "back") {
+    if (webview.canGoBack()) webview.goBack();
+    return;
+  }
+  if (request.kind === "forward") {
+    if (webview.canGoForward()) webview.goForward();
+    return;
+  }
+  const current = new URL(webview.getURL());
+  const next = new URL(request.path, current.origin);
+  const allowed =
+    session === "browser"
+      ? next.protocol === "http:" || next.protocol === "https:"
+      : next.origin === current.origin;
+  if (allowed) {
+    void webview.loadURL(next.toString()).catch(() => undefined);
+  }
+}
+
 export function ElectronTaskPreviewFrame({
   url,
   taskId,
@@ -105,6 +130,9 @@ export function ElectronTaskPreviewFrame({
   const mountRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<TaskPreviewWebviewElement | null>(null);
   const readyRef = useRef(false);
+  const pendingNavigationRef = useRef<TaskPreviewNavigationRequest | null>(
+    null,
+  );
   const lastLocateRef = useRef<{ id: string; at: number } | null>(null);
   const stateRef = useRef<{ picking: boolean; pins: TaskPreviewPin[] }>({
     picking,
@@ -171,6 +199,9 @@ export function ElectronTaskPreviewFrame({
 
     const onReady = () => {
       readyRef.current = true;
+      const pending = pendingNavigationRef.current;
+      pendingNavigationRef.current = null;
+      if (pending) applyNavigation(webview, pending, session);
       const webContentsId = webview.getWebContentsId();
       if (registeredId !== webContentsId) {
         registeredId = webContentsId;
@@ -322,25 +353,13 @@ export function ElectronTaskPreviewFrame({
   }, [tracking]);
 
   useEffect(() => {
+    if (!navigationRequest) return;
     const webview = webviewRef.current;
-    if (!navigationRequest || !webview || !readyRef.current) return;
-    if (navigationRequest.kind === "back") {
-      if (webview.canGoBack()) webview.goBack();
+    if (!webview || !readyRef.current) {
+      pendingNavigationRef.current = navigationRequest;
       return;
     }
-    if (navigationRequest.kind === "forward") {
-      if (webview.canGoForward()) webview.goForward();
-      return;
-    }
-    const current = new URL(webview.getURL());
-    const next = new URL(navigationRequest.path, current.origin);
-    const allowed =
-      session === "browser"
-        ? next.protocol === "http:" || next.protocol === "https:"
-        : next.origin === current.origin;
-    if (allowed) {
-      void webview.loadURL(next.toString()).catch(() => undefined);
-    }
+    applyNavigation(webview, navigationRequest, session);
   }, [navigationRequest, session]);
 
   useEffect(() => {
