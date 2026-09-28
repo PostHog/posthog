@@ -1,6 +1,7 @@
 import re
 import json
-from typing import TypedDict
+import difflib
+from typing import Any, TypedDict
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -276,3 +277,44 @@ def parse_custom_reports(custom_reports_json: str | None) -> dict[str, GoogleAna
 def build_report_schemas(custom_reports_json: str | None) -> dict[str, GoogleAnalyticsReportSchema]:
     """Built-in report schemas merged with any user-defined custom reports."""
     return {**GOOGLE_ANALYTICS_REPORT_SCHEMAS, **parse_custom_reports(custom_reports_json)}
+
+
+def _normalized_field_name(name: str) -> str:
+    return name.replace("_", "").lower()
+
+
+def _suggest_field_name(name: str, known: list[str]) -> str | None:
+    by_normalized = {_normalized_field_name(k): k for k in known}
+    normalized = _normalized_field_name(name)
+    if normalized in by_normalized:
+        return by_normalized[normalized]
+    matches = difflib.get_close_matches(normalized, list(by_normalized), n=1, cutoff=0.85)
+    return by_normalized[matches[0]] if matches else None
+
+
+def validate_custom_report_fields(
+    custom_reports: dict[str, GoogleAnalyticsReportSchema], property_metadata: dict[str, Any]
+) -> None:
+    """Reject custom report fields that the GA4 property does not know.
+
+    `property_metadata` is the property's `/metadata` response. It lists the API names
+    of every standard and custom dimension and metric that the property accepts. GA4
+    rejects a runReport request with an unknown name, so every sync of that report fails.
+    """
+    for kind in ("dimensions", "metrics"):
+        known = [f["apiName"] for f in property_metadata.get(kind) or [] if isinstance(f.get("apiName"), str)]
+        if not known:
+            # Do not reject names when the metadata has no list to compare against.
+            continue
+        known_set = set(known)
+        for report_name, report in custom_reports.items():
+            for name in report[kind]:
+                if name in known_set:
+                    continue
+                message = f"Report '{report_name}': '{name}' is not a GA4 {kind[:-1]} for this property."
+                suggestion = _suggest_field_name(name, known)
+                if suggestion:
+                    message += f" Did you mean '{suggestion}'?"
+                else:
+                    message += " GA4 API names are camelCase, for example 'bounceRate'."
+                raise CustomReportError(message)

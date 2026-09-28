@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     GOOGLE_ANALYTICS_INCREMENTAL_FIELD,
     CustomReportError,
     build_report_schemas,
+    parse_custom_reports,
+    validate_custom_report_fields,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -178,7 +180,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            build_report_schemas(config.custom_reports)
+            custom_reports = parse_custom_reports(config.custom_reports)
         except CustomReportError as e:
             return False, str(e)
 
@@ -221,7 +223,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             return False, _LOAD_CONNECTION_ERROR
 
         try:
-            get_property_metadata(session, property_id)
+            property_metadata = get_property_metadata(session, property_id)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
@@ -252,6 +254,11 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         except Exception as e:
             capture_exception(e)
             return False, _PROPERTY_METADATA_ERROR
+
+        try:
+            validate_custom_report_fields(custom_reports, property_metadata)
+        except CustomReportError as e:
+            return False, str(e)
 
         return True, None
 

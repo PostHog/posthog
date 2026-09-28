@@ -280,20 +280,60 @@ def test_validate_credentials_handles_missing_integration():
     assert "matching query" not in (message or "")
 
 
-def test_validate_credentials_succeeds_when_metadata_readable():
+_PROPERTY_METADATA = {
+    "dimensions": [{"apiName": n} for n in ["date", "pagePath", "sessionSource", "customEvent:plan"]],
+    "metrics": [{"apiName": n} for n in ["bounceRate", "averageSessionDuration", "engagedSessions", "sessions"]],
+}
+
+
+@pytest.mark.parametrize(
+    "custom_reports,metadata,expected_message",
+    [
+        (None, {"dimensions": [], "metrics": []}, None),
+        (
+            '[{"name": "r", "dimensions": ["pagePath", "customEvent:plan"], "metrics": ["bounceRate", "sessions"]}]',
+            _PROPERTY_METADATA,
+            None,
+        ),
+        (
+            '[{"name": "r", "dimensions": ["pagePath"], "metrics": ["bounce_rate"]}]',
+            _PROPERTY_METADATA,
+            "'bounce_rate' is not a GA4 metric for this property. Did you mean 'bounceRate'?",
+        ),
+        (
+            '[{"name": "r", "dimensions": ["pagePath"], "metrics": ["engaged_session"]}]',
+            _PROPERTY_METADATA,
+            "Did you mean 'engagedSessions'?",
+        ),
+        (
+            '[{"name": "r", "dimensions": ["page_path"], "metrics": ["sessions"]}]',
+            _PROPERTY_METADATA,
+            "'page_path' is not a GA4 dimension for this property. Did you mean 'pagePath'?",
+        ),
+        (
+            '[{"name": "r", "dimensions": ["pagePath"], "metrics": ["revenueXyz"]}]',
+            _PROPERTY_METADATA,
+            "GA4 API names are camelCase",
+        ),
+    ],
+)
+def test_validate_credentials_checks_custom_report_fields_against_metadata(custom_reports, metadata, expected_message):
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
-            return_value={"dimensions": [], "metrics": []},
+            return_value=metadata,
         ),
     ):
-        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(custom_reports=custom_reports), team_id=1)
 
-    assert ok is True
-    assert message is None
+    if expected_message is None:
+        assert (ok, message) == (True, None)
+    else:
+        assert ok is False
+        assert expected_message in (message or "")
 
 
 def test_non_retryable_errors_matches_revoked_refresh_token():
