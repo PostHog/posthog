@@ -80,6 +80,8 @@ FULL_RUN_PATTERNS = (
     ".test_quarantine.json",
     # CI / Docker infrastructure
     ".github/workflows/ci-backend.yml",
+    # A new path in the events_json list has to run on the PR that adds it.
+    ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",
     "docker-compose",
     "docker/clickhouse/",
@@ -96,6 +98,9 @@ FULL_RUN_PATTERNS = (
     "common/hogql_parser/",
     "rust/hogql/parser/",
     "common/hogvm/",
+    # The personhog gRPC stubs are an installed package, so the import graph has no edge from
+    # `personhog.*` to these files. Every personhog_client consumer depends on them.
+    "packages/personhog-proto/",
     # Generates frontend/src/products.json, which is a full-run pattern in its own right.
     "manifest.tsx",
 )

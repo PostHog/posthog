@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import (
-    SignalSourceSliceOutcomes,
+    SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
@@ -20,6 +20,7 @@ from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
@@ -269,6 +270,37 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
         ]
 
 
+class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
+    def test_summarizes_live_sources_of_the_report_earliest_first(self) -> None:
+        self._emit_version(document_id="later", report_id="r1", source_product="error_tracking", inserted_at=self.base)
+        self._emit_version(
+            document_id="scout",
+            report_id="r1",
+            source_product="error_tracking",
+            inserted_at=self.base - timedelta(hours=1),
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="gone", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="gone",
+            report_id="r1",
+            source_product="logs",
+            inserted_at=self.base + timedelta(minutes=1),
+            deleted=True,
+        )
+        self._emit_version(document_id="moved", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="moved", report_id="r2", source_product="logs", inserted_at=self.base + timedelta(minutes=1)
+        )
+
+        sources = fetch_origin_sources_for_report(self.team, "r1")
+
+        assert [(s.source_product, s.scout_name, s.entity_ids) for s in sources] == [
+            ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),
+            ("error_tracking", "", ("src-later",)),
+        ]
+
+
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
     def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
         # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
@@ -502,7 +534,17 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
         )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)
+        assert (outcomes.signal_count, outcomes.report_count, outcomes.pr_count, outcomes.merged_pr_count) == (
+            5,
+            2,
+            2,
+            1,
+        )
+        # The links behind the counts: the same deduped PRs, newest report's first.
+        assert outcomes.pull_requests == [
+            SignalSourceSlicePullRequest(url=shared_pr.url, merged=True),
+            SignalSourceSlicePullRequest(url=second_pr.url, merged=False),
+        ]
 
     def test_hydrates_the_same_slice_newest_first(self) -> None:
         # The link surface shares the slice query with the counters, so it must drop the same

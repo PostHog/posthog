@@ -5,6 +5,10 @@ import {
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../local-tools";
 import { buildStoreSkillsInstructions } from "../skills-store";
+import {
+  buildTaskSummaryInstructions,
+  TASK_SUMMARY_TOOL_NAME,
+} from "./task-summary";
 
 export type SlackArtifactDelivery = "none" | "message" | "canvas_file";
 
@@ -273,7 +277,15 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
+${buildTaskSummaryInstructions()}`;
+
+    // The shared block above is shaped for a run that ends with work landed. A
+    // repo-less run often only answers a question, so it needs to hear that the
+    // answer itself is what the summary has to carry.
+    const chatTaskSummaryInstructions = `
+## Summarizing a question you answered
+The answer is the work of this run, so the run still needs a summary. Call the \`${TASK_SUMMARY_TOOL_NAME}\` tool before your final reply, even when the run is one question and one answer. Lead with what was asked and what you found, then the numbers, entities, or links the answer rests on. A teammate reads that summary from the run row instead of opening the transcript, so it has to stand on its own.`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -392,6 +404,7 @@ ${repositoryInstructions}${publishInstructions}
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
 ${commonInstructions}
+${chatTaskSummaryInstructions}
 `;
     }
 

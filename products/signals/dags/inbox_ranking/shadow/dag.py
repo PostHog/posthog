@@ -327,7 +327,6 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
 inbox_ranking_shadow_job = dagster.define_asset_job(
     name="inbox_ranking_shadow_job",
     selection=[SHADOW_TABLE],
-    partitions_def=partition_def,
     tags={**owner_tags, "dagster/max_runtime": str(60 * 60)},
 )
 

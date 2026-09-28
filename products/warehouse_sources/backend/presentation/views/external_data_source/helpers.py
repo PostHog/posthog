@@ -19,6 +19,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -179,6 +180,26 @@ def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
     return kinds
 
 
+def get_credential_account_field_names(fields: list[FieldType]) -> set[str]:
+    """The field names a source's credential account pickers are allowed to be handed.
+
+    The listing endpoint takes connection details straight from a form that has not been submitted,
+    so without this it would accept any key the caller invented and hand it to `parse_config`.
+    Collecting the names the source itself declared holds the endpoint to the credentials a picker
+    genuinely needs, and leaves a source that declares no such picker unable to reach it at all."""
+    names: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldCredentialAccountSelectConfig):
+            names.update(field.credentialFields)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            names.update(get_credential_account_field_names(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    names.update(get_credential_account_field_names(option.fields))
+    return names
+
+
 def _name_variants(name: str) -> tuple[str, ...]:
     """The spellings a declared field name can be stored under, declared spelling first.
 
@@ -315,7 +336,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> Field
             _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
-            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls", "host_key"})
             sensitive.update({"password", "passphrase", "private_key"})
 
     return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)

@@ -85,8 +85,8 @@ export function ReadyToMergeCard({
     dataAttr?: string
 }): JSX.Element {
     const [focus, ...baselines] = rows
-    const shown = rows.filter((row) => row.seconds != null)
-    const max = Math.max(...shown.flatMap((row) => [row.seconds ?? 0, row.p90Seconds ?? 0]))
+    const shown = rows.filter((row): row is ReadyToMergeRow & { seconds: number } => row.seconds != null)
+    const max = Math.max(...shown.flatMap((row) => [row.seconds, row.p90Seconds ?? 0]))
 
     return (
         <LemonCard hoverEffect={false} className="flex h-full flex-col p-4" data-attr={dataAttr}>
@@ -114,16 +114,12 @@ export function ReadyToMergeCard({
                                 key={`${index}:${row.label}`}
                                 label={row.label}
                                 labelTooltip={row.labelTooltip}
-                                value={compactAgeLabel(row.seconds)}
-                                fraction={(row.seconds ?? 0) / max}
+                                value={row.seconds}
+                                max={max}
+                                formatValue={compactAgeLabel}
                                 muted={row !== focus}
                                 marker={
-                                    row.p90Seconds != null
-                                        ? {
-                                              fraction: row.p90Seconds / max,
-                                              tooltip: `90th percentile ${compactAgeLabel(row.p90Seconds)}`,
-                                          }
-                                        : null
+                                    row.p90Seconds != null ? { value: row.p90Seconds, label: '90th percentile' } : null
                                 }
                             >
                                 <ApprovalSplit beforeShare={reviewsSynced ? row.beforeShare : null} />

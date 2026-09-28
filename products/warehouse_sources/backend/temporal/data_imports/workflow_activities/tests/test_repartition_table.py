@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextvars
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    repartition_activity_has_work,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -32,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
@@ -568,6 +571,8 @@ class TestKilledAttemptRetry:
             mock_repartition.assert_awaited_once()
             # Recorded for the next retry, which can only judge this attempt against where it began.
             assert schema.repartition_pending["attempt_rows"] == checkpoint_rows
+            # The run's own stamp belongs to the charge, so a retry must never move it on.
+            assert schema.repartition_pending.get("run_rows") is None
         else:
             mock_repartition.assert_not_awaited()
             skipped = [
@@ -582,6 +587,83 @@ class TestKilledAttemptRetry:
             # A retry also starts for a predecessor that is only heartbeat-timed-out and still
             # running, so standing down has to rotate the claim that fences it out of the swap.
             schema.set_repartition_claim.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("checkpoint_advanced", 488925, 301744, None, True),
+            ("checkpoint_stood_still", 488925, 488925, None, False),
+            ("no_recorded_start", 488925, None, None, False),
+            ("run_advanced_though_its_last_retry_did_not", 488925, 488925, 301744, True),
+        ]
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_coarsen_enabled", return_value=True)
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_the_cap_gives_up_only_on_a_rewrite_that_stopped_advancing(
+        self,
+        _name: str,
+        checkpoint_rows: int,
+        started_from: int | None,
+        run_started_from: int | None,
+        expect_resume: bool,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_coarsen_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # A hard-killed attempt records no outcome; only its checkpoint can prove progress. The cap
+        # counts sync runs, so a run that advanced the rewrite and then spent its last retry dying
+        # on arrival still converged and must keep the table.
+        pending = {
+            **PENDING_TARGET,
+            "trigger_reason": "coarsening",
+            "attempts": MAX_REPARTITION_ATTEMPTS,
+            "charged_job_id": str(uuid.uuid4()),
+            "attempt_rows": started_from,
+        }
+        if run_started_from is not None:
+            pending["run_rows"] = run_started_from
+        schema = _schema(
+            name="public.deals",
+            s3_folder_name="deals",
+            pending=pending,
+            rewrite={"rows_written": checkpoint_rows},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        if expect_resume:
+            mock_repartition.assert_awaited_once()
+            assert "warehouse_repartition_failed" not in emitted
+            assert schema.set_repartition_pending.call_args_list[0].args[0]["attempts"] == 0
+            schema.clear_repartition_rewrite.assert_not_called()
+        else:
+            mock_repartition.assert_not_awaited()
+            failed = [
+                c.args[1] for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_failed"
+            ]
+            assert len(failed) == 1
+            assert failed[0]["final"] is True
+            assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
+            schema.clear_repartition_pending.assert_called_once()
+            schema.stamp_last_repartition_at.assert_called_once()
 
 
 class TestTransientObjectStoreFailure:
@@ -982,6 +1064,63 @@ class TestFeatureFlagGate:
         )
 
         assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+
+
+class TestRepartitionActivityHasWork:
+    @parameterized.expand(
+        [
+            (
+                "revive_pending_stands_down",
+                {"delta_revive_required": {"at": "x"}},
+                PENDING_TARGET,
+                None,
+                None,
+                True,
+                False,
+            ),
+            ("queued_rewrite_flag_on", {}, PENDING_TARGET, None, None, True, True),
+            # The activity's own fast path treats a queued rewrite as a no-op once the flag that
+            # staged it is disabled (the flag is the only lever support has to release such a table) —
+            # this must agree, or the schema keeps paying a full activity round trip forever.
+            ("queued_rewrite_released_by_disabled_flag", {}, PENDING_TARGET, None, None, False, False),
+            (
+                "queued_rewrite_admin_reason_fails_open",
+                {},
+                {**PENDING_TARGET, "trigger_reason": "admin"},
+                None,
+                None,
+                False,
+                True,
+            ),
+            ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
+            ("flag_on_measures_the_table", {}, None, None, None, True, True),
+            ("flag_off_nothing_queued", {}, None, None, None, False, False),
+            ("coarsen_nomination_without_flag", {}, None, None, {"requested_by": "op"}, False, True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, None, True, False),
+        ]
+    )
+    @patch(f"{CONTROLLER_MODULE}.is_auto_repartition_enabled")
+    def test_matches_the_activitys_own_fast_path(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        pending: dict[str, Any] | None,
+        swap: dict[str, Any] | None,
+        coarsen_requested: dict[str, Any] | None,
+        enabled: bool,
+        expected: bool,
+        mock_enabled: MagicMock,
+    ) -> None:
+        # The workflow skips scheduling the activity on this answer, so a False here for a table the
+        # activity would have rewritten or measured silently stops that table repartitioning.
+        mock_enabled.return_value = enabled
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, swap=swap)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.coarsen_requested = coarsen_requested
+        for attribute, value in overrides.items():
+            setattr(schema, attribute, value)
+
+        assert repartition_activity_has_work(schema) is expected
 
 
 class TestMaybeFlagPreExtraction:

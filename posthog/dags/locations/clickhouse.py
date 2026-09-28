@@ -60,6 +60,7 @@ defs = dagster.Definitions(
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
         person_overrides.squash_schedule,
+        person_pg_cleanup_drain.person_pg_cleanup_drain_schedule,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_hourly_schedule,
         property_definitions.property_definitions_hourly_schedule,
         backups.full_sharded_backup_schedule,

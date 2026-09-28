@@ -354,14 +354,14 @@ def list_metric_attribute_keys(
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List attribute keys by distinct series count, from highest to lowest.
+    """List attribute keys by distinct value count, from highest to lowest.
 
     When a metric name is provided, only series that emitted that metric in the
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
     The window defaults to the last 7 days. Returns `{"name": str,
-    "series_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(

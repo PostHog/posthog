@@ -9,34 +9,17 @@ from django.db.models.functions import Cast
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin, get_current_user, get_was_impersonated
 from posthog.models.tag import Tag
-from posthog.models.tagged_item_reads import generic_reads_enabled, tag_read_pointer
 from posthog.models.tagged_item_registry import (
-    OBJECT_ID,
     TaggableModel,
+    content_type_for,
     content_type_for_entry,
+    object_column_for,
     require_taggable,
     taggable_for_content_type_id,
-    taggable_for_legacy_field,
 )
-from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
+from posthog.models.utils import UUIDTModel
 
 GENERIC_POINTER_FIELDS = ("content_type", "object_id", "object_uuid", "team")
-
-RELATED_OBJECTS = (
-    "dashboard",
-    "insight",
-    "event_definition",
-    "property_definition",
-    "action",
-    "feature_flag",
-    "experiment_saved_metric",
-    "ticket",
-    "account",
-    "endpoint",
-    "replay_scanner",
-    "project",
-    "experiment",
-)
 
 
 class TaggedItemQuerySet(models.QuerySet):
@@ -44,24 +27,21 @@ class TaggedItemQuerySet(models.QuerySet):
 
     def for_model(self, model: type[models.Model]) -> "TaggedItemQuerySet":
         """Rows tagging any instance of this model."""
-        return self.filter(tag_read_pointer(model).for_model())
+        return self.filter(content_type=content_type_for(model))
 
     def for_object(self, obj: models.Model) -> "TaggedItemQuerySet":
         """Rows tagging this exact instance."""
         return self.for_objects(type(obj), [obj.pk])
 
     def for_objects(self, model: type[models.Model], pks: Iterable[Any]) -> "TaggedItemQuerySet":
-        """Rows tagging any of these instances of one model, with the tagged key as `object_key`."""
-        pointer = tag_read_pointer(model)
-        return self.filter(pointer.matching(pks, "in")).annotate(object_key=F(pointer.object_column))
+        """Rows tagging any of these instances of one model."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
+        return self.for_model(model).filter(**{f"{object_column_for(model)}__in": pks})
 
     def matching_outer(self, model: type[models.Model], outer_field: str = "pk") -> "TaggedItemQuerySet":
-        """Rows whose tagged object is the outer query's row, for use inside Exists or Subquery.
-
-        The tagged key is available as `object_key`.
-        """
-        pointer = tag_read_pointer(model)
-        return self.filter(pointer.matching(OuterRef(outer_field))).annotate(object_key=F(pointer.object_column))
+        """Rows whose tagged object is the outer query's row, for use inside Exists or Subquery."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
+        return self.for_model(model).filter(**{object_column_for(model): OuterRef(outer_field)})
 
     def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:
         """Fill the generic pointer on each row, because bulk_create never calls save()."""
@@ -71,7 +51,7 @@ class TaggedItemQuerySet(models.QuerySet):
         for obj in objs:
             if obj.tag_id in tags:
                 obj.tag = tags[obj.tag_id]
-            obj.sync_foreign_keys()
+            obj.sync_team()
         return super().bulk_create(objs, *args, **kwargs)
 
 
@@ -86,112 +66,11 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     We want to deprecate model-specific tags and refactor tag relationships into a separate table that keeps track of
     tag-object relationships.
 
-    Models that are taggable throughout the app are listed as separate fields below.
+    Models that are taggable throughout the app are listed in `TAGGABLE_MODELS`.
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
     """
 
     tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="tagged_items")
-
-    # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
-    # the `RELATED_OBJECTS` tuple above.
-    dashboard = models.ForeignKey(
-        "dashboards.Dashboard",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    insight = models.ForeignKey(
-        "product_analytics.Insight",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    event_definition = models.ForeignKey(
-        "event_definitions.EventDefinition",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    property_definition = models.ForeignKey(
-        "event_definitions.PropertyDefinition",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    action = models.ForeignKey(
-        "actions.Action",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    feature_flag = models.ForeignKey(
-        "feature_flags.FeatureFlag",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    experiment_saved_metric = models.ForeignKey(
-        "experiments.ExperimentSavedMetric",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    ticket = models.ForeignKey(
-        "conversations.Ticket",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    account = models.ForeignKey(
-        "customer_analytics.Account",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    endpoint = models.ForeignKey(
-        "endpoints.Endpoint",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    replay_scanner = models.ForeignKey(
-        "replay_vision.ReplayScanner",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
-    project = models.ForeignKey(
-        "posthog.Project",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-        # posthog_project is read on nearly every request, so creating this FK's database
-        # constraint inline would lock it. A later migration adds the constraint NOT VALID
-        # and validates it separately.
-        db_constraint=False,
-    )
-    experiment = models.ForeignKey(
-        "experiments.Experiment",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="+",
-        # Same deferred-FK pattern as project: the constraint lands NOT VALID in a later
-        # migration and is validated separately, keeping the lock on posthog_experiment brief.
-        db_constraint=False,
-    )
 
     # db_index=False on both keys below: Django would build that index non-concurrently
     # inside the AddField transaction, locking the table.
@@ -221,7 +100,6 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     uuid_object = GenericForeignKey("content_type", "object_uuid")
 
     class Meta:
-        unique_together = ("tag", *RELATED_OBJECTS)
         indexes = [
             # Most integer-keyed models declare BigAutoField, so Django casts object_id to bigint
             # when it joins to them, and the unique index on the raw column cannot serve that join.
@@ -232,17 +110,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
                 name="taggeditem_object_id_bigint",
             ),
         ]
-        # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
-            *[
-                build_partial_uniqueness_constraint(
-                    field="tag", related_field=related_field, constraint_name=f"unique_{related_field}_tagged_item"
-                )
-                for related_field in RELATED_OBJECTS
-            ],
-            models.CheckConstraint(
-                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
-            ),
             models.CheckConstraint(
                 condition=Q(content_type__isnull=False, team__isnull=False)
                 & (
@@ -264,10 +132,17 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         ]
 
     def clean(self):
+        """Ensure the row names exactly one taggable object, through the column its model uses."""
         super().clean()
-        """Ensure that exactly one of object columns can be set."""
-        if sum(map(bool, [getattr(self, o_field) for o_field in RELATED_OBJECTS])) != 1:
-            raise ValidationError("Exactly one object field must be set.")
+        if self.content_type_id is None:
+            raise ValidationError("A tagged item must have a content type.")
+        if (self.object_id is None) == (self.object_uuid is None):
+            raise ValidationError("Exactly one object column must be set.")
+        entry = self._taggable_entry
+        if entry is None:
+            raise ValidationError("The content type is not a taggable model.")
+        if getattr(self, entry.object_field) is None:
+            raise ValidationError(f"A tag on {self.content_type} belongs on {entry.object_field}.")
 
     objects = TaggedItemQuerySet.as_manager()
 
@@ -281,11 +156,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
 
     @property
     def _taggable_entry(self) -> TaggableModel | None:
-        """The registry entry for what this row tags, read from the pointer the flag picks."""
-        if generic_reads_enabled():
-            return taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
-        legacy_field = next((f for f in RELATED_OBJECTS if getattr(self, f"{f}_id", None) is not None), None)
-        return taggable_for_legacy_field(legacy_field) if legacy_field is not None else None
+        return taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
 
     @property
     def related_object_type(self) -> str | None:
@@ -300,58 +171,21 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     @property
     def content_object(self) -> models.Model | None:
         """The object this row tags."""
-        entry = self._taggable_entry
-        if entry is None:
-            return None
-        if not generic_reads_enabled():
-            return getattr(self, entry.legacy_field)
-        return self.integer_object if entry.object_field == OBJECT_ID else self.uuid_object
+        if self.object_id is not None:
+            return self.integer_object
+        if self.object_uuid is not None:
+            return self.uuid_object
+        return None
 
-    def sync_legacy_foreign_key(self) -> None:
-        """Point the per-model foreign key at the object the generic pointer names."""
-        entry = taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
-        # The relation manager on the legacy pointer sets the content type and the legacy key only.
-        if entry is None or getattr(self, entry.object_field) is None:
-            return
-        for legacy_field in RELATED_OBJECTS:
-            setattr(self, f"{legacy_field}_id", None)
-        setattr(self, f"{entry.legacy_field}_id", getattr(self, entry.object_field))
-
-    def sync_foreign_keys(self) -> None:
-        """Make the two pointer shapes agree, preferring the generic one when it is set."""
-        if self.content_type_id is not None:
-            self.sync_legacy_foreign_key()
-        self.sync_generic_columns()
-
-    def sync_generic_columns(self) -> None:
-        """Fill the generic pointer from whichever per-model foreign key is set.
-
-        Reads `<field>_id` rather than `<field>`, so it resolves the target without loading it.
-        """
-        self.content_type = None
-        self.object_id = None
-        self.object_uuid = None
-        for legacy_field in RELATED_OBJECTS:
-            related_id = getattr(self, f"{legacy_field}_id", None)
-            if related_id is None:
-                continue
-
-            entry = taggable_for_legacy_field(legacy_field)
-            if entry is None:
-                continue
-
-            self.content_type = content_type_for_entry(entry)
-            setattr(self, entry.object_field, related_id)
-            self.team_id = self.tag.team_id
-            return
+    def sync_team(self) -> None:
+        """Take the team from the tag, which is the row's owner."""
+        self.team_id = self.tag.team_id
 
     def save(self, *args, **kwargs):
-        if self.content_type_id is not None:
-            self.sync_legacy_foreign_key()
-        self.full_clean(exclude=GENERIC_POINTER_FIELDS)
-        self.sync_generic_columns()
+        self.sync_team()
+        self.full_clean()
         if kwargs.get("update_fields"):
-            kwargs["update_fields"] = {*kwargs["update_fields"], *GENERIC_POINTER_FIELDS, *RELATED_OBJECTS}
+            kwargs["update_fields"] = {*kwargs["update_fields"], *GENERIC_POINTER_FIELDS}
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:

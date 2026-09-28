@@ -6,7 +6,6 @@ ee/api/agentic_provisioning/test/test_region_proxy.py::TestShouldProxyTokenLooku
 ee/api/test/test_billing.py::TestExportStreaming
 ee/api/test/test_billing.py::TestResolveTeamLabels
 ee/api/test/test_billing.py::TestRewriteCsvLabels
-ee/api/test/test_google_oauth_diagnostics.py::TestGoogleOAuthDiagnostics
 ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/billing/test/test_billing_consumer.py::TestBillingConsumerUsageSpike
 ee/billing/test/test_billing_manager.py::TestParamSerialization
@@ -68,7 +67,6 @@ posthog/admin/test_admin.py::TestPluginAttachmentInline
 posthog/api/oauth/test_cimd.py::TestAuthorizationServerMetadata
 posthog/api/oauth/test_cimd.py::TestFetchCimdMetadata
 posthog/api/test/test_comment_slack_sync.py::TestDiscussionCardBlocks
-posthog/api/test/test_comment_slack_sync.py::TestEscapeSlackMrkdwn
 posthog/api/test/test_comments.py::TestCommentHelperFunctions
 posthog/api/test/test_csp.py::TestCSPModule
 posthog/api/test/test_event_definition_base.py::TestEventDefinitionGeneratorBase
@@ -88,7 +86,6 @@ posthog/api/test/test_toolbar_oauth_primitives.py::TestTokenEndpointStatusRemapp
 posthog/api/test/test_toolbar_oauth_primitives.py::TestToolbarOAuthStateCache
 posthog/api/test/test_user_integration.py::TestGithubUserFromCode
 posthog/caching/test/test_redis_cluster_keys.py::TestRedisClusterKeySlots
-posthog/caching/test/test_zstd_compressor.py::TestZstdCompressor
 posthog/cdp/templates/avo/test_template_avo.py::TestTemplateMigration
 posthog/cdp/templates/customerio/test_template_customerio.py::TestTemplateMigration
 posthog/cdp/templates/hubspot/test_template_hubspot.py::TestTemplateMigration
@@ -346,7 +343,6 @@ products/skills/backend/api/test/test_community_skills.py::TestSkillTemplateRend
 products/slack_app/backend/tests/test_followup_forwarding.py::TestEventLevelDedupe
 products/slack_app/backend/tests/test_fork_thread.py::TestForkMenuBlock
 products/slack_app/backend/tests/test_posthog_code_interactivity.py::TestExtractAlertSnoozeHints
-products/slack_app/backend/tests/test_validate_slack_request.py::TestValidateSlackRequest
 products/slack_app/backend/tests/test_workspace_claims.py::TestDoesOtherRegionClaimWorkspace
 products/streamlit_apps/backend/tests/test_app_runtime.py::TestGetOtelLogsConfig
 products/streamlit_apps/backend/tests/test_app_runtime.py::TestSandboxCallbackUrl

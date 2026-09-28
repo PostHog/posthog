@@ -24,7 +24,7 @@ class DopplerRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DopplerResumeConfig:
     # Next 1-indexed page to fetch.
     next_page: int = 1
@@ -32,6 +32,9 @@ class DopplerResumeConfig:
     # positional index) so projects created or deleted between a crash and the retry can't resume
     # into the wrong project. None for workplace-level endpoints.
     project: str | None = None
+    # Second-level fan-out bookmark: name of the config currently being processed. Only set for
+    # config-scoped endpoints.
+    config: str | None = None
 
 
 def _headers(api_token: str) -> dict[str, str]:
@@ -87,6 +90,47 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     return response.json()
 
 
+def _redact_secret_values(item: dict[str, Any]) -> dict[str, Any]:
+    """Strip the secret values out of a config log's `diff`, keeping the secret names.
+
+    Doppler reports each changed secret as `{"name", "added", "removed"}`, where `added` and
+    `removed` are the plaintext values. The names are what a change history is read for, so they
+    stay; the values would put live credentials in the warehouse. An undocumented shape is
+    dropped rather than passed through, since anything in this field may be a secret.
+    """
+    diff = item.get("diff")
+    if diff is None:
+        return item
+    if not isinstance(diff, list):
+        return {**item, "diff": None}
+    return {
+        **item,
+        "diff": [
+            {
+                "name": change.get("name"),
+                "added": change.get("added") is not None,
+                "removed": change.get("removed") is not None,
+            }
+            for change in diff
+            if isinstance(change, dict)
+        ],
+    }
+
+
+@dataclasses.dataclass(frozen=True)
+class _FanOutParent:
+    """A project — and for config-scoped endpoints, a config within it — to issue one request-set for."""
+
+    project: str
+    config: str | None = None
+
+    @property
+    def params(self) -> dict[str, str]:
+        if self.config is None:
+            return {"project": self.project}
+        return {"project": self.project, "config": self.config}
+
+
 def _iter_project_slugs(
     session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> Iterator[str]:
@@ -104,58 +148,103 @@ def _iter_project_slugs(
         page += 1
 
 
+def _iter_config_names(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, project_slug: str
+) -> Iterator[str]:
+    page = 1
+    while True:
+        url = _build_url("/configs", {"project": project_slug, "page": page, "per_page": DEFAULT_PER_PAGE})
+        configs = _fetch_page(session, url, headers, logger).get("configs") or []
+        for item in configs:
+            name = item.get("name")
+            if name:
+                yield name
+
+        if len(configs) < DEFAULT_PER_PAGE:
+            break
+        page += 1
+
+
+def _iter_fan_out_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: DopplerEndpointConfig,
+) -> Iterator[_FanOutParent]:
+    for project_slug in _iter_project_slugs(session, headers, logger):
+        if not endpoint_config.fan_out_over_configs:
+            yield _FanOutParent(project=project_slug)
+            continue
+        for config_name in _iter_config_names(session, headers, logger, project_slug):
+            yield _FanOutParent(project=project_slug, config=config_name)
+
+
+def _resume_at(parent: _FanOutParent, next_page: int) -> DopplerResumeConfig:
+    return DopplerResumeConfig(next_page=next_page, project=parent.project, config=parent.config)
+
+
 def _get_fan_out_rows(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DopplerResumeConfig],
-    config: DopplerEndpointConfig,
+    endpoint_config: DopplerEndpointConfig,
     resume: DopplerResumeConfig | None,
 ) -> Iterator[Any]:
-    """Fan out over every project for endpoints that require a `project` query param.
+    """Fan out over every project, and for config-scoped endpoints every config within it.
 
-    Rows already carry a `project` field in Doppler's responses, so no parent injection is needed
-    for the composite primary keys.
+    Most of Doppler's project-scoped responses echo `project` back on each row, so the composite
+    primary keys need no parent injection; `inject_project` covers the ones that don't.
     """
-    project_slugs = list(_iter_project_slugs(session, headers, logger))
+    parents = list(_iter_fan_out_parents(session, headers, logger, endpoint_config))
 
-    # Resolve the saved project bookmark to the slice of projects still to process. If the
-    # bookmarked project no longer exists (deleted between runs), start over from the first
-    # project — merge dedupes the re-pulled rows on the primary key.
-    remaining = project_slugs
+    # Resolve the saved bookmark to the slice of parents still to process. If the bookmarked
+    # parent no longer exists (deleted between runs), start over from the first one — merge
+    # dedupes the re-pulled rows on the primary key.
+    remaining = parents
     resume_page = 1
-    if resume is not None and resume.project is not None and resume.project in project_slugs:
-        remaining = project_slugs[project_slugs.index(resume.project) :]
-        resume_page = resume.next_page or 1
-        logger.debug(f"Doppler: resuming {config.name} from project={resume.project}, page={resume_page}")
+    if resume is not None and resume.project is not None:
+        bookmark = _FanOutParent(project=resume.project, config=resume.config)
+        if bookmark in parents:
+            remaining = parents[parents.index(bookmark) :]
+            resume_page = resume.next_page or 1
+            logger.debug(f"Doppler: resuming {endpoint_config.name} from {bookmark}, page={resume_page}")
 
-    for index, project_slug in enumerate(remaining):
+    for index, parent in enumerate(remaining):
         page = resume_page
-        resume_page = 1  # only the resumed-into project starts mid-way; the rest start at page 1
+        resume_page = 1  # only the resumed-into parent starts mid-way; the rest start at page 1
 
         while True:
-            params: dict[str, Any] = {"project": project_slug}
-            if config.paginated:
+            params: dict[str, Any] = dict(parent.params)
+            if endpoint_config.paginated:
                 params["page"] = page
-                if config.per_page is not None:
-                    params["per_page"] = config.per_page
+                if endpoint_config.per_page is not None:
+                    params["per_page"] = endpoint_config.per_page
 
-            data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-            items = data.get(config.data_key) or []
+            data = _fetch_page(session, _build_url(endpoint_config.path, params), headers, logger)
+            items = data.get(endpoint_config.data_key) or []
+            if endpoint_config.inject_project:
+                items = [{**item, "project": parent.project} for item in items]
+            if endpoint_config.carries_secret_values:
+                items = [_redact_secret_values(item) for item in items]
             if items:
                 yield items
 
-            has_more = config.paginated and config.per_page is not None and len(items) >= config.per_page
+            has_more = (
+                endpoint_config.paginated
+                and endpoint_config.per_page is not None
+                and len(items) >= endpoint_config.per_page
+            )
             if not has_more:
                 break
             # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
             # merge dedupes on the primary key.
-            resumable_source_manager.save_state(DopplerResumeConfig(next_page=page + 1, project=project_slug))
+            resumable_source_manager.save_state(_resume_at(parent, page + 1))
             page += 1
 
-        # Advance the bookmark to the next project so a crash between projects resumes correctly.
+        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(DopplerResumeConfig(next_page=1, project=remaining[index + 1]))
+            resumable_source_manager.save_state(_resume_at(remaining[index + 1], 1))
 
 
 def get_rows(
@@ -170,11 +259,11 @@ def get_rows(
     headers = _headers(api_token)
     # One session reused across every page (and, for fan-out, every project) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = make_tracked_session(capture=not config.carries_secret_values)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_projects:
+    if config.fan_out_over_projects or config.fan_out_over_configs:
         yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config, resume)
         return
 
@@ -189,9 +278,11 @@ def get_rows(
         logger.debug(f"Doppler: resuming {endpoint} from page {page}")
 
     while True:
-        params: dict[str, Any] = {"page": page}
-        if config.per_page is not None:
-            params["per_page"] = config.per_page
+        params: dict[str, Any] = {}
+        if config.paginated:
+            params["page"] = page
+            if config.per_page is not None:
+                params["per_page"] = config.per_page
 
         data = _fetch_page(session, _build_url(config.path, params), headers, logger)
         items = data.get(config.data_key) or []
@@ -211,7 +302,7 @@ def get_rows(
         else:
             yield items
 
-        has_more = len(items) >= config.per_page if config.per_page is not None else True
+        has_more = config.paginated and (len(items) >= config.per_page if config.per_page is not None else True)
         if not has_more:
             break
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge

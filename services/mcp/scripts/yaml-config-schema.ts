@@ -182,6 +182,8 @@ export const ToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
@@ -423,6 +425,8 @@ const CustomUiAppSchema = z
         app_name: z.string(),
         /** Short description for the MCP resource. Required for custom apps. */
         description: z.string(),
+        /** Additional CSP resource sources required by this app. */
+        resource_domains: z.array(z.string()).optional(),
         /** Reusable view component that lets the render-ui umbrella app mount this custom app. */
         render_ui: z
             .object({
@@ -477,6 +481,7 @@ export interface ResolvedCustomUiApp {
     type: 'custom'
     app_name: string
     description: string
+    resource_domains?: string[]
     render_ui?: {
         component_import: string
         view_component: string
@@ -577,6 +582,8 @@ export const QueryWrapperToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),

@@ -120,8 +120,8 @@ git show --stat HEAD | grep -E '\.[^/]+/skills/' && echo "FAIL: skills files com
 3. If you can't configure them automatically, do not commit anything in this step - instead write
    down in your notes which variables are needed and what values they must be set to,
    for use in the PR description in Step 4.
-4. You should know the project API token from the PostHog MCP server context. If you don't have
-   it, run the `projects-get` MCP tool to fetch it.
+4. Run the `project-get` MCP tool to fetch the project API token. It is the only tool that
+   returns the token; the session context and `projects-get` leave it out.
 
 **Checkpoint:** exactly one of the following is true:
 
@@ -171,7 +171,7 @@ This PR adds PostHog analytics to the app using the `posthog-js` SDK (installed 
 
 1. Deploy this branch (or run it locally after setting the env vars from the section below).
 2. Open the app and click around.
-3. In PostHog, open [Activity](https://app.posthog.com/activity/explore) - you should see
+3. In PostHog, open [Activity](https://app.posthog.com/activity/events) - you should see
    `$pageview` events arriving within a minute.
 
 ## Environment variables

@@ -450,7 +450,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         user: Optional[AbstractBaseUser] = None,
         scheduled_change_id: Optional[int] = None,
     ):
-        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+        from products.feature_flags.backend.facade.api import update_flag
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
@@ -464,11 +464,6 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
         http_request.method = "PATCH"  # This is a partial update, not a new creation
-        context = {
-            "request": http_request,
-            "team_id": self.team_id,
-            "project_id": self.team.project_id,
-        }
 
         # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
         # these because an invalid change can't be approved into applying anyway; here they surface
@@ -501,9 +496,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
-        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        update_flag(self, serializer_data, team=self.team, user=http_request.user, request=http_request)
 
     @property
     def uses_cohorts(self) -> bool:

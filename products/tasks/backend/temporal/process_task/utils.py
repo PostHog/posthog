@@ -36,6 +36,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -53,10 +54,12 @@ from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    is_slack_origin,
     mint_refusal,
     mint_scoped_token,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
+    token_cap_usd,
 )
 
 if TYPE_CHECKING:
@@ -86,6 +89,10 @@ class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
     AGENT = "agent"
+
+
+def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
@@ -336,6 +343,7 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     resume_from_import_run: bool = False
     same_run_resume: bool = False
@@ -354,6 +362,11 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_template: str | None = None
+
+    @property
+    def model_access(self) -> ModelAccess:
+        return resolve_model_access(self.model_dump())
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
@@ -1349,7 +1362,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
-    if ctx.claude_model_access == "own-subscription":
+    if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         return {}
     try:
         env_vars = ai_gateway_env_vars(
@@ -1357,6 +1370,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
             internal=task.internal,
+            prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
             state=ctx.state,
             model=ctx.model,
@@ -1374,7 +1388,21 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
         # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
         env_vars.pop("AI_GATEWAY_TOKEN", None)
+        env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
     return env_vars
+
+
+def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | None) -> bool:
+    """Whether any run of this task carried the Slack stamp.
+
+    A run started outside Slack gets fresh state, and the stamp is PATCH-protected, so a stamped run
+    is server proof for the task.
+    """
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+    if not is_slack_origin(origin_product) or is_slack_interaction_state(state):
+        return False
+    return TaskRun.objects.filter(task_id=task.id, state__interaction_origin="slack").exists()
 
 
 def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
@@ -1405,6 +1433,7 @@ def ai_gateway_env_vars(
     state: dict[str, Any] | None = None,
     model: str | None = None,
     runtime: str | None = None,
+    prior_slack_run: bool = False,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1431,17 +1460,31 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
-            refusal = mint_refusal(ai_product, team_id=team_id, state=state, model=model, runtime=runtime)
+            refusal = mint_refusal(
+                ai_product,
+                team_id=team_id,
+                state=state,
+                model=model,
+                runtime=runtime,
+                internal=internal,
+                prior_slack_run=prior_slack_run,
+            )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                # The deploy's log formatter drops `extra`, so the message carries the fields.
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
                 logger.info(
-                    "ai_gateway_token: mint skipped, run stays on the Python gateway",
+                    "ai_gateway_token: mint skipped, run stays on the Python gateway (ai_product=%s team_id=%s reason=%s)",
+                    ai_product,
+                    team_id,
+                    refusal,
                     extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
                 )
                 return env_vars
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
+                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage

@@ -7,12 +7,25 @@ The classic picker shows its active category in the search input. A person can d
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
+In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search does not offer an uncaptured event name, and it does not change the selected form value.
+When a caller allows custom event names, a successful empty search offers "Use event name".
+Pressing Enter in the search input selects that custom event name.
+The classic picker does not infer ingestion history from a filtered definition list.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.
 
 The expansion count must not delay the scoped results or keep the aggregate reveal barrier closed. It can add an expansion option below the results after they appear. A failed count leaves the scoped results usable, and a count from an earlier search must not affect the current search. Expanding explicitly starts a full-results request and uses the normal list loading state.
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
+
+## Action definitions
+
+Event-only insight editors and closed breakdown pickers do not load the action list.
+Action series load their definitions to resolve names and event-scoped properties.
+Opening an event picker that offers Actions loads the list; later opens reuse the shared cache.
+When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
+The classic popover unmounts after its close transition and starts with a fresh search when reopened.
 
 ## Typing and rendering
 

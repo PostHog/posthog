@@ -14,6 +14,7 @@
                 "gemini",
                 "minimax",
                 "openai",
+                "openai_compatible",
                 "openrouter",
                 "together_ai",
                 "zeabur"

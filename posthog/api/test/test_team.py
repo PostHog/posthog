@@ -2016,6 +2016,35 @@ def team_api_test_factory():
             )
             assert bad.status_code == status.HTTP_400_BAD_REQUEST
 
+        def test_conversations_ai_context_account_property_ids(self):
+            from products.customer_analytics.backend.facade.testing import create_custom_property_definition
+
+            account_def = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+            person_def = create_custom_property_definition(team_id=self.team.id, name="Role", target_type="person")
+            ok = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ai_context_account_property_ids": [str(account_def.id), str(person_def.id)]
+                    }
+                },
+            )
+            assert ok.status_code == status.HTTP_200_OK
+            assert ok.json()["conversations_settings"]["ai_context_account_property_ids"] == [str(account_def.id)]
+
+            empty = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_context_account_property_ids": None}},
+            )
+            assert empty.status_code == status.HTTP_200_OK
+            assert empty.json()["conversations_settings"]["ai_context_account_property_ids"] == []
+
+            bad = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_context_account_property_ids": ["not-a-uuid"]}},
+            )
+            assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False
             self.team.conversations_settings = None

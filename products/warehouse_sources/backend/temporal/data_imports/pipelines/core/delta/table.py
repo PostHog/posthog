@@ -13,13 +13,15 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    conditional_lru_cache_async,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
 )
 
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
@@ -40,6 +42,10 @@ def _is_retryable_purge_error(error: OSError) -> bool:
     NoCredentialsError above, just surfacing as an explicit S3-side denial instead of a local
     resolution failure. Retrying the same bounded budget lets that race self-heal; a persistent
     misconfiguration still raises once the budget is exhausted, since this only defers the error.
+
+    The `PermissionError` clause only ever sees a bodyless 403, because `_purge_s3_prefix` classifies
+    a response that does carry an explicit `AccessDenied` code before reaching here (see
+    is_object_store_permission_denied) and raises on it instead of retrying.
     """
     return is_transient_object_store_error(error) or isinstance(error, PermissionError)
 
@@ -56,6 +62,12 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
             await _purge_s3_prefix_once(s3, uri)
             return
         except OSError as e:
+            if is_object_store_permission_denied(e):
+                # S3 only returns an explicit AccessDenied code when a policy refuses the call, so
+                # every remaining attempt would make the same refused DeleteObjects calls and only
+                # delay the failure. Raise a typed error on the first one, and keep the object key
+                # it names out of the message the customer reads.
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
             attempt += 1
             if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not _is_retryable_purge_error(e):
                 raise
@@ -148,6 +160,7 @@ class DeltaTableRef:
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
     _is_first_sync: bool
+    _cached_table: deltalake.DeltaTable | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -156,6 +169,7 @@ class DeltaTableRef:
         self._job = job
         self._logger = logger
         self._is_first_sync = is_first_sync
+        self._cached_table = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -189,23 +203,67 @@ class DeltaTableRef:
         return self._get_credentials()
 
     async def _capture_unless_transient(self, e: Exception) -> None:
-        """capture_exception unless `e` is a known-transient object-store blip (see
-        is_transient_object_store_error) or a concurrent-purge race on `_delta_log` (see
-        is_transient_delta_maintenance_error — the open below can lose that same race a maintenance
-        pass can) — those recover on retry and aren't a defect, so reporting them to error tracking
-        is just noise. A transient blip is re-raised as TransientObjectStoreError instead of letting
-        the original propagate: the activity interceptor reports any uncaught activity exception
-        unless it's a NonReportableError, so a bare re-raise here would still mint a fresh issue at
-        that boundary. Never suppresses the re-raise itself, so Temporal's activity retry policy is
-        unaffected either way.
+        """capture_exception unless `e` is already classified as something other than a defect.
+
+        A known-transient object-store blip (see is_transient_object_store_error) or a
+        concurrent-purge race on `_delta_log` (see is_transient_delta_maintenance_error, because the
+        open below can lose the same race a maintenance pass can) recovers on retry, so reporting it
+        to error tracking is just noise. Both are re-raised as TransientObjectStoreError instead of
+        letting the original propagate, because the activity interceptor reports any uncaught
+        activity exception unless it is a NonReportableError, which TransientObjectStoreError is, so
+        a bare re-raise here would still mint a fresh issue at that boundary.
+
+        An object-store refusal (see is_object_store_permission_denied) is re-raised as
+        ObjectStorePermissionDeniedError, which is not a NonReportableError: a refusal on our own
+        bucket needs a human, so it is still reported, once, under a message that names no object key.
+
+        Never suppresses the re-raise itself, so Temporal's activity retry policy is unaffected
+        whichever branch runs.
         """
+        if is_object_store_permission_denied(e):
+            # The bucket refused the read, which is a policy condition on our own storage rather
+            # than a defect in this code or a corrupt table. Raising the typed error instead of
+            # capturing here leaves one report at the activity boundary rather than two, and its
+            # message carries no `_delta_log` key, so the customer's error text stays free of the
+            # object key and error tracking gets one issue instead of one per table.
+            #
+            # Classified before the transient check, because delta-rs prefixes many object-store
+            # errors with "Generic S3 error", which that check treats as transient on its own. A
+            # refusal that arrives under that prefix is still definitive, and retrying it would
+            # hide it behind Temporal's retry policy until the activity gave up.
+            await self._logger.aerror(f"get_delta_table: the object store denied the read ({type(e).__name__})")
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
         if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
 
-    @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
     async def get_delta_table(self) -> deltalake.DeltaTable | None:
+        """Open the table once and hand back the same handle for the rest of this ref's life.
+
+        The cache is per instance on purpose. A process-wide slot lets any other table in flight on
+        the same worker evict this one's handle, and every re-open is a full Delta-log replay against
+        object storage. Writes through the handle keep it current, so it stays valid until this ref's
+        own `invalidate_cached_table` (reset, repartition swap) says otherwise. A missing table is
+        never cached, so a table created after the first probe is found by the next call.
+        """
+        if self._cached_table is not None:
+            return self._cached_table
+        table = await self._open_delta_table()
+        self._cached_table = table
+        return table
+
+    def invalidate_cached_table(self) -> None:
+        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log."""
+        self._cached_table = None
+
+    def pop_cached_table(self) -> deltalake.DeltaTable | None:
+        """Release the cached handle without opening the table, for end-of-run memory cleanup."""
+        table = self._cached_table
+        self._cached_table = None
+        return table
+
+    async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
@@ -300,7 +358,7 @@ class DeltaTableRef:
             except FileNotFoundError:
                 pass
 
-        self.get_delta_table.cache_clear()
+        self.invalidate_cached_table()
 
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True

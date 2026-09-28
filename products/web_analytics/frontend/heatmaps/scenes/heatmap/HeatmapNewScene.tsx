@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posth
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -19,9 +20,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
 import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
+import { heatmapCaptureSettingsLogic, isUrlCoveredByAllowlist } from '../../components/heatmapCaptureSettingsLogic'
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
@@ -119,6 +121,40 @@ function CaptureReadiness(): JSX.Element {
                 </div>
                 <HeatmapsEnableCapture />
             </div>
+        </LemonBanner>
+    )
+}
+
+function CaptureUrlReadiness(): JSX.Element | null {
+    const { captureEnabled } = useValues(heatmapCreationLogic)
+    const { displayUrl } = useValues(heatmapLogic({ id: 'new' }))
+    const { currentTeamId } = useValues(teamLogic)
+    const { settings, urlAllowlist } = useValues(heatmapCaptureSettingsLogic({ teamId: currentTeamId ?? 0 }))
+
+    if (!captureEnabled || !settings || settings.capture_mode !== 'url_allowlist' || !displayUrl?.trim()) {
+        return null
+    }
+
+    const covered = isUrlCoveredByAllowlist(displayUrl, urlAllowlist)
+
+    if (covered) {
+        return (
+            <div className="flex items-center gap-2 text-success">
+                <IconCheckCircle className="size-5 shrink-0" />
+                <span>This page is covered by your heatmap capture URLs.</span>
+            </div>
+        )
+    }
+
+    return (
+        <LemonBanner
+            type="warning"
+            action={{ children: 'Manage capture URLs', to: urls.settings('environment-heatmaps') }}
+        >
+            {settings.enforcement_enabled
+                ? 'This page is not in your heatmap capture URLs, so it is not collecting new data. '
+                : 'This page is not in your heatmap capture URLs. When capture limits take effect, it will stop collecting new data. '}
+            Add it to your capture URLs, or switch to Allow all URLs.
         </LemonBanner>
     )
 }
@@ -231,6 +267,7 @@ function ChoosePageStep(): JSX.Element {
                 <div className="flex flex-col gap-3">
                     <h3 className="mb-0">Readiness</h3>
                     <CaptureReadiness />
+                    <CaptureUrlReadiness />
                     <MatchingDataReadiness />
                 </div>
 
@@ -526,7 +563,7 @@ function ReviewStep(): JSX.Element {
                     <dt className="font-semibold">Matching rule</dt>
                     <dd>
                         <span className="font-medium">
-                            {isUrlPattern(effectiveDataUrl ?? '') ? 'Pattern' : 'Exact URL'}:
+                            {hasWildcard(effectiveDataUrl ?? '') ? 'Pattern' : 'Exact URL'}:
                         </span>{' '}
                         <span className="ph-no-capture break-all">{effectiveDataUrl}</span>
                     </dd>
