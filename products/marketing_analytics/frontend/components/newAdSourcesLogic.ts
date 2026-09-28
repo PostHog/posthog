@@ -54,6 +54,7 @@ export interface newAdSourcesLogicMeta {
                 | 'OpenAIAds'
                 | 'PinterestAds'
                 | 'RedditAds'
+                | 'RoktAds'
                 | 'SnapchatAds'
                 | 'TikTokAds'
             )[],
