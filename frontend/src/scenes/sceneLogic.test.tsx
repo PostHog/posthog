@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityTab, type AppContext } from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -184,15 +184,18 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
     })
 
-    it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
-        router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
+    // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
+    // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
+    // both across. The hash also carries global side-panel state, so it has to survive too.
+    it.each([
+        ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
+        ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
+    ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
+        router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.codeReview())
-        // ?review=<report id> is a permanent public contract baked into GitHub PR comments — the
-        // redirect must carry it across so those links keep opening the right report. The hash
-        // carries global side-panel state, so it has to survive the redirect too.
-        expect(router.values.searchParams.review).toEqual('r-9')
-        expect(router.values.hashParams.panel).toEqual('max:inspect')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(to())
+        expect(router.values.searchParams).toEqual(search)
+        expect(router.values.hashParams).toEqual(hash)
     })
 
     it.each([
