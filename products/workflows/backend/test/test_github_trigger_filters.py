@@ -158,6 +158,7 @@ class TestGithubTriggerFilters(ClickhouseTestMixin, APIBaseTest):
             migration.lowercase_github_repository_filters(apps, schema_editor)
 
         flow.refresh_from_db()
+        assert flow.draft is not None
         delivery = _event(repository="posthog/posthog")
         for filters in (flow.draft["trigger"]["filters"], flow.draft["actions"][0]["config"]["filters"]):
             assert filters["properties"][0]["value"] == ["posthog/posthog"]
