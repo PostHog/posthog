@@ -14,12 +14,16 @@ class SnapshotContext:
     github_integration_id: int
     repository: str
     team_id: int
+    # Provider the snapshot is baked and restored on. Defaulted for Temporal payload
+    # compatibility with pre-rollout histories.
+    sandbox_backend: str = "modal"
 
     def to_log_context(self) -> dict:
         return {
             "github_integration_id": self.github_integration_id,
             "repository": self.repository,
             "team_id": self.team_id,
+            "sandbox_backend": self.sandbox_backend,
         }
 
 
@@ -28,6 +32,7 @@ class GetSnapshotContextInput:
     github_integration_id: int
     repository: str
     team_id: int
+    sandbox_backend: str = "modal"
 
 
 @activity.defn
@@ -52,4 +57,5 @@ def get_snapshot_context(input: GetSnapshotContextInput) -> SnapshotContext:
         github_integration_id=input.github_integration_id,
         repository=input.repository,
         team_id=input.team_id,
+        sandbox_backend=input.sandbox_backend,
     )
