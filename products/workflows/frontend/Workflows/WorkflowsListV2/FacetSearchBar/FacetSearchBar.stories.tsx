@@ -73,7 +73,7 @@ function Harness({ initial, narrow }: HarnessProps): JSX.Element {
 }
 
 const meta: Meta<typeof Harness> = {
-    title: 'Components/FacetSearchBar',
+    title: 'Scenes-App/Workflows/Facet search bar',
     component: Harness,
     parameters: { layout: 'fullscreen' },
     args: { initial: { filters: [], text: '' } },

@@ -94,6 +94,20 @@ export const NoMatches: Story = {
     parameters: { pageUrl: workflowsUrl({ q: 'status:active', text: 'nothing like this' }) },
 }
 
+export const ServerSearchFailed: Story = {
+    parameters: { pageUrl: workflowsUrl({ text: 'renewal' }) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.has('search')
+                        ? [500, { detail: 'Server error' }]
+                        : [200, paginated(FIXTURE_WORKFLOWS)],
+            },
+        }),
+    ],
+}
+
 export const Loading: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
     decorators: [

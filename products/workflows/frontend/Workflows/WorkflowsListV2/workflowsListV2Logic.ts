@@ -4,15 +4,6 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import {
-    FacetDefinition,
-    FacetFilter,
-    FacetSearchValue,
-    MatchesText,
-    createFacetMatcher,
-    parseFacetQuery,
-    serializeFacetQuery,
-} from 'lib/components/FacetSearchBar/facetQuery'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -34,11 +25,22 @@ import {
     confirmDeleteWorkflow,
     restoreWorkflowToDraft,
     setWorkflowStatus,
+    WorkflowRowAction,
     workflowActionErrorDetail,
 } from '../workflowRowActions'
+import {
+    FacetDefinition,
+    FacetFilter,
+    FacetSearchValue,
+    MatchesText,
+    createFacetMatcher,
+    parseFacetQuery,
+    serializeFacetQuery,
+} from './FacetSearchBar/facetQuery'
 import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
 import {
     LIST_TYPES,
+    DEFAULT_COLUMNS,
     OPTIONAL_COLUMNS,
     OptionalColumn,
     STATUS_LABELS,
@@ -57,7 +59,11 @@ const SERVER_SEARCH_DEBOUNCE_MS = 300
 export interface ServerSearchResult {
     text: string
     ids: string[]
+    failed: boolean
 }
+
+/** `pending` while a server search for the current text is debouncing or in flight. */
+export type ServerSearchStatus = 'off' | 'pending' | 'done' | 'failed'
 
 const EMPTY_VALUE: FacetSearchValue = { filters: [], text: '' }
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -141,10 +147,12 @@ export interface workflowsListV2LogicValues {
     matchesText: MatchesText<WorkflowListRow>
     metrics: WorkflowStatsRowApi[] | null
     metricsLoading: boolean
+    pendingRowActions: Record<string, WorkflowRowAction>
     requestedSearchText: string | null
     rows: WorkflowListRow[]
     serverSearch: ServerSearchResult | null
     serverSearchLoading: boolean
+    serverSearchStatus: ServerSearchStatus
     shownColumns: OptionalColumn[]
     value: FacetSearchValue
     visibleColumns: OptionalColumn[]
@@ -233,17 +241,18 @@ export interface workflowsListV2LogicActions {
         errorObject?: any
     }
     searchWorkflowsSuccess: (
-        serverSearch: {
-            ids: string[]
-            text: string
-        },
+        serverSearch: ServerSearchResult,
         payload?: string
     ) => {
-        serverSearch: {
-            ids: string[]
-            text: string
-        }
+        serverSearch: ServerSearchResult
         payload?: string
+    }
+    setRowActionPending: (
+        id: string,
+        action: WorkflowRowAction | null
+    ) => {
+        action: WorkflowRowAction | null
+        id: string
     }
     setValue: (value: FacetSearchValue) => {
         value: FacetSearchValue
@@ -263,6 +272,7 @@ export interface workflowsListV2LogicMeta {
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
         facets: (rows: WorkflowListRow[]) => FacetDefinition<WorkflowListRow>[]
         matchesText: (serverSearch: ServerSearchResult | null) => MatchesText<WorkflowListRow>
+        serverSearchStatus: (value: FacetSearchValue, serverSearch: ServerSearchResult | null) => ServerSearchStatus
         filteredRows: (
             rows: WorkflowListRow[],
             value: FacetSearchValue,
@@ -295,6 +305,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         resetColumns: true,
         patchWorkflow: (id: string, patch: Partial<HogFlowListSummaryApi>) => ({ id, patch }),
         removeWorkflow: (id: string) => ({ id }),
+        setRowActionPending: (id: string, action: WorkflowRowAction | null) => ({ id, action }),
         toggleWorkflowStatus: (row: WorkflowListRow) => ({ row }),
         duplicateWorkflow: (row: WorkflowListRow) => ({ row }),
         archiveWorkflow: (row: WorkflowListRow) => ({ row }),
@@ -337,7 +348,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         serverSearch: [
             null as ServerSearchResult | null,
             {
-                searchWorkflows: async (text: string, breakpoint) => {
+                searchWorkflows: async (text: string, breakpoint): Promise<ServerSearchResult> => {
                     await breakpoint(SERVER_SEARCH_DEBOUNCE_MS)
                     cache.searchAbort?.abort()
                     const controller = new AbortController()
@@ -352,11 +363,12 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                             )
                         )
                         breakpoint()
-                        return { text, ids: workflows.map((workflow) => workflow.id) }
-                    } catch (error) {
-                        // A newer search aborted this one; drop it quietly.
+                        return { text, ids: workflows.map((workflow) => workflow.id), failed: false }
+                    } catch {
+                        // `breakpoint()` drops a search that a newer one aborted. Other failures keep the client
+                        // matches and show a notice instead of an error toast.
                         breakpoint()
-                        throw error
+                        return { text, ids: [], failed: true }
                     }
                 },
             },
@@ -387,14 +399,28 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             },
         ],
         visibleColumns: [
-            [] as OptionalColumn[],
+            DEFAULT_COLUMNS as OptionalColumn[],
             { persist: true },
             {
                 toggleColumn: (state, { column }) =>
                     state.includes(column)
                         ? state.filter((c) => c !== column)
                         : OPTIONAL_COLUMNS.filter((c) => c === column || state.includes(c)),
-                resetColumns: () => [],
+                resetColumns: () => DEFAULT_COLUMNS,
+            },
+        ],
+        pendingRowActions: [
+            {} as Record<string, WorkflowRowAction>,
+            {
+                setRowActionPending: (state, { id, action }) => {
+                    const next = { ...state }
+                    if (action) {
+                        next[id] = action
+                    } else {
+                        delete next[id]
+                    }
+                    return next
+                },
             },
         ],
         workflows: {
@@ -423,6 +449,19 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     matchesWorkflowListText(row, text) || (serverSearch?.text === text.trim() && serverIds.has(row.id))
             },
         ],
+        serverSearchStatus: [
+            (s) => [s.value, s.serverSearch],
+            (value: FacetSearchValue, serverSearch: ServerSearchResult | null): ServerSearchStatus => {
+                const text = value.text.trim()
+                if (text.length < MIN_SERVER_SEARCH_LENGTH) {
+                    return 'off'
+                }
+                if (serverSearch?.text !== text) {
+                    return 'pending'
+                }
+                return serverSearch.failed ? 'failed' : 'done'
+            },
+        ],
         filteredRows: [
             (s) => [s.rows, s.value, s.facets, s.matchesText],
             (
@@ -440,6 +479,22 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         ],
     }),
     listeners(({ actions, values }) => {
+        /** Runs one network action per row at a time, so a second press can't send a second request. */
+        const runRowAction = async (
+            row: WorkflowListRow,
+            action: WorkflowRowAction,
+            run: () => Promise<void>
+        ): Promise<void> => {
+            if (values.pendingRowActions[row.id]) {
+                return
+            }
+            actions.setRowActionPending(row.id, action)
+            try {
+                await run()
+            } finally {
+                actions.setRowActionPending(row.id, null)
+            }
+        }
         // Not `actionToUrl`: it hands kea-router a URL string, which parses `007` to 7 before writing it back.
         const writeUrl = (): void => {
             if (
@@ -469,35 +524,67 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 }
             },
             toggleWorkflowStatus: async ({ row }) => {
-                const status = row.workflow.status === 'active' ? 'draft' : 'active'
-                if (await setWorkflowStatus(String(values.currentTeamId), row.workflow, status)) {
-                    actions.patchWorkflow(row.id, { status })
-                }
+                await runRowAction(row, 'toggle', async () => {
+                    const status = row.workflow.status === 'active' ? 'draft' : 'active'
+                    const updated = await setWorkflowStatus(String(values.currentTeamId), row.workflow, status)
+                    if (updated) {
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? status,
+                            updated_at: updated.updated_at,
+                        })
+                    }
+                })
             },
             duplicateWorkflow: async ({ row }) => {
-                const teamId = String(values.currentTeamId)
-                try {
-                    // The slim row has no step graph, so the copy starts from the full workflow.
-                    const full = await hogFlowsRetrieve(teamId, row.id)
-                    await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
-                    lemonToast.success(`Workflow "${row.name}" duplicated`)
-                    actions.loadWorkflows()
-                } catch (error) {
-                    lemonToast.error(`Failed to duplicate workflow: ${workflowActionErrorDetail(error)}`)
-                }
+                await runRowAction(row, 'duplicate', async () => {
+                    const teamId = String(values.currentTeamId)
+                    try {
+                        // The summary row has no step graph, so the copy starts from the full workflow.
+                        const full = await hogFlowsRetrieve(teamId, row.id)
+                        await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
+                        lemonToast.success(`Workflow "${row.name}" duplicated`)
+                        actions.loadWorkflows()
+                    } catch (error) {
+                        lemonToast.error(`Failed to duplicate workflow: ${workflowActionErrorDetail(error)}`)
+                    }
+                })
             },
             archiveWorkflow: ({ row }) => {
-                confirmArchiveWorkflow(String(values.currentTeamId), row.workflow, () =>
-                    actions.patchWorkflow(row.id, { status: 'archived' })
+                if (values.pendingRowActions[row.id]) {
+                    return
+                }
+                confirmArchiveWorkflow(
+                    String(values.currentTeamId),
+                    row.workflow,
+                    (updated) =>
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? 'archived',
+                            updated_at: updated.updated_at,
+                        }),
+                    (pending) => actions.setRowActionPending(row.id, pending ? 'archive' : null)
                 )
             },
             restoreWorkflow: async ({ row }) => {
-                if (await restoreWorkflowToDraft(String(values.currentTeamId), row.workflow)) {
-                    actions.patchWorkflow(row.id, { status: 'draft' })
-                }
+                await runRowAction(row, 'restore', async () => {
+                    const updated = await restoreWorkflowToDraft(String(values.currentTeamId), row.workflow)
+                    if (updated) {
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? 'draft',
+                            updated_at: updated.updated_at,
+                        })
+                    }
+                })
             },
             deleteWorkflow: ({ row }) => {
-                confirmDeleteWorkflow(String(values.currentTeamId), row.workflow, () => actions.removeWorkflow(row.id))
+                if (values.pendingRowActions[row.id]) {
+                    return
+                }
+                confirmDeleteWorkflow(
+                    String(values.currentTeamId),
+                    row.workflow,
+                    () => actions.removeWorkflow(row.id),
+                    (pending) => actions.setRowActionPending(row.id, pending ? 'delete' : null)
+                )
             },
         }
     }),

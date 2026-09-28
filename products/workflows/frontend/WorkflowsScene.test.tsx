@@ -102,11 +102,20 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
     })
 
-    it('ignores a saved column the list no longer has', async () => {
-        localStorage.setItem(
-            'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
-            JSON.stringify(['health', 'tags'])
-        )
+    it.each([
+        ['shows Owner when no columns are saved', null, ['Name', 'Status', 'Owner', 'Updated', '', '']],
+        [
+            'ignores a saved column the list no longer has',
+            ['health', 'tags'],
+            ['Name', 'Status', 'Health', 'Updated', '', ''],
+        ],
+    ])('%s', async (_, savedColumns, expectedHeaders) => {
+        if (savedColumns) {
+            localStorage.setItem(
+                'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
+                JSON.stringify(savedColumns)
+            )
+        }
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         render(
             <Provider>
@@ -118,7 +127,7 @@ describe('WorkflowsScene', () => {
         const headers = Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map(
             (th) => th.textContent
         )
-        expect(headers).toEqual(['Name', 'Status', 'Health', 'Updated', '', ''])
+        expect(headers).toEqual(expectedHeaders)
     })
 
     it('keeps the old list when the flag is off and never asks for the v2 list', async () => {

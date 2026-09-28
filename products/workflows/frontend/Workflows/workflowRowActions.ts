@@ -3,6 +3,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import { hogFlowsDestroy, hogFlowsPartialUpdate } from 'products/workflows/frontend/generated/api'
+import type { HogFlowUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
 
 /** What the row actions need to know about a workflow, in either list. */
 export interface WorkflowRowTarget {
@@ -13,39 +14,51 @@ export interface WorkflowRowTarget {
 
 type WorkflowStatus = 'draft' | 'active' | 'archived'
 
+export type WorkflowRowAction = 'toggle' | 'duplicate' | 'archive' | 'restore' | 'delete'
+
 export function workflowActionErrorDetail(error: unknown): string {
     const e = error as { detail?: string; message?: string } | undefined
     return e?.detail || e?.message || 'Unknown error'
 }
 
-/** Resolves true when the status changed, false after it showed an error. */
+/** Resolves to the updated workflow, or null after it showed an error. */
 export async function setWorkflowStatus(
     teamId: string,
     workflow: WorkflowRowTarget,
     status: WorkflowStatus
-): Promise<boolean> {
+): Promise<HogFlowUpdateApi | null> {
     try {
-        await hogFlowsPartialUpdate(teamId, workflow.id, { status })
-        return true
+        return await hogFlowsPartialUpdate(teamId, workflow.id, { status })
     } catch (error) {
         lemonToast.error(`Failed to update workflow: ${workflowActionErrorDetail(error)}`)
-        return false
+        return null
     }
 }
 
-export async function restoreWorkflowToDraft(teamId: string, workflow: WorkflowRowTarget): Promise<boolean> {
+export async function restoreWorkflowToDraft(
+    teamId: string,
+    workflow: WorkflowRowTarget
+): Promise<HogFlowUpdateApi | null> {
     try {
-        await hogFlowsPartialUpdate(teamId, workflow.id, { status: 'draft' })
+        const updated = await hogFlowsPartialUpdate(teamId, workflow.id, { status: 'draft' })
         lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
-        return true
+        return updated
     } catch (error) {
         lemonToast.error(`Failed to restore workflow: ${workflowActionErrorDetail(error)}`)
-        return false
+        return null
     }
 }
 
-/** Asks first, then archives. `onArchived` runs only after the server accepted the change. */
-export function confirmArchiveWorkflow(teamId: string, workflow: WorkflowRowTarget, onArchived: () => void): void {
+/**
+ * Asks first, then archives. `onArchived` runs only after the server accepted the change.
+ * `onPendingChange` brackets the request, from the confirm press to the answer.
+ */
+export function confirmArchiveWorkflow(
+    teamId: string,
+    workflow: WorkflowRowTarget,
+    onArchived: (updated: HogFlowUpdateApi) => void,
+    onPendingChange?: (pending: boolean) => void
+): void {
     LemonDialog.open({
         width: 500,
         title: 'Archive workflow?',
@@ -57,12 +70,15 @@ export function confirmArchiveWorkflow(teamId: string, workflow: WorkflowRowTarg
             type: 'primary',
             status: 'danger',
             onClick: async () => {
+                onPendingChange?.(true)
                 try {
-                    await hogFlowsPartialUpdate(teamId, workflow.id, { status: 'archived' })
+                    const updated = await hogFlowsPartialUpdate(teamId, workflow.id, { status: 'archived' })
                     lemonToast.success(`Workflow "${workflow.name}" archived`)
-                    onArchived()
+                    onArchived(updated)
                 } catch (error) {
                     lemonToast.error(`Failed to archive workflow: ${workflowActionErrorDetail(error)}`)
+                } finally {
+                    onPendingChange?.(false)
                 }
             },
         },
@@ -73,7 +89,12 @@ export function confirmArchiveWorkflow(teamId: string, workflow: WorkflowRowTarg
 }
 
 /** Asks first, then deletes. `onDeleted` runs only after the server deleted the workflow. */
-export function confirmDeleteWorkflow(teamId: string, workflow: WorkflowRowTarget, onDeleted: () => void): void {
+export function confirmDeleteWorkflow(
+    teamId: string,
+    workflow: WorkflowRowTarget,
+    onDeleted: () => void,
+    onPendingChange?: (pending: boolean) => void
+): void {
     LemonDialog.open({
         width: 500,
         title: 'Delete workflow?',
@@ -83,6 +104,7 @@ export function confirmDeleteWorkflow(teamId: string, workflow: WorkflowRowTarge
             type: 'primary',
             status: 'danger',
             onClick: async () => {
+                onPendingChange?.(true)
                 try {
                     await hogFlowsDestroy(teamId, workflow.id)
                     lemonToast.success(`Workflow "${workflow.name}" deleted`)
@@ -90,6 +112,8 @@ export function confirmDeleteWorkflow(teamId: string, workflow: WorkflowRowTarge
                     onDeleted()
                 } catch (error) {
                     lemonToast.error(`Failed to delete workflow: ${workflowActionErrorDetail(error)}`)
+                } finally {
+                    onPendingChange?.(false)
                 }
             },
         },

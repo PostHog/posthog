@@ -1,7 +1,6 @@
-import { findFacet } from 'lib/components/FacetSearchBar/facetQuery'
-
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { findFacet } from './FacetSearchBar/facetQuery'
 import { buildWorkflowListFacets } from './workflowListFacets'
 import { WorkflowListRow, buildWorkflowListRows } from './workflowListRows'
 import { FIXTURE_USERS, buildWorkflowRow } from './workflowsListV2Fixtures'

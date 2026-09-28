@@ -1,5 +1,4 @@
-import type { FacetDefinition } from 'lib/components/FacetSearchBar/facetQuery'
-
+import type { FacetDefinition } from './FacetSearchBar/facetQuery'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow } from './workflowListRows'
 

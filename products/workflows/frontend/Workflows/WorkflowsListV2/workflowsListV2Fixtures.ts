@@ -53,6 +53,7 @@ export const FIXTURE_WORKFLOWS: HogFlowListSummaryApi[] = [
     buildWorkflowRow({
         id: 'wf-renewal',
         name: 'Renewal reminder',
+        description: 'Reminds customers a week before their plan renews.',
         status: 'draft',
         type: 'messaging',
         updated_at: '2026-09-18T09:00:00Z',
@@ -60,6 +61,8 @@ export const FIXTURE_WORKFLOWS: HogFlowListSummaryApi[] = [
     buildWorkflowRow({
         id: 'wf-sync',
         name: 'Sync accounts to CRM',
+        description:
+            'Owner: @kim. Copies new accounts and plan changes to the CRM every night, retries failed rows once, and emails a summary to the ops inbox.',
         status: 'draft',
         type: 'automation',
         trigger: { type: 'schedule' },

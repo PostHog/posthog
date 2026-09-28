@@ -34,3 +34,5 @@ export const OPTIONAL_COLUMN_TITLES = {
 
 export type OptionalColumn = keyof typeof OPTIONAL_COLUMN_TITLES
 export const OPTIONAL_COLUMNS = Object.keys(OPTIONAL_COLUMN_TITLES) as OptionalColumn[]
+
+export const DEFAULT_COLUMNS: OptionalColumn[] = ['owner']

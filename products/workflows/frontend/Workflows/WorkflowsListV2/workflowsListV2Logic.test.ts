@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { WorkflowStatsRowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import type { WorkflowListRow } from './workflowListRows'
 import {
     FIXTURE_METRICS,
     FIXTURE_USERS,
@@ -48,8 +49,12 @@ describe('workflowsListV2Logic', () => {
                     workflowRequests.push(params)
                     const search = params.get('search')
                     if (search) {
-                        const ids = await serverSearch(search)
-                        return [200, paginated(ids.map((id) => byId.get(id)!))]
+                        try {
+                            const ids = await serverSearch(search)
+                            return [200, paginated(ids.map((id) => byId.get(id)!))]
+                        } catch {
+                            return [500, { detail: 'Server error' }]
+                        }
                     }
                     if (params.get('offset') === '500') {
                         return [200, paginated(secondPage)]
@@ -343,5 +348,106 @@ describe('workflowsListV2Logic', () => {
 
         await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 're' })).toFinishAllListeners()
         expect(workflowRequests.map((params) => params.get('search')).filter(Boolean)).toEqual([])
+        expect(logic.values.serverSearchStatus).toEqual('off')
+    })
+
+    it('holds the no-match verdict until the server search answers, and reports a failed search without a toast', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+        let answerSearch: (ids: string[]) => void = () => {}
+        const searchSent = new Promise<void>((markSent) => {
+            serverSearch = () =>
+                new Promise((resolve) => {
+                    answerSearch = resolve
+                    markSent()
+                })
+        })
+        logic.actions.setValue({ filters: [], text: 'invoice' })
+        expect(logic.values.serverSearchStatus).toEqual('pending')
+        expect(shownIds(logic)).toEqual([])
+
+        await searchSent
+        answerSearch(['wf-sync'])
+        await expectLogic(logic).toDispatchActions(['searchWorkflowsSuccess'])
+        expect(logic.values.serverSearchStatus).toEqual('done')
+        expect(shownIds(logic)).toEqual(['wf-sync'])
+
+        serverSearch = () => Promise.reject(new Error('down'))
+        await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renewal' })).toDispatchActions([
+            'searchWorkflowsSuccess',
+        ])
+        expect(logic.values.serverSearchStatus).toEqual('failed')
+        expect(shownIds(logic)).toEqual(['wf-renewal'])
+        expect(toastError).not.toHaveBeenCalled()
+        toastError.mockRestore()
+    })
+
+    it.each([
+        ['succeeds', 200, 1],
+        ['fails', 500, 0],
+    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, copies) => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+
+        let answerRetrieve: () => void = () => {}
+        let posts = 0
+        const retrieveSent = new Promise<void>((markSent) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
+                    '/api/projects/:team_id/hog_flows/:id/': () =>
+                        new Promise((resolve) => {
+                            answerRetrieve = () =>
+                                resolve(
+                                    status === 200
+                                        ? [200, { ...FIXTURE_WORKFLOWS[1], actions: [], edges: [] }]
+                                        : [500, {}]
+                                )
+                            markSent()
+                        }),
+                },
+                post: {
+                    '/api/projects/:team_id/hog_flows/': () => {
+                        posts++
+                        return [200, { id: `wf-copy-${posts}` }]
+                    },
+                },
+            })
+        })
+        const row = logic.values.rows.find((r) => r.id === 'wf-renewal')!
+
+        logic.actions.duplicateWorkflow(row)
+        logic.actions.duplicateWorkflow(row)
+        expect(logic.values.pendingRowActions).toEqual({ 'wf-renewal': 'duplicate' })
+
+        await retrieveSent
+        answerRetrieve()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(posts).toEqual(copies)
+        expect(logic.values.pendingRowActions).toEqual({})
+    })
+
+    it.each([
+        ['enable', 'wf-sync', 'active', (row: WorkflowListRow) => logic.actions.toggleWorkflowStatus(row)],
+        ['restore', 'wf-old-promo', 'draft', (row: WorkflowListRow) => logic.actions.restoreWorkflow(row)],
+    ])('%s takes the status and updated_at from the server answer', async (_, id, status, run) => {
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': () => [200, { status, updated_at: '2026-09-27T12:00:00Z' }],
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+        await expectLogic(logic, () => run(logic.values.rows.find((row) => row.id === id)!)).toFinishAllListeners()
+        expect(logic.values.rows[0].workflow).toMatchObject({ id, status, updated_at: '2026-09-27T12:00:00Z' })
     })
 })

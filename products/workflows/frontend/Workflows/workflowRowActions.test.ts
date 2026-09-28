@@ -12,6 +12,7 @@ import {
 
 // A child environment's team id differs from its project id; these calls address the team.
 const TEAM_ID = '4242'
+const UPDATED = { status: 'draft', updated_at: '2026-09-27T12:00:00Z' }
 
 describe('workflowRowActions', () => {
     let requests: { method: string; path: string; body?: unknown }[]
@@ -31,7 +32,7 @@ describe('workflowRowActions', () => {
             if (params.id === 'wf-broken') {
                 return [500, { detail: 'Server error' }]
             }
-            return request.method === 'DELETE' ? [204] : [200, {}]
+            return request.method === 'DELETE' ? [204] : [200, UPDATED]
         }
         useMocks({
             patch: { '/api/projects/:team_id/hog_flows/:id/': respond },
@@ -56,14 +57,14 @@ describe('workflowRowActions', () => {
         ],
         ['sets a status', () => setWorkflowStatus(TEAM_ID, { id: 'wf-1', name: 'Welcome' }, 'active'), 'active'],
     ])('%s through the team-scoped endpoint', async (_, run, status) => {
-        await expect(run()).resolves.toBe(true)
+        await expect(run()).resolves.toEqual(UPDATED)
         expect(requests).toEqual([
             { method: 'PATCH', path: `/api/projects/${TEAM_ID}/hog_flows/wf-1/`, body: { status } },
         ])
     })
 
     it('reports a failed update and leaves the caller to keep its row', async () => {
-        await expect(restoreWorkflowToDraft(TEAM_ID, { id: 'wf-broken', name: 'Broken' })).resolves.toBe(false)
+        await expect(restoreWorkflowToDraft(TEAM_ID, { id: 'wf-broken', name: 'Broken' })).resolves.toBeNull()
         expect(lemonToast.error).toHaveBeenCalledWith('Failed to restore workflow: Server error')
     })
 
@@ -91,19 +92,23 @@ describe('workflowRowActions', () => {
     it.each([
         [
             'archive',
-            (onDone: () => void) => confirmArchiveWorkflow(TEAM_ID, { id: 'wf-broken', name: 'Broken' }, onDone),
+            (onDone: () => void, onPending: (pending: boolean) => void) =>
+                confirmArchiveWorkflow(TEAM_ID, { id: 'wf-broken', name: 'Broken' }, onDone, onPending),
             'Failed to archive workflow: Server error',
         ],
         [
             'delete',
-            (onDone: () => void) => confirmDeleteWorkflow(TEAM_ID, { id: 'wf-broken', name: 'Broken' }, onDone),
+            (onDone: () => void, onPending: (pending: boolean) => void) =>
+                confirmDeleteWorkflow(TEAM_ID, { id: 'wf-broken', name: 'Broken' }, onDone, onPending),
             'Failed to delete workflow: Server error',
         ],
-    ])('a failed %s shows the error and skips the refresh', async (_, open, message) => {
+    ])('a failed %s shows the error, skips the refresh and clears the pending state', async (_, open, message) => {
         const onDone = jest.fn()
-        open(onDone)
+        const onPending = jest.fn()
+        open(onDone, onPending)
         await confirm()
         expect(lemonToast.error).toHaveBeenCalledWith(message)
         expect(onDone).not.toHaveBeenCalled()
+        expect(onPending.mock.calls).toEqual([[true], [false]])
     })
 })

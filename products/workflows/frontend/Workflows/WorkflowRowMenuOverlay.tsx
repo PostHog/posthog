@@ -4,9 +4,12 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { WorkflowRowAction } from './workflowRowActions'
+
 export interface WorkflowRowMenuOverlayProps {
     status: string
     userAccessLevel?: AccessControlLevel
+    pendingAction?: WorkflowRowAction
     onToggleStatus: () => void
     onDuplicate: () => void
     onArchive: () => void
@@ -18,12 +21,17 @@ export interface WorkflowRowMenuOverlayProps {
 export function WorkflowRowMenuOverlay({
     status,
     userAccessLevel,
+    pendingAction,
     onToggleStatus,
     onDuplicate,
     onArchive,
     onRestore,
     onDelete,
 }: WorkflowRowMenuOverlayProps): JSX.Element {
+    const pendingState = (action: WorkflowRowAction): { loading: boolean; disabledReason?: string } => ({
+        loading: pendingAction === action,
+        disabledReason: pendingAction && pendingAction !== action ? 'Wait for the current change to finish' : undefined,
+    })
     return (
         <>
             {status !== 'archived' && (
@@ -37,6 +45,7 @@ export function WorkflowRowMenuOverlay({
                         fullWidth
                         status={status === 'draft' ? 'default' : 'danger'}
                         onClick={onToggleStatus}
+                        {...pendingState('toggle')}
                         tooltip={
                             status === 'draft'
                                 ? 'Enables the workflow to start sending messages'
@@ -47,7 +56,7 @@ export function WorkflowRowMenuOverlay({
                     </LemonButton>
                 </AccessControlAction>
             )}
-            <LemonButton data-attr="workflow-duplicate" fullWidth onClick={onDuplicate}>
+            <LemonButton data-attr="workflow-duplicate" fullWidth onClick={onDuplicate} {...pendingState('duplicate')}>
                 Duplicate
             </LemonButton>
             <LemonDivider />
@@ -61,6 +70,7 @@ export function WorkflowRowMenuOverlay({
                     fullWidth
                     status={status === 'archived' ? 'default' : 'danger'}
                     onClick={status === 'archived' ? onRestore : onArchive}
+                    {...pendingState(status === 'archived' ? 'restore' : 'archive')}
                 >
                     {status === 'archived' ? 'Restore' : 'Archive'}
                 </LemonButton>
@@ -71,7 +81,13 @@ export function WorkflowRowMenuOverlay({
                     minAccessLevel={AccessControlLevel.Editor}
                     userAccessLevel={userAccessLevel}
                 >
-                    <LemonButton data-attr="workflow-delete" fullWidth status="danger" onClick={onDelete}>
+                    <LemonButton
+                        data-attr="workflow-delete"
+                        fullWidth
+                        status="danger"
+                        onClick={onDelete}
+                        {...pendingState('delete')}
+                    >
                         Delete
                     </LemonButton>
                 </AccessControlAction>

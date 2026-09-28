@@ -295,7 +295,7 @@ export type facetSearchBarLogicType = MakeLogicType<
 export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
     props({} as FacetSearchBarLogicProps),
     key((props) => props.id),
-    path((key) => ['lib', 'components', 'FacetSearchBar', 'facetSearchBarLogic', key]),
+    path((key) => ['products', 'workflows', 'frontend', 'facetSearchBarLogic', key]),
     actions({
         setInput: (input: string) => ({ input }),
         syncInput: (input: string) => ({ input }),
