@@ -133,9 +133,6 @@ export interface sessionRecordingsPlaylistSceneLogicActions {
     markPlaylistViewed: () => {
         value: true
     }
-    setAddRecordingsModalOpen: (open: boolean) => {
-        open: boolean
-    }
     onPinnedChange: (
         recording: SessionRecordingType,
         pinned: boolean
@@ -162,6 +159,9 @@ export interface sessionRecordingsPlaylistSceneLogicActions {
             pinned: boolean
             recording: SessionRecordingType
         }
+    }
+    setAddRecordingsModalOpen: (open: boolean) => {
+        open: boolean
     }
     setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => {
         filters: LegacyRecordingFilters | RecordingUniversalFilters | null
