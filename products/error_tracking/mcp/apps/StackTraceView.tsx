@@ -27,6 +27,9 @@ export interface ExceptionData {
     stacktrace?: {
         type?: string
         frames?: StackFrame[]
+        frames_omitted?: number
+        same_as_event?: string
+        same_as_exception?: number
     }
 }
 
@@ -144,6 +147,11 @@ function ExceptionSection({ exception, index }: { exception: ExceptionData; inde
                                 {inAppCount > 0 && (
                                     <span className="text-xs text-muted-foreground">({inAppCount} in-app)</span>
                                 )}
+                                {exception.stacktrace?.frames_omitted ? (
+                                    <span className="text-xs text-muted-foreground">
+                                        ({exception.stacktrace.frames_omitted} older frames not shown)
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="rounded-lg border overflow-hidden">
                                 <Accordion multiple defaultValue={getDefaultExpanded(displayFrames)}>
@@ -168,7 +176,20 @@ function getDefaultExpanded(frames: StackFrame[]): string[] {
     return idx >= 0 ? [`frame-${idx}`] : []
 }
 
-export function StackTraceView({ exceptions }: StackTraceViewProps): ReactElement {
+/**
+ * The API replaces a repeated stack trace with a reference to its first copy. The view shows one event, so a
+ * reference can only point to an earlier exception of that event: show that exception's frames.
+ */
+export function resolveStackReferences(exceptions: ExceptionData[]): ExceptionData[] {
+    return exceptions.map((exception) => {
+        const index = exception.stacktrace?.same_as_exception
+        const source = index === undefined ? undefined : exceptions[index]?.stacktrace
+        return source?.frames?.length ? { ...exception, stacktrace: source } : exception
+    })
+}
+
+export function StackTraceView({ exceptions: rawExceptions }: StackTraceViewProps): ReactElement {
+    const exceptions = resolveStackReferences(rawExceptions)
     if (exceptions.length === 0) {
         return <div className="text-sm text-muted-foreground p-4">No exception data available</div>
     }
