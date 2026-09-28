@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import typing
 import datetime as dt
 import dataclasses
@@ -12,8 +13,8 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.common import RetryPolicy, SearchAttributes, WorkflowIDReusePolicy
+from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -69,6 +70,9 @@ from products.warehouse_sources.backend.temporal.data_imports.post_import_job im
     PostImportWorkflowInputs,
     build_post_import_workflow_id,
 )
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -83,6 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -127,7 +132,7 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 20
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 MISSING_INTEGRATION_MESSAGE = (
@@ -247,6 +252,20 @@ TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
+# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
+# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# itself cannot finish in the window rather than that something stalled.
+SYNC_RUN_TOO_LONG_MESSAGE = (
+    "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
+    "incremental sync, or sync less data, so the next run finishes in time."
+)
+
+# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
+# and clear on their own, so the copy asks nothing of the customer.
+SYNC_RUN_STALLED_MESSAGE = (
+    "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
+)
+
 # A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
 # ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
 # failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
@@ -347,6 +366,14 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # sync retries on its next schedule.
     if getattr(cause, "type", None) == "RESTClientRetryableError":
         return TRANSIENT_SOURCE_ERROR_MESSAGE
+    # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
+    # timeout"), which names our orchestration rather than anything the customer can act on. Which
+    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
+    # stalled or unclaimed activity is ours and recovers by itself.
+    if isinstance(cause, exceptions.TimeoutError):
+        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+            return SYNC_RUN_TOO_LONG_MESSAGE
+        return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -661,6 +688,7 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
@@ -713,6 +741,13 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
 
     trigger_schedule_buffer_one(temporal, schedule_id)
+
+
+def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uuid.UUID | None) -> bool:
+    # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
+    # event, so replay reads the same value.
+    scheduled_by = search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(schema_id) for value in scheduled_by)
 
 
 # TODO: update retry policies
@@ -818,6 +853,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
+                started_by_schedule=_started_by_own_schedule(
+                    workflow.info().search_attributes, inputs.external_data_schema_id
+                ),
             )
 
             create_job_result = await workflow.execute_activity(
@@ -837,6 +875,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                scheduled_full_refresh = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -848,6 +887,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                scheduled_full_refresh = create_job_result.scheduled_full_refresh
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -868,8 +908,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
-            if job_id is not None:
+            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed). A scheduled
+            # full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,
@@ -896,6 +937,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
             )
 
             is_resumable_source = False

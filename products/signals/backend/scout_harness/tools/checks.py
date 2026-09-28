@@ -86,7 +86,9 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
 
     config = parse_check_config(check.kind, check.config)
     assert isinstance(config, AgentCheckConfig)
-    if resolve_check_skill_name(config) != run.skill_name:
+    # Resolved with the project, exactly as the dispatch resolved it, so a run correctly sent to
+    # the fallback lane because the named scout was retired can still record what it found.
+    if resolve_check_skill_name(config, canonical_team_id) != run.skill_name:
         raise InvalidCheckResultError(f"check {check_id} runs on another scout")
     return check
 

@@ -114,6 +114,8 @@ class ImplementationPr:
     url: str
     merged: bool
     state: str = SignalReportAssignment.PrState.UNKNOWN
+    review_decision: str | None = None
+    merged_at: datetime | None = None
     task_id: str | None = None
     actor_kind: str | None = None
     id: str | None = None
@@ -156,6 +158,8 @@ def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int)
                 id=str(linked_pr.id),
                 url=linked_pr.url,
                 state=linked_pr.state,
+                review_decision=linked_pr.review_decision,
+                merged_at=linked_pr.merged_at,
                 merged=linked_pr.state == "merged",
                 task_id=str(link.task_id) if link.task_id else None,
                 actor_kind=link.actor_kind,

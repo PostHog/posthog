@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -16,11 +25,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
-import { RunActivityChart } from '../components/RunActivityChart'
+import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
@@ -39,10 +49,11 @@ function RunnerTierCard({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Elem
     const totalCost = costs.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0)
     return (
         <LemonCard hoverEffect={false} className="p-4">
-            <div className="mb-1 flex items-baseline gap-2">
-                <h3 className="mb-0 text-xs font-semibold text-secondary">By runner tier</h3>
-                <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
-            </div>
+            <h3 className="mb-1 text-xs font-semibold text-secondary">
+                <Tooltip title="Estimated: billable minutes × runner-tier rate. The tier comes from the job's runner labels. GitHub-hosted runners are free for open source.">
+                    <span className="cursor-default">By runner tier</span>
+                </Tooltip>
+            </h3>
             {costs.map((cost) => (
                 <ShareRow
                     key={`${cost.provider}:${cost.runner_label}`}
@@ -53,7 +64,7 @@ function RunnerTierCard({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Elem
                         </span>
                     }
                     sub={`${humanFriendlyNumber(cost.job_count)} jobs`}
-                    value={cost.estimated_cost_usd != null ? compactUsd(cost.estimated_cost_usd) : 'free'}
+                    value={cost.estimated_cost_usd != null ? compactUsd(cost.estimated_cost_usd) : 'Free'}
                     valueSub={
                         cost.estimated_cost_usd != null
                             ? `${compactMinutes(cost.billable_minutes)} billable`
@@ -63,10 +74,6 @@ function RunnerTierCard({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Elem
                     color={cost.estimated_cost_usd != null ? 'var(--brand-blue)' : 'var(--muted)'}
                 />
             ))}
-            <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                Tier parsed from job labels; rate ladder in the cost model. GitHub-hosted runners are free for open
-                source.
-            </div>
         </LemonCard>
     )
 }
@@ -90,7 +97,9 @@ export function WorkflowRunsScene(): JSX.Element {
         runsLoading,
         runnerCosts,
         runnerCostsLoading,
+        runnerCostsFailed,
         runActivityLoading,
+        runActivityFailed,
         runJobs,
         runJobsLoading,
         expandedRunKeys,
@@ -108,10 +117,12 @@ export function WorkflowRunsScene(): JSX.Element {
         activityTruncated,
         jobAggregates,
         jobAggregatesLoading,
+        jobAggregatesFailed,
         masterConclusion,
         queueP50Seconds,
     } = useValues(workflowRunsLogic)
-    const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
+    const { loadRuns, loadRunActivity, loadRunnerCosts, loadJobAggregates, setRunExpanded } =
+        useActions(workflowRunsLogic)
     const { searchParams } = useValues(router)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
@@ -269,14 +280,12 @@ export function WorkflowRunsScene(): JSX.Element {
         return (
             <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary">
-                        Couldn't load this workflow's runs. It may not exist in the connected GitHub source.
-                    </span>
-                    <LemonButton type="secondary" size="small" onClick={loadRuns} loading={runsLoading}>
-                        Retry
-                    </LemonButton>
-                </div>
+                <CIAnalyticsLoadError
+                    title="Couldn't load this workflow's runs"
+                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                    onRetry={loadRuns}
+                    loading={runsLoading}
+                />
             </SceneContent>
         )
     }
@@ -350,7 +359,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     />
                     <MetricTile
                         label="Duration p50"
-                        tooltip="Median wall-clock duration over successful runs, excluding runs that settled in under 10 seconds without doing work."
+                        tooltip="Median duration over successful runs. Runs under 10 seconds with no work are excluded when longer samples exist. All-fast workflows use every successful run."
                         value={
                             healthSummary.medianSeconds != null
                                 ? humanFriendlyDuration(healthSummary.medianSeconds)
@@ -364,9 +373,10 @@ export function WorkflowRunsScene(): JSX.Element {
                         loading={workflowHealthLoading}
                     />
                     <MetricTile
-                        label="Queue time p50"
-                        tooltip="From job created to started, weighted across the workflow's jobs."
+                        label="Estimated median queue time"
+                        tooltip="Estimated median wait from job created to started: each job's median, weighted by how often the job ran."
                         value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
+                        sub={jobAggregatesFailed ? "Couldn't load" : undefined}
                         loading={jobAggregatesLoading}
                     />
                     <MetricTile
@@ -378,30 +388,69 @@ export function WorkflowRunsScene(): JSX.Element {
                                           ? costSummary.estimatedCostUsd / healthSummary.totalRuns
                                           : null
                                   )} per run.`
-                                : 'Available once the job-level source is synced.'
+                                : runnerCostsFailed
+                                  ? undefined
+                                  : 'Available once the job-level source is synced.'
                         }
                         value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
-                        sub={costSummary?.estimatedCostUsd != null ? undefined : 'Job-level source not synced'}
+                        sub={
+                            costSummary?.estimatedCostUsd != null
+                                ? undefined
+                                : runnerCostsFailed
+                                  ? "Couldn't load"
+                                  : 'Job-level source not synced'
+                        }
                         loading={runnerCostsLoading || workflowHealthLoading}
                     />
                 </div>
                 <Section id="health" title="Health" busy={healthBusy}>
-                    <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
+                    {runActivityFailed ? (
+                        <CIAnalyticsLoadError
+                            title="Couldn't load run activity"
+                            onRetry={loadRunActivity}
+                            loading={runActivityLoading}
+                        />
+                    ) : hasEnoughRunActivity(activityRuns) ? (
+                        <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
+                    ) : runActivityLoading ? (
+                        <LemonSkeleton className="h-80 w-full" />
+                    ) : (
+                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                            Not enough completed runs in the window to chart yet. Widen the date range or the run scope.
+                        </LemonCard>
+                    )}
                 </Section>
                 <Section id="jobs" title="Jobs">
-                    <JobAggregatesTable
-                        aggregates={jobAggregates}
-                        loading={jobAggregatesLoading}
-                        totalCostUsd={costSummary?.estimatedCostUsd ?? null}
-                    />
+                    {jobAggregatesFailed ? (
+                        <CIAnalyticsLoadError
+                            title="Couldn't load jobs"
+                            onRetry={loadJobAggregates}
+                            loading={jobAggregatesLoading}
+                        />
+                    ) : (
+                        <JobAggregatesTable
+                            aggregates={jobAggregates}
+                            loading={jobAggregatesLoading}
+                            totalCostUsd={costSummary?.estimatedCostUsd ?? null}
+                        />
+                    )}
                 </Section>
                 <Section id="cost" title="Cost" busy={costBusy}>
-                    {runnerCosts.length > 0 ? (
+                    {runnerCostsFailed ? (
+                        <CIAnalyticsLoadError
+                            title="Couldn't load cost"
+                            onRetry={loadRunnerCosts}
+                            loading={runnerCostsLoading}
+                        />
+                    ) : runnerCosts.length > 0 ? (
                         <RunnerTierCard costs={runnerCosts} />
+                    ) : runnerCostsLoading ? (
+                        <LemonSkeleton className="h-40 w-full" />
                     ) : (
-                        <span className="text-xs text-secondary">
-                            No cost data. The job-level source isn't synced, or nothing ran in the window.
-                        </span>
+                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                            No cost data. The job-level source isn't synced, or nothing ran in the window. Widen the
+                            date range, or check the source's sync status.
+                        </LemonCard>
                     )}
                 </Section>
                 <Section id="runs" title="Runs">

@@ -4,7 +4,7 @@ import time
 import datetime
 import unicodedata
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -27,6 +27,8 @@ from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+from products.security.backend.facade.api import is_email_code_exempt
 
 CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY = "code_based_verification_bypass_emails"
 
@@ -204,32 +206,44 @@ def enforce_two_factor(request, user):
     if is_path_whitelisted(request.path):
         return
 
+    missing_step = missing_two_factor_step(request._request, user)
+    if missing_step == "setup":
+        raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
+    if missing_step == "verification":
+        raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
+
+
+def missing_two_factor_step(request: HttpRequest, user: User) -> Literal["setup", "verification"] | None:
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
-    if is_sso_authentication_backend(request._request):
-        return
+    if is_sso_authentication_backend(request):
+        return None
 
     organization = getattr(user, "organization", None)
-    if organization and organization.enforce_2fa:
-        # Same as above, we don't enforce 2FA on SSO-enforced domains, we depend on the SSO provider to handle 2FA
-        # TODO: This will soon be made configurable
-        if is_domain_sso_enforced(request._request):
-            return
+    if not organization or not organization.enforce_2fa:
+        return None
 
-        if not is_two_factor_enforcement_in_effect(request._request):
-            return
+    # Same as above, we don't enforce 2FA on SSO-enforced domains, we depend on the SSO provider to handle 2FA
+    # TODO: This will soon be made configurable
+    if is_domain_sso_enforced(request):
+        return None
 
-        if is_impersonated_session(request._request):
-            return
+    if not is_two_factor_enforcement_in_effect(request):
+        return None
 
-        device = default_device(user)
-        user_has_passkeys = has_passkeys(user)
-        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
-        if not device and not passkeys_enabled_for_2fa:
-            raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
+    if is_impersonated_session(request):
+        return None
 
-        if not is_two_factor_verified_in_session(request._request):
-            raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
+    device = default_device(user)
+    user_has_passkeys = has_passkeys(user)
+    passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+    if not device and not passkeys_enabled_for_2fa:
+        return "setup"
+
+    if not is_two_factor_verified_in_session(request):
+        return "verification"
+
+    return None
 
 
 def is_path_whitelisted(path):
@@ -411,6 +425,10 @@ class CodeBasedVerifier:
 
         if is_code_based_verification_bypass(user.email):
             mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
+            return CodeBasedVerificationCheckResult(should_send=False)
+
+        if is_email_code_exempt(user.email):
+            mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)

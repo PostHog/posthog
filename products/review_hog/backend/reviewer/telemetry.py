@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
     from products.review_hog.backend.models import ReviewReport
@@ -37,7 +38,12 @@ def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review
     return str(uuid5(NAMESPACE_URL, identity))
 
 
-def review_routing_properties(report: ReviewReport, *, review_mode: str | None = None) -> dict[str, str | bool | None]:
+def review_routing_properties(
+    report: ReviewReport,
+    *,
+    review_mode: str | None = None,
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+) -> dict[str, str | bool | None]:
     """The tier, the reviewer arm, and the validator and resolver pins of a report's reviews.
 
     Every review event (started, completed, failed, finding outcome) spreads this in, so a dashboard
@@ -65,8 +71,8 @@ def review_routing_properties(report: ReviewReport, *, review_mode: str | None =
         stored_arm.initial_permission_mode,
     )
     mode = review_mode if review_mode is not None else REVIEW_MODE_FULL
-    arm = review_arm_for_mode(mode, stored_arm)
-    validator = validation_arm_for_mode(mode)
+    arm = review_arm_for_mode(mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort)
+    validator = validation_arm_for_mode(mode, flash_reasoning_effort=flash_reasoning_effort)
     return {
         "review_mode": review_mode,
         "review_tier": report.review_tier,

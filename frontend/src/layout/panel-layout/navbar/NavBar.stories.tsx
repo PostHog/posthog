@@ -12,8 +12,8 @@ import { SidebarDensity } from '~/queries/schema/schema-general'
 import { customProductsLogic } from '../ProjectTree/customProductsLogic'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 
-/** Enough tools, across enough categories, for "My tools" to show its category headers. */
-const MOCK_TOOLS = [
+/** Enough products, across enough categories, for "My products" to show its category headers. */
+const MOCK_PRODUCTS = [
     'Product analytics',
     'Web analytics',
     'Session replay',
@@ -76,7 +76,7 @@ const meta: Meta<typeof NavSidebarDensities> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/user_product_list': () => [200, { results: MOCK_TOOLS }],
+                '/api/environments/:team_id/user_product_list': () => [200, { results: MOCK_PRODUCTS }],
             },
         }),
     ],

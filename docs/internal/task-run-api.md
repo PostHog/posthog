@@ -9,6 +9,7 @@ Requests through a PostHog connection keep the sandbox origin and the same run r
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 Repository-backed report discussions also require Desktop access.
+Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
 If task creation succeeds but run creation or dispatch fails, the response also contains `run_error`.
@@ -51,6 +52,13 @@ When event ingest is enabled, the agent server does not also retain events for a
 An attached SSE client still receives live events.
 Runs without event ingest buffer events until an SSE client attaches.
 The Claude adapter forwards partial tool inputs without retaining each intermediate snapshot in session history.
+Budget-steer notifications remain in the event stream.
+The standalone agent-proxy asks the authenticated Django callback to queue each steer for analytics and retries a failed dispatch.
+Direct Django ingest queues the same work without a callback, so analytics delivery does not delay later stream events.
+A Celery task captures the event and retries upload failures up to five times with backoff.
+Both paths preserve the event timestamp and derive the analytics event ID from the run and event sequence.
+If an older payload has no timestamp, Django stores its first received time for retries and replays.
+Successful captures are recorded for the event ingest token's lifetime so completed work is skipped on replay.
 
 ## Run summaries
 
@@ -59,6 +67,8 @@ Send a JSON object with a `summary` string of 1 to 1,500 characters after trimmi
 The endpoint requires permission to control the task. A task-bound sandbox token can update only its own task.
 The update does not complete the run or change its structured `output`.
 Cloud agent runs write the summary through the `task_summary_update` local tool; local Desktop sessions do not have the tool.
+The tool belongs to the sandbox harness, so an agent calls it as `mcp__posthog-code-tools__task_summary_update`.
+It is not in the PostHog MCP catalog, so tool discovery through the `mcp__posthog__exec` dispatcher never returns it.
 Generic run-state updates cannot change the summary or its inherited value.
 
 A resumed run uses its source run's summary until it saves a new summary.

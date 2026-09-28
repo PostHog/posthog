@@ -391,6 +391,63 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         )
 
 
+def fail_fast_scalar_settings(*, use_uncompressed_cache: bool = False) -> HogQLGlobalSettings:
+    """Caps for the single-row aggregates beside the span list: fail fast rather than scan
+    unbounded data, so an over-wide window fails instead of holding a ClickHouse thread the list
+    query needs. A runner that repeatedly decompresses the attribute maps over near-identical
+    windows opts into the uncompressed block cache, guarded to its own read cap."""
+    max_bytes_to_read = 10_000_000_000
+    return HogQLGlobalSettings(
+        max_execution_time=30,
+        max_bytes_to_read=max_bytes_to_read,
+        read_overflow_mode="throw",
+        use_uncompressed_cache=use_uncompressed_cache or None,
+        merge_tree_max_rows_to_use_cache=50_000_000 if use_uncompressed_cache else None,
+        merge_tree_max_bytes_to_use_cache=max_bytes_to_read if use_uncompressed_cache else None,
+    )
+
+
+class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
+    """Scaffolding for the single-row aggregates that run beside the span list.
+
+    Subclasses provide `to_query()`, their own `settings` (the aggregates differ in what they
+    read, so they differ in what they should cache), and turn the single result row into a
+    response.
+    """
+
+    def where_with_exact_timestamps(self) -> ast.Expr:
+        """`where()` plus per-row timestamp bounds.
+
+        `where()` bounds the window by time_bucket, at day precision. These aggregates have to
+        match the requested range exactly, so they add the half-open bounds.
+        """
+        return ast.And(
+            exprs=[
+                self.where(),
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                    },
+                ),
+            ]
+        )
+
+    def execute(self) -> list:
+        response = execute_hogql_query(
+            query_type="TraceSpansQuery",
+            query=self.to_query(),
+            modifiers=self.modifiers,
+            team=self.team,
+            workload=Workload.LOGS,
+            timings=self.timings,
+            filters=self.query_date_range.to_hogql_filters(),
+            settings=self.settings,
+        )
+        return response.results
+
+
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
@@ -1082,18 +1139,30 @@ def run_aggregation_query(
     service_names: list[str] | None = None,
     limit: int | None = None,
     offset: int = 0,
+    include_impact: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
     from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
+    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
+    # on its own thread, where a Django read would open a second connection.
+    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
 
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        includeImpact=include_impact,
     )
-    runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
+    runner = TraceSpansAggregationQueryRunner(
+        query,
+        team,
+        limit=limit,
+        offset=offset,
+        identity_keys=resolved_tracing_identity_attribute_keys(team) if include_impact else None,
+    )
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response

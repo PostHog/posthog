@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { makeSpan } from './__mocks__/span'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
@@ -16,6 +17,13 @@ describe('tracingViewerLogic', () => {
     let getTraceSpy: jest.SpyInstance
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.ErrorTracking]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
         getTraceSpy = jest
             .spyOn(api.tracing, 'getTrace')
@@ -49,7 +57,7 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
-    describe('traceIdentity', () => {
+    describe('identity resolution', () => {
         // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
         // it wants, otherwise a flag one test enables leaks into the next.
         beforeEach(() => {
@@ -110,6 +118,69 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.canLoadMoreTraceSpans).toBe(true)
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
+
+        // The Errors tab needs the session without the person, so it follows the error badge flag.
+        // Reading the person flag instead would leave the tab empty on a team that has only badges.
+        it.each([
+            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
+            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
+        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+
+            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
+
+            expect(logic.values.traceSessionId).toBe(expected)
+        })
+
+        // A badge sits on one row and resolves that row's session. A trace touching two sessions
+        // must therefore still answer for the row the badge opened, or clicking a row that just
+        // showed a count lands on a tab saying the trace has no session. The full-trace fetch
+        // returns the earliest page of a large trace, so the anchored row can be missing from it
+        // while it still sits in the list the badge was clicked in.
+        it.each([
+            ['the prefetched list', false],
+            ['the list when the fetched trace page omits it', true],
+        ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
+                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
+            })
+            const spanA = makeSpan({
+                uuid: 'span-0',
+                span_id: 'span-0',
+                trace_id: 'trace-x',
+                attributes: { sessionId: 'a' },
+            })
+            const spanB = makeSpan({
+                uuid: 'span-1',
+                span_id: 'span-1',
+                trace_id: 'trace-x',
+                attributes: { sessionId: 'b' },
+            })
+            tracingDataLogic().actions.fetchSpansSuccess([spanA, spanB])
+
+            logic.actions.openTrace('trace-x', { spanId: 'span-1', ts: '2024-01-01T00:00:00Z' })
+            if (tracePageOmitsAnchor) {
+                tracingDataLogic().actions.loadTraceSpansSuccess([spanA])
+            }
+
+            expect(logic.values.traceSessionId).toBe('b')
+        })
+    })
+
+    // The drawer stays mounted from one row to the next, so a person reading the Logs tab row by
+    // row must not be bounced back to Attributes on every click.
+    it('keeps the inspector tab across traces while the drawer is open, and resets it on close', () => {
+        logic.actions.openTrace('trace-x')
+        logic.actions.selectInspectorTab('logs')
+
+        logic.actions.openTrace('trace-y')
+        expect(logic.values.inspectorTab).toBe('logs')
+
+        logic.actions.openTrace('trace-z', { tab: 'errors' })
+        expect(logic.values.inspectorTab).toBe('errors')
+
+        logic.actions.closeTrace()
+        expect(logic.values.inspectorTab).toBe('attributes')
     })
 
     describe('closeTrace', () => {

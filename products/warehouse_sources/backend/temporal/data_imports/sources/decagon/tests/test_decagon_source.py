@@ -121,6 +121,12 @@ class TestDecagonSource:
                 "and the walk kept none. Check the response envelope against the endpoint config.",
                 "Contact support",
             ),
+            (
+                "unreadable_envelope_points_at_support_not_the_key",
+                "Decagon sent lists this table's config cannot read as rows: tags carries 2 list(s) and "
+                "2 of them carry this endpoint's primary keys ('drafts', 'published').",
+                "Contact support",
+            ),
         ]
     )
     def test_non_retryable_errors_surface_the_most_specific_message(

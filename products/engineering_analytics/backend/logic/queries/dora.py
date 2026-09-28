@@ -262,8 +262,8 @@ _LEAD_TIME_INNER = """
 """
 
 # The two one-row CROSS JOIN halves put attribution coverage on the same round trip: how many
-# PRs merged in the window at all (same bot/draft/team recipe), and how many of those an
-# in-scope deployment attributed: the honest denominator behind unattributed_merged_pr_share.
+# PRs merged in the window at all (same bot/draft/team recipe), and how many an in-scope
+# deployment attributed by the report horizon: the honest denominator behind unattributed_merged_pr_share.
 _LEAD_TIME_HEADLINE_SELECT = f"""
     SELECT
         lead.deployed_cur,
@@ -285,7 +285,7 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
         FROM ({_LEAD_TIME_INNER})
     ) AS lead
     CROSS JOIN (
-        SELECT countIf(__CUR_MERGED__) AS attributed_cur FROM deployed_prs
+        SELECT countIf(__CUR_ATTRIBUTED__) AS attributed_cur FROM deployed_prs
     ) AS attributed
     CROSS JOIN (
         SELECT countIf(__CUR_MERGED__) AS merged_cur
@@ -658,10 +658,12 @@ def _query_lead_time(
 
     windows = window_pair_predicates("deployed_at", date_to=scan.date_to)
     merged_window = window_pair_predicates("merged_at", date_to=scan.date_to)
+    attributed_window = f"{merged_window.current} {scan.date_to_filter('deployed_at')}".strip()
     headline_sql = f"WITH {attribution_ctes} " + (
         _LEAD_TIME_HEADLINE_SELECT.replace("__CUR_DEPLOYED__", windows.current)
         .replace("__PREV_DEPLOYED__", windows.previous)
         .replace("__CUR_MERGED__", merged_window.current)
+        .replace("__CUR_ATTRIBUTED__", attributed_window)
         .replace("__PR_SOURCE__", scan.curated.pr_source())
         .replace("__TEAM_FILTER__", team_filter)
     )
