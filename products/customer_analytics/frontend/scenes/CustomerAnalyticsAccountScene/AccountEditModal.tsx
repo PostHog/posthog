@@ -63,6 +63,7 @@ export function AccountEditModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 placeholder="example.com"
+                                data-attr="account-edit-email-domains"
                             />
                         )}
                     </LemonField>
@@ -75,6 +76,7 @@ export function AccountEditModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 placeholder="jane@example.com"
+                                data-attr="account-edit-known-emails"
                             />
                         )}
                     </LemonField>

@@ -337,6 +337,23 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Renamed account')
         })
 
+        it('leaves untouched email lists alone when stored values are not normalized', async () => {
+            const storedAccount = { ...account, properties: { known_emails: ['USER@example.com'] } }
+            logic.actions.loadAccountSuccess(storedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(storedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(storedAccount)
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Renamed account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: { known_emails: ['USER@example.com'] },
+            })
+        })
+
         it('keeps the draft open when the save fails', async () => {
             mockAccountsPartialUpdate.mockRejectedValue(new ApiError('Unavailable', 500))
             jest.spyOn(posthog, 'captureException').mockImplementation()

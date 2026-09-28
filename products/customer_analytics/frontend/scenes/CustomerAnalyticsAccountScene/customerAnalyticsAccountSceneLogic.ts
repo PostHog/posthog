@@ -31,7 +31,7 @@ import { Breadcrumb } from '~/types'
 import {
     cleanDomains,
     cleanEmails,
-} from 'products/customer_analytics/frontend/components/Accounts/accountMeetingsLogic'
+} from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 import {
     AccountExpansionTab,
     DEFAULT_ACCOUNT_TAB,
@@ -304,12 +304,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 const name = formValues.name.trim()
                 const currentAccount = await accountsRetrieve(projectId, values.account.id)
                 // Sending only edited fields keeps concurrent edits to the other fields.
+                const listCleaners = { email_domains: cleanDomains, known_emails: cleanEmails }
                 const cleanedLists = {
                     email_domains: cleanDomains(formValues.email_domains),
                     known_emails: cleanEmails(formValues.known_emails),
                 }
                 const changedListKeys = (['email_domains', 'known_emails'] as const).filter(
-                    (key) => !objectsEqual(cleanedLists[key], openedValues[key])
+                    (key) => !objectsEqual(cleanedLists[key], listCleaners[key](openedValues[key]))
                 )
                 const changedProperties = {
                     ...Object.fromEntries(
