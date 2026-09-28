@@ -251,7 +251,6 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["endpoint", "version"], name="endpoint_version_idx"),
             models.Index(fields=["endpoint", "-version"], name="endpoint_version_desc_idx"),
             models.Index(fields=["created_at"], name="endpoint_version_created_idx"),
             models.Index(fields=["saved_query"], name="endpointvers_saved_q_0dc3_idx"),
