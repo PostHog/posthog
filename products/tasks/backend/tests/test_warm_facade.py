@@ -1665,6 +1665,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             extra_state={
                 "snapshot_external_id": "snapshot-1",
                 "pr_base_branch": base_branch,
+                "stack_base_branch": "release",
                 "auto_publish": True,
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-5",
@@ -1696,6 +1697,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         assert warm_run.state["pr_base_branch"] == base_branch
         assert warm_run.state["resume_from_run_id"] == str(terminal.id)
         assert warm_run.state["snapshot_external_id"] == "snapshot-1"
+        assert warm_run.state["stack_base_branch"] == "release"
         assert warm_run.state["await_user_message"] is True
         assert warm_run.state["auto_publish"] is True
         assert warm_run.state["pr_authorship_mode"] == "bot"
