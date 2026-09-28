@@ -232,12 +232,11 @@ jobs:
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
         steps:
-            # Depot hands out ambient tokens from more than one installation, and one can be spent
-            # for the hour. A spent token answers 403, and the wait would decline a real hand-off.
-            # The same token posts this job's check again, because Depot delivers its own late then.
+            # Depot's ambient token can come from an installation spent for the hour. It answers 403,
+            # and the wait would decline a real hand-off. The same token posts the relay's checks.
             - name: Mint hand-off token
               id: handoff-token
-              if: github.event.pull_request.head.repo.fork != true
+              if: contains(fromJSON('["pull_request", "workflow_dispatch", "api"]'), github.event_name) && github.event.pull_request.head.repo.fork != true
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -308,8 +307,8 @@ jobs:
                       fi
                   fi
                   echo "handed_off=$handed_off" >> "$GITHUB_OUTPUT"
-            # .github/scripts/ci_backend_relay.py reads these checks from both apps. They carry the
-            # names Depot gives its own checks; a declined event also gets the gate's skipped check.
+            # Mirrors Depot's own checks for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
+            # A declined event also gets the gate's skipped check, as Depot posts it.
             - name: Post the hand-off checks for the relay
               if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
               continue-on-error: true
@@ -4263,8 +4262,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
-            # Depot delivers its own copy of this check late when its GitHub budget runs out, so the
-            # relay also reads this one.
+            # Mirrors Depot's own check for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
             - name: Post the gate check for the relay
               if: ${{ always() && steps.gate-token.outputs.token != '' }}
               continue-on-error: true
@@ -4272,9 +4270,10 @@ jobs:
                   GH_TOKEN: ${{ steps.gate-token.outputs.token }}
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
+                  GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
               run: |
-                  gh api "repos/$REPO/check-runs" --method POST -f name="Backend CI on Depot / Django Tests Pass on Depot" \
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
                       -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]

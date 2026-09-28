@@ -61,16 +61,13 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
     steps = [step for job in jobs.values() for step in job.get("steps", [])]
     handoff = next(step for step in steps if step.get("name") == "Post the hand-off checks for the relay")
     gate = next(step for step in steps if step.get("name") == "Post the gate check for the relay")
-    event = {
-        "${{ github.event.pull_request.number }}": str(PR),
-        "${{ github.event.pull_request.updated_at }}": EVENT_AT,
-    }
-    wait_check = handoff["env"]["WAIT_CHECK"]
-    for expression, value in event.items():
-        wait_check = wait_check.replace(expression, value)
+    wait_check = (
+        handoff["env"]["WAIT_CHECK"]
+        .replace("${{ github.event.pull_request.number }}", str(PR))
+        .replace("${{ github.event.pull_request.updated_at }}", EVENT_AT)
+    )
     assert wait_check == EVENT_WAIT
-    assert handoff["env"]["GATE_CHECK"] == relay.GATE_CHECK
-    assert f'name="{relay.GATE_CHECK}"' in gate["run"]
+    assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.GATE_CHECK
 
 
 @pytest.mark.parametrize(
