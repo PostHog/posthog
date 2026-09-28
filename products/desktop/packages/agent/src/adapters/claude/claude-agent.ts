@@ -2931,6 +2931,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private startupFailure(
+    step:
+      | "initialization"
+      | "resumption"
+      | "fork"
+      | "setup hooks"
+      | "model switch"
+      | "effort update"
+      | "fast mode update",
+    error: unknown,
+    errorData: Record<string, unknown>,
+  ): RequestError {
+    if (error instanceof RequestError) {
+      if (!error.message.startsWith("Session ")) {
+        error.message = `Session ${step} failed: ${error.message}`;
+      }
+      return error;
+    }
+    return new RequestError(-32603, `Session ${step} failed`, errorData);
+  }
+
   private async awaitStartupControl(
     step: "model switch" | "effort update" | "fast mode update",
     control: Promise<void>,
@@ -2940,14 +2961,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       control,
       SESSION_VALIDATION_TIMEOUT_MS,
     ).catch((error: unknown) => {
-      if (error instanceof Error) {
-        error.message = `Session ${step} failed: ${error.message}`;
-        throw error;
-      }
-      throw new RequestError(-32603, `Session ${step} failed`, {
-        ...errorData,
-        error,
-      });
+      throw this.startupFailure(step, error, errorData);
     });
     if (result.result === "timeout") {
       throw new RequestError(
@@ -3325,7 +3339,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             errorDetail: serializeError(err),
           },
         );
-        throw err;
+        throw this.startupFailure(forkSession ? "fork" : "resumption", err, {
+          sessionId,
+          taskId,
+          taskRunId: meta?.taskRunId,
+        });
       }
     }
 
@@ -3413,7 +3431,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           ),
           errorDetail: serializeError(err),
         });
-        throw err;
+        throw this.startupFailure(
+          initializationPhase === "setup_hooks"
+            ? "setup hooks"
+            : "initialization",
+          err,
+          { sessionId, taskId, taskRunId: meta?.taskRunId },
+        );
       }
     }
 
