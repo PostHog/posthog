@@ -82,7 +82,7 @@ export function AboutStep(): JSX.Element {
                 />
             </LemonField.Pure>
 
-            <LemonField.Pure label="Hypothesis" info="Describe what you expect to happen and why.">
+            <LemonField.Pure label="Hypothesis" info="Describe what you expect to happen and why." showOptional>
                 <LemonTextArea
                     placeholder="We believe that ... will result in ... because ..."
                     value={experiment.description ?? ''}
