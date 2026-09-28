@@ -325,6 +325,7 @@ The worker ends the session after success or failure.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
+Every save must retain the shared default criteria, which owners can edit or disable.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.

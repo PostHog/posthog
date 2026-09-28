@@ -89,23 +89,31 @@ class TestRubricValidation(SimpleTestCase):
             ("empty_condition", "empty_condition"),
             ("forged_default", "forged_default"),
             ("bad_custom_id", "bad_custom_id"),
+            ("missing_default", "missing_default"),
+            ("missing_defaults", "missing_defaults"),
         ]
     )
     def test_invalid_rubrics_are_rejected(self, _name: str, variant: str) -> None:
         item = custom_criterion().model_dump(mode="json")
-        criteria = [item]
+        defaults = [criterion.model_dump(mode="json") for criterion in default_criteria()]
+        criteria = [item, *defaults]
         if variant == "duplicate":
-            criteria = [item, item]
+            criteria = [item, item, *defaults]
         elif variant == "too_many":
-            criteria = [{**item, "id": f"custom-{index}"} for index in range(31)]
+            criteria = defaults + [{**item, "id": f"custom-{index}"} for index in range(31 - len(defaults))]
         elif variant == "empty_condition":
             item["pass_condition"] = " "
         elif variant == "forged_default":
             item["source"] = "default"
         elif variant == "bad_custom_id":
             item["id"] = "unreserved"
+        elif variant == "missing_default":
+            criteria = [item, *defaults[1:]]
+        elif variant == "missing_defaults":
+            criteria = []
         serializer = ScoutRubricSaveSerializer(data={"revision": 0, "criteria": criteria})
         self.assertFalse(serializer.is_valid())
+        self.assertIn("criteria", serializer.errors)
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
@@ -138,7 +146,7 @@ class TestScoutRubricsAPI(APIBaseTest):
         saved = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["revision"], 1)
-        stale = self.client.put(self.url, {"revision": 0, "criteria": []})
+        stale = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(stale.status_code, 409)
         reloaded = self.client.get(self.url).json()
         self.assertFalse(reloaded["criteria"][0]["enabled"])
@@ -166,7 +174,8 @@ class TestScoutRubricsAPI(APIBaseTest):
     def test_save_uses_criterion_validation(self) -> None:
         criterion = custom_criterion().model_dump(mode="json")
         criterion["pass_condition"] = ""
-        response = self.client.put(self.url, {"revision": 0, "criteria": [criterion]})
+        defaults = [item.model_dump(mode="json") for item in default_criteria()]
+        response = self.client.put(self.url, {"revision": 0, "criteria": [criterion, *defaults]})
         self.assertEqual(response.status_code, 400)
 
     def test_generate_is_deduplicated_and_preserves_concurrent_manual_save(self) -> None:
@@ -180,7 +189,9 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.config.refresh_from_db()
         generation = read_rubric_state(self.config).generation
         assert generation is not None
-        self.client.put(self.url, {"revision": 0, "criteria": [custom_criterion().model_dump(mode="json")]})
+        criteria = [criterion.model_dump(mode="json") for criterion in [custom_criterion(), *default_criteria()]]
+        saved = self.client.put(self.url, {"revision": 0, "criteria": criteria})
+        self.assertEqual(saved.status_code, 200)
         generation.status = ScoutRubricGenerationStatus.COMPLETED
         generation.suggestions = default_criteria()[:1]
         generation.completed_at = timezone.now()

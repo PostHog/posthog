@@ -93,6 +93,8 @@ class ScoutRubricSaveSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Default criteria must keep their original identifiers and source.")
             if item["source"] == ScoutRubricSource.CUSTOM and not str(item["id"]).startswith("custom-"):
                 raise serializers.ValidationError("Custom criterion identifiers must start with 'custom-'.")
+        if not default_ids.issubset(ids):
+            raise serializers.ValidationError("Keep all default criteria. Disable any that do not apply.")
         return value
 
 

@@ -680,6 +680,7 @@ These are definitions for later evaluations; saving them does not score runs or 
 The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
 The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/facade/rubrics.py`; rubric persistence and generation dispatch stay in `backend/scout_harness/rubrics.py`.
 `PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
+Every save must include all shared defaults. Owners can edit or disable them, but cannot remove them.
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
 The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
