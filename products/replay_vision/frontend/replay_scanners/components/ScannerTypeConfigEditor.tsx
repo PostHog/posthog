@@ -45,15 +45,18 @@ export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-/** Prompt field with a Max entry point that drafts the prompt and fills it back into the form. */
+/** Prompt field with a Max entry point that drafts the prompt and fills it back into the form.
+ *
+ * The example shows as an "e.g." placeholder with a button that fills it in. A bare example
+ * placeholder reads as pre-filled text, so users clicked Next on an empty prompt. */
 function ScannerPromptField({
     scannerId,
-    placeholder,
+    example,
     label = 'Prompt and additional context',
     caption,
 }: {
     scannerId: string
-    placeholder: string
+    example: string
     label?: string
     caption?: string
 }): JSX.Element {
@@ -120,8 +123,18 @@ function ScannerPromptField({
                 )}
             </div>
             <LemonField name="scanner_config.prompt">
-                <LemonTextArea placeholder={placeholder} minRows={6} />
+                <LemonTextArea placeholder={`e.g. ${example}`} minRows={6} />
             </LemonField>
+            {!scanner?.scanner_config?.prompt?.trim() && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => setScannerValue(['scanner_config', 'prompt'], example)}
+                    data-attr="replay-vision-use-example-prompt"
+                >
+                    Use this example
+                </LemonButton>
+            )}
             {caption && <div className="text-xs text-muted">{caption}</div>}
         </div>
     )
@@ -278,7 +291,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     scannerId={scannerId}
                     label="Additional context"
                     caption="The agent already knows how to summarize. Use this field to add product context or steer summaries, for example what the ideal user flow looks like."
-                    placeholder="Describe your product and what users usually come to do. Call out anything the summaries should focus on, like where users get stuck."
+                    example="Focus on where users get stuck and what they try before they give up."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
@@ -292,7 +305,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                    example="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
                     caption="Your prompt is the condition to check each session for. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.allow_inconclusive">
@@ -318,7 +331,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, pick the one they spent the most time on."
+                    example="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, pick the one they spent the most time on."
                     caption="Your prompt tells the agent how to decide which of your categories fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
@@ -357,7 +370,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Rate how frustrated the user appeared during this session. Smooth progress scores low. Rage clicks, repeated retries, and giving up mid-task score high."
+                    example="Rate how frustrated the user appeared during this session. Smooth progress scores low. Rage clicks, repeated retries, and giving up mid-task score high."
                     caption="Your prompt is what the agent scores each session on, using the scale below. Include anything the agent should know about your product or this flow."
                 />
                 <LemonField name="scanner_config.scale">
