@@ -40,6 +40,7 @@ use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
@@ -64,6 +65,12 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
+/// Tail bytes fetched when a data file is opened. Without a hint parquet reads the
+/// 8-byte trailer first and the metadata second: two round trips per open. 64 KiB covers
+/// the footer of a file with on the order of a hundred columns, and over-fetching on a
+/// small file costs bytes, which are cheap, not a round trip, which is not.
+const FOOTER_SIZE_HINT: usize = 64 * 1024;
 
 /// Read batch size (in rows) that keeps a decoded batch near `target_bytes`, derived from
 /// the widest row group's average *uncompressed* bytes/row.
@@ -326,6 +333,9 @@ struct TargetFile {
     size: u64,
     stats: Option<String>,
     remove: Remove,
+    /// Footer the probe parsed, handed to the rewrite so a hit file is opened once. Lives
+    /// only as long as this partition's rewrite: the reader task consumes it.
+    metadata: Option<Arc<ParquetMetaData>>,
 }
 
 /// Which rows of one source batch belong to a partition. Chosen so the common shapes
@@ -1374,8 +1384,31 @@ async fn list_partition_files(
             size: v.size() as u64,
             stats: v.stats(),
             remove: v.remove_action(true),
+            metadata: None,
         })
         .collect())
+}
+
+/// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
+/// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
+/// one round trip.
+async fn open_builder(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+) -> Result<ParquetRecordBatchStreamBuilder<ParquetObjectReader>> {
+    let path = Path::parse(&f.path)
+        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+    if let Some(meta) = &f.metadata {
+        let arrow_meta = ArrowReaderMetadata::try_new(meta.clone(), Default::default())?;
+        return Ok(ParquetRecordBatchStreamBuilder::new_with_metadata(
+            reader, arrow_meta,
+        ));
+    }
+    Ok(
+        ParquetRecordBatchStreamBuilder::new(reader.with_footer_size_hint(FOOTER_SIZE_HINT))
+            .await?,
+    )
 }
 
 /// Drop files whose Add-action stats prove they hold no match: min/max disjointness on
@@ -1605,11 +1638,9 @@ async fn probe_file(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
-) -> Result<bool> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+) -> Result<(bool, Arc<ParquetMetaData>)> {
+    let builder = open_builder(store, f).await?;
+    let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
     let mut pk_types: Vec<DataType> = Vec::with_capacity(opts.primary_keys.len());
@@ -1634,7 +1665,7 @@ async fn probe_file(
         } else {
             // The column is physically absent (file predates schema evolution): every
             // row has NULL for this PK component, and NULL never matches.
-            return Ok(false);
+            return Ok((false, metadata));
         }
     }
 
@@ -1649,7 +1680,7 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        return pkset.contains_any_columns(&cols, 1);
+        return Ok((pkset.contains_any_columns(&cols, 1)?, metadata));
     }
 
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
@@ -1686,14 +1717,15 @@ async fn probe_file(
         let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
         drop(permit);
         if hit {
-            return Ok(true);
+            return Ok((true, metadata));
         }
     }
-    Ok(false)
+    Ok((false, metadata))
 }
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved.
+/// least one match, count of files proven match-free). Order is preserved. A kept file
+/// carries the footer its probe parsed; a skipped file's footer is dropped here.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1705,31 +1737,33 @@ async fn probe_files(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
-    let results: Vec<(TargetFile, bool)> = futures::stream::iter(files.into_iter().map(|f| {
-        let store = store.clone();
-        async move {
-            let hit = probe_file(
-                &store,
-                &f,
-                pkset,
-                table_schema,
-                partition_col,
-                partition_value,
-                opts,
-                budgets,
-            )
-            .await?;
-            Ok::<_, Error>((f, hit))
-        }
-    }))
-    .buffered(opts.probe_concurrency.max(1))
-    .try_collect()
-    .await?;
+    let results: Vec<(TargetFile, bool, Arc<ParquetMetaData>)> =
+        futures::stream::iter(files.into_iter().map(|f| {
+            let store = store.clone();
+            async move {
+                let (hit, metadata) = probe_file(
+                    &store,
+                    &f,
+                    pkset,
+                    table_schema,
+                    partition_col,
+                    partition_value,
+                    opts,
+                    budgets,
+                )
+                .await?;
+                Ok::<_, Error>((f, hit, metadata))
+            }
+        }))
+        .buffered(opts.probe_concurrency.max(1))
+        .try_collect()
+        .await?;
 
     let mut keep = Vec::new();
     let mut skipped = 0usize;
-    for (f, hit) in results {
+    for (mut f, hit, metadata) in results {
         if hit {
+            f.metadata = Some(metadata);
             keep.push(f);
         } else {
             skipped += 1;
@@ -1762,10 +1796,7 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+    let builder = open_builder(&store, &f).await?;
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
@@ -2355,6 +2386,7 @@ mod tests {
             size: 1,
             stats: stats.map(|s| s.to_string()),
             remove: Remove::default(),
+            metadata: None,
         }
     }
 

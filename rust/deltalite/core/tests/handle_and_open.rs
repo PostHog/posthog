@@ -38,8 +38,55 @@ static READS: LazyLock<Mutex<HashMap<String, usize>>> =
 static CHECKPOINT_GETS: LazyLock<Mutex<HashMap<String, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Every store call in issue order, so a test can ask what happened after a given point
+/// (e.g. after the commit PUT). Parquet reads a footer through one `get_opts` and column
+/// chunks through `get_ranges`, so the two GET kinds tell footer round trips from data
+/// reads.
+static OPS: LazyLock<Mutex<Vec<(Op, String)>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Op {
+    Get,
+    GetRange,
+    Head,
+    List,
+    Put,
+}
+
 fn record_read(target: String, n: usize) {
     *READS.lock().unwrap().entry(target).or_default() += n;
+}
+
+fn record_op(op: Op, target: &str) {
+    OPS.lock().unwrap().push((op, target.to_string()));
+}
+
+/// Position in the op log; pass to [`ops_since`] to see only what happened afterwards.
+fn ops_len() -> usize {
+    OPS.lock().unwrap().len()
+}
+
+/// Ops issued since `start` against paths under `root`, in issue order.
+fn ops_since(start: usize, root: &str) -> Vec<(Op, String)> {
+    OPS.lock()
+        .unwrap()
+        .iter()
+        .skip(start)
+        .filter(|(_, path)| path.starts_with(root))
+        .cloned()
+        .collect()
+}
+
+/// Footer GETs (`get_opts`, see [`OPS`]) per data file under `root`.
+fn data_file_footer_gets(ops: &[(Op, String)], root: &str) -> HashMap<String, usize> {
+    let log_root = format!("{root}/_delta_log");
+    let mut out: HashMap<String, usize> = HashMap::new();
+    for (op, path) in ops {
+        if *op == Op::Get && path.ends_with(".parquet") && !path.starts_with(&log_root) {
+            *out.entry(path.clone()).or_default() += 1;
+        }
+    }
+    out
 }
 
 /// Reads issued against paths under `root` (an object-store path, no leading slash).
@@ -102,6 +149,7 @@ impl ObjectStore for CountingStore {
         payload: PutPayload,
         opts: PutOptions,
     ) -> object_store::Result<PutResult> {
+        record_op(Op::Put, location.as_ref());
         self.inner.put_opts(location, payload, opts).await
     }
 
@@ -110,6 +158,7 @@ impl ObjectStore for CountingStore {
         location: &Path,
         opts: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
+        record_op(Op::Put, location.as_ref());
         self.inner.put_multipart_opts(location, opts).await
     }
 
@@ -119,7 +168,10 @@ impl ObjectStore for CountingStore {
         options: GetOptions,
     ) -> object_store::Result<GetResult> {
         record_read(location.to_string(), 1);
-        if !options.head {
+        if options.head {
+            record_op(Op::Head, location.as_ref());
+        } else {
+            record_op(Op::Get, location.as_ref());
             count_checkpoint_get(location, 1);
         }
         self.inner.get_opts(location, options).await
@@ -131,6 +183,9 @@ impl ObjectStore for CountingStore {
         ranges: &[std::ops::Range<u64>],
     ) -> object_store::Result<Vec<bytes::Bytes>> {
         record_read(location.to_string(), ranges.len());
+        for _ in ranges {
+            record_op(Op::GetRange, location.as_ref());
+        }
         count_checkpoint_get(location, ranges.len());
         self.inner.get_ranges(location, ranges).await
     }
@@ -146,6 +201,7 @@ impl ObjectStore for CountingStore {
     // delta-kernel relies on it, while `LocalFileSystem` yields directory order.
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
         record_read(prefix_key(prefix), 1);
+        record_op(Op::List, &prefix_key(prefix));
         sorted(self.inner.list(prefix))
     }
 
@@ -155,11 +211,13 @@ impl ObjectStore for CountingStore {
         offset: &Path,
     ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
         record_read(prefix_key(prefix), 1);
+        record_op(Op::List, &prefix_key(prefix));
         sorted(self.inner.list_with_offset(prefix, offset))
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
         record_read(prefix_key(prefix), 1);
+        record_op(Op::List, &prefix_key(prefix));
         self.inner.list_with_delimiter(prefix).await
     }
 
@@ -303,6 +361,39 @@ async fn create_seeded_table_with(
             .await
             .expect("seed upsert");
     }
+    s
+}
+
+/// Create an unpartitioned table at `uri` with one live file per key group. The groups
+/// must have disjoint key ranges: each upsert's min/max then prunes the earlier files
+/// by stats, so they are carried over instead of coalesced into one output file.
+async fn create_disjoint_files_table(uri: &str, groups: &[&[&str]]) -> SchemaRef {
+    CreateBuilder::new()
+        .with_location(uri)
+        .with_columns(vec![
+            StructField::new("pk", KernelType::STRING, false),
+            StructField::new("v", KernelType::LONG, true),
+        ])
+        .with_configuration_property(TableProperty::CheckpointInterval, Some("100".to_string()))
+        .await
+        .expect("create table");
+    let s = schema(true);
+    let mut handle = TableHandle::open(uri.to_string(), HashMap::new())
+        .await
+        .expect("open for seeding");
+    for (i, keys) in groups.iter().enumerate() {
+        let vs = keys.iter().map(|_| Some(i as i64)).collect();
+        handle
+            .upsert(
+                vec![batch(&s, keys, vs)],
+                s.clone(),
+                opts(),
+                MultipartConfig::default(),
+            )
+            .await
+            .expect("seed group");
+    }
+    assert_eq!(handle.num_files().expect("num_files"), groups.len());
     s
 }
 
@@ -693,4 +784,65 @@ async fn files_carry_partition_values() {
         .collect();
     partitions.sort();
     assert_eq!(partitions, [Some("x".to_string()), Some("y".to_string())]);
+}
+
+/// A file the probe found a match in is rewritten with the footer the probe parsed, and
+/// that footer arrives in one GET: one footer round trip per hit file for the whole
+/// upsert, not two (probe and rewrite each opening the file) times two (trailer, then
+/// metadata).
+#[tokio::test]
+async fn hit_files_are_opened_once_across_probe_and_rewrite() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let table_dir = dir.path().join("t9");
+    let uri = format!("dltest://{}", table_dir.to_string_lossy());
+    let root = table_root(&table_dir);
+    let s = create_disjoint_files_table(
+        &uri,
+        &[
+            &["a0", "a1", "a2", "a3"],
+            &["b0", "b1", "b2", "b3"],
+            &["c0", "c1", "c2", "c3"],
+        ],
+    )
+    .await;
+
+    let mut handle = TableHandle::open(uri, HashMap::new())
+        .await
+        .expect("open handle");
+    let hit_files: Vec<String> = handle
+        .files()
+        .expect("files")
+        .into_iter()
+        .map(|f| format!("{root}/{}", f.path))
+        .collect();
+    assert_eq!(hit_files.len(), 3);
+
+    // One key from every file: each is probed, hit, and rewritten.
+    let start = ops_len();
+    let stats = handle
+        .upsert(
+            vec![batch(
+                &s,
+                &["a2", "b2", "c2"],
+                vec![Some(7), Some(7), Some(7)],
+            )],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("upsert");
+    assert_eq!(stats.files_probed, 3);
+    assert_eq!(stats.files_removed, 3);
+
+    let footer_gets = data_file_footer_gets(&ops_since(start, &root), &root);
+    for path in &hit_files {
+        assert_eq!(
+            footer_gets.get(path).copied().unwrap_or(0),
+            1,
+            "{path}: expected the probe's one footer GET, reused by the rewrite \
+             (footer GETs per file: {footer_gets:?})"
+        );
+    }
 }
