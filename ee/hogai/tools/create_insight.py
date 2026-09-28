@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Any, Literal, Self, cast
 
 import jsonpatch
@@ -544,7 +545,7 @@ class CreateInsightToolArgs(BaseModel):
         default=None,
         description="Required for saved edits: JSON-encoded JSON Patch array against the full saved query. Use add, replace, remove, move or test with precise paths. Read the saved query first. Omit for generation.",
     )
-    expected_query: dict[str, Any] | None = Field(default=None, exclude=True)
+    expected_query_hash: str | None = Field(default=None, exclude=True)
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
     viz_title: str = Field(
@@ -597,13 +598,18 @@ class CreateInsightTool(MaxTool):
             return await super()._check_dangerous_operation(kwargs)
 
         insight = await self._get_insight(insight_id)
-        if kwargs.get("expected_query") is None:
-            kwargs["expected_query"] = insight.query
+        if kwargs.get("expected_query_hash") is None:
+            # The approval payload streams to the client, so it carries a hash, not the saved query.
+            kwargs["expected_query_hash"] = self._query_hash(insight.query)
         preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
         if query_patch := kwargs.get("query_patch"):
             self._updated_insight_query(insight, query_patch)
             preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
         return self._handle_dangerous_operation(kwargs, preview=preview)
+
+    @staticmethod
+    def _query_hash(query: dict[str, Any] | None) -> str:
+        return hashlib.sha256(json.dumps(query, sort_keys=True).encode()).hexdigest()
 
     @staticmethod
     def _updated_insight_query(insight: SavedInsightDefinition, query_patch: str) -> dict[str, Any]:
@@ -675,13 +681,13 @@ class CreateInsightTool(MaxTool):
         insight_type: InsightType,
         insight_id: str | None = None,
         query_patch: str | None = None,
-        expected_query: dict[str, Any] | None = None,
+        expected_query_hash: str | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         if insight_id is not None:
             if query_patch is None:
                 raise MaxToolRetryableError("Read the saved insight and provide query_patch with the requested edits.")
             insight = await self._get_insight(insight_id)
-            if expected_query is not None and insight.query != expected_query:
+            if expected_query_hash is not None and self._query_hash(insight.query) != expected_query_hash:
                 raise MaxToolRetryableError("This insight changed while awaiting approval. Read it again and retry.")
             await self._save_insight_query(insight, self._updated_insight_query(insight, query_patch))
             return "", ToolMessagesArtifact(

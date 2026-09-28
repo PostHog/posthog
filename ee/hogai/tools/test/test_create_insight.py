@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.schema import (
     ArtifactContentType,
     ArtifactSource,
+    AssistantEventType,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantTool,
@@ -30,10 +31,11 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.stream.redis_stream import ConversationStreamSerializer
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
+from ee.hogai.utils.types.base import ApprovalPayload, ArtifactRefMessage, AssistantNodeName, NodePath
 
 
 class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -138,11 +140,39 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 insight_type="trends",
                 insight_id=insight.short_id,
                 query_patch=json.dumps([{"op": "replace", "path": "/interval", "value": "month"}]),
-                expected_query=original_query,
+                expected_query_hash=CreateInsightTool._query_hash(original_query),
             )
 
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, concurrent_query)
+
+    async def test_saved_update_approval_streams_deeply_nested_query(self):
+        tool = await self._create_tool()
+        properties: dict[str, Any] = {"type": "AND", "values": []}
+        for _ in range(140):
+            properties = {"type": "AND", "values": [properties]}
+        insight = await Insight.objects.acreate(
+            team=self.team, query={"kind": "TrendsQuery", "series": [], "properties": properties}
+        )
+        kwargs: dict[str, Any] = {"insight_id": insight.short_id}
+
+        with patch(
+            "ee.hogai.tool.interrupt", return_value={"action": "approve", "proposal_id": "p1"}
+        ) as mock_interrupt:
+            self.assertIsNone(await tool._check_dangerous_operation(kwargs))
+
+        request = mock_interrupt.call_args.args[0]
+        approval = ApprovalPayload(
+            proposal_id=request.proposal_id,
+            decision_status="pending",
+            tool_name=request.tool_name,
+            preview=request.preview,
+            payload=request.payload,
+            original_tool_call_id=None,
+            message_id=None,
+        )
+        self.assertIsNotNone(ConversationStreamSerializer().dumps((AssistantEventType.APPROVAL, approval)))
+        self.assertEqual(kwargs["expected_query_hash"], CreateInsightTool._query_hash(insight.query))
 
     @parameterized.expand([("deleted",), ("other_project",)])
     async def test_update_rejects_unavailable_insight(self, reason: str):
