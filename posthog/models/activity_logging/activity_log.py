@@ -374,6 +374,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "full_refresh_interval_days": "full refresh interval (days)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
@@ -944,6 +945,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # second change on the entry that turns syncing on or off, which makes the schema
         # activity feed read "updated schema" in place of "enabled schema".
         "auto_disabled_at",
+        # Derived from full_refresh_interval_days and moved by every full resync, so it is not user intent.
+        "next_full_refresh_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.

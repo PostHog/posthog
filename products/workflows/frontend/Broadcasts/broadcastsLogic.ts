@@ -13,10 +13,12 @@ import { urls } from 'scenes/urls'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
+import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'products/workflows/frontend/generated/api'
 import type {
+    HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
+    HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -26,6 +28,8 @@ export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
     /** Null until the run's metrics load, or when they fail to. */
     totals: Record<string, number> | null
+    /** Whether an active schedule has sends still to come. Unset when the schedules couldn't load. */
+    hasPendingSchedule?: boolean
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
@@ -87,12 +91,40 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
     )
 }
 
+/** Null batch jobs means they haven't loaded, so whether a send is running is still unknown. */
+export interface StoppableBroadcast {
+    status?: HogFlowApi['status']
+    actions?: FlowStep[] | null
+    edges?: FlowEdge[] | null
+    schedules?: Pick<HogFlowScheduleApi, 'status'>[]
+}
+
+export function canMoveToDraft(
+    broadcast: StoppableBroadcast | null,
+    batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
+): boolean {
+    const schedules = broadcast?.schedules ?? []
+    const neverSent = batchJobs?.length === 0
+    return (
+        broadcast?.status === 'active' &&
+        // Only a send still to come can be stopped, since relaunching one that went out resends it. The
+        // wizard models a single schedule, so a relaunch would fold several into one. A launch or a
+        // one-time schedule that never started a run sent nothing, so it can go back to draft too.
+        schedules.length <= 1 &&
+        (neverSent || (schedules.length === 1 && schedules[0].status !== 'completed')) &&
+        batchJobs !== null &&
+        !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
+        // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
+        canEditInWizard(broadcast.actions, broadcast.edges)
+    )
+}
+
 export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
     return flow.origin_product !== 'broadcasts'
 }
 
 export function getBroadcastStatus(
-    broadcast: HogFlowMinimalApi,
+    broadcast: { status?: string | null; origin_product?: string | null },
     details: BroadcastRowDetails | undefined
 ): BroadcastStatus {
     if (broadcast.status === 'draft') {
@@ -110,13 +142,22 @@ export function getBroadcastStatus(
             return 'sending'
         }
         if (latestJob.status === 'completed') {
-            return 'sent'
+            // A recurring broadcast between runs has more to send. A failed run still reads as failed.
+            if (details.hasPendingSchedule === undefined) {
+                return 'unknown'
+            }
+            return details.hasPendingSchedule ? 'scheduled' : 'sent'
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.
         return 'failed'
     }
-    // Active with no batch job yet: it's waiting on its schedule (or a manual send).
+    // Live with no run and nothing scheduled: a launch from the wizard that never finished, so nothing
+    // will ever send. A workflow opened here can wait for a send started through the API instead.
+    if (details.hasPendingSchedule === false && broadcast.origin_product === 'broadcasts') {
+        return 'failed'
+    }
+    // Active with no batch job yet: it's waiting on its schedule.
     return 'scheduled'
 }
 
@@ -324,12 +365,19 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null
+                    let hasPendingSchedule: boolean | undefined
                     try {
-                        const batchJobs =
+                        // The list rows carry no schedules, and a recurring broadcast between runs needs them
+                        // to read as scheduled. A failed schedules request only loses that distinction.
+                        const [batchJobs, schedules] =
                             broadcast.status === 'draft'
-                                ? ([] as HogFlowBatchJobApi[])
-                                : await hogFlowsBatchJobsList(String(projectId), broadcast.id)
+                                ? [[] as HogFlowBatchJobApi[], undefined]
+                                : await Promise.all([
+                                      hogFlowsBatchJobsList(String(projectId), broadcast.id),
+                                      hogFlowsSchedulesList(String(projectId), broadcast.id).catch(() => undefined),
+                                  ])
                         latestBatchJob = batchJobs[0] ?? null
+                        hasPendingSchedule = schedules?.some((schedule) => schedule.status === 'active')
                     } catch {
                         if (isCurrent()) {
                             actions.clearRowDetails(broadcast.id)
@@ -339,14 +387,18 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     if (!isCurrent()) {
                         return
                     }
-                    actions.setRowDetails(broadcast.id, { latestBatchJob, totals: latestBatchJob ? null : {} })
+                    actions.setRowDetails(broadcast.id, {
+                        latestBatchJob,
+                        totals: latestBatchJob ? null : {},
+                        hasPendingSchedule,
+                    })
                     if (!latestBatchJob) {
                         return
                     }
                     try {
                         const totals = await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
                         if (isCurrent()) {
-                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals })
+                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals, hasPendingSchedule })
                         }
                     } catch {
                         // The counts stay unknown; the status already rendered from the run.

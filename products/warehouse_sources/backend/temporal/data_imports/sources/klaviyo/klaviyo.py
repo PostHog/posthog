@@ -8,9 +8,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
     KLAVIYO_API_VERSION_2026_07_15,
@@ -158,15 +161,41 @@ def _get_headers(api_key: str, revision: str = KLAVIYO_API_VERSION_2026_07_15) -
     }
 
 
-def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> bool:
+_KLAVIYO_INVALID_KEY_ERROR = (
+    "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+# The probe reads /accounts, so a scoped key that was never granted account read lands here even
+# though it is a live key. Telling that user to replace the key sends them down the wrong path.
+_KLAVIYO_MISSING_SCOPE_ERROR = (
+    "Your Klaviyo API key can't read your account. Give the key read access to Accounts in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+_KLAVIYO_UNREACHABLE_ERROR = "Couldn't reach Klaviyo to validate your API key. Try again in a few minutes."
+
+
+def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> tuple[bool, str | None]:
     # Probe under the caller's resolved pin so a 2024-10-15-pinned source validates on the
     # same `revision` header it syncs with.
-    url = f"{KLAVIYO_BASE_URL}/accounts"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, api_version), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, status = validate_via_probe(
+        make_tracked_session,
+        f"{KLAVIYO_BASE_URL}/accounts",
+        headers=_get_headers(api_key, api_version),
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, _KLAVIYO_INVALID_KEY_ERROR
+    if status == 403:
+        return False, _KLAVIYO_MISSING_SCOPE_ERROR
+    # No status means the request never completed. That, a rate limit and a Klaviyo-side error are
+    # all transient, so none of them should point the user at a key that may be fine.
+    if status is None or status == 429 or status >= 500:
+        return False, _KLAVIYO_UNREACHABLE_ERROR
+    capture_exception(Exception(f"Unexpected Klaviyo credential validation response ({status})"))
+    return False, _KLAVIYO_INVALID_KEY_ERROR
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:

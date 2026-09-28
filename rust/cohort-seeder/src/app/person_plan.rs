@@ -28,10 +28,9 @@ use crate::store::RenderedError;
 use std::sync::Arc;
 
 /// A person run whose chunks do not exist yet, handed from `prepare` to the orchestrator's
-/// planning slot. Coverage travels along so the planner can withhold the stamp.
+/// planning slot.
 pub(super) struct PersonPlanRequest {
     pub(super) run: Arc<PinnedPersonRun>,
-    pub(super) coverage_complete: bool,
 }
 
 /// How one planning attempt ended, for the orchestrator's backoff bookkeeping. Only `Failed`
@@ -141,17 +140,14 @@ async fn plan_claimed_run(
         }
     }
 
-    // Without the proof an uncovered cohort could stamp readiness on zero seeded persons.
-    if request.coverage_complete {
-        match mark_chunks_planned(pool, run_id, RunKind::PersonProperty).await {
-            Ok(PlanningStampOutcome::Stamped) => {
-                counter!(RUNS_PLANNING_STAMPED, "kind" => RunKind::PersonProperty.as_str())
-                    .increment(1);
-            }
-            Ok(PlanningStampOutcome::Skipped) => {}
-            Err(error) => {
-                warn!(?run_id, error = %error, "stamping the person planning proof failed");
-            }
+    match mark_chunks_planned(pool, run_id, RunKind::PersonProperty).await {
+        Ok(PlanningStampOutcome::Stamped) => {
+            counter!(RUNS_PLANNING_STAMPED, "kind" => RunKind::PersonProperty.as_str())
+                .increment(1);
+        }
+        Ok(PlanningStampOutcome::Skipped) => {}
+        Err(error) => {
+            warn!(?run_id, error = %error, "stamping the person planning proof failed");
         }
     }
     PersonPlanAttempt::Done

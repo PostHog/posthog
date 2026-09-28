@@ -4,7 +4,7 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 
 
@@ -302,6 +303,92 @@ class TestCreateJobActivityStatusOrdering:
 
 
 @pytest.mark.django_db
+class TestCreateJobActivityScheduledFullRefresh:
+    @parameterized.expand(
+        [
+            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), {}, False, True),
+            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), {}, False, False),
+            ("not_yet_due", True, dt.timedelta(days=1), {}, False, False),
+            (
+                "due_with_a_staged_repartition_swap",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_swap": {"state": "ready", "temp_uri": "s3://temp", "live_uri": "s3://live"}},
+                False,
+                False,
+            ),
+            (
+                "due_with_a_held_repartition_rewrite",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                True,
+                False,
+            ),
+            (
+                "due_with_a_rewrite_while_the_hold_flag_is_off",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                False,
+                True,
+            ),
+            (
+                "due_with_a_queued_repartition",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_pending": {"partition_mode": "datetime", "partition_keys": ["created_at"]}},
+                False,
+                True,
+            ),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_only_a_due_scheduled_run_becomes_a_full_refresh(
+        self,
+        _name: str,
+        started_by_schedule: bool,
+        due_in: dt.timedelta,
+        repartition_config: dict,
+        hold_flag_enabled: bool,
+        expect_refresh: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.full_refresh_interval_days = 7
+        schema.next_full_refresh_at = timezone.now() + due_in
+        config = {**(schema.sync_type_config or {}), **repartition_config}
+        if "repartition_rewrite" in config:
+            config["repartition_rewrite"] = {**config["repartition_rewrite"], "held_at": timezone.now().isoformat()}
+        schema.sync_type_config = config
+        schema.save()
+
+        with patch(f"{CONTROLLER_MODULE}.is_repartition_hold_enabled", return_value=hold_flag_enabled):
+            result = create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id,
+                    schema_id=schema.id,
+                    source_id=schema.source_id,
+                    billable=True,
+                    started_by_schedule=started_by_schedule,
+                )
+            )
+
+        schema.refresh_from_db()
+        snapshot = ExternalDataJob.objects.get(schema_id=schema.id).schema_snapshot
+        assert snapshot is not None
+        assert result.scheduled_full_refresh is expect_refresh
+        assert snapshot.get("scheduled_full_refresh", False) is expect_refresh
+        assert schema.reset_pipeline is False
+
+
+@pytest.mark.django_db
 class TestCreateJobActivityDeletedSourceOrSchema:
     # Deleting a source or a schema cancels its schedule, but a run Temporal already started still
     # reaches this activity and finds the rows gone. The activity has to cancel the leftover
@@ -345,3 +432,34 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 0
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.delete_external_data_schedule")
+    @patch(f"{MODULE}._create_job")
+    def test_integrity_error_on_insert_is_treated_as_the_same_race(
+        self,
+        mock_create_job: MagicMock,
+        mock_delete_schedule: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        # The row can still vanish (e.g. a team deletion cascading to its source/schema) between
+        # the existence check passing and the insert itself, surfacing as a raw IntegrityError
+        # instead of the early check catching it.
+        team = _team()
+        schema = _schema(team, None)
+        mock_create_job.side_effect = IntegrityError(
+            'insert or update on table "posthog_externaldatajob" violates foreign key constraint'
+        )
+
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
+            create_external_data_job_model_activity(inputs)
+
+        assert is_expected_activity_failure(exc_info.value)
+        mock_delete_schedule.assert_called_once_with(str(schema.id))

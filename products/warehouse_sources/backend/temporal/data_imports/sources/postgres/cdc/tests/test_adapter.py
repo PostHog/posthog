@@ -318,6 +318,36 @@ class TestRecreateSlot:
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 
+    @patch(f"{_POSTGRES}.time.sleep")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_retries_recreation_after_transient_connect_timeout(
+        self, _conn, mock_drop, _pub_exists, mock_create_slot, _sleep
+    ) -> None:
+        # classify_postgres_cdc_error now treats ConnectionTimeout as non-retryable, on the
+        # assumption every in-process reconnect already timed out (mirroring the main streaming
+        # path's _connect_with_dropped_retry). Recreation must retry a connect timeout the same
+        # way it retries a mid-stream drop, or a single transient timeout here would abort
+        # recovery instead of reaching that exhausted state.
+        mock_create_slot.side_effect = [
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            "0/DD",
+        ]
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        assert fields == {"cdc_consistent_point": "0/DD", "cdc_ingest_mode": "buffered"}
+        assert mock_create_slot.call_count == 2
+        assert mock_drop.call_count == 2
+
 
 class TestAlterPublicationMembership:
     @patch(f"{_ADAPTER}.add_table_to_publication")
@@ -349,6 +379,20 @@ class TestAlterPublicationMembership:
         source = _source(cdc_enabled=True, cdc_management_mode="posthog")
         PostgresCDCAdapter().add_table(source, "public", "orders")
         mock_add.assert_not_called()
+
+    @patch(f"{_ADAPTER}.add_table_to_publication", side_effect=psycopg.errors.InsufficientPrivilege("must be owner"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_add_table_raises_when_the_publication_rejects_the_table(self, _conn, _mock_add) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            PostgresCDCAdapter().add_table(source, "public", "orders")
+
+    @patch(f"{_ADAPTER}.remove_table_from_publication", side_effect=psycopg.OperationalError("connection refused"))
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_remove_table_stays_best_effort(self, _conn, mock_remove) -> None:
+        source = _source(cdc_enabled=True, cdc_management_mode="posthog", cdc_publication_name="pub")
+        PostgresCDCAdapter().remove_table(source, "public", "orders")
+        mock_remove.assert_called_once()
 
 
 class TestGetStatus:

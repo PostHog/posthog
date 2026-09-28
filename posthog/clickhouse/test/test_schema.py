@@ -96,6 +96,7 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
         ({"ordinary": "discard"}, None),
     ],
 )
+@pytest.mark.usefixtures("clickhouse_database")
 def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
     select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
     rows = sync_execute(
@@ -130,6 +131,7 @@ def test_person_property_mutation_projection(properties: dict[str, object], expe
     ],
     ids=["aligned", "backdated", "future", "bucket_rounding", "subsecond", "floor", "mixed", "negative", "clamp"],
 )
+@pytest.mark.usefixtures("clickhouse_database")
 def test_logs_volume_bucket_retention_covers_raw_expiry(
     timestamp_offset: timedelta,
     observed_delay: timedelta,

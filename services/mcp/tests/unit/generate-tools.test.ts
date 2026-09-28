@@ -98,6 +98,32 @@ describe('composeToolSchema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
+    it('requires a PATCH field without removing its Orval description', () => {
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            param_overrides: { destination: { required: true } },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: { properties: { destination: { type: 'integer' } } },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
+    })
+
     it('collects toolInputsImports from param_overrides with input_schema', () => {
         const config: ToolConfig = {
             operation: 'things_create',

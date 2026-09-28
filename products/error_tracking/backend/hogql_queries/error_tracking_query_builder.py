@@ -1,6 +1,7 @@
 import datetime
 from collections.abc import Callable
 from typing import Any, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 
@@ -287,16 +288,23 @@ class ErrorTrackingQueryBuilder:
     # Shape dispatch
     # ---------------------------------------------------------------------
 
-    def _needs_legacy_shape(self) -> bool:
-        """Return True if the user-supplied filterGroup contains issue-level
-        filters that cannot be cleanly routed to the outer query.
+    def _search_issue_id(self) -> str | None:
+        if not self.query.searchQuery:
+            return None
+        try:
+            return str(UUID(self.query.searchQuery.strip()))
+        except ValueError:
+            return None
 
-        The two-pass shape can only split filters cleanly when all
-        issue-level leaves are AND-combined with the rest of the tree. If an
-        `ErrorTrackingIssueFilter` appears anywhere in the tree we fall back
-        to the legacy shape rather than risk producing wrong results for
-        mixed-OR groups.
+    def _needs_legacy_shape(self) -> bool:
+        """Use the single-query shape when search or filters need resolved issue state.
+
+        The two-pass shape filters events before it joins issue state, so it
+        cannot match a current issue ID alongside event text. It also cannot
+        preserve mixed issue/event filter groups.
         """
+        if self._search_issue_id():
+            return True
         if not self.query.filterGroup or not self.query.filterGroup.values:
             return False
         return self._tree_contains_issue_filter(self.query.filterGroup.values[0])
@@ -979,7 +987,20 @@ class ErrorTrackingQueryBuilder:
                     )
             and_exprs.append(ast.Or(exprs=or_exprs))
 
-        return ast.And(exprs=and_exprs)
+        text_search = ast.And(exprs=and_exprs)
+        issue_id = self._search_issue_id()
+        if issue_id:
+            return ast.Or(
+                exprs=[
+                    text_search,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=self._legacy_issue_state_expr("issue_id"),
+                        right=ast.Constant(value=issue_id),
+                    ),
+                ]
+            )
+        return text_search
 
     def _extract_assignee(self, row: dict) -> dict | None:
         user_id = row.get("assignee_user_id")
