@@ -75,6 +75,16 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate or migration check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
 
+### Racing events
+
+Two events of one commit that arrive within a second or two race the concurrency cancel on both engines, and neither engine reliably keeps the newer event. A stack push shows it: it force-pushes a pull request's head and its base about one second apart, and each push starts a pull request event. Measured 2026-09-25 on a stack push at 15:17Z:
+
+- PR 106429: GitHub Actions cancelled the run of the newer event (15:17:40Z) and kept the older one (15:17:39Z). Depot kept 15:17:40Z and cancelled Depot run `rtl932mrbc` with "Cancelled due to the workflow concurrency policy".
+- PR 106435: GitHub Actions kept the newer event (15:17:41Z). Depot kept the older one (15:17:40Z) and cancelled `nzb661zql2`.
+- Neither cancelled Depot run posted a wait check, so each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
+
+GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. So after its grace period, the relay follows the Depot run of an event of the same pull request up to 2 seconds away (`RACING_EVENT_SECONDS`), newest first.
+
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
 
 ## Depot CI CLI recipes
