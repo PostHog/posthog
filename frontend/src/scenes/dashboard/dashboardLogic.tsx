@@ -45,7 +45,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import { DashboardEventSource, dashboardViewedProperties, eventUsageLogic, sanitizeDashboard, sanitizeQuery } from 'lib/utils/eventUsageLogic'
+import {
+    DashboardEventSource,
+    dashboardViewedProperties,
+    eventUsageLogic,
+    sanitizeDashboard,
+    sanitizeQuery,
+} from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -1360,6 +1366,8 @@ function exitFilterEditModeWhenSaved(
         actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
     }
 }
+
+let dashboardViewedTimeout: ReturnType<typeof setTimeout> | undefined
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
@@ -4774,13 +4782,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        reportDashboardViewedEvent: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+        reportDashboardViewedEvent: ({ dashboard, lastRefreshed, delay }) => {
+            clearTimeout(dashboardViewedTimeout)
+            const captureDashboardView = (): void => {
+                const properties = dashboardViewedProperties(dashboard, lastRefreshed, userLogic.values.user?.uuid)
+                const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+                posthog.capture(eventName, { ...properties, source: 'web' })
             }
-            const properties = dashboardViewedProperties(dashboard, lastRefreshed, userLogic.values.user?.uuid)
-            const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
-            posthog.capture(eventName, { ...properties, source: 'web' })
+            if (delay) {
+                captureDashboardView()
+            } else {
+                dashboardViewedTimeout = setTimeout(captureDashboardView, 500) // Debounce to avoid noisy events from continuous navigation
+            }
         },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
