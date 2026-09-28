@@ -32,7 +32,7 @@ CASES: list[ScoutCase] = [
         seed="error_stuck_loop",
         judging_notes=(
             "A new UploadFinalizeError fires 2,000 times from two users in two hours. This is a narrow-reach retry "
-            "storm rather than a broad outage, but the fresh volume and localized finalizeUpload stack make a P3 "
+            "storm rather than a broad outage, but the fresh volume and localized finalizeUpload stack make a P2 "
             "report appropriate. It must not be described as affecting 2,000 users."
         ),
         expected_query_tools=("query-error-tracking-issues-list", "execute-sql"),
