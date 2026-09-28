@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -198,6 +198,8 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
             "sessions": {"current": 0, "previous": None, "change": None},
             "bounce_rate": {"current": 0.0, "previous": None, "change": None},
             "avg_session_duration": {"current": "0s", "previous": "0s", "change": None},
+            "date_from": datetime(2025, 1, 22, tzinfo=UTC),
+            "date_to": datetime(2025, 1, 29, 23, 59, 59, tzinfo=UTC),
         }
 
 
@@ -472,3 +474,12 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["metadata"]["data_status"] == expected_status
         assert result["metadata"]["filter_test_accounts"] is True
         assert result["metadata"]["date_from"].date().isoformat() == "2025-01-22"
+
+    def test_metadata_period_matches_a_cached_overview(self) -> None:
+        with time_machine.travel("2025-01-28T23:00:00Z", tick=False):
+            build_team_digest(self.team)
+        with time_machine.travel("2025-01-29T01:00:00Z", tick=False):
+            result = build_team_digest(self.team)
+
+        assert result["metadata"]["date_from"].date().isoformat() == "2025-01-21"
+        assert result["metadata"]["date_to"].date().isoformat() == "2025-01-28"

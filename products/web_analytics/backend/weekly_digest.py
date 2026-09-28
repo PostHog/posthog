@@ -101,6 +101,10 @@ def get_overview_for_team(
     )
     runner = WebOverviewQueryRunner(team=team, query=query)
     response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
+    if response.dateFrom and response.dateTo:
+        # A cached response can come from an earlier day, so keep the period that the numbers cover.
+        result["date_from"] = datetime.fromisoformat(response.dateFrom).replace(tzinfo=team.timezone_info)
+        result["date_to"] = datetime.fromisoformat(response.dateTo).replace(tzinfo=team.timezone_info)
 
     items_by_key = {item.key: item for item in response.results}
 
@@ -286,15 +290,15 @@ def _digest_date_range(team: Team, days: int) -> QueryDateRange:
     )
 
 
-def _has_sessions_in_range(team: Team, date_range: QueryDateRange) -> bool:
+def _has_sessions_in_range(team: Team, date_from: datetime, date_to: datetime) -> bool:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:session_probe")
     # The sessions tables keep only UUIDv7 session IDs, so events with other IDs never become session rows.
     query = parse_select(
         "SELECT 1 FROM events WHERE timestamp >= {date_from} AND timestamp < {date_to} "
         "AND bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15) = 7 LIMIT 1",
         placeholders={
-            "date_from": ast.Constant(value=date_range.date_from()),
-            "date_to": ast.Constant(value=date_range.date_to()),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
         },
     )
     response = execute_hogql_query(query_type="web_analytics_digest_session_probe", query=query, team=team)
@@ -303,9 +307,11 @@ def _has_sessions_in_range(team: Team, date_range: QueryDateRange) -> bool:
 
 def get_digest_metadata(team: Team, overview: dict, days: int = 7) -> dict:
     date_range = _digest_date_range(team, days)
+    date_from = overview.get("date_from", date_range.date_from())
+    date_to = overview.get("date_to", date_range.date_to())
     if overview["sessions"]["current"] or overview["pageviews"]["current"]:
         data_status = DigestDataStatus.OK
-    elif _has_sessions_in_range(team, date_range):
+    elif _has_sessions_in_range(team, date_from, date_to):
         # A plain zero reads as "no traffic", but the project has sessions that the web definition excludes.
         data_status = DigestDataStatus.NO_WEB_SESSIONS
     else:
@@ -313,8 +319,8 @@ def get_digest_metadata(team: Team, overview: dict, days: int = 7) -> dict:
 
     return {
         "data_status": data_status.value,
-        "date_from": date_range.date_from(),
-        "date_to": date_range.date_to(),
+        "date_from": date_from,
+        "date_to": date_to,
         "timezone": team.timezone,
         "filter_test_accounts": True,
         "notes": DIGEST_METRIC_NOTES,
