@@ -34,7 +34,11 @@ from products.feature_flags.backend.api.organization_feature_flag import (
     TARGET_COPY_PERMISSION_ERROR,
     OrganizationFeatureFlagView,
 )
-from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    encrypt_flag_payloads,
+    get_decrypted_flag_payload,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
@@ -1951,16 +1955,60 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(flag_response["has_encrypted_payloads"], True)
         self.assertEqual(flag_response["key"], encrypted_flag.key)
 
+        returned_payload = flag_response["filters"]["payloads"]["true"]
+        self.assertNotEqual(returned_payload, REDACTED_PAYLOAD_VALUE)
+        self.assertEqual(get_decrypted_flag_payload(returned_payload, should_decrypt=True), '{"key": "secret_value"}')
+
         # Verify the flag in the database has encrypted payloads
         copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
         self.assertTrue(copied_flag.is_remote_configuration)
         self.assertTrue(copied_flag.has_encrypted_payloads)
 
         # Verify the encrypted payload can be decrypted back to the original value
-        from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payload
-
         decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
         self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+    def test_copy_encrypted_payloads_flag_over_existing_flag_redacts_the_response(self):
+        target_project = self.team_2
+
+        source_filters = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "secret_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": source_filters})
+        encrypted_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-flag",
+            filters=source_filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        target_filters = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "target_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": target_filters})
+        FeatureFlag.objects.create(
+            team=target_project,
+            created_by=self.user,
+            key=encrypted_flag.key,
+            filters=target_filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        response = self._post_copy_flag(encrypted_flag, [target_project.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["updated_existing"], True)
+        self.assertEqual(flag_response["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+
+        copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
+        stored_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
+        self.assertEqual(stored_payload, '{"key": "secret_value"}')
 
     def test_copy_encrypted_payloads_flag_to_multiple_projects(self):
         """Test that copying a flag with encrypted payloads to multiple projects works correctly."""
