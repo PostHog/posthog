@@ -6,27 +6,6 @@ import * as orvalSchemas from '@/generated/autoresearch/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AutoresearchArchiveCreateSchema = () => {
-    const AutoresearchArchiveCreateParams = orvalSchemas.AutoresearchArchiveCreateParams()
-    return AutoresearchArchiveCreateParams.omit({ project_id: true })
-}
-
-const autoresearchArchiveCreate = (): ToolBase<
-    ReturnType<typeof AutoresearchArchiveCreateSchema>,
-    Schemas.AutoresearchPipeline
-> => ({
-    name: 'autoresearch-archive-create',
-    schema: AutoresearchArchiveCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchArchiveCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoresearchPipeline>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/archive/`,
-        })
-        return result
-    },
-})
-
 const AutoresearchCreateSchema = () => {
     const AutoresearchCreateBody = orvalSchemas.AutoresearchCreateBody()
     return AutoresearchCreateBody
@@ -226,27 +205,6 @@ const autoresearchModelsRetrieve = (): ToolBase<
     },
 })
 
-const AutoresearchPauseCreateSchema = () => {
-    const AutoresearchPauseCreateParams = orvalSchemas.AutoresearchPauseCreateParams()
-    return AutoresearchPauseCreateParams.omit({ project_id: true })
-}
-
-const autoresearchPauseCreate = (): ToolBase<
-    ReturnType<typeof AutoresearchPauseCreateSchema>,
-    Schemas.AutoresearchPipeline
-> => ({
-    name: 'autoresearch-pause-create',
-    schema: AutoresearchPauseCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchPauseCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoresearchPipeline>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/pause/`,
-        })
-        return result
-    },
-})
-
 const AutoresearchResolveTemplateCreateSchema = () => {
     const AutoresearchResolveTemplateCreateBody = orvalSchemas.AutoresearchResolveTemplateCreateBody()
     return AutoresearchResolveTemplateCreateBody
@@ -279,27 +237,6 @@ const autoresearchResolveTemplateCreate = (): ToolBase<
     },
 })
 
-const AutoresearchResumeCreateSchema = () => {
-    const AutoresearchResumeCreateParams = orvalSchemas.AutoresearchResumeCreateParams()
-    return AutoresearchResumeCreateParams.omit({ project_id: true })
-}
-
-const autoresearchResumeCreate = (): ToolBase<
-    ReturnType<typeof AutoresearchResumeCreateSchema>,
-    Schemas.AutoresearchPipeline
-> => ({
-    name: 'autoresearch-resume-create',
-    schema: AutoresearchResumeCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchResumeCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoresearchPipeline>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/resume/`,
-        })
-        return result
-    },
-})
-
 const AutoresearchRetrieveSchema = () => {
     const AutoresearchRetrieveParams = orvalSchemas.AutoresearchRetrieveParams()
     return AutoresearchRetrieveParams.omit({ project_id: true })
@@ -316,70 +253,6 @@ const autoresearchRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.AutoresearchPipeline>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const AutoresearchRunsListSchema = () => {
-    const AutoresearchRunsListParams = orvalSchemas.AutoresearchRunsListParams()
-    const AutoresearchRunsListQueryParams = orvalSchemas.AutoresearchRunsListQueryParams()
-    return AutoresearchRunsListParams.omit({ project_id: true }).extend(AutoresearchRunsListQueryParams.shape)
-}
-
-const autoresearchRunsList = (): ToolBase<
-    ReturnType<typeof AutoresearchRunsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAutoresearchRunList>
-> => ({
-    name: 'autoresearch-runs-list',
-    schema: AutoresearchRunsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchRunsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAutoresearchRunList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/runs/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'pipeline',
-                    'model',
-                    'run_type',
-                    'status',
-                    'rows_scored',
-                    'error',
-                    'started_at',
-                    'completed_at',
-                    'created_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
-    },
-})
-
-const AutoresearchScoreCreateSchema = () => {
-    const AutoresearchScoreCreateParams = orvalSchemas.AutoresearchScoreCreateParams()
-    return AutoresearchScoreCreateParams.omit({ project_id: true })
-}
-
-const autoresearchScoreCreate = (): ToolBase<
-    ReturnType<typeof AutoresearchScoreCreateSchema>,
-    Schemas.AutoresearchRun
-> => ({
-    name: 'autoresearch-score-create',
-    schema: AutoresearchScoreCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchScoreCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AutoresearchRun>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/score/`,
         })
         return result
     },
@@ -414,50 +287,6 @@ const autoresearchSuggestionsCreate = (): ToolBase<
             body,
         })
         return result
-    },
-})
-
-const AutoresearchSuggestionsListSchema = () => {
-    const AutoresearchSuggestionsListParams = orvalSchemas.AutoresearchSuggestionsListParams()
-    const AutoresearchSuggestionsListQueryParams = orvalSchemas.AutoresearchSuggestionsListQueryParams()
-    return AutoresearchSuggestionsListParams.omit({ project_id: true }).extend(
-        AutoresearchSuggestionsListQueryParams.shape
-    )
-}
-
-const autoresearchSuggestionsList = (): ToolBase<
-    ReturnType<typeof AutoresearchSuggestionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAutoresearchSuggestionList>
-> => ({
-    name: 'autoresearch-suggestions-list',
-    schema: AutoresearchSuggestionsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchSuggestionsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAutoresearchSuggestionList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/suggestions/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'pipeline',
-                    'prompt',
-                    'priority',
-                    'status',
-                    'source',
-                    'agent_response',
-                    'linked_iteration_ids',
-                    'created_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -856,20 +685,14 @@ const autoresearchValidateCreate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'autoresearch-archive-create': autoresearchArchiveCreate,
     'autoresearch-create': autoresearchCreate,
     'autoresearch-list': autoresearchList,
     'autoresearch-materialize-features': autoresearchMaterializeFeatures,
     'autoresearch-models-list': autoresearchModelsList,
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
-    'autoresearch-pause-create': autoresearchPauseCreate,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
-    'autoresearch-resume-create': autoresearchResumeCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
-    'autoresearch-runs-list': autoresearchRunsList,
-    'autoresearch-score-create': autoresearchScoreCreate,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
-    'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,
     'autoresearch-train-create': autoresearchTrainCreate,
     'autoresearch-training-runs-artifacts-get-create': autoresearchTrainingRunsArtifactsGetCreate,

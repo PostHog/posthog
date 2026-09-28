@@ -11,7 +11,7 @@ ui_apps: {}
 tools:
     autoresearch-archive-create:
         operation: autoresearch_archive_create
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:write
         annotations:
@@ -153,7 +153,7 @@ tools:
         enabled: false
     autoresearch-pause-create:
         operation: autoresearch_pause_create
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:write
         annotations:
@@ -196,7 +196,7 @@ tools:
         feature_flag: autoresearch
     autoresearch-resume-create:
         operation: autoresearch_resume_create
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:write
         annotations:
@@ -223,7 +223,7 @@ tools:
         feature_flag: autoresearch
     autoresearch-runs-list:
         operation: autoresearch_runs_list
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:read
         annotations:
@@ -253,7 +253,7 @@ tools:
         enabled: false
     autoresearch-score-create:
         operation: autoresearch_score_create
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:write
             - query:read
@@ -300,7 +300,7 @@ tools:
         feature_flag: autoresearch
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list
-        enabled: true
+        enabled: false
         scopes:
             - autoresearch:read
         annotations:
@@ -393,9 +393,9 @@ tools:
             reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side
             promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if
             a training run is already in progress or the pipeline is paused. Needs PostHog Desktop access, because the
-            run is a cloud sandbox. After a run completes and promotes a champion, call autoresearch-score-create to run
-            inference and emit prediction events. You can optionally override the iteration_budget for this run. A
-            pipeline with an action target also needs the action:read scope.
+            run is a cloud sandbox. After a run promotes a champion, the daily scoring job scores the inference
+            population and emits autoresearch_prediction events. You can optionally override the iteration_budget for
+            this run. A pipeline with an action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
@@ -455,10 +455,15 @@ tools:
             content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/
             notebook). Re-uploading the same path overwrites it. Keep each file under about 700 KB: the base64 body must
             fit the MCP server's 1 MiB request limit. A bundle holds at most 32 files. This is how you author the model
-            — author train.py and predict.py (standalone sklearn scripts) and features.sql (HogQL with the
-            {anchors}/{lookback_days} contract), then upload each here. Do NOT use set_output or curl — the bundle you
-            upload is what inference runs in a sandbox. Only allowed while the run is still running; the bundle is
-            frozen once the run completes or fails.
+            — author train.py and predict.py (standalone sklearn scripts; the framework runs `python train.py
+            <train_features.parquet> <train_labels.parquet> <model.pkl> <output.json> <holdout_features.parquet>
+            <holdout_labels.parquet> --random-state N`, which pickles {"model", "feature_cols"} and writes
+            {"holdout_auc", "n_train", "n_features"} to output.json, and `python predict.py <score_features.parquet>
+            <model.pkl> <scores.parquet>`, which writes distinct_id,p_y; features parquet is distinct_id plus numeric
+            columns, labels parquet is distinct_id,__label) and features.sql (HogQL with the {anchors}/{lookback_days}
+            contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference
+            runs in a sandbox. Only allowed while the run is still running; the bundle is frozen once the run completes
+            or fails.
         feature_flag: autoresearch
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
@@ -533,12 +538,13 @@ tools:
         description: >
             Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number
             updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be
-            a read-only SELECT keyed on person_id. model_class in model_spec is informational when you upload your own
-            train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes
-            without a bundle. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise,
-            'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration
-            was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links
-            the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.
+            a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id. model_class in
+            model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the
+            sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration
+            improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at
+            completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
+            pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
+            and marks the suggestion 'acted_on'.
         feature_flag: autoresearch
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list

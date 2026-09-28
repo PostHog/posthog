@@ -7,7 +7,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
 ## What lives here
 
 - `tools.yaml`
-  The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
+  The whole surface: 19 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family must stay at or below 25 tools: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `templates-list`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed. `resolve-template-create` names every template key, so it replaces `templates-list` as the template entry point.
   Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`, plus every extra scope the endpoint's `required_scopes` names, such as `query:read`: MCP hides a tool whose scopes the key lacks), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
 Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
@@ -16,9 +16,13 @@ Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/
 
 **Agent-facing** — the training loop's own control surface, backed by `AutoresearchTrainingRunViewSet`:
 
-`autoresearch-training-runs-create` (bring-your-own agents only; a sandbox request is refused), `-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-complete-create`, `-history`.
+`autoresearch-training-runs-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-complete-create`, `-history`.
 
-**User-facing** — managing pipelines: `autoresearch-create`, `-list`, `-retrieve`, `-archive-create`, `-pause-create`, `-resume-create`, `-score-create`, `-train-create`, `-models-list`, `-models-retrieve`, `-runs-list`, `-suggestions-*`, `-resolve-template-create`, `-validate-create`.
+**Bring-your-own agents** — an agent that trains outside PostHog (for example on a laptop) calls `autoresearch-training-runs-create` to open a run, then the agent-facing tools above. A sandbox request to open a run is refused.
+
+**User-facing** — creating and inspecting pipelines: `autoresearch-resolve-template-create`, `-validate-create`, `-create`, `-train-create`, `-list`, `-retrieve`, `-training-runs-list`, `-suggestions-create`.
+
+Pipeline lifecycle (`archive`, `pause`, `resume`), manual `score`, the inference-run list, and the suggestion list stay disabled: the UI covers the lifecycle, the daily workflows score, and nothing agent-driven needs the rest yet. Enabling one is a one-line change here.
 
 The split matters when you change a description. An agent-facing description is a **contract**: `autoresearch-training-runs-iterations-create` has to tell the agent what a valid `feature_sql` looks like, because the server will reject anything that is not a read-only `SELECT` keyed on `person_id` and the agent has no other way to learn that.
 
@@ -28,7 +32,7 @@ The descriptions here already do real work, and that is the standard to hold. Ex
 
 - `autoresearch-create` spells out the mutual exclusion — pass `target_event` _or_ `target_definition`, exactly one — and names the next call (`autoresearch-train-create`).
 - It also tells the caller to run `autoresearch-validate-create` first _and_ warns that the endpoint does not block on validation errors, so the model knows the check is advisory.
-- `autoresearch-archive-create` says what is preserved, that there is no unarchive, and points at `pause` as the reversible alternative.
+- `autoresearch-train-create` says what happens to the existing champion on a retrain and names every refusal (run in progress, paused pipeline, no PostHog Desktop access).
 
 Write for a model that has read nothing else. Name the prerequisite call, the next call, and the failure mode.
 
