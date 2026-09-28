@@ -359,6 +359,12 @@ test('buildReviewerComment: names each owner of additions with its addition, eve
     assert.ok(!body.includes('soft owners were skipped'))
 })
 
+test('buildReviewerComment: keeps a PR-chosen addition path inside its code span', () => {
+    const additionOwners = [{ owner: '@PostHog/team-devex', additionPaths: ['products/x` @someone\n\n# hi'] }]
+    const body = buildReviewerComment(requested, [], additionOwners)
+    assert.ok(body.includes('- `@PostHog/team-devex` (`products/x? @someone??# hi`)'))
+})
+
 test('buildReviewerComment: lists each skipped owner as a bullet with its matched rule, not raw counts', () => {
     const body = buildReviewerComment(requested, demoted)
     assert.ok(body.includes(CONFIG.commentMarker))

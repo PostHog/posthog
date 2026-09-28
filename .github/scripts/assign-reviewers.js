@@ -375,8 +375,15 @@ function formatSkippedOwner(footprint) {
     return `- \`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
 }
 
+// An addition path comes from the PR, so a fork chooses it. A backtick or a line
+// break in it would end the code span and let the PR author write markdown and
+// live mentions into a comment that the app posts.
+function sanitizePathForComment(path) {
+    return path.replace(/[`\u0000-\u001f\u007f]/g, '?')
+}
+
 function formatAdditionOwner(entry) {
-    return `- \`${entry.owner}\` (${formatPatterns(entry.additionPaths, 2)})`
+    return `- \`${entry.owner}\` (${formatPatterns(entry.additionPaths.map(sanitizePathForComment), 2)})`
 }
 
 // Produce the explanation comment body, or null if no owner was dropped and no
