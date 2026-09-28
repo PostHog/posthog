@@ -745,7 +745,7 @@ class TestConnectTimeoutErrorClassification:
         second_reconcile_started = asyncio.Event()
         call_count = 0
 
-        async def flaky_reconcile() -> None:
+        async def flaky_reconcile(**kwargs: Any) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -876,7 +876,7 @@ class TestAdminShutdownErrorClassification:
         second_reconcile_started = asyncio.Event()
         call_count = 0
 
-        async def flaky_reconcile() -> None:
+        async def flaky_reconcile(**kwargs: Any) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1312,7 +1312,7 @@ class TestQueueOperationTimeouts:
         second_reconcile_started = asyncio.Event()
         call_count = 0
 
-        async def flaky_reconcile() -> None:
+        async def flaky_reconcile(**kwargs: Any) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -2843,9 +2843,7 @@ class TestQueueDbRetry:
             patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
             pytest.raises(psycopg.OperationalError),
         ):
-            await consumer._with_queue_conn(
-                "_poll_conn", "fetch_and_lock", always_transient, should_abort=lambda: True
-            )
+            await consumer._with_queue_conn("_poll_conn", "fetch_and_lock", always_transient, should_abort=lambda: True)
 
         # Raises on the very first attempt instead of exhausting QUEUE_RETRY_MAX_ATTEMPTS.
         assert attempts == 1
