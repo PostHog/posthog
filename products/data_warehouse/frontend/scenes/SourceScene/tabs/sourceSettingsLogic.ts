@@ -47,7 +47,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
+import { getErrorsForFields, sshTunnelFieldConfig } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
@@ -292,7 +292,7 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
         if (field.type === 'ssh-tunnel') {
             const tunnelValue = valueObj[field.name]
             if (tunnelValue && typeof tunnelValue === 'object') {
-                removeEmptySensitiveValues(SSH_FIELD.fields, tunnelValue)
+                removeEmptySensitiveValues(sshTunnelFieldConfig(field).fields, tunnelValue)
             }
             continue
         }

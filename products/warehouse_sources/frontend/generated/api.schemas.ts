@@ -13811,6 +13811,7 @@ export interface SourceFieldSSHTunnelConfigApi {
     label: string
     name: string
     type: 'ssh-tunnel'
+    supportsRequireTls?: boolean
 }
 
 export interface SourceFieldSelectConfigOptionApi {

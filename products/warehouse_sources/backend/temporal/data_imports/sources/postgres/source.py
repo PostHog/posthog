@@ -481,7 +481,7 @@ class PostgresSource(
                         placeholder="public",
                         secret=False,
                     ),
-                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
+                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?", supportsRequireTls=True),
                 ],
             ),
             featured=True,
