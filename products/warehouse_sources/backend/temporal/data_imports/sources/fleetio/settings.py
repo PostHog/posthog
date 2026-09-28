@@ -65,9 +65,13 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
     "vehicle_assignments": FleetioEndpointConfig(name="vehicle_assignments", path="/vehicle_assignments"),
     "expense_entries": FleetioEndpointConfig(name="expense_entries", path="/expense_entries"),
     "expense_entry_types": FleetioEndpointConfig(name="expense_entry_types", path="/expense_entry_types"),
-    # Lookup tables resolving the status ids carried on every vehicle and work order row.
+    "purchase_orders": FleetioEndpointConfig(name="purchase_orders", path="/purchase_orders"),
+    # Lookup tables resolving the ids carried on the transactional rows above.
     "vehicle_statuses": FleetioEndpointConfig(name="vehicle_statuses", path="/vehicle_statuses"),
     "work_order_statuses": FleetioEndpointConfig(name="work_order_statuses", path="/work_order_statuses"),
+    "vehicle_types": FleetioEndpointConfig(name="vehicle_types", path="/vehicle_types"),
+    "service_tasks": FleetioEndpointConfig(name="service_tasks", path="/service_tasks"),
+    "vendors": FleetioEndpointConfig(name="vendors", path="/vendors"),
     # Line items are only listed per service entry, so fan out over the service entries endpoint.
     # The list action takes no `filter` param — only `sort[id]` — so this is full refresh only.
     "service_entry_line_items": FleetioEndpointConfig(
@@ -84,6 +88,27 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
             # schema, so take it from the parent row to keep the composite primary key populated.
             include_from_parent=["id"],
             parent_field_renames={"id": "service_entry_id"},
+            parent_params={"sort[created_at]": "asc"},
+            child_params={"sort[id]": "asc"},
+        ),
+    ),
+    # Line items are only listed per purchase order, and the path binds the order's `number`
+    # rather than its id. The list action takes no `filter` param — only `sort[id]` — so this is
+    # full refresh only.
+    "purchase_order_line_items": FleetioEndpointConfig(
+        name="purchase_order_line_items",
+        path="/purchase_orders/{number}/purchase_order_line_items",
+        incremental_fields=[],
+        primary_keys=["purchase_order_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="purchase_orders",
+            resolve_param="number",
+            resolve_field="number",
+            # The line item carries neither identifier of the order it belongs to, so take both
+            # from the parent row: the id to populate the composite primary key and join back to
+            # `purchase_orders`, the number because that is what the path and the Fleetio UI use.
+            include_from_parent=["id", "number"],
+            parent_field_renames={"id": "purchase_order_id", "number": "purchase_order_number"},
             parent_params={"sort[created_at]": "asc"},
             child_params={"sort[id]": "asc"},
         ),
