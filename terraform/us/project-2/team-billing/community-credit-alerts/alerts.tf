@@ -23,7 +23,7 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
 
   inputs_json = jsonencode({
     "text" = {
-      "value"      = "Community credit claim failed: {event.properties.$exception_values[1]}"
+      "value"      = "Community credit claim failed: {substring(event.properties.$exception_values[1], 1, 2700)} | Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
       "templating" = "hog"
     }
     "blocks" = {
@@ -34,7 +34,8 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
         },
         {
           "text" = {
-            "text" = "*{event.properties.$exception_types[1]}*: {event.properties.$exception_values[1]}"
+            # Slack rejects a section over 3,000 characters, so the exception text is cut short.
+            "text" = "*{substring(event.properties.$exception_types[1], 1, 200)}*: {substring(event.properties.$exception_values[1], 1, 2700)}"
             "type" = "mrkdwn"
           }
           "type" = "section"
