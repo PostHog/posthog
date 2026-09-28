@@ -54,12 +54,15 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_SOAK_HOURS,
+    MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
     CheckConfigValidationError,
     CheckOutcome,
     MetricThresholdConfig,
     parse_check_config,
+    soak_minutes_from_gap,
 )
 from products.signals.backend.report_metric_refresh import measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
@@ -83,14 +86,8 @@ MAX_CHECK_ERROR_REASON_LENGTH = 300
 # a fix that stopped holding is a finding somebody already decided was worth fixing once.
 CHECK_FAILURE_SIGNAL_WEIGHT = 1.0
 
-# A check stops running while its report is soft-deleted or suppressed, and runs again when the report
-# comes back. Its horizon keeps advancing meanwhile: a check that outlives `expires_at` while paused
-# expires like any other, because the soak window is the author's deadline, not the report's.
-CHECKABLE_REPORT_STATUSES = tuple(
-    status
-    for status in SignalReport.Status.values
-    if status not in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
-)
+# Rows moved back to `pending` per tick because their report is not resolved. Bounded the same way.
+MAX_CHECK_PARKS_PER_TICK = 500
 
 
 @frozen
@@ -291,6 +288,9 @@ def record_check_verdict(
     config = parsed if isinstance(parsed, MetricThresholdConfig) else None
 
     with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
             .select_for_update()
@@ -504,6 +504,54 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
         logger.exception("signals.report_check.expired_report_failed")
 
 
+def park_checks_on_unresolved_reports(now: datetime) -> int:
+    """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
+
+    A check can be active on an unresolved report in three ways: a report that left `resolved`
+    (reopened, archived, or restored somewhere else), a row written active before the create path
+    made the report decide, and any write path that skips `create_check`. Such a check must not run
+    or spend its error budget before a fix is live. As a pending row, the next resolve arms it
+    through `arm_pending_checks` with a fresh soak, and the expiry sweep retires it if the report
+    never resolves.
+
+    A dated row keeps the gap its author left as its soak. The error streak and any open dispatch
+    are cleared, so retry accounting starts again after the next resolve.
+    """
+    active = list(
+        SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
+        .exclude(report__status=SignalReport.Status.RESOLVED)
+        .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
+            :MAX_CHECK_PARKS_PER_TICK
+        ]
+    )
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    if parked:
+        logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
+    return parked
+
+
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
     """The checks to run this tick, most overdue first and capped per team.
 
@@ -517,7 +565,10 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
             expires_at__gt=now,
-            report__status__in=CHECKABLE_REPORT_STATUSES,
+            # A check re-measures a fix, so it runs only while its report is resolved. The park step
+            # moves any other active row back to `pending`; this filter keeps a row it has not reached
+            # yet out of the tick.
+            report__status=SignalReport.Status.RESOLVED,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -546,7 +597,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire what timed out, then advance every check due this tick by one step.
+    """Expire what timed out, park what lost its resolve, then advance every due check by one step.
 
     A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
     its overdue dispatch is written off), and the run it started records the verdict later, so the
@@ -555,6 +606,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
 
     now = now or timezone.now()
     expired = expire_overdue_checks(now)
+    park_checks_on_unresolved_reports(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {"passed": 0, "failed": 0, "errored": 0, "dispatched": 0, "deferred": 0}
     for check in collect_due_checks(now, limit=limit):
