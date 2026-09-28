@@ -150,6 +150,9 @@ class ReportDecision:
     charts: list[dict[str, Any]] | None = None
     # Resolved metric payload with the same preserve/replace/clear semantics as charts.
     metrics: list[dict[str, Any]] | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
     # Check specs the research run's verification turn authored, and the research task they are
     # attributed to. Empty for the no-repo branch, which does no research.
     checks: list[dict[str, Any]] = field(default_factory=list)
@@ -460,6 +463,9 @@ class SignalReportSummaryWorkflow:
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
                     metrics=agentic_result.metrics,
+                    revise_measurement_plan_metric_ids=agentic_result.revise_measurement_plan_metric_ids,
+                    retire_measurement_plan_metric_ids=agentic_result.retire_measurement_plan_metric_ids,
+                    previous_measurement_plan_ids=agentic_result.previous_measurement_plan_ids,
                     checks=agentic_result.checks or [],
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
@@ -502,6 +508,9 @@ class SignalReportSummaryWorkflow:
                         source_products=source_products,
                         charts=decision.charts,
                         metrics=decision.metrics,
+                        revise_measurement_plan_metric_ids=decision.revise_measurement_plan_metric_ids,
+                        retire_measurement_plan_metric_ids=decision.retire_measurement_plan_metric_ids,
+                        previous_measurement_plan_ids=decision.previous_measurement_plan_ids,
                         plans_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
@@ -525,6 +534,9 @@ class SignalReportSummaryWorkflow:
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
+                    revise_measurement_plan_metric_ids=decision.revise_measurement_plan_metric_ids,
+                    retire_measurement_plan_metric_ids=decision.retire_measurement_plan_metric_ids,
+                    previous_measurement_plan_ids=decision.previous_measurement_plan_ids,
                     plans_task_id=decision.research_task_id,
                     checks=decision.checks,
                     checks_task_id=decision.research_task_id,
@@ -836,6 +848,9 @@ class MarkReportReadyInput:
     # Typed impact metrics written atomically with the prose and chart set.
     metrics: list[dict[str, Any]] | None = None
     plans_task_id: str | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
     # Check specs the research run's verification turn authored, written as rows in the same
     # transaction as the metrics they reference. Empty or `None` writes none, which is also what an
     # older workflow history that predates the field replays as.
@@ -937,6 +952,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                     ArtefactAttribution.from_task(input.plans_task_id)
                     if input.plans_task_id
                     else ArtefactAttribution.system(),
+                    revise_metric_ids=input.revise_measurement_plan_metric_ids,
+                    retire_metric_ids=input.retire_measurement_plan_metric_ids,
+                    previous_plan_ids=input.previous_measurement_plan_ids,
                 )
                 updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
@@ -1172,6 +1190,9 @@ class MarkReportPendingInput:
     # See MarkReportReadyInput.metrics — same transaction and replay-safe default.
     metrics: list[dict[str, Any]] | None = None
     plans_task_id: str | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.charts_enabled — reported, never stored.
@@ -1206,6 +1227,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
                     ArtefactAttribution.from_task(input.plans_task_id)
                     if input.plans_task_id
                     else ArtefactAttribution.system(),
+                    revise_metric_ids=input.revise_measurement_plan_metric_ids,
+                    retire_metric_ids=input.retire_measurement_plan_metric_ids,
+                    previous_plan_ids=input.previous_measurement_plan_ids,
                 )
                 updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:

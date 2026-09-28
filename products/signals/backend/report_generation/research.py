@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    ImpactMeasurementPlan,
     ImplementationAssessment,
     ImplementationDecision,
     NoteArtefact,
@@ -173,6 +174,8 @@ Hard rules:
             "EventsNode or ActionsNode sources. Its value/value_at snapshot is an optional cached fallback."
         ),
     )
+    revise_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    retire_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
     layers: list[ReportLayer] = Field(
         default_factory=list,
         description=(
@@ -418,6 +421,8 @@ class ReportResearchOutput(BaseModel):
             "Every entry has a bounded live EventsNode/ActionsNode Trends query; its snapshot is optional."
         ),
     )
+    revise_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    retire_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
     layers: list[ReportLayer] = Field(
         default_factory=list,
         description="The plan of dependent pull requests, when research split the work. Each layer becomes "
@@ -814,9 +819,35 @@ Put reproducible report-level measurements under `metrics`. A metric tells the r
 
 _EXPECTED_IMPACT_GUIDANCE = """## Proposed impact measurement
 
-When the solution has an Expected impact section and the research supports it, give one live metric that directly measures the intended change a `goal_value` and `goal_direction` (`at_most` or `at_least`). Suggest `decision_window_days` (1–30) based on observed traffic. Set `minimum_data_points` (1–1000) only when you can also supply a bounded `eligibility_query` counting qualifying opportunities, not failures: a zero-failure goal cannot require failures to occur. Prefer a short useful window over waiting for certainty. State the baseline and intended outcome in the Expected impact prose. The goal is a proposal, not a scheduled check or a statistical confidence claim. If the metric cannot observe the intended outcome, or no credible threshold or traffic estimate exists, omit the goal rather than invent one. Keep an existing valid goal on re-research unless evidence changes it.
+When the solution has an Expected impact section and the research supports it, give one live metric that directly measures the intended change a `goal_value` and `goal_direction` (`at_most` or `at_least`). Suggest `decision_window_days` (1–30) based on observed traffic. Set `minimum_data_points` (1–1000) only when you can also supply a bounded `eligibility_query`. Count qualifying opportunities, not failures: a zero-failure goal cannot require failures to occur. Prefer a short useful window over waiting for certainty. State the baseline and intended outcome in the Expected impact prose. The goal is a proposal, not a scheduled check or a statistical confidence claim. If the metric cannot observe the intended outcome, or no credible threshold or traffic estimate exists, omit the goal rather than invent one. Keep an existing valid goal on re-research unless evidence changes it.
 Choose `goal_grain=per_interval` only when the threshold applies to each chart bucket; otherwise use `whole_window`. The proposal is saved as an impact measurement artefact separate from the report's observation metrics. Do not call it statistically significant without a suitable test.
 """
+
+
+def _render_previous_measurement_plans_context(
+    previous_plans: dict[str, tuple[str, ImpactMeasurementPlan]],
+) -> str:
+    if not previous_plans:
+        return ""
+    rendered = json.dumps(
+        [
+            {"artefact_id": artefact_id, **plan.model_dump(mode="json")}
+            for _, (artefact_id, plan) in sorted(previous_plans.items())
+        ],
+        indent=2,
+    )
+    return (
+        "## Existing impact measurement plans\n\n"
+        "Review each attached plan against the new signals, current code and data, and the Expected impact prose. "
+        "Keep a sound plan unchanged: do not list its metric ID in either decision field. "
+        "If its measure, goal, or decision window needs a material change, include its metric ID in "
+        "`revise_measurement_plan_metric_ids` and return the complete updated observation metric, including "
+        "goal fields, in `metrics`. If the outcome is no longer relevant or measurable, include its metric ID "
+        "in `retire_measurement_plan_metric_ids`. Do not use both decisions for one plan, and do not treat "
+        "an omitted metric as a request to retire its plan. Revisions need fresh human approval. "
+        "Keep the Expected impact prose consistent with the plans you keep, revise, or retire.\n\n"
+        f"```json\n{rendered}\n```"
+    )
 
 
 def _render_previous_metrics_context(previous_metrics: list[ReportMetric], *, include_goals: bool = True) -> str:
@@ -1156,6 +1187,7 @@ def build_report_presentation_prompt(
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
     previous_metrics: list[ReportMetric] | None = None,
+    previous_measurement_plans: dict[str, tuple[str, ImpactMeasurementPlan]] | None = None,
     metrics_enabled: bool = False,
     expected_impact_authoring_enabled: bool = False,
 ) -> str:
@@ -1168,6 +1200,9 @@ def build_report_presentation_prompt(
         metric_properties = schema_dict["$defs"]["ReportMetric"]["properties"]
         for field_name in REPORT_METRIC_GOAL_FIELDS:
             metric_properties.pop(field_name, None)
+    if not (expected_impact_authoring_enabled and previous_measurement_plans):
+        schema_dict["properties"].pop("revise_measurement_plan_metric_ids", None)
+        schema_dict["properties"].pop("retire_measurement_plan_metric_ids", None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
@@ -1176,6 +1211,8 @@ def build_report_presentation_prompt(
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
         if expected_impact_authoring_enabled:
             visual_sections.append(_EXPECTED_IMPACT_GUIDANCE)
+            if previous_measurement_plans:
+                visual_sections.append(_render_previous_measurement_plans_context(previous_measurement_plans))
         previous_metrics_context = _render_previous_metrics_context(
             previous_metrics or [], include_goals=expected_impact_authoring_enabled
         )
@@ -1325,6 +1362,7 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
+    previous_measurement_plans: dict[str, tuple[str, ImpactMeasurementPlan]] | None = None,
     branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -1506,6 +1544,7 @@ async def run_multi_turn_research(
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
+            previous_measurement_plans=previous_measurement_plans,
             metrics_enabled=metrics_enabled,
             expected_impact_authoring_enabled=expected_impact_authoring_enabled,
         )
@@ -1607,6 +1646,12 @@ async def run_multi_turn_research(
         summary=presentation_result.summary,
         charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
+        revise_measurement_plan_metric_ids=(
+            presentation_result.revise_measurement_plan_metric_ids if previous_measurement_plans else []
+        ),
+        retire_measurement_plan_metric_ids=(
+            presentation_result.retire_measurement_plan_metric_ids if previous_measurement_plans else []
+        ),
         layers=presentation_result.layers,
         research_task_id=str(session.task.id),
         verification_note=verification_note,

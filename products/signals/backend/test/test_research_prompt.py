@@ -5,6 +5,7 @@ from xml.etree import ElementTree
 
 import pytest
 
+from products.signals.backend.artefact_schemas import ImpactMeasurementPlan
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -350,6 +351,38 @@ class TestBuildReportPresentationPrompt:
 
         assert '"goal_value"' not in off
         assert '"goal_value"' in on
+
+    def test_reresearch_reviews_existing_measurement_plans_when_authoring_is_enabled(self):
+        plan = ImpactMeasurementPlan.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "value_format": "count",
+                "unit": "users",
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "goal_value": 0,
+                "goal_direction": "at_most",
+                "decision_window_days": 7,
+                "activated": True,
+            }
+        )
+        previous_plans = {"affected-users": ("plan-version-1", plan)}
+
+        enabled = build_report_presentation_prompt(
+            2,
+            metrics_enabled=True,
+            expected_impact_authoring_enabled=True,
+            previous_measurement_plans=previous_plans,
+        )
+        disabled = build_report_presentation_prompt(2, metrics_enabled=True, previous_measurement_plans=previous_plans)
+
+        assert "Review each attached plan" in enabled
+        assert '"artefact_id": "plan-version-1"' in enabled
+        assert "retire_measurement_plan_metric_ids" in enabled
+        assert "revise_measurement_plan_metric_ids" in enabled
+        assert "Existing impact measurement plans" not in disabled
+        assert "retire_measurement_plan_metric_ids" not in disabled
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

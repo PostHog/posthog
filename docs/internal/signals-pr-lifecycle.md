@@ -21,9 +21,10 @@ The roll-up runs on the step's own status change, so a merged PR, a manual resol
 A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
+
 ## Proposed impact measurement
 
-The organization authoring flag lets research propose up to six active `impact_measurement_plan` artefacts for measurable outcomes. Each bounded query, goal, aggregation grain, and decision rule lives in an artefact, not in the report's observation metrics. A minimum-data rule also needs an eligibility query for qualifying opportunities. A user-requested revision with the same `metric_id` appends a new version without replacing other plans; re-research preserves existing plans. Earlier versions remain for review. The report's "Keep an eye on this for me" action activates current proposals when the display flag is on. Activation appends a new version and does not schedule a check or change the report state. The approval action currently accepts an authenticated person; the artefact schema does not require a person as its approver.
+The organization authoring flag lets research propose up to six active `impact_measurement_plan` artefacts for measurable outcomes. Each bounded query, goal, aggregation grain, and decision rule lives in an artefact, not in the report's observation metrics. A minimum-data rule also needs an eligibility query for qualifying opportunities. A later research pass reviews the current plans against new evidence. It preserves unchanged plans, appends an unapproved version for a material revision, or appends a retired version when the outcome is no longer relevant or measurable. A plan changed by a person during research takes precedence over that pass. Earlier versions remain for review. The report's "Keep an eye on this for me" action activates current proposals when the display flag is on. Activation appends a new version and does not schedule a check or change the report state. The approval action currently accepts an authenticated person; the artefact schema does not require a person as its approver.
 
 ## Repository selection
 

@@ -178,7 +178,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert self.client.delete(detail_url).status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_research_moves_goals_into_proposals_without_replacing_existing_versions(self):
+    def test_research_keeps_plans_unless_it_explicitly_revises_or_retires_them(self):
         report = self._create_report()
         metric = self._impact_plan()
         clean = persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
@@ -192,6 +192,55 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         latest, unchanged = latest_measurement_plans(report)["affected-users"]
         assert latest.id == first.id
         assert unchanged.goal_value == 0
+
+        approved = SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=unchanged.model_copy(update={"activated": True}),
+            attribution=ArtefactAttribution.system(),
+        )
+        previous_plan_ids = {"affected-users": str(approved.id)}
+        persist_authored_measurement_plans(
+            report,
+            [metric],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids=previous_plan_ids,
+        )
+        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids={"affected-users": str(first.id)},
+        )
+        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            revise_metric_ids=["affected-users"],
+            previous_plan_ids=previous_plan_ids,
+        )
+        revised_row, revised = latest_measurement_plans(report)["affected-users"]
+        assert revised_row.id != approved.id
+        assert revised.goal_value == 7
+        assert revised.activated is False
+
+        persist_authored_measurement_plans(
+            report,
+            [changed],
+            ArtefactAttribution.system(),
+            retire_metric_ids=["affected-users"],
+            previous_plan_ids={"affected-users": str(revised_row.id)},
+        )
+        retired_row, retired = latest_measurement_plans(report)["affected-users"]
+        assert retired_row.id != revised_row.id
+        assert retired.retired is True
+        assert retired.activated is False
 
     def test_research_respects_the_active_measurement_limit(self) -> None:
         report = self._create_report()

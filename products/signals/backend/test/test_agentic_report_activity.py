@@ -34,7 +34,10 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.impact_measurement_plans import latest_measurement_plans
+from products.signals.backend.impact_measurement_plans import (
+    latest_measurement_plans,
+    persist_authored_measurement_plans,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -247,7 +250,14 @@ def test_disabled_authoring_preserves_existing_goal_only_for_the_same_measure():
 
 
 async def _run_activity_with_output(
-    monkeypatch, ateam, report, output, *, metrics_enabled=True, repo_selection_as_of=None
+    monkeypatch,
+    ateam,
+    report,
+    output,
+    *,
+    metrics_enabled=True,
+    repo_selection_as_of=None,
+    research_kwargs=None,
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
@@ -259,6 +269,8 @@ async def _run_activity_with_output(
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
+        if research_kwargs is not None:
+            research_kwargs.update(kwargs)
         return output
 
     monkeypatch.setattr(
@@ -1157,6 +1169,48 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+    plan = ImpactMeasurementPlan(
+        metric_id="affected-users",
+        title="Affected users",
+        kind="affected_users",
+        query=_metric().query,
+        value_format="count",
+        unit="users",
+        goal_value=0,
+        goal_direction="at_most",
+        decision_window_days=7,
+        activated=True,
+    )
+    row = await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=plan,
+        attribution=ArtefactAttribution.system(),
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report._load_previous_research",
+        AsyncMock(return_value=_build_research_output()),
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.team_expected_impact_authoring_enabled",
+        lambda team_id: True,
+    )
+    research_kwargs = {}
+
+    result = await _run_activity_with_output(
+        monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
+    )
+
+    assert research_kwargs["previous_measurement_plans"]["affected-users"] == (str(row.id), plan)
+    assert result.previous_measurement_plan_ids == {"affected-users": str(row.id)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "name,charts,expected",
     [
@@ -1236,6 +1290,45 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
         assert stored == [_EXISTING_METRIC]
     else:
         assert stored == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_mark_report_ready_activity_revises_existing_measurement_plan(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    original_metric = (
+        _metric()
+        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
+        .model_dump(mode="json")
+    )
+    await database_sync_to_async(persist_authored_measurement_plans)(
+        report, [original_metric], ArtefactAttribution.system()
+    )
+    previous_row, _ = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
+    revised_metric = {**original_metric, "goal_value": 7}
+
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Updated title",
+            summary="Updated expected impact",
+            processed_signal_count=2,
+            metrics=[revised_metric],
+            revise_measurement_plan_metric_ids=["affected-users"],
+            previous_measurement_plan_ids={"affected-users": str(previous_row.id)},
+        )
+    )
+
+    updated_row, revised = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
+    assert updated_row.id != previous_row.id
+    assert revised.goal_value == 7
+    assert revised.activated is False
 
 
 @pytest.mark.asyncio
