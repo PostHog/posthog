@@ -5,6 +5,7 @@ from typing import Any
 from django.db import InterfaceError, OperationalError
 from django.db.models import Q
 
+import structlog
 import posthoganalytics
 from rest_framework import serializers
 
@@ -14,6 +15,8 @@ from posthog.models.team.team import Team
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
+
+logger = structlog.get_logger(__name__)
 
 # Both charsets are enforced at write time (validate_prompt_name_value,
 # validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py),
@@ -476,4 +479,7 @@ def resolve_prompt_references(team: Team, content: str) -> str | None:
     try:
         return assemble_prompt_payload(team, {"name": "", "prompt": content})["prompt"]
     except Exception:
+        # A broken reference or a cache outage must not send a raw tag to the model, but
+        # the caller only sees None, so record why here to separate it from an absent prompt.
+        logger.warning("prompt_reference_resolution_failed", team_id=team.id, exc_info=True)
         return None
