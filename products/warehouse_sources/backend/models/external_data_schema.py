@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SOURCE_CURSOR_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -226,7 +227,9 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
-class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
+    ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
+):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataSchemaStatus
     SyncType = ExternalDataSchemaSyncType
@@ -263,7 +266,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -444,24 +447,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def sync_halted(self) -> bool:
         """True when syncing will not resume without user action."""
         return not self.should_sync or self.cdc_halted
-
-    @property
-    def xmin_last_value(self) -> int | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("xmin_last_value", None)
-        return None
-
-    @property
-    def xmin_ceiling(self) -> int | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("xmin_ceiling", None)
-        return None
-
-    @property
-    def xmin_num_wraparound(self) -> int | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("xmin_num_wraparound", None)
-        return None
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -991,7 +976,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             for key, value in (("last_value", last_value), ("earliest_value", earliest_value))
             if value is not None
         }
+        self._stage_cursor_values(run_uuid, values)
 
+    def stage_source_cursor(self, run_uuid: str, payload: dict[str, Any]) -> None:
+        """Hold a run's source cursor in `incremental_staged`, which the load side promotes with the watermark."""
+        self._stage_cursor_values(run_uuid, {SOURCE_CURSOR_KEY: payload})
+
+    def _stage_cursor_values(self, run_uuid: str, values: dict[str, Any]) -> None:
         def mutate(config: dict[str, Any]) -> None:
             live = config.get("incremental_staged", {})
             if live.get("run_uuid") == run_uuid:
@@ -1011,7 +1002,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         )
 
-    def promote_staged_incremental_values(self, run_uuid: str) -> bool:
+    def promote_staged_incremental_values(
+        self,
+        run_uuid: str,
+        merge_source_cursors: Callable[[Any, Any], dict[str, Any]] | None = None,
+    ) -> bool:
         """Move the staged cursor of `run_uuid` onto the live watermark keys.
 
         Returns True when a staged cursor for the run existed, in the live slot or the parked list.
@@ -1037,6 +1032,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )
+            if SOURCE_CURSOR_KEY in staged:
+                candidate = staged[SOURCE_CURSOR_KEY]
+                current = config.get(SOURCE_CURSOR_KEY)
+                if current is not None:
+                    if merge_source_cursors is None:
+                        raise ValueError("Source cursor promotion requires a merger when a cursor is already stored")
+                    candidate = merge_source_cursors(current, candidate)
+                config[SOURCE_CURSOR_KEY] = candidate
             if live is not None:
                 config.pop("incremental_staged", None)
 
@@ -1110,6 +1113,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             "partitioning_keys",
             "partition_mode",
             "backfilled_partition_format",
+            SOURCE_CURSOR_KEY,
+            # Cursor keys from before `source_cursor`. A source still reads them when it has no
+            # `source_cursor`, so a reset has to drop them too.
             "xmin_last_value",
             "xmin_ceiling",
             "xmin_num_wraparound",
@@ -1195,25 +1201,22 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # put back settings the user changed during the run.
             self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
 
-    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
-        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+    def update_source_cursor(self, payload: dict[str, Any]) -> None:
+        # Call only once the run's rows are durable: a mid-run crash then re-reads the window
         # instead of skipping it.
-        self.sync_type_config["xmin_last_value"] = ceiling_xid
-        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
-        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id, self.team_id, updates={SOURCE_CURSOR_KEY: payload}
+        )
 
-        if save:
-            self.save(skip_activity_log=True)
+    def clear_source_cursor(self, legacy_keys: Iterable[str] = ()) -> None:
+        """Drop the source cursor so the next run reads from the start of the source.
 
-    def clear_xmin_state(self, save: bool = True) -> None:
-        # Drops the cursor so the next run takes the backfill path and re-reads the whole table,
-        # upserting by primary key. Use it to repair a schema whose backfill missed rows.
-        self.sync_type_config.pop("xmin_last_value", None)
-        self.sync_type_config.pop("xmin_ceiling", None)
-        self.sync_type_config.pop("xmin_num_wraparound", None)
-
-        if save:
-            self.save(skip_activity_log=True)
+        `legacy_keys` names cursor keys from before `source_cursor`. Pass them for a source that
+        still reads them, or the next run reads its cursor from them instead.
+        """
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id, self.team_id, removes=[SOURCE_CURSOR_KEY, *legacy_keys]
+        )
 
     def soft_delete(self):
         self.deleted = True
@@ -1277,7 +1280,7 @@ def _align_epoch_cursor(value: Any, partner: Any) -> Any:
 def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
     """A run is live or parked, never both: only another run's staging parks it, and its own
     staging moves it back. Both happen under the row lock."""
-    if not staged.get("run_uuid") or not ({"last_value", "earliest_value"} & staged.keys()):
+    if not staged.get("run_uuid") or not ({"last_value", "earliest_value", SOURCE_CURSOR_KEY} & staged.keys()):
         return
     pending = [*config.get("incremental_staged_pending", []), staged]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
