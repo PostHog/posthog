@@ -34,7 +34,6 @@ from products.signals.backend.test.test_saved_case import SOURCE, write_case
 from products.signals.evals.agentic.rubric_session import RubricSession, SessionRubric
 from products.signals.evals.agentic.saved_case import SavedRepository, SavedScoutCase
 from products.signals.evals.saved_scout import SavedScoutSuite, main, require_private_path, run_saved_case
-from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_vars
 
 
 def test_private_case_rejects_tracked_file_and_symlink_to_it(tmp_path: Path) -> None:
@@ -287,9 +286,8 @@ class TestSavedScoutSuite(BaseTest):
                 self.assertEqual(str(client.base_url), f"http://localhost:{LLM_GATEWAY_PORT}/signals/")
                 self.assertEqual(settings.AI_GATEWAY_URL, "")
                 self.assertEqual(settings.AI_GATEWAY_API_KEY, "")
-                self.assertEqual(
-                    ai_gateway_env_vars(team_id=self.team.id, origin_product="signals_scout", internal=True), {}
-                )
+                self.assertEqual(settings.SANDBOX_AI_GATEWAY_URL, "")
+                self.assertEqual(settings.SANDBOX_AI_GATEWAY_PRODUCTS, [])
                 assert isinstance(client.api_key, str)
                 self.assertNotEqual(client.api_key, "original-dev-token")
                 key = await PersonalAPIKey.objects.aget(secure_value=hash_key_value(client.api_key))
