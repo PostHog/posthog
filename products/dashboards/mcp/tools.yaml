@@ -202,13 +202,13 @@ tools:
             descriptions, text tile bodies, widget configurations, and layout information. Widget tiles include a
             `widget` object with `widget_type` and `config` but no live data — use dashboard-widgets-run with tile IDs
             from this response. Insight query definitions are omitted by default to keep large dashboards within the
-            response budget — use insight-get with a tile's insight `short_id` to read one definition, or pass
-            `expand: ["tiles.*.insight.query"]` to include all of them (only on small dashboards). Insight results and
-            filters are omitted too — use dashboard-insights-run to fetch the actual data for every insight on the
-            dashboard in one call, or insight-query for a single insight. Supports
-            variables_override and filters_override query params; on this endpoint they affect only the merged `filters`
-            and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same
-            query params to dashboard-insights-run.
+            response budget — use insight-get with a tile's insight `short_id` to read one definition, or pass `expand:
+            ["tiles.*.insight.query"]` to include all of them (only on small dashboards). Insight results and filters
+            are omitted too — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in
+            one call, or insight-query for a single insight. Supports variables_override and filters_override query
+            params; on this endpoint they affect only the merged `filters` and `variables` fields in the response
+            (preview). To execute insights with the same overrides, pass the same query params to
+            dashboard-insights-run.
         param_overrides:
             id:
                 cast: string-int
@@ -280,9 +280,9 @@ tools:
                 - tiles.*.widget.last_modified_by.distinct_id
                 - tiles.*.widget.last_modified_by.is_email_verified
                 - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
             expandable:
                 - tiles.*.insight.query
-            strip_nulls: true
     dashboard-insights-run:
         operation: dashboards_run_insights_retrieve
         enabled: true
