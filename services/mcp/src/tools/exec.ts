@@ -156,7 +156,7 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
  * question "which capability do people reach for that we don't have" unanswerable.
  */
 export interface ExecCommandMeta {
-    /** The verb the agent used: `search`, `info`, `schema`, `tools`, `learn`, `call`. */
+    /** The verb the agent used: `help`, `search`, `info`, `schema`, `tools`, `learn`, `call`. */
     exec_verb: string
     /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
     exec_search_query?: string
@@ -242,7 +242,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -275,7 +275,33 @@ function parseCommand(input: string): { verb: string; rest: string } {
 
 /** A later line opening with one of these is what separates a batched request
  *  from a legitimately multi-line argument. */
-const EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+const EXEC_VERBS = new Set(['help', 'learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+const EXEC_COMMAND_HELP: Record<string, string> = {
+    help: 'help [command] — list commands or show usage for one command',
+    tools: 'tools — list available tool names',
+    search: 'search <words or regex_pattern> — find tools by name, title, or description',
+    info: 'info [--json] <tool_name> — show a tool description and input schema',
+    schema: 'schema <tool_name> [field_path] — inspect a tool input schema field',
+    call: 'call [--json] [--confirm] <tool_name> [json_input] — invoke a tool',
+}
+
+const LEARN_COMMAND_HELP = 'learn <topic...> — load learning topics or list available topics'
+
+function execHelp(command: string, learnEnabled: boolean): string {
+    const commands = learnEnabled ? { ...EXEC_COMMAND_HELP, learn: LEARN_COMMAND_HELP } : EXEC_COMMAND_HELP
+    if (!command) {
+        return Object.values(commands).join('\n')
+    }
+    const help = commands[command]
+    if (typeof help !== 'string') {
+        throw new ExecCommandError(
+            `Unknown command: "${command}". Run "help" to list available commands.`,
+            'unknown_command'
+        )
+    }
+    return help
+}
 
 /** Bounds on the rejection message, so a long batch or a large JSON body does
  *  not come back as a wall of text. */
@@ -426,7 +452,7 @@ export function parseExecCallInnerArgs(command: string): Record<string, unknown>
 
 /** Verbs the dispatcher grammar accepts. A verb outside this set is what the
  *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
-const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+const KNOWN_EXEC_VERBS = new Set(['help', 'learn', 'tools', 'search', 'info', 'schema', 'call'])
 
 /** Verbs whose first positional argument names a tool. */
 const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
@@ -1631,6 +1657,9 @@ export function createExecTool(
             }
 
             switch (verb) {
+                case 'help':
+                    return execHelp(rest, options.learnCatalog !== undefined)
+
                 case 'learn': {
                     // Before the availability check, so a rejected skill command still records its form.
                     options.trackCommand?.({ exec_verb: verb, ...classifyLearnCommand(rest) })
@@ -2091,7 +2120,7 @@ export function createExecTool(
                         )
                     }
                     throw new ExecCommandError(
-                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        `Unknown command: "${verb}". Run "help" to list available commands.`,
                         'unknown_command'
                     )
                 }
