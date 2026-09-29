@@ -35,4 +35,6 @@ RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccess
 
 # The scope objects a rule can name. The schema names the enum component ScopeObjectEnum through
 # ENUM_NAME_OVERRIDES, and the frontend derives its APIScopeObject type from that enum.
+# Keep every grantable scope object here. The scope pickers get their type from this enum, so a
+# narrower list would remove objects from the OAuth consent screen and the key picker.
 SCOPE_OBJECT_CHOICES: list[str] = list(GRANTABLE_API_SCOPE_OBJECTS)
