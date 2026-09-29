@@ -109,6 +109,11 @@ const meta: Meta<typeof LineageGraph> = {
 
 export default meta
 
+// The loading graph keeps its skeleton nodes on screen, so the test runner must not wait for them to go.
+const LOADING_PARAMETERS = {
+    testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.react-flow__node' },
+}
+
 export const Full: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="full" showControls />
@@ -122,6 +127,7 @@ export const Canvas: Story = {
 }
 
 export const Loading: Story = {
+    parameters: LOADING_PARAMETERS,
     render: () => (
         <LineageGraph
             nodes={GRAPH_NODES}
@@ -136,6 +142,7 @@ export const Loading: Story = {
 }
 
 export const LoadingFocused: Story = {
+    parameters: LOADING_PARAMETERS,
     render: () => (
         <LineageGraph
             nodes={GRAPH_NODES}
