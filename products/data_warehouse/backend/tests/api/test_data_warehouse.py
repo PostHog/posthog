@@ -247,6 +247,25 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(syncs[0]["status"], expected_status)
         self.assertEqual(syncs[0]["name"], "charges")
         self.assertEqual(syncs[0]["error"], "it broke")
+        # The source scene keys on a prefixed id, so a bare UUID renders a broken page.
+        self.assertEqual(syncs[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
+
+    def test_data_health_issues_links_a_failed_source_with_a_prefixed_id(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="broken-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+            status=ExternalDataSource.Status.ERROR,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        sources = [issue for issue in results if issue["type"] == "source"]
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
 
     def test_data_health_issues_ignores_a_sync_that_is_switched_off(self) -> None:
         # A table the user turned off is not a problem to report, however it last ended.
