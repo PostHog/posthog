@@ -23,7 +23,6 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { CANVAS_COMMENTS_FLAG } from "@posthog/shared";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -34,6 +33,7 @@ import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFram
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
+import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -45,7 +45,6 @@ import {
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
@@ -296,8 +295,7 @@ function CanvasBreadcrumb({
     dashboard?.generationTaskId,
     versions,
   );
-  const commentsEnabled =
-    useFeatureFlag(CANVAS_COMMENTS_FLAG) || !!commentTaskId;
+  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   const comments = useCommentsQuery(
     commentsEnabled ? commentTarget : null,
     commentTaskId ?? "",
