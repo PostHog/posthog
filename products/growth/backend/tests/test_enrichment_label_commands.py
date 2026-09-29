@@ -222,12 +222,13 @@ class TestKeysetPagination(_BatchCommandTestCase):
 
     @parameterized.expand(
         [
-            ("newest_first_under_a_limit", [5, 4, 3, 2, 1], 3, [2, 3, 4]),
-            ("ties_across_a_page_boundary", [1, 1, 1, 1, 1], None, [0, 1, 2, 3, 4]),
+            ("newest_first_under_a_limit", [5, 4, 3, 2, 1], {"limit": 3}, [2, 3, 4]),
+            ("ties_across_a_page_boundary", [1, 1, 1, 1, 1], {}, [0, 1, 2, 3, 4]),
+            ("older_than_the_lookback", [1, 15], {"lookback_days": 14}, [0]),
         ]
     )
-    def test_pages_walk_the_newest_fetches_first(
-        self, _name: str, ages_in_days: list[int], limit: int | None, labeled_indexes: list[int]
+    def test_walks_candidates_newest_first_within_the_lookback(
+        self, _name: str, ages_in_days: list[int], options: dict[str, int], labeled_indexes: list[int]
     ) -> None:
         self._config()
         now = timezone.now()
@@ -240,23 +241,10 @@ class TestKeysetPagination(_BatchCommandTestCase):
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
         ):
-            call_command("enrichment_label_batch", label="test_label", workers=1, limit=limit)
+            call_command("enrichment_label_batch", label="test_label", workers=1, **options)
 
         labeled = set(EnrichmentLabelResult.objects.values_list("organization_id", flat=True))
         assert labeled == {orgs[i].id for i in labeled_indexes}
-
-    def test_a_fetch_older_than_the_lookback_is_not_attempted(self):
-        self._config()
-        recent_org = Organization.objects.create(name="recent")
-        stale_org = Organization.objects.create(name="stale")
-        self._fetch(organization=recent_org)
-        self._fetch(organization=stale_org, fetched_at=timezone.now() - timedelta(days=15))
-        client = _mock_llm_client()
-
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
-            call_command("enrichment_label_batch", label="test_label", workers=1, lookback_days=14)
-
-        assert list(EnrichmentLabelResult.objects.values_list("organization_id", flat=True)) == [recent_org.id]
 
 
 class TestAdvisoryLock(_BatchCommandTestCase):
