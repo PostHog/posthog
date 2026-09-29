@@ -89,66 +89,67 @@ export function AccountsFilterGroups(): JSX.Element {
                 onClick={() => setExpanded(!expanded)}
                 data-attr="accounts-toggle-filter-groups"
             >
-                <span>Filters</span>
-                <LemonBadge.Number count={count} maxDigits={3} status="muted" />
+                <span className="flex items-center gap-2">
+                    <span>Filters</span>
+                    <LemonBadge.Number count={count} maxDigits={3} status="primary" />
+                </span>
             </LemonButton>
             {expanded && (
-                <div
-                    id={detailsId}
-                    className="w-full min-w-0 order-last flex flex-col gap-2"
+                <LemonCard
+                    hoverEffect={false}
+                    className="w-full min-w-0 order-last p-2 bg-surface-secondary"
                     data-attr="accounts-filter-details"
                 >
-                    <span className="text-xs text-muted">
-                        Search, tags, and assignment filters apply to every group.
-                    </span>
-                    {groups.map((filters, groupIndex) => (
-                        <Fragment key={groupIndex}>
-                            {groupIndex > 0 && (
-                                <div className="flex items-center gap-2" aria-label="OR">
-                                    <LemonDivider className="flex-1 my-0" />
-                                    <span className="text-xs font-semibold text-muted">OR</span>
-                                    <LemonDivider className="flex-1 my-0" />
-                                </div>
-                            )}
-                            <LemonCard
-                                hoverEffect={false}
-                                className="p-2 min-w-0 flex items-start gap-2"
-                                data-attr="accounts-filter-group"
-                            >
-                                <div className="flex-1 min-w-0">{renderFilters(filters, groupIndex)}</div>
-                                <LemonButton
-                                    size="xsmall"
-                                    icon={<IconTrash />}
-                                    aria-label={`Remove group ${String.fromCharCode(65 + groupIndex)}`}
-                                    tooltip="Remove group"
-                                    onClick={() =>
-                                        groupIndex === 0
-                                            ? removeFirstAccountFilterGroup()
-                                            : removeAccountFilterGroup(groupIndex - 1)
-                                    }
-                                    data-attr="accounts-remove-or-group"
-                                />
-                            </LemonCard>
-                        </Fragment>
-                    ))}
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        className="self-start"
-                        icon={<IconPlusSmall />}
-                        onClick={addAccountFilterGroup}
-                        disabledReason={
-                            groups.some((group) => group.length === 0)
-                                ? 'Add a condition to each group first'
-                                : groups.length >= 10
-                                  ? 'You can add up to 10 groups'
-                                  : undefined
-                        }
-                        data-attr="accounts-add-or-group"
-                    >
-                        Add OR group
-                    </LemonButton>
-                </div>
+                    <div id={detailsId} className="flex flex-col gap-2">
+                        {groups.map((filters, groupIndex) => (
+                            <Fragment key={groupIndex}>
+                                {groupIndex > 0 && (
+                                    <div className="flex items-center gap-2" aria-label="OR">
+                                        <LemonDivider className="flex-1 my-0" />
+                                        <span className="text-xs font-semibold text-muted">OR</span>
+                                        <LemonDivider className="flex-1 my-0" />
+                                    </div>
+                                )}
+                                <LemonCard
+                                    hoverEffect={false}
+                                    className="p-2 min-w-0 flex items-start gap-2"
+                                    data-attr="accounts-filter-group"
+                                >
+                                    <div className="flex-1 min-w-0">{renderFilters(filters, groupIndex)}</div>
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconTrash />}
+                                        aria-label={`Remove group ${String.fromCharCode(65 + groupIndex)}`}
+                                        tooltip="Remove group"
+                                        onClick={() =>
+                                            groupIndex === 0
+                                                ? removeFirstAccountFilterGroup()
+                                                : removeAccountFilterGroup(groupIndex - 1)
+                                        }
+                                        data-attr="accounts-remove-or-group"
+                                    />
+                                </LemonCard>
+                            </Fragment>
+                        ))}
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            className="self-start"
+                            icon={<IconPlusSmall />}
+                            onClick={addAccountFilterGroup}
+                            disabledReason={
+                                groups.some((group) => group.length === 0)
+                                    ? 'Add a condition to each group first'
+                                    : groups.length >= 10
+                                      ? 'You can add up to 10 groups'
+                                      : undefined
+                            }
+                            data-attr="accounts-add-or-group"
+                        >
+                            Add OR group
+                        </LemonButton>
+                    </div>
+                </LemonCard>
             )}
         </>
     )

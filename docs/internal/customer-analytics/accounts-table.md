@@ -15,7 +15,7 @@ Filters within each group use AND, while search, tags, assignment status, and se
 Saved views and shared links keep the groups; older views without groups retain their AND behavior.
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
 
-The toolbar keeps a Filters button with a condition count. The button highlights while the compact groups are open below it.
+The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
 Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
 Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
