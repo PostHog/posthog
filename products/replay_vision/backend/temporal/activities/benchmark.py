@@ -1,7 +1,6 @@
 """Activities that build a labeling benchmark version: snapshot the labels, then prepare and record each case."""
 
 import json
-import hashlib
 from typing import IO, cast
 
 import zstandard
@@ -15,7 +14,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.rasterize im
 from posthog.temporal.session_replay.rasterize_recording.types import FINGERPRINT_EXCLUDE, RasterizationActivityInput
 
 from products.replay_vision.backend.benchmark.labeling_api import LabelingExportClient
-from products.replay_vision.backend.benchmark.layout import BenchmarkCase, BenchmarkLayout
+from products.replay_vision.backend.benchmark.layout import BenchmarkCase, BenchmarkLayout, sample_case_ids
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import analysis_export_context
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_payload
@@ -78,9 +77,8 @@ def _snapshot(inputs: SnapshotBenchmarkInputs) -> SnapshotBenchmarkOutput:
     snapshot = LabelingExportClient.from_settings().snapshot()
     cases = snapshot.cases
     if inputs.recording_limit is not None:
-        # Hash order rather than id order, so a small version is a sample, not the oldest recordings.
-        cases = sorted(cases, key=lambda case: hashlib.sha256(case.case_id.encode()).hexdigest())
-        cases = sorted(cases[: inputs.recording_limit], key=lambda case: case.case_id)
+        sampled = set(sample_case_ids((case.case_id for case in cases), inputs.recording_limit))
+        cases = [case for case in cases if case.case_id in sampled]
     kept = {case.case_id for case in cases}
     cells = [cell for cell in snapshot.cells if cell.recording_id in kept]
 

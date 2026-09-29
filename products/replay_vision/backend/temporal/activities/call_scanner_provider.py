@@ -284,12 +284,12 @@ async def run_scan(
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
-    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
-    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
+    The activity path above loads the snapshot and inputs from the observation row and Redis; the labeling
+    benchmark suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
     tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
     silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
     before calling this; any other caller must do the same before recording data reaches the provider (the eval
-    suite is covered because dataset collection is consent-gated and time-boxed).
+    suite is covered because the benchmark build is consent-gated and its local copy is time-boxed).
     """
     # Built before the preamble so one object decides both the wording and the tool list, which keeps the
     # prompt from describing a tool the conversation does not carry.

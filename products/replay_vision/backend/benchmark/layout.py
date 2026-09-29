@@ -1,8 +1,19 @@
 """Where a benchmark version's objects live. A version is written once and never edited; a refresh is a new version."""
 
+import hashlib
+from collections.abc import Iterable
+
 from django.conf import settings
 
 from pydantic import BaseModel, Field
+
+# The fast tier's size: a fixed sample of a version's built cases, for iterating on a prompt.
+FAST_TIER_SIZE = 50
+
+
+def sample_case_ids(case_ids: Iterable[str], size: int) -> list[str]:
+    """A fixed sample in hash order, so a small set is a sample rather than the oldest recordings."""
+    return sorted(sorted(case_ids, key=lambda case_id: hashlib.sha256(case_id.encode()).hexdigest())[:size])
 
 
 class BenchmarkCase(BaseModel, frozen=True):
@@ -20,9 +31,9 @@ class BenchmarkCase(BaseModel, frozen=True):
 
 
 class BenchmarkLayout:
-    def __init__(self, version: str) -> None:
-        self.bucket = settings.REPLAY_VISION_BENCHMARK_BUCKET
-        self.root = f"{settings.REPLAY_VISION_BENCHMARK_PREFIX}/{version}"
+    def __init__(self, version: str, *, bucket: str | None = None, prefix: str | None = None) -> None:
+        self.bucket = settings.REPLAY_VISION_BENCHMARK_BUCKET if bucket is None else bucket
+        self.root = f"{settings.REPLAY_VISION_BENCHMARK_PREFIX if prefix is None else prefix}/{version}"
 
     @property
     def manifest_key(self) -> str:

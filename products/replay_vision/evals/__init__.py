@@ -1,1 +1,1 @@
-"""Replay Vision golden-dataset eval suites (see README.md in this directory)."""
+"""Replay Vision eval suites (see README.md in this directory)."""

@@ -1,6 +1,9 @@
 import io
 import gzip
+import json
 import uuid
+import pathlib
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -24,9 +27,12 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
 )
 
 from products.replay_vision.backend.benchmark import labeling_api
-from products.replay_vision.backend.benchmark.consensus import Question, cell_consensus
 from products.replay_vision.backend.benchmark.labeling_api import LabelingExportClient, build_snapshot
-from products.replay_vision.backend.benchmark.layout import BenchmarkCase
+from products.replay_vision.backend.benchmark.labels import Question, comparable_answer
+from products.replay_vision.backend.benchmark.layout import BenchmarkCase, BenchmarkLayout
+from products.replay_vision.backend.benchmark.local import LocalBenchmark, pull_version
+from products.replay_vision.backend.benchmark.questions import WHOLE_QUESTION, answer_from_outputs, scan_requests
+from products.replay_vision.backend.benchmark.scoring import labeler_agreement, similarity
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
 from products.replay_vision.backend.temporal import benchmark_workflow
 from products.replay_vision.backend.temporal.activities import benchmark as benchmark_activities
@@ -46,6 +52,7 @@ from products.replay_vision.backend.temporal.benchmark_types import (
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.constants import BUILD_BENCHMARK_WORKFLOW_NAME
 from products.replay_vision.backend.temporal.errors import IneligibleSessionError
+from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.types import EventTable, ScannerLlmInputs, SessionMetadata
 
 REC_1, REC_2, REC_3 = (f"00000000-0000-4000-8000-00000000000{i}" for i in range(1, 4))
@@ -56,81 +63,169 @@ def _question(kind: str, **definition: Any) -> Question:
     return Question(question_id="q1", version=3, type=kind, definition=definition)
 
 
-def _span_label(*spans: tuple[int, int]) -> dict[str, Any]:
-    return {"items": [{"itemId": str(i), "startMs": start, "endMs": end} for i, (start, end) in enumerate(spans)]}
-
-
 @parameterized.expand(
     [
-        ("binary_majority", _question("binary"), [{"choice": True}] * 2 + [{"choice": False}], {"choice": True}),
-        ("binary_tie_is_not_ground_truth", _question("binary"), [{"choice": True}, {"choice": False}], None),
+        ("binary_keeps_a_real_boolean", _question("binary"), {"choice": True}, {"choice": True}),
+        ("binary_without_a_choice_is_no_answer", _question("binary"), {"choice": None}, None),
         (
-            "ordinal_takes_the_median",
-            _question("multiple_choice", ordinal=True, options=[{}, {}, {}, {}]),
-            [{"choiceIndices": [0]}, {"choiceIndices": [2]}, {"choiceIndices": [3]}],
-            {"choiceIndices": [2]},
-        ),
-        (
-            "multi_select_keeps_options_most_labelers_chose",
-            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
-            [{"choiceIndices": [0, 1]}, {"choiceIndices": [0]}, {"choiceIndices": [0, 2]}],
-            {"choiceIndices": [0]},
-        ),
-        (
-            "multi_select_disagreement_is_not_consensus",
-            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
-            [{"choiceIndices": [0, 1]}, {"choiceIndices": [2]}],
+            "single_choice_with_two_picks_is_no_answer",
+            _question("multiple_choice", options=[{}, {}, {}]),
+            {"choiceIndices": [0, 2]},
             None,
         ),
         (
-            "multi_select_most_choosing_none_is_an_answer",
-            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
-            [{"choiceIndices": []}, {"choiceIndices": []}, {"choiceIndices": [1]}],
-            {"choiceIndices": []},
-        ),
-        (
-            "span_moment_needs_two_labelers",
-            _question("itemized"),
-            [_span_label((1_000, 4_000), (30_000, 31_000)), _span_label((1_500, 5_000)), {"items": []}],
-            {"present": True, "moments": [{"startMs": 1_250, "endMs": 4_500, "labelers": 2}]},
-        ),
-        (
-            "ordinal_split_between_two_values_is_not_consensus",
-            _question("multiple_choice", ordinal=True, options=[{}, {}, {}, {}]),
-            [{"choiceIndices": [0]}, {"choiceIndices": [3]}],
+            "choice_outside_the_options_is_no_answer",
+            _question("multiple_choice", multiple=True, options=[{}, {}]),
+            {"choiceIndices": [0, 5]},
             None,
+        ),
+        (
+            "rating_that_is_not_an_integer_or_is_off_scale_is_dropped",
+            _question("multiple_choice", optionScale={"max": 5}, options=[{"optionId": "a"}]),
+            {"ratings": {"a": 4, "b": None, "c": 9, "d": True}},
+            {"ratings": {"a": 4}},
         ),
         (
             "span_with_a_boolean_edge_is_dropped",
             _question("itemized"),
-            [_span_label((1_000, 4_000)), _span_label((1_500, 5_000)), {"items": [{"startMs": True, "endMs": 9}]}],
-            {"present": True, "moments": [{"startMs": 1_250, "endMs": 4_500, "labelers": 2}]},
+            {"items": [{"startMs": 1_000, "endMs": 4_000}, {"startMs": True, "endMs": 9}]},
+            {"present": True, "moments": [{"startMs": 1_000, "endMs": 4_000}]},
         ),
         (
-            "rating_that_is_not_an_integer_or_is_off_scale_is_no_answer",
-            _question("multiple_choice", optionScale={"max": 5}, options=[{"optionId": "a"}]),
-            [
-                {"ratings": {"a": 4}},
-                {"ratings": {"a": 4}},
-                {"ratings": {"a": None}},
-                {"ratings": {"a": 9}},
-                {"ratings": {"a": 9}},
-            ],
-            {"ratings": {"a": 4}},
+            "no_markers_means_absent",
+            _question("timeline_marking"),
+            {"markers": []},
+            {"present": False, "moments": []},
         ),
-        ("single_label_is_not_consensus", _question("binary"), [{"choice": True}], None),
-        ("free_text_has_no_consensus", _question("freeform_long"), [{"response": "a"}, {"response": "a"}], None),
+        ("free_text_is_not_comparable", _question("freeform_long"), {"response": "a"}, None),
     ]
 )
-def test_majority_consensus(
-    _name: str, question: Question, labels: list[dict[str, Any]], expected: dict[str, Any] | None
+def test_comparable_answer(
+    _name: str, question: Question, label: dict[str, Any], expected: dict[str, Any] | None
 ) -> None:
-    consensus = cell_consensus(question, REC_1, labels)
-    if expected is None:
-        assert consensus is None
-    else:
-        assert consensus is not None
-        assert {key: consensus.answer[key] for key in expected} == expected
+    assert comparable_answer(question, label) == expected
+
+
+def _moments(*spans: tuple[int, int]) -> dict[str, Any]:
+    return {"present": bool(spans), "moments": [{"startMs": start, "endMs": end} for start, end in spans]}
+
+
+@parameterized.expand(
+    [
+        (
+            "ordinal_scores_by_distance_on_the_scale",
+            _question("multiple_choice", ordinal=True, options=[{}, {}, {}, {}, {}]),
+            {"choiceIndices": [1]},
+            {"choiceIndices": [3]},
+            0.5,
+        ),
+        (
+            "multi_select_scores_the_overlap",
+            _question("multiple_choice", multiple=True, options=[{}, {}, {}]),
+            {"choiceIndices": [0, 1]},
+            {"choiceIndices": [1, 2]},
+            1 / 3,
+        ),
+        (
+            "ratings_compare_only_options_both_rated",
+            _question("multiple_choice", optionScale={"max": 5}, options=[{"optionId": "a"}, {"optionId": "b"}]),
+            {"ratings": {"a": 5, "b": 1}},
+            {"ratings": {"a": 4}},
+            0.75,
+        ),
+        ("spans_disagreeing_on_presence_score_zero", _question("itemized"), _moments((0, 1)), _moments(), 0.0),
+        ("spans_both_absent_agree", _question("itemized"), _moments(), _moments(), 1.0),
+        (
+            # A citation within the tolerance of a marked moment hits it; the second marked moment is missed.
+            "citation_near_a_moment_counts_and_a_missed_moment_costs_recall",
+            _question("timeline_marking"),
+            _moments((5_500, 5_500)),
+            _moments((1_000, 4_000), (30_000, 31_000)),
+            2 / 3,
+        ),
+    ]
+)
+def test_similarity(
+    _name: str, question: Question, answer: dict[str, Any], reference: dict[str, Any], expected: float
+) -> None:
+    assert similarity(question, answer, reference) == pytest.approx(expected)
+
+
+@parameterized.expand(
+    [
+        ("each_labeler_against_the_others", [{"choice": True}, {"choice": True}, {"choice": False}], 1 / 3),
+        ("one_labeler_has_nobody_to_agree_with", [{"choice": True}], None),
+    ]
+)
+def test_labeler_agreement(_name: str, labels: list[dict[str, Any]], expected: float | None) -> None:
+    assert labeler_agreement(_question("binary"), labels) == (pytest.approx(expected) if expected is not None else None)
+
+
+@parameterized.expand(
+    [
+        (
+            "monitor_citations_become_moments",
+            _question("timeline_marking"),
+            {
+                WHOLE_QUESTION: {
+                    "verdict": "yes",
+                    "reasoning_segments": [{"kind": "text", "value": "x"}, {"kind": "chip", "timestamp_ms": 12_000}],
+                }
+            },
+            {"present": True, "moments": [{"startMs": 12_000, "endMs": 12_000}]},
+        ),
+        (
+            "classifier_picking_two_options_on_a_single_choice_is_no_answer",
+            _question("multiple_choice", options=[{"label": "Pricing"}, {"label": "Docs"}]),
+            {WHOLE_QUESTION: {"tags": ["Pricing", "Docs"]}},
+            None,
+        ),
+        (
+            "scores_round_onto_the_rating_scale",
+            _question("multiple_choice", optionScale={"max": 5}, options=[{"optionId": "a"}, {"optionId": "b"}]),
+            {"a": {"score": 3.6}, "b": {"score": 7.0}},
+            {"ratings": {"a": 4, "b": 5}},
+        ),
+    ]
+)
+def test_answer_from_outputs(
+    _name: str, question: Question, outputs: dict[str, dict[str, Any]], expected: dict[str, Any] | None
+) -> None:
+    assert answer_from_outputs(question, outputs) == expected
+
+
+@parameterized.expand(
+    [
+        ("binary_runs_one_monitor", "binary", {}, [WHOLE_QUESTION]),
+        ("timeline_runs_one_monitor", "timeline_marking", {}, [WHOLE_QUESTION]),
+        (
+            "choice_runs_one_classifier",
+            "multiple_choice",
+            {"options": [{"label": "A"}, {"label": "B"}]},
+            [WHOLE_QUESTION],
+        ),
+        (
+            "rating_scale_runs_one_scorer_per_option",
+            "multiple_choice",
+            {"optionScale": {"max": 5}, "options": [{"optionId": "a", "label": "A"}, {"optionId": "b", "label": "B"}]},
+            ["a", "b"],
+        ),
+        # The classifier pins its options as an enum, so a repeated label would fail every scan of the question.
+        (
+            "repeated_option_labels_cannot_be_asked",
+            "multiple_choice",
+            {"options": [{"label": "Y"}, {"label": "Y"}]},
+            [],
+        ),
+    ]
+)
+def test_scan_requests(_name: str, kind: str, definition: dict[str, Any], expected_keys: list[str]) -> None:
+    requests = scan_requests(_question(kind, prompt="How was it?", **definition), "gemini-3-flash-preview")
+
+    assert [request.key for request in requests] == expected_keys
+    # Each config must pass the production scanner validation, or every scan of the question fails.
+    for request in requests:
+        scanner_from_snapshot(request.snapshot)
 
 
 def _raw(body: bytes) -> MagicMock:
@@ -177,7 +272,7 @@ def test_snapshot_keeps_v2_recordings_and_current_question_versions() -> None:
         "sessionRef": "s1",
         "idKind": "real",
         "siteBrief": None,
-        # Two current answers say no; two answers to the old wording say yes and must not outvote them.
+        # Two current answers say no; the two answers to the old wording must not be pooled with them.
         "labels": [answer(0, 2, False), answer(1, 2, False), answer(2, 1, True), answer(3, None, True)],
     }
     unanswered_now = {**recording, "recordingId": REC_2, "labels": [answer(0, 1, True), answer(1, 1, True)]}
@@ -186,10 +281,63 @@ def test_snapshot_keeps_v2_recordings_and_current_question_versions() -> None:
 
     snapshot = build_snapshot(questions, [recording, unanswered_now, v1])
 
-    assert [(cell.recording_id, cell.answer["choice"], cell.label_count) for cell in snapshot.cells] == [
-        (REC_1, False, 2)
-    ]
+    assert [(cell.recording_id, cell.answers) for cell in snapshot.cells] == [(REC_1, [{"choice": False}] * 2)]
     assert [(case.case_id, case.team_id, case.session_id) for case in snapshot.cases] == [(REC_1, 2, "s1")]
+
+
+class _FakeS3:
+    class exceptions:
+        class ClientError(Exception):
+            def __init__(self, code: str) -> None:
+                self.response = {"Error": {"Code": code}}
+
+        class NoSuchKey(Exception):
+            pass
+
+    def __init__(self, objects: dict[tuple[str, str], bytes]) -> None:
+        self.objects = objects
+
+    def head_object(self, Bucket: str, Key: str) -> None:
+        if (Bucket, Key) not in self.objects:
+            raise self.exceptions.ClientError("404")
+
+    def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+        if (Bucket, Key) not in self.objects:
+            raise self.exceptions.NoSuchKey()
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
+
+    def download_file(self, bucket: str, key: str, path: str) -> None:
+        pathlib.Path(path).write_bytes(self.objects[(bucket, key)])
+
+
+def test_a_pulled_copy_holds_only_built_cases_and_expires(tmp_path: pathlib.Path) -> None:
+    layout = BenchmarkLayout("v1", bucket="bench", prefix="rvb")
+    built, failed, unrecorded = CASE_IDS[:3]
+    render = RasterizationActivityOutput(s3_uri="s3://videos/built.mp4", video_duration_s=10, playback_speed=1)
+    objects = {
+        (layout.bucket, layout.manifest_key): b"{}",
+        (layout.bucket, layout.questions_key): b"[]",
+        (layout.bucket, layout.labels_key): b"",
+        (layout.bucket, layout.cases_key): "\n".join(
+            BenchmarkCase(case_id=case_id, split=None, domain=None, team_id=2, session_id="s").model_dump_json()
+            for case_id in (built, failed, unrecorded)
+        ).encode(),
+        (layout.bucket, layout.status_key(built)): json.dumps(
+            {"outcome": "built", "render": render.model_dump(mode="json")}
+        ).encode(),
+        (layout.bucket, layout.status_key(failed)): b'{"outcome": "failed"}',
+        (layout.bucket, layout.inputs_key(built)): PRODUCTION_INPUTS.model_dump_json().encode(),
+        ("videos", "built.mp4"): b"mp4",
+    }
+    pulled_at = dt.datetime(2026, 9, 1, tzinfo=dt.UTC)
+
+    pull_version(_FakeS3(objects), layout, "full", tmp_path, pulled_at)
+    copy = LocalBenchmark.load(tmp_path, pulled_at + dt.timedelta(days=1))
+
+    assert [case.case_id for case in copy.cases] == [built]
+    assert copy.video_path(built).read_bytes() == b"mp4"
+    with pytest.raises(RuntimeError, match="older than 30 days"):
+        LocalBenchmark.load(tmp_path, pulled_at + dt.timedelta(days=31))
 
 
 PRODUCTION_INPUTS = ScannerLlmInputs(

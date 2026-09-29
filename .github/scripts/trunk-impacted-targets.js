@@ -366,7 +366,6 @@ const TRIPWIRE_RULES = [
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
     ['.github/workflows/ci-ai.yml', PYTHON],
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
