@@ -44,6 +44,15 @@ class CompletedActivityQuerySerializer(PipelineActivityQuerySerializer):
         default="completed",
         help_text="Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.",
     )
+    kind = serializers.ChoiceField(
+        choices=["all", "import", "model"],
+        required=False,
+        default="all",
+        help_text=(
+            "Which runs to return: 'import' for warehouse source syncs, 'model' for materialized "
+            "view runs, 'all' for both. Defaults to 'all'."
+        ),
+    )
 
 
 class JobCountsSerializer(serializers.Serializer):
@@ -134,9 +143,19 @@ class DataHealthIssueSerializer(serializers.Serializer):
     source_type = serializers.CharField(
         allow_null=True, required=False, help_text="Source type for a sync issue, for example 'Stripe'."
     )
+    sync_type = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. "
+            "A webhook table is pushed to rather than pulled on a schedule. Null for other types."
+        ),
+    )
     status = serializers.CharField(help_text="Why it is unhealthy. One of: failed, disabled, degraded, billing_limit.")
     error = serializers.CharField(allow_null=True, help_text="The error, where one was recorded.")
-    failed_at = serializers.DateTimeField(allow_null=True, help_text="When it last failed.")
+    failed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When a sync issue's table last synced successfully. Null if it never has."
+    )
     url = serializers.CharField(allow_null=True, help_text="Where to go to fix it.")
 
 
