@@ -94,6 +94,18 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
         self.assertEqual(config.updated_at, updated_at)
 
+        config.pinned_custom_property_definition_ids = []
+        config.save(update_fields=["pinned_custom_property_definition_ids"])
+        self.assertEqual(self.client.get(self.endpoint).json(), config_body(project_config.default_pinned_properties))
+        config.refresh_from_db()
+        self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
+
+        cleared = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
+        self.assertEqual(cleared.json(), config_body([]))
+        config.refresh_from_db()
+        self.assertTrue(config.properties["pinned_properties_override"])
+        self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
+
     def test_get_migrates_legacy_custom_property_ids_in_order(self) -> None:
         first = self._custom_property()
         second = self._custom_property()
@@ -153,6 +165,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(cleared.json(), config_body([]))
         config.refresh_from_db()
         self.assertEqual(config.properties["pinned_properties"], [])
+        self.assertTrue(config.properties["pinned_properties_override"])
         self.assertEqual(config.pinned_custom_property_definition_ids, [])
 
     def test_config_is_isolated_by_requesting_user_and_project(self) -> None:

@@ -1,1 +1,1 @@
-0060_inherit_default_pinned_properties
+0059_teamcustomeranalyticsconfig_default_pinned_properties

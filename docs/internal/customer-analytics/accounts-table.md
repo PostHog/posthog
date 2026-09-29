@@ -6,10 +6,10 @@ Project admins choose an ordered set of default pinned properties under Customer
 The defaults can include account custom properties and relationships.
 They appear in account detail sidebars and expanded Accounts rows until a user saves a personal selection.
 
-The user configuration inherits when its `properties` object has no `pinned_properties` key.
+The user configuration inherits when it has no personal selection, including historical empty lists without an override marker or legacy pinned IDs.
 Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
-A personal save stores the complete ordered list.
-An explicit empty list means the user chose no pinned properties and no longer inherits project changes.
+A personal save stores the complete ordered list and an override marker.
+A saved empty list means the user chose no pinned properties and no longer inherits project changes.
 
 ## Query scheduling
 

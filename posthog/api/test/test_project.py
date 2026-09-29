@@ -25,7 +25,6 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.customer_analytics.backend.models import CustomPropertyDefinition, TargetType
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -1094,12 +1093,13 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_customer_analytics_config_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        definition = CustomPropertyDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            name="Annual recurring revenue",
-            target_type=TargetType.ACCOUNT.value,
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
         )
-        default_pins = [{"kind": "custom_property", "id": str(definition.id)}]
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
@@ -1125,12 +1125,13 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_customer_analytics_default_pins_reject_invalid_references(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        definition = CustomPropertyDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            name="Annual recurring revenue",
-            target_type=TargetType.ACCOUNT.value,
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
         )
-        reference = {"kind": "custom_property", "id": str(definition.id)}
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        reference = {"kind": "custom_property", "id": definition_response.json()["id"]}
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",

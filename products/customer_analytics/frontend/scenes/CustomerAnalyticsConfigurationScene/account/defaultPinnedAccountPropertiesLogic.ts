@@ -103,14 +103,14 @@ export interface defaultPinnedAccountPropertiesLogicMeta {
             relationshipDefinitionsLoading: boolean
         ) => boolean
         definitionsLoadFailed: (
-            customPropertyDefinitionsLoadFailed: any,
-            relationshipDefinitionsLoadFailed: any
+            customPropertyDefinitionsLoadFailed: boolean,
+            relationshipDefinitionsLoadFailed: boolean
         ) => boolean
         canSave: (
             isOpen: boolean,
             saving: boolean,
             definitionsLoading: boolean,
-            definitionsLoadFailed: any,
+            definitionsLoadFailed: boolean,
             draftPinnedPropertyKeys: string[],
             defaultPinnedProperties: PinnedAccountPropertyApi[]
         ) => boolean

@@ -42,7 +42,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
-            waitForSelector: '[data-attr="account-pinned-properties-list"]',
+            waitForSelector: '[data-attr="configure-default-pinned-account-properties"]',
         },
     },
     decorators: [

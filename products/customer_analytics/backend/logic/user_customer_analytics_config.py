@@ -13,6 +13,7 @@ from products.customer_analytics.backend.logic.account_property_pins import vali
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig, UserCustomerAnalyticsConfig
 
 PINNED_PROPERTIES_KEY = "pinned_properties"
+PINNED_PROPERTIES_OVERRIDE_KEY = "pinned_properties_override"
 TASK_DIGEST_KEY = "task_digest"
 DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
 
@@ -57,6 +58,7 @@ def update_pinned_properties(
     config.properties = {
         **config.properties,
         PINNED_PROPERTIES_KEY: [{"kind": kind.value, "id": str(definition_id)} for kind, definition_id in references],
+        PINNED_PROPERTIES_OVERRIDE_KEY: True,
     }
     config.pinned_custom_property_definition_ids = [
         definition_id for kind, definition_id in references if kind == AccountPropertyPinKind.CUSTOM_PROPERTY
@@ -67,7 +69,11 @@ def update_pinned_properties(
 
 def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> list[dict[str, str]]:
     stored = config.properties.get(PINNED_PROPERTIES_KEY)
-    if isinstance(stored, list):
+    if isinstance(stored, list) and (
+        stored
+        or config.properties.get(PINNED_PROPERTIES_OVERRIDE_KEY) is True
+        or config.pinned_custom_property_definition_ids
+    ):
         return cast(list[dict[str, str]], stored)
     defaults = (
         TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
