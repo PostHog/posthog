@@ -118,7 +118,7 @@ class TestInsightViewedCompatibility(BaseTest):
             assert context.last_viewed_at == earlier
             recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=1)
             assert [item.pk for item in recent] == [insight.pk]
-            assert recent[0].last_viewed_at == latest
+            assert vars(recent[0])["last_viewed_at"] == latest
             assert recent_viewers_by_insight(
                 team_id=self.team.pk, insight_ids=[insight.pk], since=earlier, max_per_insight=5
             ) == {insight.pk: [self.user]}
