@@ -227,7 +227,9 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
-class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
+    ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
+):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataSchemaStatus
     SyncType = ExternalDataSchemaSyncType
