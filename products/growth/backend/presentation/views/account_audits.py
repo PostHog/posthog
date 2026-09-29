@@ -1,14 +1,12 @@
 import base64
 import binascii
 from datetime import timedelta
-from io import BytesIO
 from typing import Any
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -45,14 +43,16 @@ class AccountAuditStartRequestSerializer(serializers.Serializer):
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         field_types = {"organization_id": str, "team_id": int, "reason": str, "skill_name": str}
         if not isinstance(data, dict) or set(data) - field_types.keys():
-            raise serializers.ValidationError("Expected an object containing only supported audit parameters.")
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Expected an object containing only supported audit parameters."]}
+            )
         if any(type(value) is not field_types[key] for key, value in data.items()):
-            raise serializers.ValidationError("Audit parameters have invalid types.")
+            raise serializers.ValidationError({"non_field_errors": ["Audit parameters have invalid types."]})
         return super().to_internal_value(data)
 
 
 class AccountAuditStartResponseSerializer(serializers.Serializer):
-    workflow_id = serializers.UUIDField(help_text="Started account audit workflow ID.")
+    task_run_id = serializers.UUIDField(help_text="Native task run executing the account audit.")
     team_id = serializers.IntegerField(help_text="Resolved target team ID.")
 
 
@@ -64,6 +64,7 @@ class AccountAuditConflictSerializer(serializers.Serializer):
 class AccountAuditStartViewSet(viewsets.ViewSet):
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
+    parser_classes = [JSONParser]
     scope_object = "INTERNAL"
 
     @extend_schema(
@@ -104,12 +105,12 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         ):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
-        payload = self._payload(raw_body)
-        if payload is None:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+        serializer = AccountAuditStartRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = AccountAuditRequest(**{"team_id": None, **serializer.validated_data})
         result = AccountAuditService.start(payload, public_key_id, webhook_id)
         if result.status == "accepted":
-            return Response({"workflow_id": str(result.workflow_id), "team_id": result.team_id}, status=202)
+            return Response({"task_run_id": str(result.task_run_id), "team_id": result.team_id}, status=202)
         if result.status == "cooldown":
             return Response(
                 {
@@ -140,22 +141,10 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         signature: str | None,
         raw_body: bytes,
     ) -> bool:
-        if timestamp is None or signature is None:
-            return False
-        try:
-            int(timestamp)
-        except ValueError:
-            return False
-        version, separator, encoded_signature = signature.partition(",")
-        if version != "v1" or not separator or not encoded_signature:
-            return False
         secret = signing_secret.removeprefix("whsec_")
         try:
             signing_key = base64.b64decode(secret, validate=True)
-            base64.b64decode(encoded_signature, validate=True)
         except (ValueError, binascii.Error):
-            return False
-        if len(signing_key) < 24:
             return False
         scheme = HmacSha256(
             secret_getter=lambda: signing_key,
@@ -171,23 +160,11 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         return (
             scheme.verify(
                 body=raw_body,
-                headers={"webhook-id": webhook_id, "webhook-timestamp": timestamp, "webhook-signature": signature},
+                headers={
+                    "webhook-id": webhook_id,
+                    "webhook-timestamp": timestamp or "",
+                    "webhook-signature": signature or "",
+                },
             ).outcome
             == VerificationOutcome.VERIFIED
-        )
-
-    @staticmethod
-    def _payload(raw_body: bytes) -> AccountAuditRequest | None:
-        try:
-            payload = JSONParser().parse(BytesIO(raw_body))
-        except ParseError:
-            return None
-        serializer = AccountAuditStartRequestSerializer(data=payload)
-        if not serializer.is_valid():
-            return None
-        return AccountAuditRequest(
-            organization_id=serializer.validated_data["organization_id"],
-            team_id=serializer.validated_data.get("team_id"),
-            reason=serializer.validated_data["reason"],
-            skill_name=serializer.validated_data["skill_name"],
         )

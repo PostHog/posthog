@@ -105,7 +105,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
-from products.growth.backend.facade.tasks import retry_account_audit_dispatches
+from products.growth.backend.facade.tasks import reconcile_account_audits
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
@@ -265,7 +265,7 @@ def add_periodic_task_with_expiry(
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
-        sender, crontab(minute="*"), retry_account_audit_dispatches.s(), name="retry-account-audit-dispatches"
+        sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")

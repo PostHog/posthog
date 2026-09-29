@@ -35,8 +35,8 @@ class AccountAuditAdmission(models.Model):
     skill_name = models.CharField(
         max_length=64, default="onboarding-account-audit", db_default="onboarding-account-audit"
     )
-    workflow_id = models.UUIDField(default=uuid4, unique=True, editable=False)
-    dispatched_at = models.DateTimeField(null=True, blank=True)
+    task_run_id = models.UUIDField(unique=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = TeamScopedManager()

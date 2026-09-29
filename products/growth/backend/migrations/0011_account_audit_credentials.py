@@ -44,7 +44,15 @@ class Migration(migrations.Migration):
                 ("webhook_id", models.CharField(max_length=255)),
                 ("organization_id", models.UUIDField()),
                 ("team_id", models.BigIntegerField()),
-                ("workflow_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("task_run_id", models.UUIDField(unique=True)),
+                ("reason", models.CharField(db_default="", default="", max_length=500)),
+                (
+                    "skill_name",
+                    models.CharField(
+                        db_default="onboarding-account-audit", default="onboarding-account-audit", max_length=64
+                    ),
+                ),
+                ("finalized_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "credential",

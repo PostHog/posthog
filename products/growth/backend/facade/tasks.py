@@ -1,3 +1,3 @@
-from products.growth.backend.tasks import retry_account_audit_dispatches
+from products.growth.backend.tasks import reconcile_account_audits
 
-__all__ = ["retry_account_audit_dispatches"]
+__all__ = ["reconcile_account_audits"]

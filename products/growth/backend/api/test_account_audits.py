@@ -6,6 +6,7 @@ import hashlib
 from contextlib import contextmanager
 from datetime import timedelta
 from io import StringIO
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import time_machine
@@ -20,9 +21,8 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
@@ -91,12 +91,12 @@ class TestAccountAuditStartAPI(APIBaseTest):
                 "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
             patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
-            patch("products.growth.backend.account_audits.async_to_sync", return_value=MagicMock()) as dispatch,
+            patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
             yield eligible, actor, skill, dispatch
 
     @parameterized.expand([(True,), (False,)])
-    def test_accepts_a_signed_delivery_and_retries_the_same_workflow(self, explicit_team: bool) -> None:
+    def test_accepts_a_signed_delivery_and_reuses_the_same_run(self, explicit_team: bool) -> None:
         payload: dict[str, object] = {"organization_id": str(self.organization.id)}
         if explicit_team:
             payload["team_id"] = self.team.id
@@ -109,11 +109,10 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(first.status_code, 202)
         self.assertEqual(second.status_code, 202)
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
-        self.assertEqual(first.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
-        self.assertEqual(second.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
-        self.assertEqual(dispatch.return_value.call_count, 2)
-        self.assertEqual(dispatch.return_value.call_args.kwargs["workflow_id"], str(admission.workflow_id))
-        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], self.team.id)
+        self.assertEqual(first.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
+        self.assertEqual(second.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
+        self.assertEqual(dispatch.call_count, 1)
+        self.assertEqual(dispatch.call_args.kwargs["team_id"], self.team.id)
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -138,7 +137,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
         actor.assert_called_once_with(expected_id)
-        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], expected_id)
+        self.assertEqual(dispatch.call_args.kwargs["team_id"], expected_id)
 
     @parameterized.expand([(29, False), (30, False), (31, False), (29, True)])
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
@@ -167,7 +166,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
-        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], expected_id)
+        self.assertEqual(dispatch.call_args.kwargs["team_id"], expected_id)
 
     def test_rejects_an_organization_without_an_eligible_default_project(self) -> None:
         self.team.is_demo = True
@@ -175,9 +174,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
         with self._request_patches() as (_, _, _, dispatch):
             response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 400)
-        dispatch.return_value.assert_not_called()
+        dispatch.assert_not_called()
 
-    def test_passes_the_reason_and_selected_skill_to_the_workflow(self) -> None:
+    def test_persists_reason_and_uses_the_selected_skill(self) -> None:
         explicit_team = Team.objects.create(organization=self.organization, name="Explicit project")
         payload = {
             "organization_id": str(self.organization.id),
@@ -190,62 +189,42 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], explicit_team.id)
         skill.assert_called_once_with(team_id=2, skill_name="activation-audit")
-        self.assertEqual(dispatch.return_value.call_args.kwargs["reason"], "activation-review")
-        self.assertEqual(dispatch.return_value.call_args.kwargs["skill_name"], "activation-audit")
+        self.assertEqual(dispatch.call_args.kwargs["skill"], skill.return_value)
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(admission.reason, "activation-review")
         self.assertEqual(admission.skill_name, "activation-audit")
 
-    def test_accepts_a_duplicate_retry_when_temporal_already_started_the_workflow(self) -> None:
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-
-        def already_started(**kwargs):
-            raise WorkflowAlreadyStartedError(kwargs["workflow_id"], "growth-account-audit")
-
-        with self._request_patches() as (_, _, _, dispatch):
-            dispatch.return_value.side_effect = already_started
-            response = self._post(payload)
-
-        self.assertEqual(response.status_code, 202)
-        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
-        self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
-
-    @parameterized.expand([(False,), (True,)])
-    @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
-    def test_reconciler_recovers_uncertain_dispatch_without_another_audit(self, already_started: bool) -> None:
+    def test_failed_run_creation_rolls_back_and_allows_retry(self) -> None:
         payload = {"organization_id": str(self.organization.id)}
-        with self._request_patches() as (_, _, _, dispatch):
-            dispatch.return_value.side_effect = TimeoutError("Temporal unavailable")
-            self.assertEqual(self._post(payload).status_code, 503)
-            admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
-            self.assertIsNone(admission.dispatched_at)
-            other_team = Team.objects.create(organization=self.organization, name="Newly active")
-            FileSystemViewLog.objects.create(team=other_team, user=self.user, type="dashboard", ref="1")
-            dispatch.return_value.side_effect = (
-                WorkflowAlreadyStartedError(str(admission.workflow_id), "growth-account-audit")
-                if already_started
-                else None
-            )
-            AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).update(
-                created_at=timezone.now() - timedelta(minutes=2)
-            )
-            AccountAuditService.retry_pending_dispatches()
-            response = self._post(payload)
+        queued = MagicMock()
 
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
-        self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
-        admission.refresh_from_db()
-        self.assertIsNotNone(admission.dispatched_at)
+        def fail_creation(**kwargs: object) -> SimpleNamespace:
+            transaction.on_commit(queued)
+            return SimpleNamespace(latest_run=None)
 
-    def test_rejects_a_temporal_conflict_for_another_workflow(self) -> None:
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, _, _, dispatch):
-            dispatch.return_value.side_effect = WorkflowAlreadyStartedError("another-workflow", "growth-account-audit")
-            response = self._post(payload)
+        with (
+            self._request_patches() as (_, _, skill, create),
+            patch(
+                "products.growth.backend.audit_execution.tasks_facade.create_and_run_task", side_effect=fail_creation
+            ) as native_create,
+            patch("products.notebooks.backend.facade.api.capture_notebook_created") as notebook_capture,
+        ):
+            from products.growth.backend.audit_execution import create_audit_task
+            from products.notebooks.backend.facade.api import get_notebook
 
-        self.assertEqual(response.status_code, 503)
-        self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(credential=self.credential).exists())
+            skill.return_value = SimpleNamespace(body="Audit this project.", version=1)
+            create.side_effect = create_audit_task
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(self._post(payload).status_code, 503)
+            self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
+            notebook_id = native_create.call_args.kwargs["extra_run_state"]["audit_notebook_short_id"]
+            self.assertIsNone(get_notebook(self.team.id, notebook_id))
+            queued.assert_not_called()
+            notebook_capture.assert_not_called()
+            native_create.side_effect = None
+            native_create.return_value = SimpleNamespace(latest_run=SimpleNamespace(id=uuid4()))
+            self.assertEqual(self._post(payload).status_code, 202)
+            self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
 
     def test_rejects_invalid_missing_and_stale_signatures(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -333,7 +312,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 403)
-        self.assertFalse(dispatch.return_value.called)
+        self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_when_the_audit_skill_is_unavailable_without_admitting(self) -> None:
@@ -344,16 +323,18 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         skill.assert_called_once_with(team_id=2, skill_name="onboarding-account-audit")
-        self.assertFalse(dispatch.return_value.called)
+        self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_a_team_from_another_organization(self) -> None:
-        payload = {"organization_id": str(uuid4()), "team_id": self.team.id}
+        other_org = Organization.objects.create(name="Other organization", is_ai_data_processing_approved=True)
+        Team.objects.create(organization=other_org, name="Other team")
+        payload = {"organization_id": str(other_org.id), "team_id": self.team.id}
         with self._request_patches() as (_, _, _, dispatch):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(dispatch.return_value.called)
+        self.assertFalse(dispatch.called)
 
     def test_rejects_when_no_team_actor_is_available(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -362,7 +343,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 403)
-        self.assertFalse(dispatch.return_value.called)
+        self.assertFalse(dispatch.called)
 
     @parameterized.expand([("team_id",), ("reason",), ("skill_name",)])
     def test_rejects_a_repeated_delivery_with_changed_parameters(self, field: str) -> None:
@@ -375,19 +356,20 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"], "This delivery ID has another audit request.")
-        self.assertEqual(dispatch.return_value.call_count, 1)
+        self.assertEqual(dispatch.call_count, 1)
         self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
 
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_accepts_a_new_delivery_at_the_cooldown_boundary(self) -> None:
         AccountAuditAdmission.objects.unscoped().create(
             credential=self.credential,
+            task_run_id=uuid4(),
             webhook_id="earlier-delivery",
             organization_id=self.organization.id,
             team_id=self.team.id,
         )
         AccountAuditAdmission.objects.unscoped().filter(webhook_id="earlier-delivery").update(
-            created_at=timezone.now() - COOLDOWN, dispatched_at=timezone.now() - COOLDOWN
+            created_at=timezone.now() - COOLDOWN
         )
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         with self._request_patches():
@@ -398,6 +380,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def test_admission_enforces_one_row_per_credential_delivery(self) -> None:
         AccountAuditAdmission.objects.unscoped().create(
             credential=self.credential,
+            task_run_id=uuid4(),
             webhook_id="delivery-1",
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -407,6 +390,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             with transaction.atomic():
                 AccountAuditAdmission.objects.unscoped().create(
                     credential=self.credential,
+                    task_run_id=uuid4(),
                     webhook_id="delivery-1",
                     organization_id=self.organization.id,
                     team_id=self.team.id,
@@ -430,6 +414,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         credential = AccountAuditCredential.objects.create(owner=owner, workflow_id=uuid4(), signing_secret=self.secret)
         admission = AccountAuditAdmission.objects.unscoped().create(
             credential=credential,
+            task_run_id=uuid4(),
             webhook_id="delivery-1",
             organization_id=self.organization.id,
             team_id=self.team.id,

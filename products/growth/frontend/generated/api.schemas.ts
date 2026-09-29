@@ -28,8 +28,8 @@ export interface AccountAuditStartRequestApi {
 }
 
 export interface AccountAuditStartResponseApi {
-    /** Started account audit workflow ID. */
-    workflow_id: string
+    /** Native task run executing the account audit. */
+    task_run_id: string
     /** Resolved target team ID. */
     team_id: number
 }

@@ -1,13 +1,8 @@
 from typing import Literal
 
-from django.conf import settings
-
-from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
-from posthog.temporal.common.client import async_connect
 from posthog.utils import get_instance_region
 
 from products.growth.backend.models import OrganizationEnrichment
@@ -28,30 +23,6 @@ def _rescore_enabled() -> bool:
     except Exception as e:
         capture_exception(e)
         return False
-
-
-async def start_account_audit(
-    *, organization_id: str, team_id: int, user_id: int, reason: str, skill_name: str, workflow_id: str
-) -> str:
-    from products.growth.backend.temporal.account_audit.workflow import (  # noqa: PLC0415 — avoids loading Temporal workflows during Django startup
-        WORKFLOW_TIMEOUT,
-        AccountAuditWorkflow,
-        AccountAuditWorkflowInput,
-    )
-
-    client = await async_connect()
-    await client.start_workflow(
-        AccountAuditWorkflow.run,
-        AccountAuditWorkflowInput(
-            organization_id=organization_id, team_id=team_id, user_id=user_id, reason=reason, skill_name=skill_name
-        ),
-        id=workflow_id,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=WORKFLOW_TIMEOUT,
-        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-    )
-    return workflow_id
 
 
 def request_wizard_stamp_rescore(organization_id: str) -> WizardStampRescoreOutcome:
