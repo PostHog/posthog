@@ -196,6 +196,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -660,6 +661,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -1681,6 +1683,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (s) => [s.featureFlags, s.productTab],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
+        ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
         ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],

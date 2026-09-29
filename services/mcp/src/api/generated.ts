@@ -1884,6 +1884,8 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+      useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
@@ -25905,6 +25907,11 @@ export namespace Schemas {
          * @nullable
          */
       source_type?: string | null;
+      /**
+         * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+         * @nullable
+         */
+      sync_type?: string | null;
       /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
       status: string;
       /**
@@ -25913,7 +25920,7 @@ export namespace Schemas {
          */
       error: string | null;
       /**
-         * When it last failed.
+         * When a sync issue's table last synced successfully. Null if it never has.
          * @nullable
          */
       failed_at: string | null;
@@ -111513,6 +111520,15 @@ export namespace Schemas {
      */
     cutoff_days?: number;
     /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind;
+    /**
      * Max rows to return. Capped at 50 server-side. Defaults to 20.
      */
     limit?: number;
@@ -111529,6 +111545,15 @@ export namespace Schemas {
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome;
     };
+
+    export type DataWarehouseCompletedActivityRetrieveKind = typeof DataWarehouseCompletedActivityRetrieveKind[keyof typeof DataWarehouseCompletedActivityRetrieveKind];
+
+
+    export const DataWarehouseCompletedActivityRetrieveKind = {
+      All: 'all',
+      Import: 'import',
+      Model: 'model',
+    } as const;
 
     export type DataWarehouseCompletedActivityRetrieveOutcome = typeof DataWarehouseCompletedActivityRetrieveOutcome[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome];
 

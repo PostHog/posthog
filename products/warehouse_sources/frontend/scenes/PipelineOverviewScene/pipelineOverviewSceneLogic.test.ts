@@ -182,17 +182,67 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalled()
     })
 
-    it('asks for destination rows between two absolute timestamps', async () => {
-        // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
-        // `dateTo` makes the query throw instead of returning rows.
+    it('asks for each destination by id rather than one breakdown over every instance', async () => {
+        // The breakdown is capped at 100 rows. A team with thousands of tables pushes every
+        // destination out of that cap, which emptied the chart on a real project.
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [
+                { id: 'dest-1', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
+                { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
+            ],
+        })
+        metrics.loadAppMetricsTimeSeries.mockResolvedValue({
+            labels: ['2026-09-27', '2026-09-28'],
+            interval: 'day',
+            timezone: 'UTC',
+            series: [{ name: 'rows_synced', values: [10, 20] }],
+        })
+
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        const [request] = metrics.loadAppMetricsTimeSeries.mock.calls[0]
-        expect(request.metricName).toEqual('rows_synced')
-        expect(request.breakdownBy).toEqual('instance_id')
-        expect(Date.parse(request.dateFrom)).not.toBeNaN()
-        expect(Date.parse(request.dateTo)).not.toBeNaN()
-        expect(Date.parse(request.dateFrom)).toBeLessThan(Date.parse(request.dateTo))
+        const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
+        expect(asked.map((r: any) => r.instanceId).sort()).toEqual(['dest-1', 'dest-2'])
+        expect(asked.every((r: any) => r.breakdownBy === undefined)).toBe(true)
+        // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
+        // `dateTo` makes the query throw instead of returning rows.
+        asked.forEach((r: any) => {
+            expect(Date.parse(r.dateFrom)).not.toBeNaN()
+            expect(Date.parse(r.dateTo)).not.toBeNaN()
+            expect(Date.parse(r.dateFrom)).toBeLessThan(Date.parse(r.dateTo))
+        })
+        expect(logic.values.rowsByDestination.map((s: any) => s.label)).toEqual([
+            'PostHog warehouse',
+            'Analytics Postgres',
+        ])
+    })
+
+    it('leaves webhook tables out of the health list', async () => {
+        // A webhook table is pushed to on the vendor's schedule, never pulled on ours, so it has
+        // no last sync and cannot have stopped. A real project had 16 of them crowding the list.
+        api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({
+            count: 2,
+            results: [
+                issue({ id: 'a', type: 'external_data_sync', sync_type: 'webhook' }),
+                issue({ id: 'b', type: 'external_data_sync', sync_type: 'incremental' }),
+            ],
+        })
+
+        await expectLogic(logic, () => logic.actions.loadHealthIssues()).toFinishAllListeners()
+
+        expect(logic.values.issuesBySeverity.map((i: any) => i.id)).toEqual(['b'])
+    })
+
+    it('asks the runs endpoint for imports only', async () => {
+        // The endpoint answers for the whole warehouse and pages by time. A team with enough
+        // failing views filled every page with them, so this list rendered empty.
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ outcome: 'failed', kind: 'import' })
+        )
     })
 
     it('counts only the tables switched on across every page', async () => {
