@@ -32,7 +32,6 @@ tools:
     canvas-comments-list:
         operation: canvases_comments_list
         enabled: true
-        feature_flag: canvas-comments-mcp
         scopes:
             - canvas:read
             - comment:read
@@ -51,10 +50,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose comments to list.
+        feature_flag: canvas-comments-mcp
     canvas-comments-retrieve:
         operation: canvases_comments_retrieve
         enabled: true
-        feature_flag: canvas-comments-mcp
         scopes:
             - canvas:read
             - comment:read
@@ -74,6 +73,7 @@ tools:
                 description: ID of the canvas the thread is on.
             root_comment_id:
                 description: Root comment id from canvas-comments-list.
+        feature_flag: canvas-comments-mcp
     canvas-connectors-retrieve:
         operation: canvases_connectors_retrieve
         enabled: true
