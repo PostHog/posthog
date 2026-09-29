@@ -182,7 +182,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.json()["already_evaluated_units"] == 8
         assert response.json()["unit"] == "generation"
         assert EvaluationBackfill.objects.unscoped().count() == 0
-        [properties] = _captured(capture, "evaluation backfill estimated")
+        [properties] = _captured(capture, "llma evaluation backfill estimated")
         assert properties == {
             **properties,
             "source": "web",
@@ -228,7 +228,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert call.kwargs["id"] == f"llma-evaluation-backfill-{row.id}"
         assert call.kwargs["task_queue"] == settings.LLMA_TASK_QUEUE
 
-        [properties] = _captured(capture, "evaluation backfill started")
+        [properties] = _captured(capture, "llma evaluation backfill started")
         assert properties == {
             **properties,
             "source": "web",
@@ -611,7 +611,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code >= 500
         row = EvaluationBackfill.objects.unscoped().get()
         assert row.status == EvaluationBackfillStatus.RUNNING
-        assert _captured(capture, "evaluation backfill started") == []
+        assert _captured(capture, "llma evaluation backfill started") == []
 
     @patch(CAPTURE)
     @patch(f"{API_MODULE}.sync_connect")
@@ -630,7 +630,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["status"] == EvaluationBackfillStatus.CANCELLED
         assert second.json()["finished_at"] == first.json()["finished_at"]
-        [properties] = _captured(capture, "evaluation backfill cancelled")
+        [properties] = _captured(capture, "llma evaluation backfill cancelled")
         assert properties == {**properties, "source": "web", "backfill_id": str(backfill.id), "total_count": 1}
 
     @parameterized.expand(

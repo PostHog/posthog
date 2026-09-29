@@ -505,7 +505,7 @@ class EvaluationBackfillViewSet(
             }
         )
         self._report(
-            "evaluation backfill estimated",
+            "llma evaluation backfill estimated",
             self._scope_properties(evaluation, window, data["rerun_existing"], scope),
         )
         return Response(response.data)
@@ -641,7 +641,7 @@ class EvaluationBackfillViewSet(
             raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
 
         self._report(
-            "evaluation backfill started",
+            "llma evaluation backfill started",
             {
                 **self._scope_properties(evaluation, window, rerun_existing, scope),
                 "backfill_id": str(backfill.id),
@@ -666,7 +666,7 @@ class EvaluationBackfillViewSet(
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()
             self._report(
-                "evaluation backfill cancelled",
+                "llma evaluation backfill cancelled",
                 {
                     "backfill_id": str(backfill.pk),
                     "evaluation_id": str(backfill.evaluation_id),

@@ -216,7 +216,9 @@ def cancel_backfill(team_id: int, backfill_id: str | UUID) -> int:
     )
 
 
-def _report_backfill_finished(team_id: int, backfill_id: str, *, failed: bool = False) -> None:
+def _report_backfill_finished(
+    team_id: int, backfill_id: str, *, status: str | None = None, stop_reason: str | None = None
+) -> None:
     """Never raises, because a lost analytics event must not fail the activity that ends the run."""
     try:
         row = (
@@ -224,17 +226,18 @@ def _report_backfill_finished(team_id: int, backfill_id: str, *, failed: bool = 
             .select_related("evaluation", "created_by", "team__organization")
             .get(pk=backfill_id)
         )
-        if not failed and row.status != EvaluationBackfillStatus.COMPLETED:
+        if status is None and row.status != EvaluationBackfillStatus.COMPLETED:
             return
         finished_at = row.finished_at or timezone.now()
         ph_background_capture()(
             distinct_id=(row.created_by.distinct_id if row.created_by else None) or str(row.team.uuid),
-            event="evaluation backfill finished",
+            event="llma evaluation backfill finished",
             properties={
                 "backfill_id": str(row.pk),
                 "evaluation_id": str(row.evaluation_id),
-                # A failed run is stored as cancelled, so only the caller can tell the two apart.
-                "status": "failed" if failed else row.status,
+                # Failed and stopped runs are both stored as cancelled, so only the caller can tell them apart.
+                "status": status or row.status,
+                "stop_reason": stop_reason,
                 "target": row.target,
                 "evaluation_type": row.evaluation.evaluation_type,
                 "rerun_existing": row.rerun_existing,
@@ -255,7 +258,7 @@ def _report_backfill_finished(team_id: int, backfill_id: str, *, failed: bool = 
 
 def _fail_backfill(inputs: EvaluationBackfillInputs) -> None:
     if cancel_backfill(inputs.team_id, inputs.backfill_id):
-        _report_backfill_finished(inputs.team_id, inputs.backfill_id, failed=True)
+        _report_backfill_finished(inputs.team_id, inputs.backfill_id, status="failed")
 
 
 @temporalio.activity.defn
@@ -281,7 +284,15 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
     # backfill too, because nothing would tell the loop the evaluation came back, so holding the
     # cursor would leave the row RUNNING and the workflow ticking forever.
     if evaluation.deleted or not evaluation.enabled or evaluation.evaluation_type not in EVALUATION_WORKFLOW_PREFIXES:
-        cancel_backfill(inputs.team_id, inputs.backfill_id)
+        if cancel_backfill(inputs.team_id, inputs.backfill_id):
+            stop_reason = (
+                "evaluation_deleted"
+                if evaluation.deleted
+                else "evaluation_disabled"
+                if not evaluation.enabled
+                else "unsupported_evaluation_type"
+            )
+            _report_backfill_finished(inputs.team_id, inputs.backfill_id, status="stopped", stop_reason=stop_reason)
         return PrepareTickOutput(action=TickAction.FINISHED)
 
     return PrepareTickOutput(

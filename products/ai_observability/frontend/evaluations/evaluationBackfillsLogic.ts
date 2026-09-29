@@ -618,7 +618,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
 
     afterMount(({ actions, values, props }) => {
         // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
-        posthog.capture('evaluation backfills tab viewed', {
+        posthog.capture('llma evaluation backfills tab viewed', {
             evaluation_id: props.evaluationId,
             evaluation_type: values.evaluation?.evaluation_type,
             target: values.evaluation?.target,

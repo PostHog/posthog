@@ -446,7 +446,7 @@ def _finished_events(capture: MagicMock) -> list[dict]:
     return [
         call.kwargs["properties"]
         for call in capture.return_value.call_args_list
-        if call.kwargs["event"] == "evaluation backfill finished"
+        if call.kwargs["event"] == "llma evaluation backfill finished"
     ]
 
 
@@ -559,6 +559,7 @@ class TestEvaluationBackfillActivities:
             "remaining_count": 1,
             "billed_evaluations": 6,
             "duration_seconds": 300.0,
+            "stop_reason": None,
         }
         assert _finished_events(capture) == ([expected] if reported else [])
         if reported:
@@ -568,7 +569,11 @@ class TestEvaluationBackfillActivities:
     def test_a_count_that_keeps_failing_reports_the_run_without_a_remainder(
         self, backfill_data, attempt, reported
     ) -> None:
-        _update_backfill(backfill_data, status=EvaluationBackfillStatus.COMPLETED, finished_at=datetime.now(UTC))
+        _update_backfill(
+            backfill_data,
+            status=EvaluationBackfillStatus.COMPLETED,
+            finished_at=backfill_data["backfill"].created_at + timedelta(minutes=5),
+        )
         env = ActivityEnvironment()
         env.info = dataclasses.replace(env.info, attempt=attempt)
 
@@ -612,25 +617,30 @@ class TestEvaluationBackfillActivities:
         assert result.action == TickAction.FINISHED
 
     @pytest.mark.parametrize(
-        "update",
+        "update,stop_reason",
         [
-            {"deleted": True},
+            ({"deleted": True}, "evaluation_deleted"),
             # No workflow id prefix exists for this type, so no child could ever be started.
-            {"evaluation_type": "not_a_real_type"},
+            ({"evaluation_type": "not_a_real_type"}, "unsupported_evaluation_type"),
             # Nothing tells the loop a paused evaluation came back, so holding the cursor would
             # leave the row RUNNING and the workflow ticking forever.
-            {"enabled": False},
+            ({"enabled": False}, "evaluation_disabled"),
         ],
     )
-    def test_prepare_cancels_the_row_when_the_evaluation_cannot_run(self, backfill_data, update) -> None:
+    def test_prepare_cancels_the_row_when_the_evaluation_cannot_run(self, backfill_data, update, stop_reason) -> None:
         Evaluation.objects.filter(pk=backfill_data["evaluation"].id).update(**update)
 
-        result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
+        with patch(f"{BACKFILL_MODULE}.ph_background_capture") as capture:
+            result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
+            async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
 
         assert result.action == TickAction.FINISHED
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
         assert backfill_data["backfill"].finished_at is not None
+        assert [(event["status"], event["stop_reason"]) for event in _finished_events(capture)] == [
+            ("stopped", stop_reason)
+        ]
 
     @pytest.mark.parametrize(
         "configured,expected",

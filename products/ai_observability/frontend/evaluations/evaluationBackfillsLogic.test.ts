@@ -184,8 +184,8 @@ describe('evaluationBackfillsLogic', () => {
 
         await mountAndSettle()
 
-        expect(capture.mock.calls.filter(([event]) => event === 'evaluation backfills tab viewed')).toEqual([
-            ['evaluation backfills tab viewed', expect.objectContaining({ evaluation_id: EVALUATION_ID })],
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfills tab viewed')).toEqual([
+            ['llma evaluation backfills tab viewed', expect.objectContaining({ evaluation_id: EVALUATION_ID })],
         ])
     })
 
