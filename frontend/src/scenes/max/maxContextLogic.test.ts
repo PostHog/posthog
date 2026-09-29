@@ -384,7 +384,17 @@ describe('maxContextLogic', () => {
                     },
                 })
 
-                // Should have both items
+                globalLogic.actions.registerTool({
+                    identifier: 'tool_three',
+                    name: 'Tool Three',
+                    description: 'Tool for an unnamed dashboard',
+                    contextDescription: {
+                        text: null as unknown as string,
+                        icon: '<IconDashboard />',
+                    },
+                })
+
+                // Should have both items, and skip the one without text
                 await expectLogic(logic).toMatchValues({
                     toolContextItems: [
                         {

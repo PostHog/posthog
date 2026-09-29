@@ -102,7 +102,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                                   },
                               },
                               contextDescription: {
-                                  text: dashboard.name,
+                                  text: dashboard.name || 'Untitled dashboard',
                                   icon: iconForType('dashboard'),
                               },
                               callback: (toolOutput: { dashboard_id?: string | number }) => {
