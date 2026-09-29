@@ -18,7 +18,7 @@ class HogFlowSchedule(RootTeamMixin, UUIDTModel):
         PAUSED = "paused"
         COMPLETED = "completed"  # RRULE exhausted (COUNT/UNTIL reached)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="schedules")
     rrule = models.TextField()
     starts_at = models.DateTimeField()

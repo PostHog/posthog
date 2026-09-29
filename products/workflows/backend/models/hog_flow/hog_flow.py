@@ -141,7 +141,7 @@ class HogFlow(UUIDTModel):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
     # The product surface that owns this workflow, so that surface can list only its own flows.
     # Null for workflows built directly in the workflows UI or over the API.
@@ -150,7 +150,7 @@ class HogFlow(UUIDTModel):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)
