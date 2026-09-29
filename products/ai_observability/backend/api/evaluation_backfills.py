@@ -330,7 +330,10 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        window_end: datetime = min(data["window_end"], now)
+        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
+        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
+        # run for good, so the window stops short of the newest events.
+        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any
