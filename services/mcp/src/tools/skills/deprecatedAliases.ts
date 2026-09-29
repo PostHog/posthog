@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
+import { skillGet } from '@/tools/skills/get'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 /**
@@ -25,7 +26,7 @@ const RENAMES: Record<string, string> = {
 
 function makeAlias(oldName: string, newName: string): () => ToolBase<ZodObjectAny> {
     return (): ToolBase<ZodObjectAny> => {
-        const inner = GENERATED_TOOLS[newName]!()
+        const inner = newName === 'skill-get' ? skillGet() : GENERATED_TOOLS[newName]!()
         return {
             ...inner,
             name: oldName,

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolByName } from '@/shared/test-utils'
+import { TOOL_MAP } from '@/tools'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import { SKILL_DEPRECATED_ALIASES } from '@/tools/skills/deprecatedAliases'
+import { MAX_SKILL_BODY_PAGE_LENGTH } from '@/tools/skills/get'
 import type { Context } from '@/tools/types'
 
 function createContext(requestReturnValue: unknown): { context: Context; requestMock: ReturnType<typeof vi.fn> } {
@@ -99,5 +101,27 @@ describe('Generated skill-* tools', () => {
         )
         expect(result.name).toBe('skills-store')
         expect(result._deprecation_notice).toContain('skill-get')
+    })
+    // A body_length above the cap returns a slice the MCP client can truncate in transit, and the API then
+    // reports body_next_offset as null for a body the agent never fully received.
+    describe.each([
+        ['skill-get', () => TOOL_MAP['skill-get']!()],
+        ['llma-skill-get', () => SKILL_DEPRECATED_ALIASES['llma-skill-get']!()],
+    ])('%s caps the body page length', (_name, makeTool) => {
+        it.each([
+            ['an oversized body_length', { body_length: 50000 }, MAX_SKILL_BODY_PAGE_LENGTH],
+            ['no body_length', {}, MAX_SKILL_BODY_PAGE_LENGTH],
+            ['a smaller body_length', { body_length: 2000 }, 2000],
+        ])('sends the capped length for %s', async (_case, paging, expected) => {
+            const { context, requestMock } = createContext({ name: 'skills-store' })
+
+            await makeTool().handler(context, { skill_name: 'skills-store', body_offset: 8000, ...paging })
+
+            expect(requestMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    query: expect.objectContaining({ body_offset: 8000, body_length: expected }),
+                })
+            )
+        })
     })
 })

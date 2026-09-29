@@ -56,6 +56,7 @@ import updatePropertyDefinition from './projects/updatePropertyDefinition'
 import getSessionRecording from './replay/getSessionRecording'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
+import { skillGet } from './skills/get'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
 // Misc
 import {
@@ -156,6 +157,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog connections — runs any other tool in this map (or a generated one) against a connected
     // project. The registry is injected rather than imported over there so the two don't form a cycle.
     'posthog-connection-call': () => createConnectionCallTool(resolveToolBase),
+
+    // Skills — skill-get caps the body page size so a page cannot be truncated in transit.
+    'skill-get': skillGet,
 
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
