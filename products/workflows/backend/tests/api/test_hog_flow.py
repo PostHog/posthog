@@ -36,14 +36,14 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
-from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
-from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -483,7 +483,7 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         with patch(
-            "products.workflows.backend.api.hog_flow.list_workflow_last_runs", return_value={loop.id: last_run}
+            "products.workflows.backend.presentation.views.hog_flow.list_workflow_last_runs", return_value={loop.id: last_run}
         ) as lookup:
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
 
@@ -2623,7 +2623,9 @@ class TestHogFlowAPI(APIBaseTest):
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
-        with patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
 
             response = self.client.post(
@@ -3496,7 +3498,8 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             self._account_audience_provider(),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
+                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_page",
+                return_value=["a1", "a2"],
             ) as mock_page,
         ):
             response = self.client.post(
@@ -3722,7 +3725,9 @@ class TestHogFlowAPI(APIBaseTest):
         assert _should_validate_strictly(context, is_draft) is expected_strict
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
@@ -3730,7 +3735,9 @@ class TestHogFlowAPI(APIBaseTest):
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=4, total=10)
@@ -3751,7 +3758,9 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=True),
             patch("products.workflows.backend.presentation.views.hog_flow.get_person_audience_count_v2") as mock_v2,
-            patch("products.workflows.backend.presentation.views.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_dedupe_audience_count_v2"
+            ) as mock_dedupe_v2,
             patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_v1,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
@@ -3820,7 +3829,9 @@ class TestHogFlowAPI(APIBaseTest):
         HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
     )
     def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
@@ -3839,7 +3850,9 @@ class TestHogFlowAPI(APIBaseTest):
                 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
                 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
             ),
-            patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            ) as mock_get_user_blast_radius,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3875,7 +3888,9 @@ class TestHogFlowAPI(APIBaseTest):
             secure_value=hash_key_value(key),
             scopes=["hog_flow:read", "person:read"],
         )
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
             mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=1, total=10)
@@ -3905,7 +3920,9 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
         # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
         # the condition reaches the blast-radius query (where it would otherwise 500).
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": properties}},
@@ -3917,7 +3934,9 @@ class TestHogFlowAPI(APIBaseTest):
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_flag_condition(self):
-        with patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+        ) as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
                 {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
@@ -3956,7 +3975,8 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=gate_on),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids",
+                return_value=["id-1"],
             ) as mock_workflows_query,
         ):
             response = self.client.post(
@@ -5538,7 +5558,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "ROTATED-IN-DRAFT" not in json.dumps(flow.draft)
 
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
         ):
             confirm_token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
                 "confirm_token"
@@ -5578,7 +5599,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     def _publish_confirmed(self, flow_id: str):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
         ):
             token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
                 "confirm_token"
@@ -5714,7 +5736,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
         config = self._flow_payload()
         self._function_inputs(config)["api_key"] = {"secret": True}
 
-        with patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
@@ -6254,7 +6278,9 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
         # products.workflows may not depend on products.mcp_store's models directly (tach
         # boundary) - mocking at the same seam the model-catalogue tests below use.
-        with patch("products.workflows.backend.presentation.views.hog_flow.resolve_connectors", return_value=["some-server-id"]):
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.resolve_connectors", return_value=["some-server-id"]
+        ):
             response = self._post_flow({"connectors": {"value": ["some-server-id"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()

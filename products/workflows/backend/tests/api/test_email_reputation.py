@@ -144,7 +144,10 @@ class TestEmailReputationAPI(APIBaseTest):
         provider = MagicMock()
         provider.get_tenant_reputation.side_effect = Exception("SES timeout")
         with (
-            patch("products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                return_value={},
+            ),
             patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
         ):
             url = f"/api/projects/{self.team.id}/hog_flows/reputation"
@@ -455,7 +458,10 @@ class TestEmailReputationAPI(APIBaseTest):
         provider = MagicMock()
         provider.get_tenant_reputation.return_value = None
         with (
-            patch("products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals_by_source",
+                return_value={},
+            ),
             patch("products.workflows.backend.presentation.views.hog_flow.SESProvider", return_value=provider),
             patch("products.workflows.backend.presentation.views.hog_flow._isp_breakdown_enabled", return_value=True),
             patch("products.workflows.backend.presentation.views.hog_flow.cache.add", return_value=False),

@@ -2,7 +2,10 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.workflows.backend.presentation.views.action_redirects import MAX_ACTION_REDIRECTS, compute_action_redirects
+from products.workflows.backend.presentation.views.action_redirects import (
+    MAX_ACTION_REDIRECTS,
+    compute_action_redirects,
+)
 
 
 def _actions(*ids: str) -> list[dict]:
