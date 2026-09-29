@@ -72,7 +72,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunStatus,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.models import DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType

@@ -74,12 +74,12 @@ def _failure_detail(check_type: str, config: object, observed_value: object) -> 
     if check_type == CheckType.ROW_COUNT:
         return _row_count_detail(config, observed_value)
 
-    fixed_reasons = {
+    fixed_reasons: dict[str, str] = {
         CheckType.UNIQUE: "the uniqueness check found duplicate values",
         CheckType.NOT_NULL: "the not-null check found null values",
         CheckType.ACCEPTED_VALUES: "the accepted-values check found values outside its allowed set",
         CheckType.RELATIONSHIPS: "a data quality check failed",
-        CheckType.FRESHNESS: "the latest timestamp is too old",
+        CheckType.FRESHNESS: "the latest timestamp is missing or too old",
         CheckType.CUSTOM_SQL: "a data quality check failed",
     }
     return fixed_reasons.get(check_type, "a data quality check failed")

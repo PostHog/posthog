@@ -91,9 +91,13 @@ class TestMaterializationFailureSummary(BaseTest):
         [
             ("unique", CheckType.UNIQUE, "the uniqueness check found duplicate values"),
             ("not_null", CheckType.NOT_NULL, "the not-null check found null values"),
-            ("accepted_values", CheckType.ACCEPTED_VALUES, "the accepted-values check found values outside its allowed set"),
+            (
+                "accepted_values",
+                CheckType.ACCEPTED_VALUES,
+                "the accepted-values check found values outside its allowed set",
+            ),
             ("relationships", CheckType.RELATIONSHIPS, "a data quality check failed"),
-            ("freshness", CheckType.FRESHNESS, "the latest timestamp is too old"),
+            ("freshness", CheckType.FRESHNESS, "the latest timestamp is missing or too old"),
             ("custom_sql", CheckType.CUSTOM_SQL, "a data quality check failed"),
             ("unknown", "future_type", "a data quality check failed"),
         ]
