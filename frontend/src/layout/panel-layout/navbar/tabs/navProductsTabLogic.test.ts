@@ -137,6 +137,24 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
     })
 
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('reloads stars after custom products reload with the simple sidebar %s', async (enabled, expectedLoads) => {
+        const list = jest.fn(() => [200, { results: [] }])
+        useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': list } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        list.mockClear()
+
+        await expectLogic(navProductsTabLogic, () =>
+            customProductsLogic.actions.loadCustomProductsSuccess([])
+        ).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+        expect(list).toHaveBeenCalledTimes(expectedLoads)
+    })
+
     it('fills in the link of product stars the backend created without one', async () => {
         const results = [
             { id: 'backend-star', path: 'Session replay', type: 'session_replay' },

@@ -28,7 +28,8 @@ def _simple_sidebar_enabled(user: "User", team: "Team") -> bool:
             SIMPLE_SIDEPANEL_FLAG,
             str(user.distinct_id),
             person_properties={"email": user.email},
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            # Same group keys as the frontend's posthog.group() calls, so both sides get the same answer.
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             group_properties={"organization": {"id": str(team.organization_id)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
