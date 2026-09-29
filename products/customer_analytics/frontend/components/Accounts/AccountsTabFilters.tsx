@@ -4,37 +4,19 @@ import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import type { AnyPropertyFilter } from '~/types'
 
-import { AccountRelationshipOperatorValueSelect } from './AccountRelationshipOperatorValueSelect'
-import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
+import { AccountsFilterGroups } from './AccountsFilterGroups'
 import { accountsLogic } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
-import {
-    ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
-    ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
-    accountFilterStaticValueOptions,
-    isAccountRelationshipFilter,
-    type AccountFilter,
-} from './accountsPropertyFilters'
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const {
-        searchInput,
-        tagsFilter,
-        assignmentStatus,
-        assignedToCurrentUser,
-        assignedToFilter,
-        accountFilters,
-        accountFilterGroups,
-    } = useValues(accountsLogic)
+    const { searchInput, tagsFilter, assignmentStatus, assignedToCurrentUser, assignedToFilter } =
+        useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
@@ -42,16 +24,11 @@ export function AccountsTabFilters(): JSX.Element {
         setAssignmentStatus,
         setAssignedToCurrentUser,
         setAssignedToFilter,
-        updateAccountFilters,
-        addAccountFilterGroup,
-        removeAccountFilterGroup,
-        updateAccountFilterGroup,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
-    const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -83,8 +60,8 @@ export function AccountsTabFilters(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <div className="flex flex-wrap gap-2 items-center justify-between">
-                <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
+                <div className="contents">
                     <LemonDropdown
                         closeOnClickInside={false}
                         onVisibilityChange={(open) => open && loadTagsIfNeeded()}
@@ -167,75 +144,9 @@ export function AccountsTabFilters(): JSX.Element {
                         data-attr="accounts-my-accounts-filter"
                     />
 
-                    <div className="flex flex-col gap-2 min-w-64 max-w-full">
-                        {[accountFilters, ...accountFilterGroups].map((filters, groupIndex) => (
-                            <div key={groupIndex} className="flex flex-wrap gap-2 items-center">
-                                {groupIndex > 0 && <span className="text-muted text-xs font-semibold">Or</span>}
-                                <PropertyFilters
-                                    propertyFilters={filters as unknown as AnyPropertyFilter[]}
-                                    onChange={(updatedFilters) =>
-                                        groupIndex === 0
-                                            ? updateAccountFilters(updatedFilters as unknown as AccountFilter[])
-                                            : updateAccountFilterGroup(
-                                                  groupIndex - 1,
-                                                  updatedFilters as unknown as AccountFilter[]
-                                              )
-                                    }
-                                    pageKey={`customer-analytics-accounts-custom-properties-${groupIndex}`}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.AccountFields,
-                                        TaxonomicFilterGroupType.AccountRelationships,
-                                        TaxonomicFilterGroupType.AccountCustomProperties,
-                                    ]}
-                                    taxonomicFilterOptionsFromProp={{
-                                        [TaxonomicFilterGroupType.AccountFields]: ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
-                                        [TaxonomicFilterGroupType.AccountRelationships]: relationshipTaxonomicOptions,
-                                        [TaxonomicFilterGroupType.AccountCustomProperties]:
-                                            customPropertyTaxonomicOptions,
-                                    }}
-                                    operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
-                                    staticValueOptions={accountFilterStaticValueOptions}
-                                    renderOperatorValueSelect={(filter, onChange) =>
-                                        isAccountRelationshipFilter(filter) ? (
-                                            <AccountRelationshipOperatorValueSelect
-                                                filter={filter}
-                                                onChange={onChange}
-                                            />
-                                        ) : null
-                                    }
-                                    buttonSize="small"
-                                    hasRowOperator
-                                />
-                                {groupIndex > 0 && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconX />}
-                                        tooltip="Remove OR group"
-                                        onClick={() => removeAccountFilterGroup(groupIndex - 1)}
-                                        data-attr="accounts-remove-or-group"
-                                    />
-                                )}
-                            </div>
-                        ))}
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            onClick={addAccountFilterGroup}
-                            disabledReason={
-                                accountFilters.length === 0 || accountFilterGroups.some((group) => group.length === 0)
-                                    ? 'Add a filter to this group first'
-                                    : accountFilterGroups.length >= 9
-                                      ? 'You can add up to 10 groups'
-                                      : undefined
-                            }
-                            data-attr="accounts-add-or-group"
-                        >
-                            Add OR group
-                        </LemonButton>
-                    </div>
+                    <AccountsFilterGroups />
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center ml-auto">
                     <AccountsOverviewTilesButton />
                     <AccountsColumnConfigurator />
                 </div>

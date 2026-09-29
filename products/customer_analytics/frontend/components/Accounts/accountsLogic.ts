@@ -530,6 +530,9 @@ export interface accountsLogicActions {
     removeAccountFilterGroup: (index: number) => {
         index: number
     }
+    removeFirstAccountFilterGroup: () => {
+        value: true
+    }
     reportFilterChange: (filterType: AccountFilterType) => {
         filterType: AccountFilterType
     }
@@ -857,6 +860,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         setAccountFilterGroups: (groups: AccountFilter[][]) => ({ groups }),
         addAccountFilterGroup: true,
+        removeFirstAccountFilterGroup: true,
         removeAccountFilterGroup: (index: number) => ({ index }),
         updateAccountFilterGroup: (index: number, filters: AccountFilter[]) => ({ index, filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
@@ -1624,6 +1628,11 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         addAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
+        removeFirstAccountFilterGroup: () => {
+            const [first = [], ...remaining] = values.accountFilterGroups
+            actions.setAccountFilterGroups(remaining)
+            actions.updateAccountFilters(first)
         },
         removeAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
