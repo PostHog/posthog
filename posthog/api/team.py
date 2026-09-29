@@ -143,7 +143,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule as validate_custom_bot_rule,
     validate_rule_set as validate_custom_bot_rule_set,
 )
-from products.workflows.backend.facade.enums import EmailTrackingConsentMode
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -971,7 +971,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
     email_tracking_consent_mode = serializers.ChoiceField(
-        choices=EmailTrackingConsentMode.choices,
+        choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES,
         required=False,
         help_text=(
             "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
