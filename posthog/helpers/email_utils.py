@@ -432,7 +432,7 @@ class EmailValidationHelper:
         return candidates.exists()
 
     @staticmethod
-    def user_exists_with_gmail_canonical(email: str) -> bool:
+    def user_exists_with_gmail_canonical(email: str, exclude_user_id: Optional[int] = None) -> bool:
         from posthog.models.user import User
 
         canonical_local = gmail_canonical_local_part(email)
@@ -441,12 +441,14 @@ class EmailValidationHelper:
         gmail_domains = Q()
         for domain in GMAIL_DOMAINS:
             gmail_domains |= Q(email__iendswith=f"@{domain}")
-        return (
+        candidates = (
             User.objects.filter(gmail_domains, is_active=True)
             .annotate(gmail_canonical_local=GMAIL_CANONICAL_LOCAL_EXPRESSION)
             .filter(gmail_canonical_local=canonical_local)
-            .exists()
         )
+        if exclude_user_id is not None:
+            candidates = candidates.exclude(pk=exclude_user_id)
+        return candidates.exists()
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day

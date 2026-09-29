@@ -48,7 +48,10 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.
     These have no `failed` batch for the reconcile sweep to key on (the extraction died before a final batch), so without this pass they would strand until the retention prune.
-- **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each `send_batch_notification` is a single INSERT.
+- **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
+  The v3 pipeline holds each batch's row back by one (`hold_batch`): staging batch N inserts the row for batch N-1, and the end of the run inserts the held row with `is_final_batch = true`, so the run's last data row is its own final marker and the loader reads every parquet file once.
+  A resumable source releases the held row before it commits a cursor (`release_held_batch`), because the cursor promises that every row before it is loadable; when that leaves nothing held at the end, `send_final_batch` inserts the last batch a second time as a final-only marker, which the loader still accepts (`_run_post_load_for_already_processed_batch`).
+  The CDC extraction activities know at send time whether a batch is final and keep using `send_batch_notification` directly.
 - **New DB**: we created a new DB to store these tables.
 - **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions and a DEFAULT partition catching rows that miss one.
   A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`, daily at 8 AM UTC) creates the next 7 days of partitions, drops partitions older than 7 days, deletes DEFAULT-partition rows older than 7 days, and prunes the matching S3 extraction prefixes on the same retention.
@@ -103,7 +106,15 @@ Two further counters exist only under the `warehouse_pg_consumer_*` prefix, incr
 The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
 Its depth companion `warehouse_pg_queue_claimable_batches` says how much work sits behind that head; a stall and a burst look identical on age alone.
-Every pod reports the same queue-wide values on the reconcile cadence; aggregate both gauges with `max()`.
+Four concentration gauges ride the same depth probe and say where that depth sits.
+The loader drains each `(team_id, schema_id)` group one batch at a time by design.
+A deep queue held by a few groups is therefore serial by construction, while a deep queue spread over idle groups is a capacity problem; depth alone reads the same either way.
+`warehouse_pg_queue_claimable_groups` counts the distinct groups with claimable work.
+`warehouse_pg_queue_top_groups_claimable_share` is the 0..1 share of claimable batches held by the five deepest groups.
+`warehouse_pg_queue_slot_waiting_batches` counts claimable batches whose group has nothing executing; they start as soon as a slot frees.
+`warehouse_pg_queue_serialized_batches` counts claimable batches waiting behind an executing batch of their own group.
+All four exclude batches whose run already holds a failed batch, the population `warehouse_pg_queue_blocked_batches` reports and the age gauge excludes, so `slot_waiting + serialized` is the depth minus the blocked batches.
+Every pod reports the same queue-wide values on the reconcile cadence; aggregate all of these gauges with `max()`.
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 

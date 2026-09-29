@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PipelineV3,
     should_coalesce_tables,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    PostgresProducer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
 _CONSUMER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+_PRODUCER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer"
 
 
 def _make_logger() -> MagicMock:
@@ -456,7 +461,7 @@ class TestLaneFanOut:
 
         assert [len(writer.batch_results) for writer in writers] == [1, 1]
         for writer in writers:
-            cast(MagicMock, writer.pg_producer.send_batch_notification).assert_called_once()
+            cast(MagicMock, writer.pg_producer.hold_batch).assert_called_once()
 
     async def test_only_the_billable_lane_counts_towards_usage(self) -> None:
         # One read of a change stream is one sync however many tables it keeps.
@@ -474,7 +479,7 @@ class TestLaneFanOut:
         await self._process(pipeline, pa.table({"id": pa.array([1, 2], pa.int64())}))
 
         assert [len(writer.batch_results) for writer in writers] == [1, 0]
-        cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+        cast(MagicMock, writers[1].pg_producer.hold_batch).assert_not_called()
 
     async def test_the_primary_lane_keeps_batch_zero_even_when_it_filters_it_away(self) -> None:
         # The producer supersedes a previous attempt's staged batches only on index 0. If the
@@ -521,8 +526,7 @@ class TestLaneFanOut:
             await pipeline._finalize(row_count=1)
 
         for writer in writers:
-            call = cast(MagicMock, writer.pg_producer.send_batch_notification).call_args
-            assert call.kwargs["is_final_batch"] is True
+            cast(MagicMock, writer.pg_producer.send_final_batch).assert_called_once()
 
     async def test_a_lane_with_nothing_to_write_sends_no_final_batch(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]
@@ -541,7 +545,7 @@ class TestLaneFanOut:
         ):
             await pipeline._finalize(row_count=1)
 
-        cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+        cast(MagicMock, writers[1].pg_producer.send_final_batch).assert_not_called()
 
 
 class TestCompanionJob:
@@ -758,7 +762,7 @@ class TestSingleTableRunIsUntouched:
 
         assert staged == 0
         pipeline._s3_batch_writer.write_batch.assert_called_once()
-        pipeline._pg_producer.send_batch_notification.assert_called_once()
+        pipeline._pg_producer.hold_batch.assert_called_once()
 
     def test_the_activity_runs_the_base_class_for_a_source_without_lanes(self) -> None:
         # What keeps every other source off the subclass. `lanes=None` is what a source that
@@ -972,3 +976,180 @@ class TestResumeCursorCommit:
 
         assert cast(AsyncMock, pipeline._process_batch).await_count == 1
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
+
+
+def _recording_producer(events: list[str] | None = None) -> PostgresProducer:
+    """A real producer over a mocked queue connection, so the rows it inserts can be read back."""
+    with patch(f"{_PRODUCER}.psycopg") as mock_psycopg:
+        conn = MagicMock()
+        if events is not None:
+            conn.execute.side_effect = lambda *_a, **_k: events.append("insert")
+        mock_psycopg.Connection.connect.return_value = conn
+        producer = PostgresProducer(
+            database_url="postgres://unused:unused@localhost/unused",
+            team_id=1,
+            job_id="job-1",
+            schema_id="schema-1",
+            source_id="source-1",
+            resource_name="test_table",
+            sync_type="full_refresh",
+            run_uuid="run-1",
+            logger=MagicMock(),
+        )
+    return producer
+
+
+def _queue_rows(producer: PostgresProducer) -> list[tuple[int, bool]]:
+    return [
+        (call.args[1]["batch_index"], call.args[1]["is_final_batch"])
+        for call in cast(MagicMock, producer._conn.execute).call_args_list
+        if "INSERT INTO" in call.args[0]
+    ]
+
+
+class TestFinalMarkerIsTheLastDataRow:
+    """The loader processes every queue row. A final marker that repeats the last data batch makes it
+    read and open that batch twice, and a marker that goes missing leaves the run running forever."""
+
+    def _staging_pipeline(self, ids: list[str], manager: ResumableSourceManager[_Cursor] | None = None) -> PipelineV3:
+        pipeline = _make_pipeline()
+        pipeline._pg_producer = _recording_producer()
+        pipeline._resumable_source_manager = manager
+        pipeline._last_incremental_field_value = None
+        pipeline._batcher = Batcher(MagicMock(), primary_keys=["id"])
+        pipeline._schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=False,
+            is_webhook=False,
+            is_append=False,
+            should_use_incremental_field=False,
+            table=None,
+        )
+        pipeline._s3_batch_writer = MagicMock(
+            write_batch=MagicMock(
+                side_effect=lambda table, index: BatchWriteResult(
+                    s3_path=f"s3://data/{index}.parquet",
+                    row_count=table.num_rows,
+                    byte_size=1,
+                    batch_index=index,
+                    timestamp_ns=0,
+                )
+            ),
+            write_schema=MagicMock(return_value="s3://data/schema.json"),
+            get_data_folder=MagicMock(return_value="s3://data"),
+            get_run_uuid=MagicMock(return_value="run-1"),
+        )
+
+        def items():
+            for row_id in ids:
+                if manager is not None:
+                    manager.save_state(_Cursor(row_id))
+                yield pa.table({"id": [row_id]})
+
+        pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
+
+        # Everything `_process_batch` does besides staging needs the app DB; staging is the part under test.
+        async def stage_only(pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+            await pipeline._stage_batch(pa_table, batch_index, row_count)
+
+        pipeline._process_batch = AsyncMock(side_effect=stage_only)  # type: ignore[method-assign]
+        return pipeline
+
+    async def _run(self, pipeline: PipelineV3, redis: MagicMock | None = None) -> None:
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis or MagicMock()))
+            )
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+                "finalize_desc_sort_incremental_value",
+                "advance_xmin_state",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            for name in ("validate_incremental_sync", "record_source_item_stats", "update_sync_type_config_keys"):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}"))
+            stack.enter_context(patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0))
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            await pipeline.run()
+
+    @pytest.mark.parametrize(
+        "ids,expected_rows",
+        [
+            ([], []),
+            (["a"], [(0, True)]),
+            (["a", "b", "c"], [(0, False), (1, False), (2, True)]),
+        ],
+        ids=["zero_rows", "single_batch", "three_batches"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_run_enqueues_one_row_per_batch_with_the_last_one_final(
+        self, ids: list[str], expected_rows: list[tuple[int, bool]]
+    ) -> None:
+        pipeline = self._staging_pipeline(ids)
+        producer = pipeline._pg_producer
+
+        await self._run(pipeline)
+
+        assert _queue_rows(producer) == expected_rows
+
+    @pytest.mark.asyncio
+    async def test_a_resumable_source_enqueues_each_row_before_its_cursor_and_ends_with_a_marker(self) -> None:
+        # Every cursor commit promises that the rows before it are loadable, so each held row goes in
+        # before the commit that depends on it; the run then ends the old way, with the last batch
+        # repeated as the final marker.
+        events: list[str] = []
+        manager = _manager()
+        redis = MagicMock()
+        redis.set.side_effect = lambda *_a, **_k: events.append("commit")
+        pipeline = self._staging_pipeline(["a", "b"], manager)
+        pipeline._pg_producer = _recording_producer(events)
+        producer = pipeline._pg_producer
+
+        await self._run(pipeline, redis)
+
+        assert events == ["insert", "commit", "insert", "commit", "insert"]
+        assert _queue_rows(producer) == [(0, False), (1, False), (1, True)]
+
+    @pytest.mark.parametrize("staged", [True, False], ids=["cursor_staged", "nothing_staged"])
+    @pytest.mark.asyncio
+    async def test_a_cursor_commit_releases_the_held_row_first(self, staged: bool) -> None:
+        events: list[str] = []
+        manager = _manager()
+        if staged:
+            manager.save_state(_Cursor("a"))
+        redis = MagicMock()
+        redis.set.side_effect = lambda *_a, **_k: events.append("commit")
+        pipeline = _make_pipeline()
+        pipeline._pg_producer = _recording_producer(events)
+        pipeline._resumable_source_manager = manager
+        pipeline._pg_producer.hold_batch(
+            BatchWriteResult(s3_path="s3://data/1.parquet", row_count=1, byte_size=1, batch_index=1, timestamp_ns=2),
+            cumulative_row_count=2,
+        )
+
+        with patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)):
+            await pipeline._commit_resume_state()
+
+        assert events == (["insert", "commit"] if staged else [])
+
+    @pytest.mark.asyncio
+    async def test_an_extraction_error_still_enqueues_the_held_row(self) -> None:
+        # A failed incremental run's staged tail is drained by the loader; a row left out of the queue
+        # is a parquet file nothing ever loads.
+        pipeline = self._staging_pipeline(["a", "b"])
+        producer = pipeline._pg_producer
+
+        def items():
+            yield pa.table({"id": ["a"]})
+            raise RuntimeError("source went away")
+
+        pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
+
+        with pytest.raises(RuntimeError, match="source went away"):
+            await self._run(pipeline)
+
+        assert _queue_rows(producer) == [(0, False)]

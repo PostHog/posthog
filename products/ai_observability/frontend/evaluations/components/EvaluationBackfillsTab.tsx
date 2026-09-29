@@ -34,6 +34,7 @@ import type {
 import {
     backfillCoveredCount,
     backfillLateArrivalCount,
+    backfillLiveCoveredCount,
     backfillRangeDateFormat,
     backfillSamplingLabel,
     backfillTotalCount,
@@ -63,7 +64,8 @@ function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null
     if (!backfill.remaining_count) {
         return null
     }
-    return `${pluralize(backfill.remaining_count, backfill.target)} weren't evaluated. Start another backfill over this range to retry them.`
+    const one = backfill.remaining_count === 1
+    return `${pluralize(backfill.remaining_count, backfill.target)} ${one ? "wasn't" : "weren't"} evaluated. Start another backfill over this range to retry ${one ? 'it' : 'them'}.`
 }
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
@@ -128,9 +130,11 @@ export function EvaluationBackfillsTab({
         expandBackfill,
         collapseBackfill,
         loadBackfills,
+        startClicked,
     } = useActions(logic)
 
     const confirmStart = (): void => {
+        startClicked()
         LemonDialog.open({
             title: 'Start this backfill?',
             description: estimate ? (
@@ -452,6 +456,7 @@ export function EvaluationBackfillsTab({
                     expandedRowRender: (backfill) => {
                         const leftBehind = backfillLeftBehindLabel(backfill)
                         const lateArrivals = backfillLateArrivalCount(backfill)
+                        const liveCovered = backfillLiveCoveredCount(backfill)
                         return (
                             <div className="flex items-center justify-between gap-4 px-2 py-3">
                                 <div className="flex flex-col gap-2 min-w-0">
@@ -484,14 +489,28 @@ export function EvaluationBackfillsTab({
                                         <span>
                                             {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
                                             {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                            {pluralize(backfillTotalCount(backfill), backfill.target)}
-                                            {backfill.rerun_existing ? ' in range' : ' that had no result'}
+                                            {pluralize(
+                                                backfill.rerun_existing
+                                                    ? backfillTotalCount(backfill)
+                                                    : backfill.total_count,
+                                                backfill.target
+                                            )}
+                                            {backfill.rerun_existing
+                                                ? ' in range'
+                                                : " that hadn't been evaluated when the backfill began"}
                                         </span>
                                     </div>
                                     {lateArrivals > 0 && (
                                         <div className="text-muted">
                                             {pluralize(lateArrivals, backfill.target)} arrived in this range after the
                                             backfill started, so it covered more than the first count found.
+                                        </div>
+                                    )}
+                                    {liveCovered > 0 && (
+                                        <div className="text-muted">
+                                            {pluralize(liveCovered, backfill.target)}{' '}
+                                            {liveCovered === 1 ? 'was' : 'were'} evaluated automatically before the
+                                            backfill reached {liveCovered === 1 ? 'it' : 'them'}.
                                         </div>
                                     )}
                                     {leftBehind && <div className="text-warning">{leftBehind}</div>}
