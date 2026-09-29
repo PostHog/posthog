@@ -1075,6 +1075,7 @@ layer = "modules"
 path = "products.web_analytics"
 depends_on = [
     "products.access_control",
+    "products.aeo",
     "products.cohorts",
     "ee",
     "posthog",

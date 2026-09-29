@@ -145,9 +145,13 @@ def _public_host(url: str) -> str:
     return hostname
 
 
+def site_host(url: str) -> str:
+    return _public_host(url).removeprefix("www.")
+
+
 def has_same_public_site(first_url: str, second_url: str) -> bool:
-    first = _public_host(first_url).removeprefix("www.")
-    second = _public_host(second_url).removeprefix("www.")
+    first = site_host(first_url)
+    second = site_host(second_url)
     if not first or not second:
         return False
     return first == second or first.endswith(f".{second}") or second.endswith(f".{first}")
@@ -271,3 +275,66 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
         "sitemap_detected": sitemap_detected,
         "warnings": warnings,
     }
+
+
+_MAX_SITEMAP_BYTES = 8 * 1024 * 1024
+_MAX_SITEMAP_FETCHES = 12
+_MAX_SITEMAP_SECONDS = 60.0
+_MAX_SITEMAP_URLS = 20_000
+
+
+def _fetch_sitemap(url: str, *, deadline: float) -> str | None:
+    try:
+        response = fetch_public_url(
+            strip_userinfo(url),
+            headers={"Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1", "User-Agent": "PostHog content research"},
+            max_bytes=_MAX_SITEMAP_BYTES,
+            deadline=deadline,
+            connect_timeout_seconds=3.0,
+            read_timeout_seconds=15.0,
+        )
+    except PublicUrlFetchError:
+        return None
+    if not 200 <= response.status_code < 300:
+        return None
+    return response.body.decode("utf-8", errors="replace")
+
+
+def _is_on_site(url: str, origin: str) -> bool:
+    try:
+        port = urlparse(url).port
+    except ValueError:
+        return False
+    host = site_host(url)
+    return bool(host) and host == site_host(origin) and port in (None, 80, 443)
+
+
+def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
+    deadline = time.monotonic() + _MAX_SITEMAP_SECONDS
+    queue = [url for url in source_urls if has_same_public_origin(url, origin)]
+    seen_sitemaps: set[str] = set()
+    pages: dict[str, None] = {}
+    while queue and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES and time.monotonic() < deadline:
+        sitemap_url = queue.pop(0)
+        if sitemap_url in seen_sitemaps:
+            continue
+        seen_sitemaps.add(sitemap_url)
+        text = _fetch_sitemap(sitemap_url, deadline=deadline)
+        if text is None:
+            continue
+        try:
+            root = ET.fromstring(text)
+        except (DefusedParseError, DefusedXmlException):
+            continue
+        is_index = root.tag.rsplit("}", 1)[-1].lower() == "sitemapindex"
+        for element in root.iter():
+            if element.tag.rsplit("}", 1)[-1].lower() != "loc" or not element.text:
+                continue
+            location = element.text.strip()
+            if not _is_on_site(location, origin):
+                continue
+            if is_index:
+                queue.append(location)
+            elif len(pages) < _MAX_SITEMAP_URLS:
+                pages[location] = None
+    return list(pages)
