@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
+import { IconCode2, IconCopy, IconHome, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -20,6 +20,7 @@ import { slugify } from 'lib/utils/strings'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -57,6 +58,8 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
@@ -64,6 +67,7 @@ export function DashboardScenePanel(): JSX.Element | null {
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const { push } = useActions(router)
+    const isHomeTabDashboard = !!dashboard && currentTeam?.home_tab_dashboard === dashboard.id
 
     return (
         <ScenePanel>
@@ -100,6 +104,21 @@ export function DashboardScenePanel(): JSX.Element | null {
                             </ButtonPrimitive>
                         )}
                         <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() =>
+                                updateCurrentTeam({ home_tab_dashboard: isHomeTabDashboard ? null : dashboard.id })
+                            }
+                            data-attr={`${RESOURCE_TYPE}-set-as-home-tab`}
+                            tooltip={
+                                isHomeTabDashboard
+                                    ? 'Stop showing this on the product analytics Home tab'
+                                    : 'Show this dashboard on the product analytics Home tab'
+                            }
+                        >
+                            <IconHome className={isHomeTabDashboard ? 'text-warning' : undefined} />
+                            {isHomeTabDashboard ? 'Remove as Home tab' : 'Set as Home tab'}
+                        </ButtonPrimitive>
                         <SceneFullscreen
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => {

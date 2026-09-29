@@ -30,6 +30,7 @@ import { slugify } from 'lib/utils/strings'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -88,6 +89,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
@@ -312,6 +315,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         data-attr={`${RESOURCE_TYPE}-menubar-pin`}
                     >
                         Pinned
+                    </SceneMenuBarCheckboxItem>
+                    <SceneMenuBarCheckboxItem
+                        checked={currentTeam?.home_tab_dashboard === dashboard.id}
+                        onCheckedChange={(checked) =>
+                            updateCurrentTeam({ home_tab_dashboard: checked ? dashboard.id : null })
+                        }
+                        data-attr={`${RESOURCE_TYPE}-menubar-set-as-home-tab`}
+                    >
+                        Home tab dashboard
                     </SceneMenuBarCheckboxItem>
                     <SceneMenuBarCheckboxItem
                         checked={dashboardMode === DashboardMode.Fullscreen}
