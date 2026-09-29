@@ -258,3 +258,25 @@ class TestFileSystemShortcutAccessLevels(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
         self.assertEqual(levels, {"Real": "none", "Guessed": "none"})
+
+    @parameterized.expand(
+        [
+            ("bulk_update", lambda shortcut: {"add": [], "remove_ids": []}),
+            ("reorder", lambda shortcut: {"ordered_ids": [str(shortcut.id)]}),
+        ]
+    )
+    def test_write_endpoints_return_access_levels(self, url_path, build_payload):
+        theirs = Dashboard.objects.create(team=self.team, name="Theirs", created_by=self.other_user)
+        shortcut = FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Theirs", type="dashboard", ref=str(theirs.pk)
+        )
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_path}/",
+            build_payload(shortcut),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["user_access_level"] for item in response.json()], ["none"])
