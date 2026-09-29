@@ -91,16 +91,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
                 name="coalesce",
                 args=[self._to_numeric(self._resolve_field_expr(total_cost_field)), ast.Constant(value=0)],
             )
-            # A row with no currency is read as the base currency: convertCurrency would convert it to 0.
-            currency_expr = ast.Call(
-                name="coalesce",
-                args=[
-                    ast.Call(
-                        name="nullIf", args=[self._resolve_field_or_constant(currency_field), ast.Constant(value="")]
-                    ),
-                    ast.Constant(value=base_currency),
-                ],
-            )
+            currency_expr = self._resolve_field_or_constant(currency_field)
             convert_currency = ast.Call(
                 name="convertCurrency",
                 args=[currency_expr, ast.Constant(value=base_currency), coalesce],
