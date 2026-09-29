@@ -16,7 +16,7 @@ class TeamWorkflowsConfig(models.Model):
     # Recipient-consent enforcement for open/click tracking on marketing emails (CNIL/ePrivacy).
     # Enforced at send time in the Node worker; transactional emails are exempt.
     email_tracking_consent_mode = models.CharField(
-        max_length=16, choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES, default=EmailTrackingConsentMode.OFF
+        max_length=16, choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES, default=EmailTrackingConsentMode.OFF.value
     )
 
     # Staff-controlled kill switch: while set, the CDP email worker blocks all workflow email
