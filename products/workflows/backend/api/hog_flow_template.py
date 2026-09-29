@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from typing import Optional, cast
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -218,6 +219,38 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
+class _FileThenDatabaseTemplates:
+    """
+    Sliceable view of file templates followed by DB templates.
+    The paginator slices it, so only the DB rows on the requested page are fetched and serialized.
+    """
+
+    def __init__(
+        self,
+        file_templates: list[dict],
+        queryset: QuerySet[HogFlowTemplate],
+        serialize: Callable[[list[HogFlowTemplate]], list[dict]],
+    ) -> None:
+        self._file_templates = file_templates
+        self._queryset = queryset
+        self._serialize = serialize
+
+    def __len__(self) -> int:
+        return len(self._file_templates) + self._queryset.count()
+
+    def __getitem__(self, page: slice) -> list[dict]:
+        start = page.start or 0
+        stop = page.stop
+        file_count = len(self._file_templates)
+        db_start = max(start - file_count, 0)
+        db_stop = None if stop is None else max(stop - file_count, 0)
+
+        results = list(self._file_templates[start:stop])
+        if db_stop is None or db_stop > db_start:
+            results.extend(self._serialize(list(self._queryset[db_start:db_stop])))
+        return results
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
@@ -245,10 +278,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         """
         Override list to include global templates from files alongside team templates from DB.
         """
-        # Get team templates from database (unpaginated first)
-        queryset = self.filter_queryset(self.get_queryset())
-        serializer = self.get_serializer(queryset, many=True)
-        db_templates = serializer.data
+        queryset = self.filter_queryset(self.get_queryset()).select_related("created_by")
 
         # Load global templates from files
         try:
@@ -257,15 +287,16 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             logger.warning("Failed to load global templates from files", error=str(e))
             file_templates = []
 
-        # Combine both sources (file templates first so they appear at top)
-        all_templates = list(file_templates) + list(db_templates)
+        # File templates come first so they appear at top
+        all_templates = _FileThenDatabaseTemplates(
+            file_templates, queryset, lambda rows: self.get_serializer(rows, many=True).data
+        )
 
-        # Now paginate the combined list
         page = self.paginate_queryset(all_templates)
         if page is not None:
             return self.get_paginated_response(page)
 
-        return Response(all_templates)
+        return Response(all_templates[0:None])
 
     def retrieve(self, request, *args, **kwargs):
         """

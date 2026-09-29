@@ -1,6 +1,11 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from rest_framework import status
 
@@ -666,3 +671,45 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template_ids = [t["id"] for t in response.json()["results"]]
         assert template_id in template_ids
+
+    @patch(
+        "products.workflows.backend.api.hog_flow_template.load_global_templates",
+        return_value=[{"id": "file-1"}, {"id": "file-2"}],
+    )
+    def test_list_pages_database_templates_after_file_templates(self, _mock_load_global_templates):
+        db_ids = []
+        for i in range(5):
+            template = HogFlowTemplate.objects.create(
+                name=f"Template {i}",
+                team=self.team,
+                scope="team",
+                trigger={"type": "event"},
+                actions=[],
+                created_by=self.user,
+            )
+            HogFlowTemplate.objects.filter(id=template.id).update(
+                updated_at=datetime(2026, 1, 1, tzinfo=UTC) - timedelta(days=i)
+            )
+            db_ids.append(str(template.id))
+
+        walked: list[str] = []
+        query_counts: list[int] = []
+        for offset in (0, 3, 6):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/hog_flow_templates", {"limit": 3, "offset": offset}
+                )
+            assert response.status_code == 200, response.json()
+            assert response.json()["count"] == 7
+            walked.extend(t["id"] for t in response.json()["results"])
+            query_counts.append(len(queries.captured_queries))
+            template_selects = [
+                q["sql"]
+                for q in queries.captured_queries
+                if 'FROM "hogflow_templates"' in q["sql"] and "COUNT(" not in q["sql"]
+            ]
+            assert all("LIMIT" in sql for sql in template_selects), template_selects
+
+        assert walked == ["file-1", "file-2", *db_ids]
+        # The page with three DB rows must not issue more queries than the page with one.
+        assert query_counts[1] == query_counts[2], query_counts
