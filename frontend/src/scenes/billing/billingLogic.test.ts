@@ -105,6 +105,22 @@ describe('billingLogic', () => {
         expect(billingLogic.values.billing).toEqual(loaded)
     })
 
+    it('reports a failed limit update as a failure, so the limit editor keeps the value', async () => {
+        useMocks({ patch: { '/api/billing': () => [500, { detail: 'A server error occurred.' }] } })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+        const loaded = billingLogic.values.billing
+
+        await expectLogic(billingLogic, () => billingLogic.actions.updateBillingLimits({ product_analytics: 100 }))
+            .toDispatchActions(['updateBillingLimitsFailure'])
+            .toNotHaveDispatchedActions(['updateBillingLimitsSuccess'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.billing).toEqual(loaded)
+    })
+
     it('keeps the last credit overview when billing answers with an empty body', async () => {
         billingState = { ...billingState, has_active_subscription: true }
         creditOverviewAnswer = [200, null]

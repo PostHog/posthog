@@ -881,11 +881,13 @@ export const billingLogic = kea<billingLogicType>([
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
                         return parseBillingResponse(response) ?? values.billing
-                    } catch {
+                    } catch (error: unknown) {
                         lemonToast.error(
                             'There was an error updating your billing limits. Please try again or contact support.'
                         )
-                        return values.billing
+                        // A failure, not the last billing state: a success would close the limit editor and
+                        // discard the value the person was saving.
+                        throw error
                     }
                 },
 
