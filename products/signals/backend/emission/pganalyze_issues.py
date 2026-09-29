@@ -193,8 +193,6 @@ def pganalyze_issue_record_fetcher(
     except Exception as e:
         logger.exception(f"Error querying pganalyze issues by id: {e}", **context.get("extra", {}))
         raise
-    if not rows:
-        return []
 
     now = timezone.now()
     SignalEmissionRecord.objects.bulk_create(
