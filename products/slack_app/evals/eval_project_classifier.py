@@ -81,7 +81,7 @@ MAIN = _project(team_id=40, integration_id=400, name="Main")
 PROJECTS = [STAGING, PRODUCTION, WEBSITE, AGENT_PLATFORM, MOBILE, MAIN]
 
 
-# A second workspace, shaped like the one the misroute happened in: fifteen projects,
+# A second workspace, shaped like the one the misroute happened in: over a dozen projects,
 # several of them plausible homes for work on an AI agent. Six clean candidates turned out
 # not to reproduce anything — the model answers those correctly with or without the rules
 # this suite is here to measure. The pull towards an owner only appears when several
