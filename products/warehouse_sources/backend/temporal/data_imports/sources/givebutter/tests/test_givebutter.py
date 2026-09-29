@@ -53,7 +53,7 @@ def manager(inputs: SourceInputs) -> Iterator[ResumableSourceManager[GivebutterR
 
 
 def pages(response: SourceResponse) -> Generator[list[dict[str, Any]]]:
-    return cast(Generator[list[dict[str, Any]]], response.items())
+    return cast(Generator[list[dict[str, Any]]], iter(response.items()))
 
 
 def test_pagination_and_resume_after_yield(
