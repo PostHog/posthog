@@ -346,6 +346,7 @@ the row lists both.
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
 | gridly                           | HTTP                        | requests                                                        | ✅                          |
 | groq                             | HTTP                        | requests                                                        | ✅                          |
+| growthbook                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
@@ -1113,7 +1114,6 @@ doesn't conflict with concurrent PRs.
 - google_tasks
 - google_workspace_admin_reports
 - greythr
-- growthbook
 - guesty
 - gumloop
 - harness
