@@ -3908,9 +3908,11 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  # A native-JSON row uploads under its own variant, so a failure in that mode
-                  # does not read as a flake of the legacy test with the same id.
-                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
+                  # Each Core row that runs the same tests in another mode (native-JSON events,
+                  # person-on-events, an older ClickHouse server) uploads under its own variant.
+                  # Otherwise Trunk reads a failure in that mode as a flake of the default test
+                  # with the same id, and can quarantine the default test for it.
+                  variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-events-json' || 'poe') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
