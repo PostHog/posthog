@@ -17,6 +17,7 @@ from posthog.taxonomic_search_intent.prompt import (
     BUNDLED_SEARCH_INTENT_PROMPT,
     SearchIntentPrompt,
     _PromptRefresher,
+    fetch_search_intent_prompt,
     parse_search_intent_prompt,
 )
 
@@ -260,7 +261,7 @@ class TestSearchIntentPrompt(SimpleTestCase):
             instructions="Which tab?", options=options, confident_threshold=threshold, version=4
         )
 
-    def test_the_sdk_fallback_is_the_bundled_prompt(self) -> None:
+    def test_the_code_fallback_is_the_bundled_prompt(self) -> None:
         result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
 
         assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
@@ -270,6 +271,29 @@ class TestSearchIntentPrompt(SimpleTestCase):
         result = PromptResult(source="api", prompt="Which tab?", name="n", version=4, config={"model": model})
 
         assert parse_search_intent_prompt(result).model == model
+
+    @patch("posthog.taxonomic_search_intent.prompt.get_app_prompt")
+    def test_fetch_uses_app_prompt_without_personal_key(self, read_prompt) -> None:
+        read_prompt.return_value = {
+            "name": "taxonomic-filter-search-intent",
+            "prompt": "Which tab?",
+            "version": 3,
+            "config": {"model": "posthog/hogference/jeeves-0.1"},
+        }
+
+        with patch("posthoganalytics.personal_api_key", None):
+            prompt = fetch_search_intent_prompt(label="production")
+            assert prompt.version == 3
+            assert prompt.model == "posthog/hogference/jeeves-0.1"
+            read_prompt.assert_called_with("taxonomic-filter-search-intent", label="production", version=None)
+
+            fetch_search_intent_prompt(version=4)
+            read_prompt.assert_called_with("taxonomic-filter-search-intent", label=None, version=4)
+
+        read_prompt.return_value = None
+        assert fetch_search_intent_prompt(label="production") is BUNDLED_SEARCH_INTENT_PROMPT
+        with self.assertRaisesRegex(RuntimeError, "version 4 was not found"):
+            fetch_search_intent_prompt(version=4)
 
     def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
         managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)

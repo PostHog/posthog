@@ -15,11 +15,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import structlog
-import posthoganalytics
-from posthoganalytics.ai.prompts import PromptResult, Prompts
+from posthoganalytics.ai.prompts import PromptResult
 
 from posthog.dataclasses import frozen
-from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL, model_from_config
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL, get_app_prompt, model_from_config
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
@@ -107,20 +106,21 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
 
 
 def fetch_search_intent_prompt(*, label: str | None = None, version: int | None = None) -> SearchIntentPrompt:
-    """Blocks on the network for up to the SDK timeout. Request code reads `current_search_intent_prompt` instead."""
-    # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
-    if not posthoganalytics.personal_api_key:
+    """Reads the app project's managed prompt. Request code reads `current_search_intent_prompt` instead."""
+    result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, label=label if version is None else None, version=version)
+    if result is None:
+        if version is not None:
+            raise RuntimeError(f"Managed prompt {SEARCH_INTENT_PROMPT_NAME} version {version} was not found")
         return BUNDLED_SEARCH_INTENT_PROMPT
-    # Built per fetch because the key is set in apps.ready(), after this module can be imported.
-    prompts = Prompts(posthoganalytics, capture_errors=True)
-    result = prompts.get(
-        SEARCH_INTENT_PROMPT_NAME,
-        with_metadata=True,
-        label=label if version is None else None,
-        version=version,
-        fallback=BUNDLED_SEARCH_INTENT_PROMPT.instructions,
+    return parse_search_intent_prompt(
+        PromptResult(
+            source="api",
+            prompt=result["prompt"],
+            name=result["name"],
+            version=result["version"],
+            config=result.get("config"),
+        )
     )
-    return parse_search_intent_prompt(result)
 
 
 class _PromptRefresher:
