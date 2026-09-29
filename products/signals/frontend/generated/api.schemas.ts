@@ -600,6 +600,90 @@ export interface ReportRankingApi {
     readable_heads: string[]
 }
 
+/**
+ * * `suggested_reviewer` - Suggested reviewer
+ * * `claimed` - Claimed
+ */
+export type PersonalReasonEnumApi = (typeof PersonalReasonEnumApi)[keyof typeof PersonalReasonEnumApi]
+
+export const PersonalReasonEnumApi = {
+    SuggestedReviewer: 'suggested_reviewer',
+    Claimed: 'claimed',
+} as const
+
+/**
+ * * `action_available` - Action available
+ * * `waiting` - Waiting
+ * * `unknown` - Unknown
+ * * `closed` - Closed
+ */
+export type PersonalActionStateEnumApi = (typeof PersonalActionStateEnumApi)[keyof typeof PersonalActionStateEnumApi]
+
+export const PersonalActionStateEnumApi = {
+    ActionAvailable: 'action_available',
+    Waiting: 'waiting',
+    Unknown: 'unknown',
+    Closed: 'closed',
+} as const
+
+/**
+ * * `review_finding` - Review the finding
+ * * `answer_question` - Answer the question
+ * * `review_pr` - Review the pull request
+ * * `check_pr` - Check the pull request
+ * * `resolve_blocker` - Resolve the blocker
+ * * `continue_work` - Continue the work
+ */
+export type PersonalNextActionKindEnumApi =
+    (typeof PersonalNextActionKindEnumApi)[keyof typeof PersonalNextActionKindEnumApi]
+
+export const PersonalNextActionKindEnumApi = {
+    ReviewFinding: 'review_finding',
+    AnswerQuestion: 'answer_question',
+    ReviewPr: 'review_pr',
+    CheckPr: 'check_pr',
+    ResolveBlocker: 'resolve_blocker',
+    ContinueWork: 'continue_work',
+} as const
+
+export interface PersonalInboxNextActionApi {
+    /** The recommended next step. It is a recommendation only and grants no permission to act. review_finding and answer_question open the report. review_pr and check_pr open pull_request_url. resolve_blocker and continue_work open the report's work log.
+     *
+     * * `review_finding` - Review the finding
+     * * `answer_question` - Answer the question
+     * * `review_pr` - Review the pull request
+     * * `check_pr` - Check the pull request
+     * * `resolve_blocker` - Resolve the blocker
+     * * `continue_work` - Continue the work */
+    kind: PersonalNextActionKindEnumApi
+    /**
+     * The pull request this step concerns, when the step is about a pull request.
+     * @nullable
+     */
+    pull_request_url: string | null
+}
+
+export interface PersonalInboxEntryApi {
+    /** Why the report is in the user's personal Inbox: suggested_reviewer, claimed, or both. Empty when the report is only visible through an explicit filter. */
+    reasons: PersonalReasonEnumApi[]
+    /** action_available: the user can act now. waiting: an agent, author, or other person must act first. unknown: the current state is not verified, so no readiness is implied. closed: resolved or dismissed.
+     *
+     * * `action_available` - Action available
+     * * `waiting` - Waiting
+     * * `unknown` - Unknown
+     * * `closed` - Closed */
+    action_state: PersonalActionStateEnumApi
+    /** The recommended next step, or null when nothing is asked of the user. */
+    next_action: PersonalInboxNextActionApi | null
+    /**
+     * When the facts behind action_state were last observed: the pull request's last GitHub check, or the report's last update. Null when a pull request state was never verified.
+     * @nullable
+     */
+    observed_at: string | null
+    /** Version of the selection and ordering policy that produced this row. */
+    policy_version: string
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -706,6 +790,8 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
+    /** Why the report is in the user's personal Inbox and what the user can do next. Filled for scope=for_me with the personal Inbox enabled, and for sort=relevance. Null otherwise. */
+    readonly personal_inbox: PersonalInboxEntryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -6570,7 +6656,7 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
-     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate. With the personal Inbox enabled, for_me selects reports that name the user as a suggested reviewer or that the user (or a task the user started) claimed, and hides resolved, dismissed, and snoozed reports unless status or view asks for them.
      */
     scope?: string
     /**
@@ -6586,7 +6672,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: relevance, priority, last_updated, newest, or oldest. Ignored when ordering is supplied. relevance needs scope=for_me: it puts urgent work and reports the user can act on now first, then orders by priority, and fills each row's personal_inbox explanation.
      */
     sort?: string
     /**

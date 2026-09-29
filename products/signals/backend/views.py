@@ -126,6 +126,15 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_inbox import (
+    ACTIVE_PERSONAL_STATUSES,
+    PersonalDecision,
+    RankedInbox,
+    decide_reports,
+    personal_inbox_enabled,
+    personal_inbox_filter,
+    rank_personal_inbox,
+)
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -1277,6 +1286,8 @@ class SignalReportViewSet(
             or self.request.query_params.get("view") in {"dismissed", "all"}
         ):
             return self._FILTERABLE_STATUSES
+        if self._personal_inbox_requested() and not self.request.query_params.get("view"):
+            return self._DEFAULT_STATUSES & ACTIVE_PERSONAL_STATUSES
         return self._DEFAULT_STATUSES
 
     def _include_all_statuses_requested(self) -> bool:
@@ -1460,6 +1471,8 @@ class SignalReportViewSet(
             return queryset
         if scope == "for_me":
             user = cast(User, self.request.user)
+            if self._personal_inbox_enabled():
+                return queryset.filter(personal_inbox_filter(team_id=self.team.id, user=user))
             return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)])
         if scope == "teammate":
             teammate_uuid = (self.request.query_params.get("teammate_uuid") or "").strip()
@@ -1469,6 +1482,37 @@ class SignalReportViewSet(
         raise serializers.ValidationError(
             {"scope": f"Invalid value: {scope!r}. Allowed: for_me, entire_project, teammate."}
         )
+
+    def _personal_inbox_enabled(self) -> bool:
+        if not hasattr(self, "_cached_personal_inbox_enabled"):
+            self._cached_personal_inbox_enabled = personal_inbox_enabled(
+                cast(User, self.request.user), str(self.organization.id)
+            )
+        return self._cached_personal_inbox_enabled
+
+    def _personal_inbox_requested(self) -> bool:
+        # The personal selection and its explanations apply to the list only, and only behind the flag.
+        return (
+            self.action == "list"
+            and self.request.query_params.get("scope") == "for_me"
+            and self._personal_inbox_enabled()
+        )
+
+    def _relevance_sort_requested(self) -> bool:
+        return (
+            self.action == "list"
+            and self.request.query_params.get("ordering") is None
+            and self.request.query_params.get("sort") == "relevance"
+        )
+
+    def _rank_personal_inbox(self, queryset) -> RankedInbox:
+        list_span = trace.get_current_span()
+        with tracer.start_as_current_span("signals.reports.list.rank_personal_inbox"):
+            ranked = rank_personal_inbox(queryset, team_id=self.team_id, user=cast(User, self.request.user))
+        list_span.set_attribute("signals.reports.list.relevance_candidates", len(ranked.report_ids))
+        if ranked.truncated:
+            logger.warning("signals.reports.list.relevance_candidates_truncated", team_id=self.team_id)
+        return ranked
 
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
@@ -1767,10 +1811,15 @@ class SignalReportViewSet(
         raw = self.request.query_params.get("ordering")
         if raw is None:
             inbox_sort = self.request.query_params.get("sort")
-            if inbox_sort:
+            if inbox_sort == "relevance":
+                if self.request.query_params.get("scope") != "for_me":
+                    raise serializers.ValidationError({"sort": "relevance requires scope=for_me."})
+                # `list` ranks these rows in Python after filtering. The SQL order only has to be stable.
+                raw = self._DEFAULT_SIGNAL_REPORT_ORDERING
+            elif inbox_sort:
                 raw = self._INBOX_SORT_ORDERINGS.get(inbox_sort)
                 if raw is None:
-                    allowed = ", ".join(sorted(self._INBOX_SORT_ORDERINGS))
+                    allowed = ", ".join(sorted([*self._INBOX_SORT_ORDERINGS, "relevance"]))
                     raise serializers.ValidationError({"sort": f"Invalid value: {inbox_sort!r}. Allowed: {allowed}."})
             else:
                 raw = self._DEFAULT_SIGNAL_REPORT_ORDERING
@@ -2077,7 +2126,12 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
+                description=(
+                    "Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate. "
+                    "With the personal Inbox enabled, for_me selects reports that name the user as a suggested "
+                    "reviewer or that the user (or a task the user started) claimed, and hides resolved, "
+                    "dismissed, and snoozed reports unless status or view asks for them."
+                ),
             ),
             OpenApiParameter(
                 name="teammate_uuid",
@@ -2112,7 +2166,9 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied."
+                    "Inbox sort preset: relevance, priority, last_updated, newest, or oldest. Ignored when ordering "
+                    "is supplied. relevance needs scope=for_me: it puts urgent work and reports the user can act on "
+                    "now first, then orders by priority, and fills each row's personal_inbox explanation."
                 ),
             ),
             OpenApiParameter(
@@ -2178,10 +2234,17 @@ class SignalReportViewSet(
         list_span.set_attribute("signals.reports.list.count_only", count_only)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
 
+        ranked: RankedInbox | None = None
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
             if count_only:
                 total_count = queryset.count()
+            elif self._relevance_sort_requested():
+                ranked = self._rank_personal_inbox(queryset)
+                page = self.paginate_queryset(ranked.report_ids)
+                page_ids = page if page is not None else ranked.report_ids
+                reports_by_id = {str(report.id): report for report in queryset.filter(id__in=page_ids)}
+                reports = [reports_by_id[rid] for rid in page_ids if rid in reports_by_id]
             else:
                 page = self.paginate_queryset(queryset)
                 reports = list(page if page is not None else queryset)
@@ -2218,6 +2281,7 @@ class SignalReportViewSet(
                 except Exception:
                     logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
 
+        pull_requests_loaded = True
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
                 pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
@@ -2226,6 +2290,7 @@ class SignalReportViewSet(
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
                 implementation_pr_by_report = {}
                 pull_requests_map = {}
+                pull_requests_loaded = False
 
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
@@ -2241,12 +2306,27 @@ class SignalReportViewSet(
             for report in reports:
                 report.artefact_count = artefact_counts.get(str(report.id), 0)
                 report.channel_id = live_channel_ids.get(str(report.id))
+        claims_map = dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids)
+        personal_decisions: dict[str, PersonalDecision] = {}
+        if ranked is not None:
+            personal_decisions = {rid: ranked.decisions[rid] for rid in report_ids if rid in ranked.decisions}
+        elif self._personal_inbox_requested() and pull_requests_loaded:
+            # Without PR state an explanation could offer a review of work that already has a PR.
+            with tracer.start_as_current_span("signals.reports.list.decide_personal_inbox"):
+                personal_decisions = decide_reports(
+                    reports,
+                    team_id=self.team_id,
+                    user=cast(User, request.user),
+                    claims=claims_map,
+                    pull_requests=pull_requests_map,
+                )
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
+            "claims_map": claims_map,
+            "personal_inbox_decisions": personal_decisions,
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},

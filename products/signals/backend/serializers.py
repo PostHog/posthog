@@ -68,6 +68,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .personal_inbox import POLICY_VERSION, PersonalActionState, PersonalNextActionKind, PersonalReason
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -1635,6 +1636,50 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 # ── Report `signals` action ─────────────────────────────────────────────────────
 #
+class PersonalInboxNextActionSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=PersonalNextActionKind.choices,
+        help_text=(
+            "The recommended next step. It is a recommendation only and grants no permission to act. "
+            "review_finding and answer_question open the report. review_pr and check_pr open pull_request_url. "
+            "resolve_blocker and continue_work open the report's work log."
+        ),
+    )
+    pull_request_url = serializers.CharField(
+        allow_null=True, help_text="The pull request this step concerns, when the step is about a pull request."
+    )
+
+
+class PersonalInboxEntrySerializer(serializers.Serializer):
+    reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=PersonalReason.choices),
+        help_text=(
+            "Why the report is in the user's personal Inbox: suggested_reviewer, claimed, or both. "
+            "Empty when the report is only visible through an explicit filter."
+        ),
+    )
+    action_state = serializers.ChoiceField(
+        choices=PersonalActionState.choices,
+        help_text=(
+            "action_available: the user can act now. waiting: an agent, author, or other person must act first. "
+            "unknown: the current state is not verified, so no readiness is implied. closed: resolved or dismissed."
+        ),
+    )
+    next_action = PersonalInboxNextActionSerializer(
+        allow_null=True, help_text="The recommended next step, or null when nothing is asked of the user."
+    )
+    observed_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the facts behind action_state were last observed: the pull request's last GitHub check, "
+            "or the report's last update. Null when a pull request state was never verified."
+        ),
+    )
+    policy_version = serializers.CharField(
+        help_text="Version of the selection and ordering policy that produced this row."
+    )
+
+
 class SignalReportListSerializer(SignalReportSerializer):
     metrics = ReportMetricListSerializer(
         many=True,
@@ -1644,6 +1689,36 @@ class SignalReportListSerializer(SignalReportSerializer):
             "comparisons are available from the report detail endpoint."
         ),
     )
+    personal_inbox = serializers.SerializerMethodField(
+        help_text=(
+            "Why the report is in the user's personal Inbox and what the user can do next. Filled for "
+            "scope=for_me with the personal Inbox enabled, and for sort=relevance. Null otherwise."
+        )
+    )
+
+    class Meta(SignalReportSerializer.Meta):
+        fields = [*SignalReportSerializer.Meta.fields, "personal_inbox"]
+        read_only_fields = fields
+
+    @extend_schema_field(PersonalInboxEntrySerializer(allow_null=True))
+    def get_personal_inbox(self, obj: SignalReport) -> dict | None:
+        decision = self.context.get("personal_inbox_decisions", {}).get(str(obj.id))
+        if decision is None:
+            return None
+        next_action = decision.next_action
+        return PersonalInboxEntrySerializer(
+            {
+                "reasons": list(decision.reasons),
+                "action_state": decision.action_state,
+                "next_action": (
+                    {"kind": next_action.kind, "pull_request_url": next_action.pull_request_url}
+                    if next_action is not None
+                    else None
+                ),
+                "observed_at": decision.observed_at,
+                "policy_version": POLICY_VERSION,
+            }
+        ).data
 
 
 class SignalReportListQuerySerializer(serializers.Serializer):

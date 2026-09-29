@@ -1027,6 +1027,15 @@ So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `or
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
+**Personal Inbox.** `personal_inbox.py` holds one policy for the web app, Desktop, and MCP.
+Behind the `signals-personal-inbox` flag, `?scope=for_me` selects reports that name the user as a relevant suggested reviewer, or that the user claimed.
+A claim held by an internal task counts for the user who created the task.
+The same scope hides resolved, dismissed, and snoozed (`potential`) reports unless `?status=` or `?view=` asks for them.
+`?sort=relevance` needs `scope=for_me`.
+It ranks every selected report before pagination: urgent (`P0`) work the user can act on, then other actionable work, unverified state, and waiting work, each ordered by priority, then claimed before reviewer-only, then the latest research run.
+`decide` derives each row's action state and next action from report status, the actionability judgment, claims, and every linked PR, and the list returns it as `personal_inbox` with a `policy_version`.
+The list stays read-only: a next action is a recommendation, not permission to act.
+
 **Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
 When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
 The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
