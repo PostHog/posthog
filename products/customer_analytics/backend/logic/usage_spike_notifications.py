@@ -1,12 +1,11 @@
 from typing import Any
 
 import structlog
-import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.logic import eligibility
 from products.customer_analytics.backend.models import Account, AccountRelationship
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -113,16 +112,7 @@ def _find_account(
 
 
 def _is_csp_enabled(account: Account) -> bool:
-    organization_id = str(account.team.organization_id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            CUSTOMER_ANALYTICS_CSP_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
+    return eligibility.is_customer_analytics_active(account.team.organization_id)
 
 
 def _get_manager_user_ids(account: Account) -> list[int]:

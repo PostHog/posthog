@@ -11,9 +11,8 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.logic import eligibility
 
 logger = structlog.get_logger(__name__)
 
@@ -22,16 +21,7 @@ EU_ORGANIZATION_MEMBERS_VIEW = "eu_org_members"
 
 
 def is_account_member_search_enabled(team: Team, user: User) -> bool:
-    return (
-        user.is_active
-        and user.is_staff
-        and posthog_feature_flag_enabled(
-            CUSTOMER_ANALYTICS_CSP_FLAG,
-            str(user.distinct_id),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    )
+    return user.is_active and user.is_staff and eligibility.is_customer_analytics_active(team.organization_id)
 
 
 def _list_us_organization_ids(email: str) -> tuple[str, ...]:
