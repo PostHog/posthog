@@ -91,7 +91,12 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/business_knowledge/playground/chats/': [listedChat, olderChat],
+                '/api/projects/:team_id/business_knowledge/playground/chats/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [listedChat, olderChat],
+                },
                 '/api/projects/:team_id/business_knowledge/playground/chats/:chatId/': chat,
             },
         }),

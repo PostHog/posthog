@@ -134,7 +134,8 @@ export async function deleteSource(id: string): Promise<void> {
 }
 
 export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
-    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+    const response = await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+    return response.results
 }
 
 export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
