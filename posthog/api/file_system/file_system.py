@@ -54,6 +54,8 @@ from posthog.models.user import User
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
+
 logger = logging.getLogger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
@@ -254,7 +256,7 @@ def tokenize_search(search: str) -> list[str]:
 
 
 @extend_schema(extensions={"x-product": "core"})
-class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class FileSystemViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
     serializer_class = FileSystemSerializer

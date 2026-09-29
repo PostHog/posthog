@@ -46,6 +46,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -205,17 +206,35 @@ def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> Non
     FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
 
 
-def deactivate_trashed_flag(flag_id: int, *, team_id: int) -> None:
-    """Disable a flag that the file system moves to trash. See ``_set_trashed_flag_active``."""
-    # TODO: trash disables a flag without passing a feature_flag.disable policy.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=False)
+def _flip_trashed_flag(flag_id: int, *, team_id: int, user: Any, active: bool) -> None:
+    """Flip ``active`` for trash or restore, through the gate when the flag is standalone.
+
+    Ownership picks the path, the way resource-scoped policies do everywhere else. A standalone
+    flag is what ``feature_flag.*`` governs, so trash and restore honour an enable or disable
+    policy on it and raise ``ApprovalRequired`` when one applies. A product-owned flag matches no
+    ``feature_flag.*`` policy, so it takes the raw write and trash stays one update.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    if flag is None:
+        return
+    if flag_owner_kind(flag) is not None:
+        _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
+        return
+    set_flag_active(flag, active, team=flag.team, user=user)
 
 
-def reactivate_restored_flag(flag_id: int, *, team_id: int) -> None:
-    """Enable a flag that the file system restores from trash. See ``_set_trashed_flag_active``."""
-    # TODO: restore enables a flag without passing a feature_flag.enable policy. It does so even
-    # when the flag was off before trash, because trash does not record the prior state.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=True)
+def deactivate_trashed_flag(flag_id: int, *, team_id: int, user: Any = None) -> None:
+    """Disable a flag that the file system moves to trash. See ``_flip_trashed_flag``."""
+    _flip_trashed_flag(flag_id, team_id=team_id, user=user, active=False)
+
+
+def reactivate_restored_flag(flag_id: int, *, team_id: int, user: Any = None) -> None:
+    """Enable a flag that the file system restores from trash. See ``_flip_trashed_flag``.
+
+    Restore turns the flag on even when it was off before trash, because trash records no prior
+    state. That is unchanged here; the gate only decides whether the flip needs approval.
+    """
+    _flip_trashed_flag(flag_id, team_id=team_id, user=user, active=True)
 
 
 def archive_flag(

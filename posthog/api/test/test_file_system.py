@@ -723,9 +723,7 @@ class TestFileSystemDeletion(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert FileSystem.objects.filter(team=self.team, path="Unfiled/Unknown/Item").exists()
 
-    @parameterized.expand(
-        [("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",), ("disable_and_enable_policies",)]
-    )
+    @parameterized.expand([("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",)])
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_undo_delete_restores_feature_flag(self, setup: str, _mock_approvals_enabled) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="undo-flag", created_by=self.user)
@@ -767,16 +765,6 @@ class TestFileSystemDeletion(APIBaseTest):
                 ]
             }
             flag.save()
-        elif setup == "disable_and_enable_policies":
-            for action_key in ("feature_flag.disable", "feature_flag.enable"):
-                ApprovalPolicy.objects.create(
-                    organization=self.organization,
-                    team=self.team,
-                    action_key=action_key,
-                    conditions={},
-                    approver_config={"quorum": 1, "users": [self.user.id]},
-                    created_by=self.user,
-                )
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
 
         delete_response = self.client.delete(
@@ -798,6 +786,44 @@ class TestFileSystemDeletion(APIBaseTest):
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
         assert flag.active is True
         assert flag.deleted is False  # type: ignore
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def _create_disable_policy(self) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_trashing_a_standalone_flag_under_a_disable_policy_needs_approval(self, _mock_approvals_enabled) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="gated-standalone", created_by=self.user)
+        self._create_disable_policy()
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert flag.deleted is False
+        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.disable").exists()
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_trashing_a_survey_owned_flag_skips_the_flag_policy(self, _mock_approvals_enabled) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-owned", created_by=self.user)
+        Survey.objects.create(team=self.team, name="Owning survey", type="popover", targeting_flag=flag)
+        self._create_disable_policy()
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.active is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_undo_delete_restores_original_path(self) -> None:
