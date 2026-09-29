@@ -1008,7 +1008,8 @@ feature_flags: PostgresTable = PostgresTable(
             description=(
                 "The timestamp of the most recent $feature_flag_called event for this flag. "
                 "It can be null for a flag that SDKs still evaluate, because an evaluation "
-                "that sends no event does not update it."
+                "that sends no event does not update it. It stops updating when the flag is "
+                "deleted, so query $feature_flag_called events to find calls after deletion."
             ),
         ),
         "_active": BooleanDatabaseField(name="active", hidden=True),
