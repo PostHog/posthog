@@ -151,7 +151,7 @@ describe('rasterizeRecording', () => {
             arrange()
             jest.useFakeTimers({ doNotFake: ['setImmediate'] })
             try {
-                const byteBudget = new ByteBudget(2000)
+                const byteBudget = new ByteBudget(2000, 60_000)
                 const releaseHolder = await byteBudget.acquire(1500)
                 const onProgress = jest.fn()
                 const render = rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', onProgress, {

@@ -80,6 +80,7 @@ Key environment variables (see `config.ts` for full list):
 | `CAPTURE_BROWSER_LOGS`          | `0`         | Forward browser console/error logs to worker logger                    |
 | `ENABLE_PLAYER_CSP`             | `1`         | Script-locking CSP on the player page (`0` disables)                   |
 | `MAX_INFLIGHT_COMPRESSED_BYTES` | `314572800` | Cap on compressed recording bytes loaded at once on a worker (300 MiB) |
+| `MAX_BYTE_BUDGET_WAIT_MS`       | `600000`    | Longest wait for the byte cap; after it, the render runs anyway        |
 
 Egress from the browser and the S3 client is routed through the proxy in `HTTPS_PROXY`/`HTTP_PROXY`.
 In production a missing proxy URL is a startup error; `RASTERIZER_USE_PROXY=false` explicitly disables containment.

@@ -9,7 +9,12 @@ export class ByteBudget {
     private inFlight = 0
     private readonly queue: Waiter[] = []
 
-    constructor(private readonly limit: number) {}
+    constructor(
+        private readonly limit: number,
+        // Waits add up behind a queue of large renders, and a grant that is never released blocks the queue.
+        // After this wait, a request runs anyway, so no render waits past its activity timeout.
+        readonly maxWaitMs: number
+    ) {}
 
     get inFlightBytes(): number {
         return this.inFlight
@@ -24,18 +29,34 @@ export class ByteBudget {
             return Promise.resolve(this.releaser(bytes))
         }
         return new Promise((resolve, reject) => {
+            const leaveQueue = (): void => {
+                clearTimeout(timeout)
+                signal?.removeEventListener('abort', onAbort)
+                const index = this.queue.indexOf(waiter)
+                if (index !== -1) {
+                    this.queue.splice(index, 1)
+                }
+            }
             const onAbort = (): void => {
-                this.queue.splice(this.queue.indexOf(waiter), 1)
+                leaveQueue()
                 this.drain()
                 reject(signal?.reason)
+            }
+            const onTimeout = (): void => {
+                leaveQueue()
+                this.inFlight += bytes
+                resolve(this.releaser(bytes))
+                this.drain()
             }
             const waiter: Waiter = {
                 bytes,
                 grant: () => {
+                    clearTimeout(timeout)
                     signal?.removeEventListener('abort', onAbort)
                     resolve(this.releaser(bytes))
                 },
             }
+            const timeout = setTimeout(onTimeout, this.maxWaitMs)
             signal?.addEventListener('abort', onAbort, { once: true })
             this.queue.push(waiter)
         })

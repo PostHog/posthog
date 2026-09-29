@@ -76,8 +76,11 @@ async function acquireByteBudget(
     } finally {
         clearInterval(heartbeat)
         const waitedMs = Date.now() - waitStart
-        if (waitedMs >= 1000) {
-            log.info({ waited_s: waitedMs / 1000, in_flight_bytes: budget.inFlightBytes }, 'byte budget wait ended')
+        const fields = { waited_s: waitedMs / 1000, in_flight_bytes: budget.inFlightBytes }
+        if (waitedMs >= budget.maxWaitMs) {
+            log.warn(fields, 'byte budget wait timed out, rendering anyway')
+        } else if (waitedMs >= 1000) {
+            log.info(fields, 'byte budget wait ended')
         }
     }
 }

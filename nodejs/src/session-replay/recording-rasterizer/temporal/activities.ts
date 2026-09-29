@@ -228,7 +228,7 @@ async function rasterizeRecordingActivity(
 }
 
 export function createActivities(pool: BrowserPool, playerHtml: string) {
-    const byteBudget = new ByteBudget(config.maxInflightCompressedBytes)
+    const byteBudget = new ByteBudget(config.maxInflightCompressedBytes, config.maxByteBudgetWaitMs)
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) =>
             rasterizeRecordingActivity(pool, playerHtml, byteBudget, input),

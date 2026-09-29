@@ -62,6 +62,8 @@ export const config = {
     // Cap on the compressed bytes that all renders on this worker load at the same time. The per-render cap above
     // does not stop several large renders from loading together and running the pod out of memory.
     maxInflightCompressedBytes: parsePositiveInt(process.env.MAX_INFLIGHT_COMPRESSED_BYTES, 300 * 1024 * 1024),
+    // Keep this wait plus a slow render under RASTERIZE_RENDER_TIMEOUT (30 minutes) in the Python workflow.
+    maxByteBudgetWaitMs: parsePositiveInt(process.env.MAX_BYTE_BUDGET_WAIT_MS, 10 * 60 * 1000),
 
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',
