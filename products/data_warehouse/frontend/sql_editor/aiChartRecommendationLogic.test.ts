@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from '~/lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,6 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import * as queryApi from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -78,6 +80,7 @@ describe('aiChartRecommendationLogic', () => {
             query: visualizationProps.query.source,
             autoLoad: false,
             doNotLoad: true,
+            cachedResults: { columns: [], types: [], results: [] },
         }).mount()
         logic = aiChartRecommendationLogic({ visualizationProps, tabId: 'jev-test' })
         logic.mount()
@@ -223,4 +226,108 @@ describe('aiChartRecommendationLogic', () => {
         expect(logic.values.choosingChart).toBe(false)
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
     })
+
+    it.each(['matching', 'different', 'missing', 'unknown'])(
+        'starts selection before results and handles %s inferred columns',
+        async (schema) => {
+            const metadata = jest.spyOn(queryApi, 'performQuery').mockResolvedValue({
+                isValid: true,
+                errors: [],
+                warnings: [],
+                notices: [],
+                output_columns:
+                    schema === 'missing'
+                        ? undefined
+                        : [
+                              { name: schema === 'different' ? 'other' : 'category', type: 'String' },
+                              { name: 'value', type: schema === 'unknown' ? 'Nullable(Unknown)' : 'Int64' },
+                          ],
+            })
+            try {
+                const query = visualization.values.query
+                visualization.actions._setQuery({ ...query, source: { kind: NodeKind.HogQLQuery, query: '' } })
+                dataNodeLogic({
+                    key: 'jev-test',
+                    query: query.source,
+                    cachedResults: { columns: [], types: [], results: [] },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadData('force_async', undefined, {
+                        ...query.source,
+                        tags: { productKey: 'sql_editor' },
+                    })
+                    visualization.actions._setQuery(query)
+                }).toFinishAllListeners()
+                expect(metadata).toHaveBeenCalledWith(
+                    expect.objectContaining({ includeOutputTypes: true, query: 'select category, value' }),
+                    expect.objectContaining({ signal: expect.any(AbortSignal) })
+                )
+                if (schema === 'matching' || schema === 'different') {
+                    await waitFor(() => expect(decide).toHaveBeenCalledTimes(1))
+                    expect(JSON.parse(decide.mock.calls[0][1].state)).toMatchObject({
+                        schema_only: true,
+                        row_count: null,
+                    })
+                } else {
+                    expect(decide).not.toHaveBeenCalled()
+                }
+                expect(logic.values.choosingChart).toBe(false)
+                expect(visualization.values.query.display).toBe(ChartDisplayType.Auto)
+                await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
+                expect(decide).toHaveBeenCalledTimes(1)
+                expect(visualization.values.query.display).toBe(
+                    schema === 'different' ? ChartDisplayType.Auto : ChartDisplayType.ActionsBar
+                )
+            } finally {
+                metadata.mockRestore()
+            }
+        }
+    )
+
+    it.each(['consent', 'query', 'skip'])(
+        'does not send inferred columns to Jev after changing %s while metadata loads',
+        async (change) => {
+            let resolve!: (
+                metadata: NonNullable<import('~/queries/schema/schema-general').HogQLMetadata['response']>
+            ) => void
+            const metadata = jest.spyOn(queryApi, 'performQuery').mockImplementation(
+                () =>
+                    new Promise((done) => {
+                        resolve = done
+                    })
+            )
+            try {
+                dataNodeLogic({
+                    key: 'jev-test',
+                    query: visualization.values.query.source,
+                    cachedResults: { columns: [], types: [], results: [] },
+                })
+                await expectLogic(logic, () => logic.actions.loadData()).toFinishAllListeners()
+                if (change === 'consent') {
+                    organizationLogic.actions.loadCurrentOrganizationSuccess({
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    })
+                } else if (change === 'query') {
+                    visualization.actions.setQuery((query) => ({
+                        ...query,
+                        source: { ...query.source, query: 'select something_else' },
+                    }))
+                } else {
+                    logic.actions.skipRecommendation()
+                }
+                resolve({
+                    isValid: true,
+                    errors: [],
+                    warnings: [],
+                    notices: [],
+                    output_columns: [{ name: 'value', type: 'Int64' }],
+                })
+                await metadata.mock.results[0].value
+                expect(decide).not.toHaveBeenCalled()
+            } finally {
+                metadata.mockRestore()
+            }
+        }
+    )
 })

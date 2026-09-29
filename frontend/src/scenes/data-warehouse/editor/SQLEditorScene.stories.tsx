@@ -10,6 +10,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { MockResolverInfo } from '~/mocks/utils'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -388,7 +389,7 @@ const CHART_EXPERIMENT_RESULTS = {
     hasMore: false,
 }
 
-const chartExperimentParameters = (approved: boolean, decisionDelay = 0): Record<string, unknown> => ({
+const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
     featureFlags: ['ml-inference-decisions'],
     pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
     msw: {
@@ -401,6 +402,28 @@ const chartExperimentParameters = (approved: boolean, decisionDelay = 0): Record
                 '/api/projects/:team_id/warehouse_expressions/': { results: [] },
             },
             post: {
+                '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {
+                    const body = (await request.json()) as { query: { includeOutputTypes?: boolean } }
+                    return [
+                        200,
+                        {
+                            isValid: true,
+                            errors: [],
+                            warnings: [],
+                            notices: [],
+                            output_columns: body.query.includeOutputTypes
+                                ? [
+                                      { name: 'category', type: 'String' },
+                                      { name: 'revenue', type: 'Float64' },
+                                  ]
+                                : undefined,
+                        },
+                    ]
+                },
+                '/api/environments/:team_id/query/HogQLQuery': async () => {
+                    await delay(queryDelay)
+                    return [200, CHART_EXPERIMENT_RESULTS]
+                },
                 '/api/projects/:team_id/ml_inference/decisions/decide/': async () => {
                     await delay(decisionDelay)
                     return [
@@ -464,5 +487,10 @@ export const JevChoosingChart: Story = {
 
 export const JevChartTimeout: Story = {
     parameters: chartExperimentParameters(true, 6000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevEarlySelection: Story = {
+    parameters: chartExperimentParameters(true, 100, 3000),
     decorators: [withAIConsent(true)],
 }

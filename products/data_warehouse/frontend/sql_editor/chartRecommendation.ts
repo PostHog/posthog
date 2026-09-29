@@ -35,11 +35,10 @@ const choice = (instructions: string, criteria: Record<string, string>): Decisio
     criteria,
 })
 
-export function buildChartDecision(columns: Column[], rows: unknown[][]): DecideRequestApi | null {
+export function buildChartDecision(columns: Column[], rows?: unknown[][], query?: string): DecideRequestApi | null {
     // Jev accepts 16 choices per question, including the optional-column sentinel.
     if (
-        !rows.length ||
-        rows.some((row) => !Array.isArray(row)) ||
+        (rows !== undefined && (!rows.length || rows.some((row) => !Array.isArray(row)))) ||
         !columns.length ||
         columns.length > 15 ||
         new Set(columns.map((c) => c.name)).size !== columns.length
@@ -88,9 +87,11 @@ export function buildChartDecision(columns: Column[], rows: unknown[][]): Decide
     })
     return {
         state: JSON.stringify({
-            row_count: rows.length,
+            query: query?.slice(0, 4000),
+            row_count: rows?.length ?? null,
+            schema_only: rows === undefined,
             fields,
-            sample: rows.slice(0, 3).map((row) =>
+            sample: rows?.slice(0, 3).map((row) =>
                 columns.map((c) => {
                     const value: unknown = row[c.dataIndex]
                     return typeof value === 'number' || typeof value === 'boolean' || value === null

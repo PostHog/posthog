@@ -50,6 +50,10 @@ describe('SQL chart recommendations', () => {
             )
         ).toBeNull()
         expect(buildChartDecision([columns[0], columns[0]], rows)).toBeNull()
+        const schemaRequest = buildChartDecision(columns, undefined, 'x'.repeat(10000))!
+        expect(JSON.parse(schemaRequest.state)).toMatchObject({ schema_only: true, row_count: null })
+        expect(JSON.parse(schemaRequest.state).query).toHaveLength(4000)
+        expect(JSON.parse(schemaRequest.state).sample).toBeUndefined()
     })
 
     it.each(Object.values(OutputTab))('binds a temporal chart and selects %s', (layout) => {

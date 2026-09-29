@@ -28904,6 +28904,10 @@
                     "description": "Extra globals for the query",
                     "type": "object"
                 },
+                "includeOutputTypes": {
+                    "description": "Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in.",
+                    "type": "boolean"
+                },
                 "indexUsage": {
                     "description": "Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it.",
                     "type": "boolean"
@@ -28949,6 +28953,21 @@
             "required": ["kind", "language", "query"],
             "type": "object"
         },
+        "HogQLMetadataColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "description": "Output column name, in the same order as the SELECT list.",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "type"],
+            "type": "object"
+        },
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
@@ -28980,6 +28999,13 @@
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "output_columns": {
+                    "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLMetadataColumn"
                     },
                     "type": "array"
                 },
@@ -41419,6 +41445,13 @@
                         "notices": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "output_columns": {
+                            "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                            "items": {
+                                "$ref": "#/definitions/HogQLMetadataColumn"
                             },
                             "type": "array"
                         },
