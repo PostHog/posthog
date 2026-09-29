@@ -30,7 +30,7 @@ export const config = {
     // Worker
     logLevel: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
     maxConcurrentActivities: parsePositiveInt(process.env.MAX_CONCURRENT_ACTIVITIES, 4),
-    // The worker takes no new activity while pod memory or CPU usage is above these fractions of the cgroup limit.
+    // Above these fractions of the cgroup limit, the worker takes no activity beyond its first slot.
     tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
     tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
     tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),

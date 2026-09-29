@@ -73,8 +73,8 @@ Key environment variables (see `config.ts` for full list):
 | `SCREENSHOT_FORMAT`         | `jpeg`  | Screenshot format for frame capture (`jpeg` or `png`)              |
 | `SCREENSHOT_JPEG_QUALITY`   | `80`    | JPEG quality (1-100), only used when format is `jpeg`              |
 | `MAX_CONCURRENT_ACTIVITIES` | `4`     | Max parallel activities; fewer while memory or CPU is above target |
-| `TUNER_TARGET_MEMORY_USAGE` | `0.7`   | Take no new activity above this fraction of pod memory             |
-| `TUNER_TARGET_CPU_USAGE`    | `0.9`   | Take no new activity above this fraction of pod CPU                |
+| `TUNER_TARGET_MEMORY_USAGE` | `0.7`   | Above this fraction of pod memory, take only the first activity    |
+| `TUNER_TARGET_CPU_USAGE`    | `0.9`   | Above this fraction of pod CPU, take only the first activity       |
 | `TUNER_RAMP_THROTTLE_MS`    | `10000` | Minimum wait between new activity slots above the first            |
 | `BROWSER_RECYCLE_AFTER`     | `100`   | Recycle Chromium after N page uses                                 |
 | `MAX_IDLE_BROWSERS`         | `2`     | Warm Chromiums kept alive; extras close on release                 |
