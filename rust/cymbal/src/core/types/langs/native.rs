@@ -359,6 +359,9 @@ impl RawNativeFrame {
             suspicious: false,
             module: self.module.clone(),
             code_variables: None,
+            build_path: symbol_info.full_path.clone(),
+            raw_path: None,
+            repo_path: None,
         };
 
         add_raw_to_junk(&mut f, self);
@@ -408,6 +411,9 @@ impl RawNativeFrame {
             suspicious: false,
             module: self.module.clone(),
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         };
 
         add_raw_to_junk(&mut frame, self);
@@ -570,6 +576,9 @@ impl From<&RawNativeFrame> for Frame {
             suspicious: false,
             module: raw.module.clone(),
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         };
 
         // Store raw frame data in junk drawer for debugging/analysis

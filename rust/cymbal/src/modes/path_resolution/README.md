@@ -96,11 +96,43 @@ That exception gets no path, and the next ones find the list in memory.
 
 The secret is dedicated to this seam, and it is not `INTERNAL_API_SECRET`, so a leak reaches this service only.
 
+## Caller: processing mode
+
+Processing cymbal calls the service from `RepoPathResolver`, which runs in the resolution stage right after the event release is known ([`stages/resolution/repo_paths`](../processing/stages/resolution/repo_paths)).
+For each event with a release that has git metadata (`remote_url` and a full `commit_id`), it:
+
+1. Picks the best path of each in-app frame, at most 100 per event:
+   - the build path from native debug info (native, Apple and native Go);
+   - else the raw `abs_path` (Python, Ruby and PHP), carried over from the raw frames of the same event;
+   - else, for Java and Kotlin, a path built from the package (`com.acme.billing.InvoiceKt` gives `com/acme/billing/Invoice.kt`);
+   - else the frame `source`.
+2. Answers from its cache when every path has a cached `SURE` or `NO_MATCH` answer.
+3. Otherwise sends all the paths in one request, routed by rendezvous hash, with one move to the next pod when a pod refuses the connection.
+4. Writes `repo_path` on the frames that got `SURE` or `SUPPORT`, and caches `SURE` and `NO_MATCH` answers of a loaded list.
+
+A timeout, an error, a missing list or an unavailable service leaves frames without a path. It never fails the batch.
+The feature never changes `source` or any other field that fingerprints use.
+
+| Env var | Default | Purpose |
+| ------- | ------- | ------- |
+| `CYMBAL_PATH_RESOLUTION_ENABLED` | `false` | Call the service and write `repo_path`. |
+| `CYMBAL_PATH_RESOLUTION_HOST` | _empty_ | Headless service host. Empty turns the feature off. |
+| `CYMBAL_PATH_RESOLUTION_PORT` | `50062` | gRPC port of the pods. |
+| `CYMBAL_PATH_RESOLUTION_SECRET` | _empty_ | Sent as `x-cymbal-path-resolution-secret`. One of the service's `CYMBAL_PATH_RESOLUTION_SECRETS`. |
+| `CYMBAL_PATH_RESOLUTION_DEADLINE_MS` | `200` | Limit per event, for the in-flight slot and the call together. |
+| `CYMBAL_PATH_RESOLUTION_DNS_REFRESH_SECS` | `30` | How often the pod set is resolved again. |
+| `CYMBAL_PATH_RESOLUTION_MAX_IN_FLIGHT` | `32` | Requests in flight per processing pod. |
+| `CYMBAL_PATH_RESOLUTION_ANSWER_CACHE_ENTRIES` | `200000` | Size of the answer cache. |
+| `CYMBAL_PATH_RESOLUTION_ANSWER_CACHE_TTL_SECS` | `600` | TTL of the answer cache. |
+
+Caller metrics: `cymbal_repo_path_frames_total{outcome}` counts in-app frames by `sure`, `support`, `tie`, `no_match`, `no_list`, `no_release`, `invalid`, `cached`, `timeout` or `error`, and `cymbal_repo_path_request_seconds` times the calls.
+
 ## Deployment
 
 1. Deploy `cymbal-path-resolution` pods behind a headless Kubernetes service, so callers can reach each pod by IP.
 2. Size pod memory for `CYMBAL_PATH_RESOLUTION_CACHE_BYTES` plus overhead.
 3. Check that `/_liveness` and `/_readiness` return `ok`.
+4. Only then set `CYMBAL_PATH_RESOLUTION_HOST`, `CYMBAL_PATH_RESOLUTION_SECRET` and `CYMBAL_PATH_RESOLUTION_ENABLED=true` on processing cymbal.
 
 Callers rendezvous-hash `team:{team_id}:repo:{repo}:commit:{commit}` over the pods, so each list stays warm on one pod.
 Scaling the service to zero is safe: callers treat an unreachable service as "no path".

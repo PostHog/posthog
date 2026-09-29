@@ -144,6 +144,7 @@ pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
 pub const EVENT_RELEASE_RESOLVER_OPERATOR: &str =
     "cymbal_exception_event_release_resolver_operator";
+pub const REPO_PATH_RESOLVER_OPERATOR: &str = "cymbal_exception_repo_path_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
@@ -193,3 +194,7 @@ pub const PATH_RESOLUTION_LIST_CACHE: &str = "cymbal_path_resolution_list_cache_
 pub const PATH_RESOLUTION_LIST_LOAD_SECONDS: &str = "cymbal_path_resolution_list_load_seconds";
 pub const PATH_RESOLUTION_CACHE_BYTES: &str = "cymbal_path_resolution_cache_bytes";
 pub const PATH_RESOLUTION_REQUEST_SECONDS: &str = "cymbal_path_resolution_request_seconds";
+
+// Repo paths of in-app frames, from processing. `outcome` is a fixed enum, counted per frame.
+pub const REPO_PATH_FRAMES: &str = "cymbal_repo_path_frames_total";
+pub const REPO_PATH_REQUEST_SECONDS: &str = "cymbal_repo_path_request_seconds";

@@ -608,6 +608,9 @@ fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
         suspicious: false,
         junk_drawer: None,
         code_variables: None,
+        build_path: None,
+        raw_path: None,
+        repo_path: None,
         context: None,
     }
 }

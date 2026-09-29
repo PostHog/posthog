@@ -98,6 +98,9 @@ impl From<&RawPHPFrame> for Frame {
             suspicious: false,
             module: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         }
     }
 }

@@ -7,6 +7,8 @@ pub mod event_release;
 pub mod exception;
 pub mod frame;
 pub mod remote;
+pub mod rendezvous;
+pub mod repo_paths;
 
 use crate::{
     app_context::AppContext,
@@ -15,6 +17,7 @@ use crate::{
     stages::pipeline::{ParsedPipelineItem, ResolvedPipelineItem},
     stages::resolution::event_release::{EventReleaseResolver, ReleaseCache},
     stages::resolution::remote::resolver::{resolve_batch, RemoteResolutionContext},
+    stages::resolution::repo_paths::{RawPaths, RepoPathContext, RepoPathResolver},
     symbolication::symbol::SymbolResolver,
     types::{
         batch::Batch,
@@ -27,6 +30,7 @@ pub struct ResolutionStage {
     pub remote: RemoteResolutionContext,
     pub posthog_pool: PgPool,
     pub release_cache: ReleaseCache,
+    pub repo_paths: Option<Arc<RepoPathContext>>,
 }
 
 #[derive(Clone)]
@@ -45,6 +49,7 @@ impl From<&Arc<AppContext>> for ResolutionStage {
                 .expect("processing app context requires remote resolution"),
             posthog_pool: app_context.posthog_pool.clone(),
             release_cache: app_context.release_cache.clone(),
+            repo_paths: app_context.repo_paths.clone(),
         }
     }
 }
@@ -72,8 +77,37 @@ impl Stage for ResolutionStage {
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         // Release resolution runs after resolve_batch so it can later fall back to the resolved
         // frames' symbol sets for legacy events.
+        let repo_paths = self.repo_paths.clone();
+        // Remote resolution drops the raw frames, so their runtime paths are read first.
+        let raw_paths: Option<Vec<RawPaths>> = repo_paths.as_ref().map(|_| {
+            batch
+                .inner_ref()
+                .iter()
+                .map(|item| {
+                    item.as_ref()
+                        .map(|evt| RawPaths::collect(evt.exception_list()))
+                        .unwrap_or_default()
+                })
+                .collect()
+        });
+
         let resolved = resolve_batch(batch, self.remote.clone()).await?;
         let resolved = resolved.apply_operator(EventReleaseResolver, self).await?;
+        let resolved = match raw_paths {
+            Some(raw_paths) => resolved.map(
+                |mut item, raw_paths| {
+                    if let (Ok(evt), Some(paths)) = (&mut item, raw_paths.next()) {
+                        paths.attach(evt.exception_list_mut());
+                    }
+                    item
+                },
+                &mut raw_paths.into_iter(),
+            ),
+            None => resolved,
+        };
+        let resolved = resolved
+            .apply_operator(RepoPathResolver, repo_paths)
+            .await?;
         Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
     }
 }

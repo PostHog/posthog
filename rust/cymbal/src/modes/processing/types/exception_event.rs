@@ -270,6 +270,14 @@ impl ExceptionEvent<Parsed> {
         self.state.event_release = release;
     }
 
+    pub(crate) fn event_release(&self) -> Option<&ReleaseRecord> {
+        self.state.event_release.as_ref()
+    }
+
+    pub(crate) fn exception_list_mut(&mut self) -> &mut ExceptionList {
+        &mut self.exception_list
+    }
+
     pub(crate) fn set_symbol_set_release_ids(&mut self, ids: Vec<Uuid>) {
         self.state.symbol_set_release_ids = ids;
     }

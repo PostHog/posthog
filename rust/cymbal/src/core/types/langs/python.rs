@@ -351,6 +351,9 @@ impl From<&RawPythonFrame> for Frame {
             suspicious: false,
             module: raw.module.clone(),
             code_variables: raw.code_variables.clone(),
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
         }
     }
 }

@@ -353,6 +353,9 @@ mod tests {
             suspicious: false,
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             context: None,
         }
     }

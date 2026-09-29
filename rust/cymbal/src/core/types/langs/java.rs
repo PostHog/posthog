@@ -372,6 +372,9 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             synthetic: raw.meta.synthetic,
             // Remapping moves the reported line, so any context the client captured
             // describes a different location than the one we now report. Dropped here;
@@ -437,6 +440,9 @@ impl From<(&RawJavaFrame, usize)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             synthetic: raw.meta.synthetic,
             context: raw.get_context(context_lines),
             suspicious: false,
@@ -468,6 +474,9 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolve_failure,
             junk_drawer: None,
             code_variables: None,
+            build_path: None,
+            raw_path: None,
+            repo_path: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

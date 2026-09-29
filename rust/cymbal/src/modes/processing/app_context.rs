@@ -20,6 +20,9 @@ use crate::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
     },
+    stages::resolution::repo_paths::{
+        answer_cache::AnswerCache, client::PathResolutionPods, RepoPathContext,
+    },
     teams::TeamManager,
     types::operator::TeamId,
 };
@@ -61,11 +64,17 @@ pub struct AppContext {
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
     pub release_cache: ReleaseCache,
+    // `None` when path resolution is off, in which case frames get no `repo_path`.
+    pub repo_paths: Option<Arc<RepoPathContext>>,
+    repo_paths_refresh_task: Option<JoinHandle<()>>,
 }
 
 impl Drop for AppContext {
     fn drop(&mut self) {
         if let Some(handle) = &self.remote_resolution_refresh_task {
+            handle.abort();
+        }
+        if let Some(handle) = &self.repo_paths_refresh_task {
             handle.abort();
         }
     }
@@ -177,6 +186,8 @@ impl AppContext {
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
+        let (repo_paths, repo_paths_refresh_task) = build_repo_paths(config);
+
         let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
@@ -198,6 +209,8 @@ impl AppContext {
             release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
+            repo_paths,
+            repo_paths_refresh_task,
         })
     }
 }
@@ -249,6 +262,43 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
             .filter_map(|s| s.trim().parse::<i32>().ok())
             .collect(),
     )
+}
+
+/// Starts DNS discovery in the background and never fails startup, because repo paths are best
+/// effort: with no known pods, frames get no path.
+fn build_repo_paths(
+    config: &ProcessingConfig,
+) -> (Option<Arc<RepoPathContext>>, Option<JoinHandle<()>>) {
+    let host = config.path_resolution_host.trim();
+    if !config.path_resolution_enabled || host.is_empty() {
+        return (None, None);
+    }
+    info!(
+        host,
+        port = config.path_resolution_port,
+        "path resolution enabled"
+    );
+    let deadline = Duration::from_millis(config.path_resolution_deadline_ms);
+    let pods = PathResolutionPods::new(
+        host.to_string(),
+        config.path_resolution_port,
+        &config.path_resolution_secret,
+        deadline,
+        Arc::new(TokioDnsResolver),
+    );
+    let refresh_task = pods.spawn_refresh_task(Duration::from_secs(
+        config.path_resolution_dns_refresh_secs.max(1),
+    ));
+    let context = RepoPathContext {
+        lookup: pods,
+        answers: AnswerCache::new(
+            config.path_resolution_answer_cache_entries,
+            Duration::from_secs(config.path_resolution_answer_cache_ttl_secs),
+        ),
+        in_flight: Arc::new(Semaphore::new(config.path_resolution_max_in_flight.max(1))),
+        deadline,
+    };
+    (Some(Arc::new(context)), Some(refresh_task))
 }
 
 async fn build_remote_resolution(
