@@ -9,7 +9,7 @@ export type TodayEvidenceKind =
     | 'trace'
     | 'warehouse'
 
-export type TodayStoryIcon =
+export type TodayReportIcon =
     | 'pr'
     | 'experiment'
     | 'replay'
@@ -57,27 +57,27 @@ export interface TodayAction {
     advisory?: { from: string; text: string }
     run?: TodayActionRun
     followUp?: TodayFollowUp
-    /** Where the action takes the user, for stories built from real reports. */
+    /** Where the action takes the user, for reports built from real reports. */
     href?: string
 }
 
-export interface TodayStory {
+export interface TodayReport {
     id: string
     title: string
     meta: string
     color: string
-    icon: TodayStoryIcon
+    icon: TodayReportIcon
     heading: string
     paragraphs: string[]
     evidence: TodayEvidence[]
     action: TodayAction
-    /** Starts out done, like a story the user already acted on. */
+    /** Starts out done, like a report the user already acted on. */
     completed?: boolean
     /** Only shown after the user asks to load more. */
     secondary?: boolean
 }
 
-/** One run of text in the briefing. `link` points at a story id and `highlight` marks the one that needs a decision. */
+/** One run of text in the briefing. `link` points at a report id and `highlight` marks the one that needs a decision. */
 export interface TodayBriefingSegment {
     text: string
     link?: string

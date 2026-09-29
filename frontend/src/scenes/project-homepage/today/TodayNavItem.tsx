@@ -40,7 +40,7 @@ export function TodayNavItem({
                     type="button"
                     className="TodayNavItem"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ '--story-color': color } as React.CSSProperties}
+                    style={{ '--report-color': color } as React.CSSProperties}
                     data-active={active || current}
                     data-complete={complete}
                     data-thinking={thinking}
@@ -65,7 +65,7 @@ export function TodayNavItem({
                         type="button"
                         className="TodayNavRow__remove"
                         aria-label={`Remove ${title}`}
-                        data-attr="today-remove-story"
+                        data-attr="today-remove-report"
                         onClick={onRemove}
                     >
                         <IconX />

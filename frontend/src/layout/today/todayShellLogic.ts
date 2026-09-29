@@ -5,16 +5,18 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { libraryUrl } from './todayLibraryLogic'
+
 export type TodayRailPane = 'home' | 'spaces' | 'library' | 'tools'
 
 export const TODAY_RAIL_WIDTH = 56
 export const TODAY_SIDEBAR_WIDTH = 312
 
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
-export function railPaneForPath(pathname: string): TodayRailPane | null {
+export function railPaneForPath(pathname: string, search: string = ''): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || path === urls.projectHomepage()) {
-        return 'home'
+        return new URLSearchParams(search).get('view') === 'library' ? 'library' : 'home'
     }
     if (path === '/ai' || path.startsWith('/ai/')) {
         return 'spaces'
@@ -90,12 +92,12 @@ export const todayShellLogic = kea<todayShellLogicType>([
         toggleSidebar: true,
     }),
     reducers({
-        // A pane picked on the rail wins until the route moves to a page that belongs to a pane.
+        // The last pane picked on the rail, or reached through a route that belongs to one, stays open on other pages.
         pickedPane: [
             null as TodayRailPane | null,
             {
                 pickPane: (_, { pane }) => pane,
-                locationChanged: (state, { pathname }) => (railPaneForPath(pathname) ? null : state),
+                locationChanged: (state, { pathname, search }) => railPaneForPath(pathname, search) ?? state,
             },
         ],
         sidebarOpen: [
@@ -111,7 +113,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
     selectors({
         routePane: [
             () => [router.selectors.location],
-            (location: { pathname: string }): TodayRailPane | null => railPaneForPath(location.pathname),
+            (location: { pathname: string; search: string }): TodayRailPane | null =>
+                railPaneForPath(location.pathname, location.search),
         ],
         activePane: [
             (s) => [s.pickedPane, s.routePane],
@@ -127,6 +130,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         pickPane: ({ pane }) => {
             if (pane === 'home' && values.routePane !== 'home') {
                 router.actions.push(urls.projectHomepage())
+            }
+            if (pane === 'library' && values.routePane !== 'library') {
+                router.actions.push(libraryUrl())
             }
         },
     })),

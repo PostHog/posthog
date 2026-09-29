@@ -169,7 +169,7 @@
 }
 
 .TodayNavItem {
-    --story-color: #5c5c57;
+    --report-color: #5c5c57;
 
     display: flex;
     gap: 14px;
@@ -188,8 +188,8 @@
 
         .TodayNavItem__marker {
             color: #fff;
-            background: var(--story-color);
-            border-color: var(--story-color);
+            background: var(--report-color);
+            border-color: var(--report-color);
         }
 
         .TodayNavItem__title {
@@ -216,7 +216,7 @@
         position: absolute;
         inset: -4px;
         content: '';
-        border: 1.5px solid var(--story-color);
+        border: 1.5px solid var(--report-color);
         border-radius: 14px;
         animation: Today__nav-pulse 1.5s var(--today-ease) infinite;
     }
@@ -244,9 +244,9 @@
     justify-content: center;
     width: 40px;
     height: 40px;
-    color: var(--story-color);
-    background: color-mix(in sRGB, var(--story-color) 10%, var(--today-card));
-    border: 1px solid color-mix(in sRGB, var(--story-color) 25%, var(--today-card));
+    color: var(--report-color);
+    background: color-mix(in sRGB, var(--report-color) 10%, var(--today-card));
+    border: 1px solid color-mix(in sRGB, var(--report-color) 25%, var(--today-card));
     border-radius: 11px;
     transition:
         color 0.16s,
@@ -455,7 +455,7 @@
 // Home
 
 .TodayHome,
-.TodayStory {
+.TodayReport {
     width: min(840px, 100% - 144px);
     margin: 0 auto;
 
@@ -468,7 +468,7 @@
     padding: 94px 0 140px;
 }
 
-.TodayStory {
+.TodayReport {
     padding: 56px 0 140px;
 }
 
@@ -531,7 +531,7 @@
 
 .TodayChipStack__chip {
     --index: 0;
-    --story-color: #5c5c57;
+    --report-color: #5c5c57;
 
     position: absolute;
     top: 0;
@@ -543,7 +543,7 @@
     width: 26px;
     height: 26px;
     color: #fff;
-    background: var(--story-color);
+    background: var(--report-color);
     border: 3px solid var(--today-paper);
     border-radius: 8px;
     box-shadow: 0 1px 2px #00000024;
@@ -570,7 +570,7 @@
     }
 }
 
-.TodayStoryLink {
+.TodayReportLink {
     padding: 0;
     color: inherit;
     text-align: inherit;
@@ -596,9 +596,9 @@
     border-radius: 0.26em;
     box-decoration-break: clone;
 
-    .TodayStoryLink,
-    .TodayStoryLink:hover,
-    .TodayStoryLink[data-active='true'] {
+    .TodayReportLink,
+    .TodayReportLink:hover,
+    .TodayReportLink[data-active='true'] {
         font-weight: 500;
         color: #ff4800;
         text-decoration: none;
@@ -704,15 +704,15 @@
     white-space: nowrap;
 }
 
-// Story page
+// Report page
 
-.TodayStory__kicker {
+.TodayReport__kicker {
     display: flex;
     gap: 10px;
     align-items: center;
     font-family: var(--font-mono);
     font-size: 10.5px;
-    color: var(--story-color);
+    color: var(--report-color);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -725,7 +725,7 @@
     width: 28px;
     height: 28px;
     color: #fff;
-    background: var(--tile-color, var(--story-color));
+    background: var(--tile-color, var(--report-color));
     border-radius: 8px;
 
     svg {
@@ -734,7 +734,7 @@
     }
 }
 
-.TodayStory__heading {
+.TodayReport__heading {
     max-width: 560px;
     margin: 14px 0 12px;
     font-size: 18px;
@@ -744,7 +744,7 @@
     letter-spacing: -0.015em;
 }
 
-.TodayStory__body {
+.TodayReport__body {
     max-width: 600px;
     font-size: 14px;
     line-height: 1.65;
@@ -799,7 +799,7 @@
         justify-content: center;
         width: 34px;
         height: 34px;
-        color: var(--story-color);
+        color: var(--report-color);
         background: #fff;
         border-radius: 8px;
 

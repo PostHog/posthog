@@ -8,14 +8,14 @@ import {
     TodayRecording,
     TodayScenario,
     TodayScenarioId,
-    TodayStory,
+    TodayReport,
 } from './todayTypes'
 
 /**
- * Sample stories for a project with no Self-driving reports yet, so the Today layout can be tried end to end.
+ * Sample reports for a project with no Self-driving reports yet, so the Today layout can be tried end to end.
  * Everything here describes the Hedgebox demo project and is invented.
  */
-export const SAMPLE_STORIES: TodayStory[] = [
+export const SAMPLE_REPORTS: TodayReport[] = [
     {
         id: 'pr',
         title: 'Review PR #9123',
@@ -354,6 +354,7 @@ export const SAMPLE_STORIES: TodayStory[] = [
             },
         },
         completed: true,
+        secondary: true,
     },
     {
         id: 'browser',

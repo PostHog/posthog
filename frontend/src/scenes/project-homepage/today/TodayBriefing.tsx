@@ -11,34 +11,34 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2
 const TIME_FORMAT = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 function TodayMetaLine(): JSX.Element {
-    const { now, currentTeam, usingSampleStories } = useValues(todayLogic)
+    const { now, currentTeam, usingSampleReports } = useValues(todayLogic)
     const date = new Date(now)
     return (
         <div className="TodayHome__meta">
             <span>{`${currentTeam?.name ?? 'Your project'} · ${DATE_FORMAT.format(date)} · `}</span>
             <time translate="no">{TIME_FORMAT.format(date)}</time>
-            {usingSampleStories && <span className="TodayHome__sample">Sample stories</span>}
+            {usingSampleReports && <span className="TodayHome__sample">Sample reports</span>}
         </div>
     )
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredStoryId } = useValues(todayLogic)
-    const { openStory, setHoveredStoryId } = useActions(todayLogic)
-    const storyId = segment.link
-    if (!storyId) {
+    const { hoveredReportId } = useValues(todayLogic)
+    const { openReport, setHoveredReportId } = useActions(todayLogic)
+    const reportId = segment.link
+    if (!reportId) {
         return <span>{segment.text}</span>
     }
     const link = (
         <button
             type="button"
-            className="TodayStoryLink"
-            data-active={hoveredStoryId === storyId}
-            onClick={() => openStory(storyId)}
-            onMouseEnter={() => setHoveredStoryId(storyId)}
-            onMouseLeave={() => setHoveredStoryId(null)}
-            onFocus={() => setHoveredStoryId(storyId)}
-            onBlur={() => setHoveredStoryId(null)}
+            className="TodayReportLink"
+            data-active={hoveredReportId === reportId}
+            onClick={() => openReport(reportId)}
+            onMouseEnter={() => setHoveredReportId(reportId)}
+            onMouseLeave={() => setHoveredReportId(null)}
+            onFocus={() => setHoveredReportId(reportId)}
+            onBlur={() => setHoveredReportId(null)}
         >
             {segment.text}
         </button>
@@ -47,44 +47,44 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
 }
 
 export function TodayBriefing(): JSX.Element {
-    const { greeting, storySummary, stories, briefing, hoveredStoryId, storiesReady } = useValues(todayLogic)
-    const { openStory, setHoveredStoryId } = useActions(todayLogic)
+    const { greeting, reportSummary, reports, briefing, hoveredReportId, reportsReady } = useValues(todayLogic)
+    const { openReport, setHoveredReportId } = useActions(todayLogic)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
-    const chips = stories.filter((story) => !story.secondary).slice(0, 6)
+    const chips = reports.filter((report) => !report.secondary).slice(0, 6)
 
     return (
         <div className="TodayHome Today__page">
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
                 <div className="TodayHome__greeting">{greeting}</div>
-                {storiesReady ? (
+                {reportsReady ? (
                     <>
                         <p className="TodayHome__count">
-                            <span>{storySummary}</span>
+                            <span>{reportSummary}</span>
                             {chips.length > 0 && (
                                 <span className="TodayChipStack">
-                                    {chips.map((story, index) => (
+                                    {chips.map((report, index) => (
                                         <button
-                                            key={story.id}
+                                            key={report.id}
                                             type="button"
                                             className="TodayChipStack__chip"
-                                            aria-label={`Open ${story.title}`}
-                                            data-active={hoveredStoryId === story.id}
+                                            aria-label={`Open ${report.title}`}
+                                            data-active={hoveredReportId === report.id}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={
                                                 {
                                                     '--index': index,
                                                     '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
-                                                    '--story-color': story.color,
+                                                    '--report-color': report.color,
                                                 } as React.CSSProperties
                                             }
-                                            onClick={() => openStory(story.id)}
-                                            onMouseEnter={() => setHoveredStoryId(story.id)}
-                                            onMouseLeave={() => setHoveredStoryId(null)}
-                                            onFocus={() => setHoveredStoryId(story.id)}
-                                            onBlur={() => setHoveredStoryId(null)}
+                                            onClick={() => openReport(report.id)}
+                                            onMouseEnter={() => setHoveredReportId(report.id)}
+                                            onMouseLeave={() => setHoveredReportId(null)}
+                                            onFocus={() => setHoveredReportId(report.id)}
+                                            onBlur={() => setHoveredReportId(null)}
                                         >
-                                            <TodayIcon story={story.icon} />
+                                            <TodayIcon report={report.icon} />
                                         </button>
                                     ))}
                                 </span>

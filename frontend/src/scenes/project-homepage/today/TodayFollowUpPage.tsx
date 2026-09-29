@@ -7,14 +7,14 @@ import { TodayAskBox } from './TodayAskBox'
 import { FOLLOW_UP_OPTIONS } from './todayFixtures'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
-import { TodayStoryHeader } from './TodayStoryPage'
-import { TodayStory } from './todayTypes'
+import { TodayReportHeader } from './TodayReportPage'
+import { TodayReport } from './todayTypes'
 
-export function TodayFollowUpPage({ story }: { story: TodayStory }): JSX.Element {
+export function TodayFollowUpPage({ report }: { report: TodayReport }): JSX.Element {
     const { followUpTimes } = useValues(todayLogic)
-    const { setFollowUpTime, openStory } = useActions(todayLogic)
-    const followUp = story.action.followUp
-    const time = followUpTimes[story.id] ?? 'tomorrow'
+    const { setFollowUpTime, openReport } = useActions(todayLogic)
+    const followUp = report.action.followUp
+    const time = followUpTimes[report.id] ?? 'tomorrow'
     const cancelled = time === 'cancelled'
     const option = FOLLOW_UP_OPTIONS.find((candidate) => candidate.id === time) ?? FOLLOW_UP_OPTIONS[0]
 
@@ -23,7 +23,7 @@ export function TodayFollowUpPage({ story }: { story: TodayStory }): JSX.Element
             items: FOLLOW_UP_OPTIONS.map((candidate) => ({
                 label: candidate.label,
                 icon: !cancelled && candidate.id === time ? <IconCheck className="text-success" /> : undefined,
-                onClick: () => setFollowUpTime(story.id, candidate.id),
+                onClick: () => setFollowUpTime(report.id, candidate.id),
             })),
         },
         ...(cancelled
@@ -34,7 +34,7 @@ export function TodayFollowUpPage({ story }: { story: TodayStory }): JSX.Element
                           {
                               label: 'Cancel follow-up',
                               status: 'danger' as const,
-                              onClick: () => setFollowUpTime(story.id, 'cancelled'),
+                              onClick: () => setFollowUpTime(report.id, 'cancelled'),
                           },
                       ],
                   },
@@ -43,13 +43,13 @@ export function TodayFollowUpPage({ story }: { story: TodayStory }): JSX.Element
 
     return (
         <div
-            className="TodayStory Today__page"
+            className="TodayReport Today__page"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ '--story-color': story.color } as React.CSSProperties}
+            style={{ '--report-color': report.color } as React.CSSProperties}
         >
-            <TodayStoryHeader kicker={`Follow-up · ${story.title}`} icon={<IconCalendar />} />
-            <h1 className="TodayStory__heading">{followUp?.title ?? `Check back on ${story.title}`}</h1>
-            <div className="TodayStory__body">
+            <TodayReportHeader kicker={`Follow-up · ${report.title}`} icon={<IconCalendar />} />
+            <h1 className="TodayReport__heading">{followUp?.title ?? `Check back on ${report.title}`}</h1>
+            <div className="TodayReport__body">
                 <p>{followUp?.summary ?? 'I’ll look at this again and tell you if anything changed.'}</p>
             </div>
             <div className="TodaySchedule" role="status" data-cancelled={cancelled}>
@@ -78,20 +78,20 @@ export function TodayFollowUpPage({ story }: { story: TodayStory }): JSX.Element
                         type="button"
                         className="TodayEvidenceCard"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ '--evidence-color': story.color } as React.CSSProperties}
-                        onClick={() => openStory(story.id)}
+                        style={{ '--evidence-color': report.color } as React.CSSProperties}
+                        onClick={() => openReport(report.id)}
                     >
                         <span className="TodayEvidenceCard__top">
                             <span className="TodayTile relative">
-                                <TodayIcon story={story.icon} />
+                                <TodayIcon report={report.icon} />
                                 <span className="TodayTile__check">
                                     <IconCheck />
                                 </span>
                             </span>
-                            <span>{story.title}</span>
+                            <span>{report.title}</span>
                         </span>
-                        <strong>{story.action.done ?? 'Completed'}</strong>
-                        <p>{story.heading}</p>
+                        <strong>{report.action.done ?? 'Completed'}</strong>
+                        <p>{report.heading}</p>
                     </button>
                     <div className="TodayEvidenceCard TodayEvidenceCard--placeholder">
                         <span className="TodayEvidenceCard__top">

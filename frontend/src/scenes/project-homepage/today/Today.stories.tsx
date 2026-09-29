@@ -118,12 +118,12 @@ type Story = StoryObj<{}>
 
 export const SampleHome: Story = {}
 
-export const StoryPage: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?story=pr` },
+export const ReportPage: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?report=pr` },
 }
 
-export const StoryWithAdvisory: Story = {
-    parameters: { pageUrl: `${urls.projectHomepage()}?story=error` },
+export const ReportWithAdvisory: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?report=error` },
 }
 
 export const NewFlowCompose: Story = {
@@ -146,10 +146,12 @@ export const SpacesPane: Story = {
     },
 }
 
-export const LibraryPane: Story = {
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Library'))
-    },
+export const LibraryAllObjects: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?view=library` },
+}
+
+export const LibraryFeatureFlags: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?view=library&type=feature_flag` },
 }
 
 export const ToolsPane: Story = {

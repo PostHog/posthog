@@ -144,3 +144,25 @@
     color: var(--today-faint);
     transition: transform 0.16s;
 }
+
+.TodayPaneRow__wrap {
+    position: relative;
+
+    .TodayPaneRow--withAction {
+        padding-right: 36px;
+    }
+}
+
+.TodayPaneRow__action {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    opacity: 0;
+    transition: opacity 0.16s;
+    transform: translateY(-50%);
+
+    .TodayPaneRow__wrap:hover &,
+    .TodayPaneRow__wrap:focus-within & {
+        opacity: 1;
+    }
+}

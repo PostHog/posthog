@@ -149,9 +149,9 @@ function DrawerPanel({
 }): JSX.Element {
     const { copiedDrawerId } = useValues(todayDrawersLogic)
     const { closeTopDrawer, copyDrawer, drill } = useActions(todayDrawersLogic)
-    // The rich panels hold sample data, so they stay off for stories built from real reports.
-    const { usingSampleStories } = useValues(todayLogic)
-    const showSamplePanel = usingSampleStories && drawer.depth === 0
+    // The rich panels hold sample data, so they stay off for reports built from real reports.
+    const { usingSampleReports } = useValues(todayLogic)
+    const showSamplePanel = usingSampleReports && drawer.depth === 0
     return (
         <aside
             className="TodayDrawer"

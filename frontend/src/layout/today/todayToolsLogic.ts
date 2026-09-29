@@ -13,6 +13,10 @@ export interface ToolGroup {
     tools: FileSystemImport[]
 }
 
+// Workspaces for building queries and writing things up come first, apart from the product pages.
+const PINNED_TOOL_ICONS = ['sql_editor', 'notebook']
+export const PINNED_TOOLS_CATEGORY = 'Workspace'
+
 export function toolLabel(tool: FileSystemImport): string {
     return tool.displayLabel || tool.path
 }
@@ -82,7 +86,8 @@ export const todayToolsLogic = kea<todayToolsLogicType>([
                 const query = search.trim().toLowerCase()
                 const groups = new Map<string, FileSystemImport[]>()
                 for (const tool of tools) {
-                    const category = tool.category || 'Other'
+                    const pinned = PINNED_TOOL_ICONS.includes(tool.iconType ?? '')
+                    const category = pinned ? PINNED_TOOLS_CATEGORY : tool.category || 'Other'
                     if (query && !`${toolLabel(tool)} ${category}`.toLowerCase().includes(query)) {
                         continue
                     }
@@ -90,7 +95,12 @@ export const todayToolsLogic = kea<todayToolsLogicType>([
                 }
                 return [...groups.entries()]
                     .map(([category, groupTools]) => ({ category, tools: groupTools }))
-                    .sort((first, second) => first.category.localeCompare(second.category))
+                    .sort(
+                        (first, second) =>
+                            Number(second.category === PINNED_TOOLS_CATEGORY) -
+                                Number(first.category === PINNED_TOOLS_CATEGORY) ||
+                            first.category.localeCompare(second.category)
+                    )
             },
         ],
     }),

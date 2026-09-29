@@ -13,30 +13,30 @@ import { TeamType, UserType } from '~/types'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import type { TeamPublicType } from '../../../types'
-import { AGENT_OPTIONS, SAMPLE_BRIEFING, SAMPLE_STORIES } from './todayFixtures'
-import { briefingForStories, reportToStory } from './todayReports'
+import { AGENT_OPTIONS, SAMPLE_BRIEFING, SAMPLE_REPORTS } from './todayFixtures'
+import { briefingForReports, toTodayReport } from './todaySignalReports'
 import {
     TodayActionRun,
     TodayBriefingSegment,
     TodayConversation,
     TodayItem,
     TodayScenarioId,
-    TodayStory,
+    TodayReport,
 } from './todayTypes'
 
-export type TodayView = 'home' | 'story' | 'follow-up' | 'new'
+export type TodayView = 'home' | 'report' | 'follow-up' | 'new' | 'library'
 export type TodayActionState = 'idle' | 'loading' | 'complete'
 export type TodayFollowUpTime = string | 'cancelled'
 
 export interface TodayRoute {
     view: TodayView
-    storyId: string | null
+    reportId: string | null
     conversationId: string | null
     evidenceId: string | null
 }
 
-const HOME_ROUTE: TodayRoute = { view: 'home', storyId: null, conversationId: null, evidenceId: null }
-const REPORT_LIMIT = 12
+const HOME_ROUTE: TodayRoute = { view: 'home', reportId: null, conversationId: null, evidenceId: null }
+const TOP_REPORT_COUNT = 5
 const STEP_MS = 900
 const FINAL_STEP_MS = 1100
 
@@ -80,27 +80,27 @@ export function greetingForHour(hour: number, name: string | null | undefined): 
     return `Evening${suffix}`
 }
 
-export function storySummaryForHour(hour: number, count: number): string {
-    const stories = `${countWord(count)} ${count === 1 ? 'story' : 'stories'}`
+export function reportSummaryForHour(hour: number, count: number): string {
+    const reports = `${countWord(count)} ${count === 1 ? 'report' : 'reports'}`
     const verb = count === 1 ? 'needs' : 'need'
     if (count === 0) {
         return 'Nothing needs your attention'
     }
     if (hour < 5) {
-        return `${stories} ${count === 1 ? 'is' : 'are'} ready for tomorrow`
+        return `${reports} ${count === 1 ? 'is' : 'are'} ready for tomorrow`
     }
     if (hour < 12) {
-        return `${stories} came in overnight`
+        return `${reports} came in overnight`
     }
     if (hour < 17) {
-        return `${stories} ${verb} your attention this afternoon`
+        return `${reports} ${verb} your attention this afternoon`
     }
-    return `${stories} still ${verb} your attention`
+    return `${reports} still ${verb} your attention`
 }
 
 /** The progress steps a primary action walks through. A pull request merge generates its own. */
-export function actionRun(story: TodayStory): TodayActionRun | null {
-    const { action } = story
+export function actionRun(report: TodayReport): TodayActionRun | null {
+    const { action } = report
     if (action.pr) {
         return {
             loading: 'Merging…',
@@ -113,16 +113,19 @@ export function actionRun(story: TodayStory): TodayActionRun | null {
 }
 
 export function routeFromSearchParams(searchParams: Record<string, any>): TodayRoute {
-    const storyId = typeof searchParams.story === 'string' ? searchParams.story : null
+    const reportId = typeof searchParams.report === 'string' ? searchParams.report : null
     const conversationId = typeof searchParams.conversation === 'string' ? searchParams.conversation : null
     const evidenceId = typeof searchParams.evidence === 'string' ? searchParams.evidence : null
     if (searchParams.view === 'new') {
-        return { view: 'new', storyId: null, conversationId, evidenceId }
+        return { view: 'new', reportId: null, conversationId, evidenceId }
     }
-    if (storyId) {
+    if (searchParams.view === 'library') {
+        return { ...HOME_ROUTE, view: 'library' }
+    }
+    if (reportId) {
         return {
-            view: searchParams.view === 'follow-up' ? 'follow-up' : 'story',
-            storyId,
+            view: searchParams.view === 'follow-up' ? 'follow-up' : 'report',
+            reportId,
             conversationId: null,
             evidenceId: null,
         }
@@ -140,26 +143,26 @@ export interface todayLogicValues {
     completedIds: string[]
     conversations: TodayConversation[]
     currentConversation: TodayConversation | null
-    currentStory: TodayStory | null
+    currentReport: TodayReport | null
     followUpTimes: Record<string, TodayFollowUpTime>
     greeting: string
     hour: number
-    hoveredStoryId: string | null
+    hoveredReportId: string | null
     loadedMore: boolean
     now: number
-    openStoryCount: number
+    openReportCount: number
     removedIds: string[]
-    reports: SignalReport[] | null
-    reportsLoading: boolean
+    reportById: Record<string, TodayReport>
+    reportSummary: string
+    reports: TodayReport[]
+    reportsReady: boolean
     route: TodayRoute
     sentQuestion: string | null
-    stories: TodayStory[]
-    storiesReady: boolean
-    storyById: Record<string, TodayStory>
-    storySummary: string
+    signalReports: SignalReport[] | null
+    signalReportsLoading: boolean
     todayItems: TodayItem[]
-    usingSampleStories: boolean
-    visibleStories: TodayStory[]
+    usingSampleReports: boolean
+    visibleReports: TodayReport[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -170,29 +173,29 @@ export interface todayLogicActions {
     askQuestion: (question: string) => {
         question: string
     }
-    completeStoryAction: (
-        storyId: string,
+    completeReportAction: (
+        reportId: string,
         result: string
     ) => {
+        reportId: string
         result: string
-        storyId: string
     }
     loadMore: () => {
         value: true
     }
-    loadReports: () => any
-    loadReportsFailure: (
+    loadSignalReports: () => any
+    loadSignalReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadReportsSuccess: (
-        reports: SignalReport[],
+    loadSignalReportsSuccess: (
+        signalReports: SignalReport[],
         payload?: any
     ) => {
-        reports: SignalReport[]
+        signalReports: SignalReport[]
         payload?: any
     }
     markConversationAnswered: (conversationId: string) => {
@@ -205,8 +208,8 @@ export interface todayLogicActions {
         conversationId: string
         evidenceId: string | null
     }
-    openFollowUp: (storyId: string) => {
-        storyId: string
+    openFollowUp: (reportId: string) => {
+        reportId: string
     }
     openHome: () => {
         value: true
@@ -214,41 +217,41 @@ export interface todayLogicActions {
     openNew: () => {
         value: true
     }
-    openStory: (storyId: string) => {
-        storyId: string
+    openReport: (reportId: string) => {
+        reportId: string
     }
-    removeStory: (storyId: string) => {
-        storyId: string
+    removeReport: (reportId: string) => {
+        reportId: string
     }
-    runStoryAction: (storyId: string) => {
-        storyId: string
+    runReportAction: (reportId: string) => {
+        reportId: string
     }
     sendToAgent: (
-        storyId: string,
+        reportId: string,
         agentId: 'mine' | 'posthog'
     ) => {
         agentId: 'mine' | 'posthog'
-        storyId: string
+        reportId: string
     }
     setActionMessage: (message: string | null) => {
         message: string | null
     }
     setActionState: (
-        storyId: string,
+        reportId: string,
         state: TodayActionState
     ) => {
+        reportId: string
         state: TodayActionState
-        storyId: string
     }
     setFollowUpTime: (
-        storyId: string,
+        reportId: string,
         time: TodayFollowUpTime
     ) => {
-        storyId: string
+        reportId: string
         time: string
     }
-    setHoveredStoryId: (storyId: string | null) => {
-        storyId: string | null
+    setHoveredReportId: (reportId: string | null) => {
+        reportId: string | null
     }
     setRoute: (route: TodayRoute) => {
         route: TodayRoute
@@ -269,22 +272,22 @@ export interface todayLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        storiesReady: (reports: SignalReport[] | null, reportsLoading: boolean) => boolean
-        usingSampleStories: (reports: SignalReport[] | null) => boolean
-        stories: (reports: SignalReport[] | null, usingSampleStories: boolean) => TodayStory[]
-        storyById: (stories: TodayStory[]) => Record<string, TodayStory>
-        currentStory: (route: TodayRoute, storyById: Record<string, TodayStory>) => TodayStory | null
-        visibleStories: (
-            stories: TodayStory[],
+        reportsReady: (signalReports: SignalReport[] | null, signalReportsLoading: boolean) => boolean
+        usingSampleReports: (signalReports: SignalReport[] | null) => boolean
+        reports: (signalReports: SignalReport[] | null, usingSampleReports: boolean) => TodayReport[]
+        reportById: (reports: TodayReport[]) => Record<string, TodayReport>
+        currentReport: (route: TodayRoute, reportById: Record<string, TodayReport>) => TodayReport | null
+        visibleReports: (
+            reports: TodayReport[],
             removedIds: string[],
             loadedMore: boolean,
             completedIds: string[]
-        ) => TodayStory[]
-        openStoryCount: (stories: TodayStory[]) => number
-        briefing: (usingSampleStories: boolean, stories: TodayStory[]) => TodayBriefingSegment[][]
+        ) => TodayReport[]
+        openReportCount: (reports: TodayReport[]) => number
+        briefing: (usingSampleReports: boolean, reports: TodayReport[]) => TodayBriefingSegment[][]
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
-        storySummary: (hour: number, openStoryCount: number) => string
+        reportSummary: (hour: number, openReportCount: number) => string
         currentConversation: (route: TodayRoute, conversations: TodayConversation[]) => TodayConversation | null
     }
 }
@@ -299,22 +302,22 @@ export const todayLogic = kea<todayLogicType>([
     actions({
         setRoute: (route: TodayRoute) => ({ route }),
         openHome: true,
-        openStory: (storyId: string) => ({ storyId }),
-        openFollowUp: (storyId: string) => ({ storyId }),
+        openReport: (reportId: string) => ({ reportId }),
+        openFollowUp: (reportId: string) => ({ reportId }),
         openNew: true,
         openConversation: (conversationId: string, evidenceId: string | null = null) => ({
             conversationId,
             evidenceId,
         }),
-        setHoveredStoryId: (storyId: string | null) => ({ storyId }),
-        removeStory: (storyId: string) => ({ storyId }),
+        setHoveredReportId: (reportId: string | null) => ({ reportId }),
+        removeReport: (reportId: string) => ({ reportId }),
         loadMore: true,
-        runStoryAction: (storyId: string) => ({ storyId }),
-        setActionState: (storyId: string, state: TodayActionState) => ({ storyId, state }),
+        runReportAction: (reportId: string) => ({ reportId }),
+        setActionState: (reportId: string, state: TodayActionState) => ({ reportId, state }),
         setActionMessage: (message: string | null) => ({ message }),
-        completeStoryAction: (storyId: string, result: string) => ({ storyId, result }),
-        sendToAgent: (storyId: string, agentId: 'mine' | 'posthog') => ({ storyId, agentId }),
-        setFollowUpTime: (storyId: string, time: TodayFollowUpTime) => ({ storyId, time }),
+        completeReportAction: (reportId: string, result: string) => ({ reportId, result }),
+        sendToAgent: (reportId: string, agentId: 'mine' | 'posthog') => ({ reportId, agentId }),
+        setFollowUpTime: (reportId: string, time: TodayFollowUpTime) => ({ reportId, time }),
         askQuestion: (question: string) => ({ question }),
         startConversation: (question: string, scenarioId: TodayScenarioId) => ({
             question,
@@ -326,14 +329,15 @@ export const todayLogic = kea<todayLogicType>([
         tick: true,
     }),
     loaders({
-        reports: [
+        signalReports: [
             null as SignalReport[] | null,
             {
-                loadReports: async () => {
+                loadSignalReports: async () => {
                     const response = await api.signalReports.list({
-                        status: 'ready,in_progress,pending_input,resolved',
-                        ordering: '-updated_at',
-                        limit: REPORT_LIMIT,
+                        status: 'ready,pending_input',
+                        actionability: 'immediately_actionable,requires_human_input',
+                        ordering: 'priority,-updated_at',
+                        limit: TOP_REPORT_COUNT,
                     })
                     return response.results
                 },
@@ -342,43 +346,44 @@ export const todayLogic = kea<todayLogicType>([
     }),
     reducers({
         route: [HOME_ROUTE, { setRoute: (_, { route }) => route }],
-        hoveredStoryId: [
+        hoveredReportId: [
             null as string | null,
             {
-                setHoveredStoryId: (_, { storyId }) => storyId,
+                setHoveredReportId: (_, { reportId }) => reportId,
                 setRoute: () => null,
             },
         ],
         completedIds: [
             [] as string[],
             {
-                completeStoryAction: (state, { storyId }) => (state.includes(storyId) ? state : [...state, storyId]),
+                completeReportAction: (state, { reportId }) =>
+                    state.includes(reportId) ? state : [...state, reportId],
             },
         ],
         removedIds: [
             [] as string[],
             { persist: true },
-            { removeStory: (state, { storyId }) => (state.includes(storyId) ? state : [...state, storyId]) },
+            { removeReport: (state, { reportId }) => (state.includes(reportId) ? state : [...state, reportId]) },
         ],
         loadedMore: [false, { loadMore: () => true }],
         actionStates: [
             {} as Record<string, TodayActionState>,
             {
-                setActionState: (state, { storyId, state: actionState }) => ({ ...state, [storyId]: actionState }),
-                completeStoryAction: (state, { storyId }) => ({ ...state, [storyId]: 'complete' }),
+                setActionState: (state, { reportId, state: actionState }) => ({ ...state, [reportId]: actionState }),
+                completeReportAction: (state, { reportId }) => ({ ...state, [reportId]: 'complete' }),
             },
         ],
         actionMessage: [
             null as string | null,
             {
                 setActionMessage: (_, { message }) => message,
-                completeStoryAction: (_, { result }) => result,
+                completeReportAction: (_, { result }) => result,
                 setRoute: () => null,
             },
         ],
         followUpTimes: [
             {} as Record<string, TodayFollowUpTime>,
-            { setFollowUpTime: (state, { storyId, time }) => ({ ...state, [storyId]: time }) },
+            { setFollowUpTime: (state, { reportId, time }) => ({ ...state, [reportId]: time }) },
         ],
         sentQuestion: [
             null as string | null,
@@ -410,55 +415,60 @@ export const todayLogic = kea<todayLogicType>([
         now: [Date.now(), { tick: () => Date.now() }],
     }),
     selectors({
-        storiesReady: [
-            (s) => [s.reports, s.reportsLoading],
-            (reports: SignalReport[] | null, loading: boolean): boolean => !!reports || !loading,
+        reportsReady: [
+            (s) => [s.signalReports, s.signalReportsLoading],
+            (signalReports: SignalReport[] | null, loading: boolean): boolean => !!signalReports || !loading,
         ],
-        usingSampleStories: [
+        usingSampleReports: [
+            (s) => [s.signalReports],
+            (signalReports: SignalReport[] | null): boolean => !signalReports || signalReports.length === 0,
+        ],
+        reports: [
+            (s) => [s.signalReports, s.usingSampleReports],
+            (signalReports: SignalReport[] | null, usingSampleReports: boolean): TodayReport[] =>
+                usingSampleReports || !signalReports
+                    ? SAMPLE_REPORTS
+                    : signalReports.map((report) => toTodayReport(report, urls.inboxReport('reports', report.id))),
+        ],
+        reportById: [
             (s) => [s.reports],
-            (reports: SignalReport[] | null): boolean => !reports || reports.length === 0,
+            (reports: TodayReport[]): Record<string, TodayReport> =>
+                Object.fromEntries(reports.map((report) => [report.id, report])),
         ],
-        stories: [
-            (s) => [s.reports, s.usingSampleStories],
-            (reports: SignalReport[] | null, usingSampleStories: boolean): TodayStory[] =>
-                usingSampleStories || !reports
-                    ? SAMPLE_STORIES
-                    : reports.map((report) => reportToStory(report, urls.inboxReport('reports', report.id))),
+        currentReport: [
+            (s) => [s.route, s.reportById],
+            (route: TodayRoute, reportById: Record<string, TodayReport>): TodayReport | null =>
+                route.reportId ? (reportById[route.reportId] ?? null) : null,
         ],
-        storyById: [
-            (s) => [s.stories],
-            (stories: TodayStory[]): Record<string, TodayStory> =>
-                Object.fromEntries(stories.map((story) => [story.id, story])),
+        visibleReports: [
+            (s) => [s.reports, s.removedIds, s.loadedMore, s.completedIds],
+            (
+                reports: TodayReport[],
+                removedIds: string[],
+                loadedMore: boolean,
+                completedIds: string[]
+            ): TodayReport[] =>
+                reports
+                    .filter((report) => !removedIds.includes(report.id) && (loadedMore || !report.secondary))
+                    .map((report) => (completedIds.includes(report.id) ? { ...report, completed: true } : report)),
         ],
-        currentStory: [
-            (s) => [s.route, s.storyById],
-            (route: TodayRoute, storyById: Record<string, TodayStory>): TodayStory | null =>
-                route.storyId ? (storyById[route.storyId] ?? null) : null,
-        ],
-        visibleStories: [
-            (s) => [s.stories, s.removedIds, s.loadedMore, s.completedIds],
-            (stories: TodayStory[], removedIds: string[], loadedMore: boolean, completedIds: string[]): TodayStory[] =>
-                stories
-                    .filter((story) => !removedIds.includes(story.id) && (loadedMore || !story.secondary))
-                    .map((story) => (completedIds.includes(story.id) ? { ...story, completed: true } : story)),
-        ],
-        openStoryCount: [
-            (s) => [s.stories],
-            (stories: TodayStory[]): number => stories.filter((story) => !story.secondary).length,
+        openReportCount: [
+            (s) => [s.reports],
+            (reports: TodayReport[]): number => reports.filter((report) => !report.secondary).length,
         ],
         briefing: [
-            (s) => [s.usingSampleStories, s.stories],
-            (usingSampleStories: boolean, stories: TodayStory[]): TodayBriefingSegment[][] =>
-                usingSampleStories ? SAMPLE_BRIEFING : briefingForStories(stories),
+            (s) => [s.usingSampleReports, s.reports],
+            (usingSampleReports: boolean, reports: TodayReport[]): TodayBriefingSegment[][] =>
+                usingSampleReports ? SAMPLE_BRIEFING : briefingForReports(reports),
         ],
         hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
             (s) => [s.hour, s.user],
             (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
         ],
-        storySummary: [
-            (s) => [s.hour, s.openStoryCount],
-            (hour: number, openStoryCount: number): string => storySummaryForHour(hour, openStoryCount),
+        reportSummary: [
+            (s) => [s.hour, s.openReportCount],
+            (hour: number, openReportCount: number): string => reportSummaryForHour(hour, openReportCount),
         ],
         currentConversation: [
             (s) => [s.route, s.conversations],
@@ -468,9 +478,9 @@ export const todayLogic = kea<todayLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         openHome: () => router.actions.push(urls.projectHomepage()),
-        openStory: ({ storyId }) => router.actions.push(urls.projectHomepage(), { story: storyId }),
-        openFollowUp: ({ storyId }) =>
-            router.actions.push(urls.projectHomepage(), { story: storyId, view: 'follow-up' }),
+        openReport: ({ reportId }) => router.actions.push(urls.projectHomepage(), { report: reportId }),
+        openFollowUp: ({ reportId }) =>
+            router.actions.push(urls.projectHomepage(), { report: reportId, view: 'follow-up' }),
         openNew: () => router.actions.push(urls.projectHomepage(), { view: 'new' }),
         openConversation: ({ conversationId, evidenceId }) =>
             router.actions.push(urls.projectHomepage(), {
@@ -481,31 +491,35 @@ export const todayLogic = kea<todayLogicType>([
         startConversation: ({ id }) => {
             router.actions.push(urls.projectHomepage(), { view: 'new', conversation: id })
         },
-        removeStory: ({ storyId }) => {
-            if (values.route.storyId === storyId) {
+        removeReport: ({ reportId }) => {
+            if (values.route.reportId === reportId) {
                 actions.openHome()
             }
         },
-        runStoryAction: ({ storyId }) => {
-            const story = values.storyById[storyId]
-            if (!story || values.actionStates[storyId] === 'loading' || values.actionStates[storyId] === 'complete') {
+        runReportAction: ({ reportId }) => {
+            const report = values.reportById[reportId]
+            if (
+                !report ||
+                values.actionStates[reportId] === 'loading' ||
+                values.actionStates[reportId] === 'complete'
+            ) {
                 return
             }
-            if (story.action.href) {
-                actions.setActionMessage(story.action.confirmation)
-                if (/^https?:\/\//.test(story.action.href)) {
-                    window.open(story.action.href, '_blank', 'noopener,noreferrer')
+            if (report.action.href) {
+                actions.setActionMessage(report.action.confirmation)
+                if (/^https?:\/\//.test(report.action.href)) {
+                    window.open(report.action.href, '_blank', 'noopener,noreferrer')
                 } else {
-                    router.actions.push(story.action.href)
+                    router.actions.push(report.action.href)
                 }
                 return
             }
-            const run = actionRun(story)
+            const run = actionRun(report)
             if (!run) {
-                actions.setActionMessage(story.action.confirmation)
+                actions.setActionMessage(report.action.confirmation)
                 return
             }
-            actions.setActionState(storyId, 'loading')
+            actions.setActionState(reportId, 'loading')
             actions.setActionMessage(run.steps[0] ?? run.loading)
             cache.disposables.add(
                 () => {
@@ -516,26 +530,26 @@ export const todayLogic = kea<todayLogicType>([
                         )
                     timers.push(
                         window.setTimeout(
-                            () => actions.completeStoryAction(storyId, run.result),
+                            () => actions.completeReportAction(reportId, run.result),
                             STEP_MS * (run.steps.length - 1) + FINAL_STEP_MS
                         )
                     )
                     return () => timers.forEach((timer) => clearTimeout(timer))
                 },
-                `action-run-${storyId}`,
+                `action-run-${reportId}`,
                 // A hidden tab must not restart a run it already started.
                 { pauseOnPageHidden: false }
             )
         },
-        sendToAgent: ({ storyId, agentId }) => {
-            const story = values.storyById[storyId]
+        sendToAgent: ({ reportId, agentId }) => {
+            const report = values.reportById[reportId]
             const agent = AGENT_OPTIONS.find((option) => option.id === agentId)
-            if (!story || !agent) {
+            if (!report || !agent) {
                 return
             }
             actions.setActionMessage(agent.sent)
             if (agentId === 'posthog') {
-                maxGlobalLogic.actions.askSidePanelMax(`${story.heading}\n\n${story.paragraphs.join('\n\n')}`)
+                maxGlobalLogic.actions.askSidePanelMax(`${report.heading}\n\n${report.paragraphs.join('\n\n')}`)
             }
         },
         askQuestion: ({ question }) => {
@@ -551,7 +565,7 @@ export const todayLogic = kea<todayLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        actions.loadReports()
+        actions.loadSignalReports()
         cache.disposables.add(() => {
             const clock = window.setInterval(() => actions.tick(), 1000)
             return () => clearInterval(clock)

@@ -2,13 +2,13 @@ import { dayjs } from 'lib/dayjs'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayBriefingSegment, TodayEvidence, TodayEvidenceKind, TodayStory, TodayStoryIcon } from './todayTypes'
+import { TodayBriefingSegment, TodayEvidence, TodayEvidenceKind, TodayReport, TodayReportIcon } from './todayTypes'
 
 interface SourceStyle {
     label: string
     color: string
     kind: TodayEvidenceKind
-    icon: TodayStoryIcon
+    icon: TodayReportIcon
 }
 
 const SOURCE_STYLES: Record<string, SourceStyle> = {
@@ -57,7 +57,7 @@ export function summaryParagraphs(summary: string | null): string[] {
         .slice(0, 3)
 }
 
-export function reportToStory(report: SignalReport, reportHref: string): TodayStory {
+export function toTodayReport(report: SignalReport, reportHref: string): TodayReport {
     const sources = report.source_products ?? []
     const style = sourceStyle(sources[0])
     const title = report.title?.trim() || 'Untitled report'
@@ -104,9 +104,9 @@ export function reportToStory(report: SignalReport, reportHref: string): TodaySt
     }
 }
 
-/** One linked sentence per story, so every story in the briefing opens from the text. */
-export function briefingForStories(stories: TodayStory[]): TodayBriefingSegment[][] {
-    const open = stories.filter((story) => !story.completed && !story.secondary)
+/** One linked sentence per report, so every report in the briefing opens from the text. */
+export function briefingForReports(reports: TodayReport[]): TodayBriefingSegment[][] {
+    const open = reports.filter((report) => !report.completed && !report.secondary)
     if (!open.length) {
         return [[{ text: 'Nothing needs you right now. New reports land here as Self-driving finds them.' }]]
     }
@@ -121,8 +121,8 @@ export function briefingForStories(stories: TodayStory[]): TodayBriefingSegment[
         const shown = rest.slice(0, 3)
         paragraphs.push([
             { text: 'Keep an eye on ' },
-            ...shown.flatMap((story, index): TodayBriefingSegment[] => [
-                { text: story.title.charAt(0).toLowerCase() + story.title.slice(1), link: story.id },
+            ...shown.flatMap((report, index): TodayBriefingSegment[] => [
+                { text: report.title.charAt(0).toLowerCase() + report.title.slice(1), link: report.id },
                 { text: index === shown.length - 1 ? '.' : index === shown.length - 2 ? ', and ' : ', ' },
             ]),
         ])

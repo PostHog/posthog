@@ -15,7 +15,7 @@ import { LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 import { AGENT_OPTIONS, FOLLOW_UP_OPTIONS } from './todayFixtures'
 import { TodayIcon } from './TodayIcon'
 import { actionRun, todayLogic } from './todayLogic'
-import { TodayStory } from './todayTypes'
+import { TodayReport } from './todayTypes'
 
 function TodaySpinnerGlyph(): JSX.Element {
     return (
@@ -25,14 +25,14 @@ function TodaySpinnerGlyph(): JSX.Element {
     )
 }
 
-export function TodayNextStep({ story }: { story: TodayStory }): JSX.Element {
+export function TodayNextStep({ report }: { report: TodayReport }): JSX.Element {
     const { actionStates, actionMessage, followUpTimes } = useValues(todayLogic)
-    const { runStoryAction, sendToAgent, openFollowUp } = useActions(todayLogic)
-    const { action } = story
-    const state = actionStates[story.id] ?? (story.completed ? 'complete' : 'idle')
-    const run = actionRun(story)
+    const { runReportAction, sendToAgent, openFollowUp } = useActions(todayLogic)
+    const { action } = report
+    const state = actionStates[report.id] ?? (report.completed ? 'complete' : 'idle')
+    const run = actionRun(report)
     const waiting = !!action.waitingOn && state === 'idle'
-    const followUpTime = followUpTimes[story.id] ?? 'tomorrow'
+    const followUpTime = followUpTimes[report.id] ?? 'tomorrow'
     const followUpChip = FOLLOW_UP_OPTIONS.find((option) => option.id === followUpTime)?.chip
 
     const label =
@@ -51,7 +51,7 @@ export function TodayNextStep({ story }: { story: TodayStory }): JSX.Element {
         ) : action.icon === 'ship' ? (
             <IconRocket />
         ) : (
-            <TodayIcon story={story.icon} />
+            <TodayIcon report={report.icon} />
         )
     const signal =
         state === 'complete' && run ? { text: action.pr ? `PR ${action.pr} merged` : run.live, tone: 'success' } : null
@@ -63,21 +63,21 @@ export function TodayNextStep({ story }: { story: TodayStory }): JSX.Element {
                 description: `${action.advisory.from} ${action.advisory.text}`,
                 primaryButton: {
                     children: 'Merge anyway',
-                    onClick: () => runStoryAction(story.id),
+                    onClick: () => runReportAction(report.id),
                     'data-attr': 'today-advisory-confirm',
                 },
                 secondaryButton: { children: 'Cancel' },
             })
             return
         }
-        runStoryAction(story.id)
+        runReportAction(report.id)
     }
 
     return (
         <section
             className="TodayNext"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ '--story-color': story.color } as React.CSSProperties}
+            style={{ '--report-color': report.color } as React.CSSProperties}
         >
             <div className="Today__label">Recommended next step</div>
             <div className="TodayNext__row">
@@ -123,7 +123,7 @@ export function TodayNextStep({ story }: { story: TodayStory }): JSX.Element {
                         type="button"
                         className="TodaySecondary"
                         data-attr="today-follow-up"
-                        onClick={() => openFollowUp(story.id)}
+                        onClick={() => openFollowUp(report.id)}
                     >
                         <IconCalendar />
                         <span>{followUpTime === 'cancelled' ? 'Schedule a follow-up' : 'Follow up scheduled'}</span>
@@ -139,7 +139,7 @@ export function TodayNextStep({ story }: { story: TodayStory }): JSX.Element {
                                 <span className="text-xs text-secondary">{agent.detail}</span>
                             </div>
                         ),
-                        onClick: () => sendToAgent(story.id, agent.id),
+                        onClick: () => sendToAgent(report.id, agent.id),
                         'data-attr': `today-send-to-${agent.id}`,
                     }))}
                 >

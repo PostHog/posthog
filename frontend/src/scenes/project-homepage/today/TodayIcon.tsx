@@ -15,9 +15,9 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { TodayEvidenceKind, TodayScenarioId, TodayStoryIcon } from './todayTypes'
+import { TodayEvidenceKind, TodayScenarioId, TodayReportIcon } from './todayTypes'
 
-const STORY_ICONS: Record<TodayStoryIcon, JSX.Element> = {
+const REPORT_ICONS: Record<TodayReportIcon, JSX.Element> = {
     pr: <IconPullRequest />,
     experiment: <IconFlask />,
     replay: <IconRewindPlay />,
@@ -49,16 +49,16 @@ const SCENARIO_ICONS: Record<TodayScenarioId, JSX.Element> = {
 }
 
 export function TodayIcon({
-    story,
+    report,
     evidence,
     scenario,
 }: {
-    story?: TodayStoryIcon
+    report?: TodayReportIcon
     evidence?: TodayEvidenceKind
     scenario?: TodayScenarioId
 }): JSX.Element | null {
-    if (story) {
-        return STORY_ICONS[story]
+    if (report) {
+        return REPORT_ICONS[report]
     }
     if (evidence) {
         return EVIDENCE_ICONS[evidence]

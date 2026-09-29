@@ -10,18 +10,18 @@ import { TodayNavItem } from './TodayNavItem'
 export function TodayHomeSidebar(): JSX.Element {
     const {
         route,
-        visibleStories,
-        hoveredStoryId,
-        storySummary,
+        visibleReports,
+        hoveredReportId,
+        reportSummary,
         conversations,
         todayItems,
         loadedMore,
-        stories,
-        storiesReady,
+        reports,
+        reportsReady,
     } = useValues(todayLogic)
-    const { openHome, openNew, openStory, openConversation, setHoveredStoryId, removeStory, loadMore } =
+    const { openHome, openNew, openReport, openConversation, setHoveredReportId, removeReport, loadMore } =
         useActions(todayLogic)
-    const hasSecondaryStories = stories.some((story) => story.secondary)
+    const hasSecondaryReports = reports.some((report) => report.secondary)
     const onHome = route.view === 'home'
 
     const confirmLoadMore = (): void => {
@@ -44,9 +44,9 @@ export function TodayHomeSidebar(): JSX.Element {
                 <div className="TodaySidebar__list">
                     <TodayNavItem
                         title="Home"
-                        meta={storiesReady ? storySummary : 'Reading your project…'}
+                        meta={reportsReady ? reportSummary : 'Reading your project…'}
                         color="#5c5c57"
-                        icon={<TodayIcon story="home" />}
+                        icon={<TodayIcon report="home" />}
                         current={onHome}
                         dataAttr="today-nav-home"
                         onClick={openHome}
@@ -82,29 +82,29 @@ export function TodayHomeSidebar(): JSX.Element {
                             onClick={() => openConversation(conversation.id)}
                         />
                     ))}
-                    {storiesReady &&
-                        visibleStories.map((story) => (
+                    {reportsReady &&
+                        visibleReports.map((report) => (
                             <TodayNavItem
-                                key={story.id}
-                                title={story.title}
-                                meta={story.meta}
-                                color={story.color}
-                                icon={<TodayIcon story={story.icon} />}
-                                active={!story.secondary && hoveredStoryId === story.id}
-                                current={route.storyId === story.id}
-                                complete={story.completed}
-                                dataAttr="today-nav-story"
-                                onClick={() => openStory(story.id)}
+                                key={report.id}
+                                title={report.title}
+                                meta={report.meta}
+                                color={report.color}
+                                icon={<TodayIcon report={report.icon} />}
+                                active={!report.secondary && hoveredReportId === report.id}
+                                current={route.reportId === report.id}
+                                complete={report.completed}
+                                dataAttr="today-nav-report"
+                                onClick={() => openReport(report.id)}
                                 onHoverChange={
-                                    story.secondary
+                                    report.secondary
                                         ? undefined
-                                        : (hovered) => setHoveredStoryId(hovered ? story.id : null)
+                                        : (hovered) => setHoveredReportId(hovered ? report.id : null)
                                 }
-                                onRemove={() => removeStory(story.id)}
+                                onRemove={() => removeReport(report.id)}
                             />
                         ))}
                 </div>
-                {hasSecondaryStories && (
+                {hasSecondaryReports && (
                     <button
                         type="button"
                         className="TodaySidebar__loadMore"

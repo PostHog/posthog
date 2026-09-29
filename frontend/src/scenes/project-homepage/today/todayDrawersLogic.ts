@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { todayLogic } from './todayLogic'
-import { TodayEvidenceKind, TodayStory } from './todayTypes'
+import { TodayEvidenceKind, TodayReport } from './todayTypes'
 
 export const MAX_DRAWER_DEPTH = 2
 const COPIED_MS = 1800
@@ -9,7 +9,7 @@ const COPIED_MS = 1800
 export interface TodayDrawer {
     id: string
     depth: number
-    storyTitle: string
+    reportTitle: string
     kind: TodayEvidenceKind
     color: string
     name: string
@@ -19,15 +19,15 @@ export interface TodayDrawer {
     facts: { label: string; value: string }[]
 }
 
-export function evidenceDrawer(story: TodayStory, evidenceIndex: number): TodayDrawer | null {
-    const evidence = story.evidence[evidenceIndex]
+export function evidenceDrawer(report: TodayReport, evidenceIndex: number): TodayDrawer | null {
+    const evidence = report.evidence[evidenceIndex]
     if (!evidence) {
         return null
     }
     return {
-        id: `${story.id}-${evidenceIndex}`,
+        id: `${report.id}-${evidenceIndex}`,
         depth: 0,
-        storyTitle: story.title,
+        reportTitle: report.title,
         kind: evidence.kind,
         color: evidence.color,
         name: evidence.product,
@@ -35,7 +35,7 @@ export function evidenceDrawer(story: TodayStory, evidenceIndex: number): TodayD
         summary: evidence.detail,
         kicker: 'Evidence object',
         facts: [
-            { label: 'Story', value: story.title },
+            { label: 'Report', value: report.title },
             { label: 'Product', value: evidence.product },
             { label: 'Updated', value: '2 hours ago' },
         ],
@@ -47,7 +47,7 @@ export function childDrawer(parent: TodayDrawer, name: string): TodayDrawer {
     return {
         id: `${parent.id}/${name}`,
         depth: parent.depth + 1,
-        storyTitle: parent.storyTitle,
+        reportTitle: parent.reportTitle,
         kind: parent.kind,
         color: parent.color,
         name,
@@ -90,11 +90,11 @@ export interface todayDrawersLogicActions {
         name: string
     }
     openEvidence: (
-        story: TodayStory,
+        report: TodayReport,
         evidenceIndex: number
     ) => {
         evidenceIndex: number
-        story: TodayStory
+        report: TodayReport
     }
 }
 
@@ -116,7 +116,7 @@ export const todayDrawersLogic = kea<todayDrawersLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayDrawersLogic']),
     connect(() => ({ actions: [todayLogic, ['setRoute']] })),
     actions({
-        openEvidence: (story: TodayStory, evidenceIndex: number) => ({ story, evidenceIndex }),
+        openEvidence: (report: TodayReport, evidenceIndex: number) => ({ report, evidenceIndex }),
         drill: (name: string) => ({ name }),
         closeTopDrawer: true,
         closeAllDrawers: true,
@@ -127,8 +127,8 @@ export const todayDrawersLogic = kea<todayDrawersLogicType>([
         drawers: [
             [] as TodayDrawer[],
             {
-                openEvidence: (_, { story, evidenceIndex }) => {
-                    const drawer = evidenceDrawer(story, evidenceIndex)
+                openEvidence: (_, { report, evidenceIndex }) => {
+                    const drawer = evidenceDrawer(report, evidenceIndex)
                     return drawer ? [drawer] : []
                 },
                 drill: (state, { name }) => {

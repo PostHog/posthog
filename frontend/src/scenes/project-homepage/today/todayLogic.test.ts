@@ -3,9 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SAMPLE_STORIES } from './todayFixtures'
+import { SAMPLE_REPORTS } from './todayFixtures'
 import { routeFromSearchParams, todayLogic } from './todayLogic'
-import { reportToStory, summaryParagraphs } from './todayReports'
+import { toTodayReport, summaryParagraphs } from './todaySignalReports'
 
 const REPORT = {
     id: 'report-1',
@@ -23,55 +23,62 @@ const REPORT = {
 } as any
 
 describe('todayLogic', () => {
-    let reports: any[]
+    let signalReports: any[]
 
     beforeEach(() => {
-        reports = []
+        signalReports = []
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': () => [200, { results: reports, count: reports.length }],
+                '/api/projects/:team_id/signals/reports/': () => [
+                    200,
+                    { results: signalReports, count: signalReports.length },
+                ],
             },
         })
         initKeaTests()
     })
 
     test.each([
-        [{}, { view: 'home', storyId: null, conversationId: null, evidenceId: null }],
-        [{ story: 'pr' }, { view: 'story', storyId: 'pr', conversationId: null, evidenceId: null }],
+        [{}, { view: 'home', reportId: null, conversationId: null, evidenceId: null }],
+        [{ report: 'pr' }, { view: 'report', reportId: 'pr', conversationId: null, evidenceId: null }],
         [
-            { story: 'pr', view: 'follow-up' },
-            { view: 'follow-up', storyId: 'pr', conversationId: null, evidenceId: null },
+            { report: 'pr', view: 'follow-up' },
+            { view: 'follow-up', reportId: 'pr', conversationId: null, evidenceId: null },
+        ],
+        [
+            { view: 'library', type: 'feature_flag' },
+            { view: 'library', reportId: null, conversationId: null, evidenceId: null },
         ],
         [
             { view: 'new', conversation: 'c1', evidence: 'e1' },
-            { view: 'new', storyId: null, conversationId: 'c1', evidenceId: 'e1' },
+            { view: 'new', reportId: null, conversationId: 'c1', evidenceId: 'e1' },
         ],
     ])('reads the view from %o', (searchParams, route) => {
         expect(routeFromSearchParams(searchParams)).toEqual(route)
     })
 
-    it('uses sample stories only when the project has no reports', async () => {
+    it('uses sample reports only when the project has no actionable reports', async () => {
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.usingSampleStories).toBe(true)
-        expect(logic.values.stories).toEqual(SAMPLE_STORIES)
+        expect(logic.values.usingSampleReports).toBe(true)
+        expect(logic.values.reports).toEqual(SAMPLE_REPORTS)
         logic.unmount()
 
-        reports = [REPORT]
+        signalReports = [REPORT]
         const withReports = todayLogic()
         withReports.mount()
         await expectLogic(withReports).toFinishAllListeners()
-        expect(withReports.values.usingSampleStories).toBe(false)
-        expect(withReports.values.stories.map((story) => story.id)).toEqual(['report-report-1'])
+        expect(withReports.values.usingSampleReports).toBe(false)
+        expect(withReports.values.reports.map((report) => report.id)).toEqual(['report-report-1'])
     })
 
-    it('walks a primary action through its steps and marks the story done', async () => {
+    it('walks a primary action through its steps and marks the report done', async () => {
         jest.useFakeTimers()
         try {
             const logic = todayLogic()
             logic.mount()
-            logic.actions.runStoryAction('exp')
+            logic.actions.runReportAction('exp')
             expect(logic.values.actionStates.exp).toBe('loading')
             expect(logic.values.actionMessage).toBe('Turning on one-page-checkout for 10% of users…')
 
@@ -80,15 +87,15 @@ describe('todayLogic', () => {
 
             jest.advanceTimersByTime(2000)
             expect(logic.values.actionStates.exp).toBe('complete')
-            expect(logic.values.visibleStories.find((story) => story.id === 'exp')?.completed).toBe(true)
+            expect(logic.values.visibleReports.find((report) => report.id === 'exp')?.completed).toBe(true)
         } finally {
             jest.useRealTimers()
         }
     })
 
-    it('turns a report into a story that opens its pull request', () => {
-        const story = reportToStory(REPORT, '/inbox/reports/report-1')
-        expect(story).toMatchObject({
+    it('turns a signal report into a Today report that opens its pull request', () => {
+        const report = toTodayReport(REPORT, '/inbox/reports/report-1')
+        expect(report).toMatchObject({
             title: 'Signup form rejects plus-addressed emails',
             icon: 'pr',
             action: { primary: 'Review the pull request', href: 'https://github.com/example/app/pull/42' },
