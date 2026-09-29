@@ -747,7 +747,7 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def workflows_config(self):
-        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+        from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
 

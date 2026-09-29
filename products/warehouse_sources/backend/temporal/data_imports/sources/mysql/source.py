@@ -99,7 +99,7 @@ class MySQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
-    def resume_covers_run(self, *, incremental_or_append: bool) -> bool:
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
         # Keyset seeking is a full-load path, and it is the default one here. An incremental run
         # resumes from its watermark like any non-resumable source's does, so it takes the
         # incremental retry budget rather than the much larger resumable one.
