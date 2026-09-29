@@ -1036,7 +1036,7 @@ export type ExperimentSavedMetric = {
 /**
  * The effective definition of a shared metric on one experiment: the saved query with the link overrides
  * applied. The backend calculates and fingerprints the same definition with `resolve_saved_metric_definition`
- * in products/experiments/backend/temporal/metric_resolution.py, so a change here must change it there too,
+ * in products/experiments/backend/metric_resolution.py, so a change here must change it there too,
  * or the results the page queries and the stored results describe different metrics.
  */
 export function resolveSharedMetric({

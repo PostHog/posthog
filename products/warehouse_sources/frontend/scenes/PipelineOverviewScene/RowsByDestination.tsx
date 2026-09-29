@@ -1,17 +1,21 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
-import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
+import { useChartTheme } from 'lib/charts/hooks'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 
 export function RowsByDestination(): JSX.Element {
-    const { rowsByDestination, destinationRowTotals, destinationRowTotalsLoading, destinationsLoading } =
+    const { rowsByDestination, destinationRowSeries, destinationRowSeriesLoading, destinationsLoading, window } =
         useValues(pipelineOverviewSceneLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const theme = useChartTheme()
 
-    if ((destinationRowTotalsLoading && destinationRowTotals === null) || destinationsLoading) {
-        return <LemonSkeleton className="h-24 w-full" />
+    if ((destinationRowSeriesLoading && destinationRowSeries === null) || destinationsLoading) {
+        return <LemonSkeleton className="h-64 w-full" />
     }
 
     if (rowsByDestination.length === 0) {
@@ -22,34 +26,24 @@ export function RowsByDestination(): JSX.Element {
         )
     }
 
-    // Bars are relative to the busiest destination rather than the total, so a single dominant
-    // destination does not flatten every other bar to nothing.
-    const busiest = Math.max(...rowsByDestination.map((row) => row.rows))
-
     return (
-        <div className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-4">
-            {rowsByDestination.map((row) => (
-                <div key={row.id} className="flex flex-col gap-1">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="flex items-center gap-2 min-w-0">
-                            <span className="truncate font-medium">{row.name}</span>
-                            <LemonTag type="muted" size="small">
-                                {row.type}
-                            </LemonTag>
-                        </span>
-                        <span className="tabular-nums font-medium" title={humanFriendlyNumber(row.rows)}>
-                            {humanFriendlyLargeNumber(row.rows)}
-                        </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded bg-border">
-                        <div
-                            className="h-full rounded bg-brand-blue"
-                            // Width is the one value that has to be computed from the data.
-                            style={{ width: `${Math.max(2, (row.rows / busiest) * 100)}%` }}
-                        />
-                    </div>
-                </div>
-            ))}
+        // The chart fills its container, so it needs a definite height AND a flex column here.
+        // Without both, the canvas resolves to zero height and draws nothing.
+        <div className="flex h-80 flex-col overflow-hidden rounded border border-primary bg-surface-primary p-3">
+            <TimeSeriesLineChart
+                series={rowsByDestination}
+                labels={destinationRowSeries?.labels ?? []}
+                theme={theme}
+                config={{
+                    xAxis: {
+                        timezone: currentTeam?.timezone ?? 'UTC',
+                        interval: window === 1 ? 'hour' : 'day',
+                    },
+                    yAxis: { format: 'short' },
+                    legend: { show: true, position: 'bottom' },
+                    tooltip: { pinnable: true },
+                }}
+            />
         </div>
     )
 }

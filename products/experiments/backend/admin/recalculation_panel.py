@@ -18,6 +18,7 @@ from django.utils.html import format_html
 from posthog.models.user import User
 
 from products.experiments.backend.metric_events import _default_metric_title
+from products.experiments.backend.metric_resolution import build_metric, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -29,7 +30,6 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     start_metrics_recalculation_workflow,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, scheduled_metric_definitions
 
 
 def format_duration(started_at: datetime | None, completed_at: datetime | None) -> str | None:

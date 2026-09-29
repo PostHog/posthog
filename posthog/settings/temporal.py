@@ -316,6 +316,9 @@ LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Defaults to the general-purpose fleet so the daily coordinator always has a live worker. Deploy a
 # fleet polling "autoresearch-task-queue" before setting this env, or the schedule strands its runs.
 AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "general-purpose-task-queue"))
+# Defaults to the video-export fleet, where the self-driving work runs today. Deploy a fleet polling
+# "self-driving-task-queue" before setting this env, or the ranking sweep schedule strands its runs.
+SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "video-export-task-queue"))
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
 # share pods with the latency-sensitive alerting workers.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(

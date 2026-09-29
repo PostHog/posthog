@@ -56,14 +56,14 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import (
+from products.experiments.backend.metric_resolution import (
     ExperimentMetric,
     build_metric,
     find_metric_dict,
     scheduled_metric_definitions,
 )
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     ALL_OUTCOMES,
     MAX_CANARY_DETAIL_LENGTH,

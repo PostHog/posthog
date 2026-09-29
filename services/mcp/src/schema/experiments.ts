@@ -247,7 +247,7 @@ function toMetricSummary(
  * The effective definition of a shared metric on one experiment: the saved query with the
  * per-experiment overrides from the link metadata applied. The backend calculates stored results
  * with `resolve_saved_metric_definition` in
- * products/experiments/backend/temporal/metric_resolution.py, so the two must apply the same
+ * products/experiments/backend/metric_resolution.py, so the two must apply the same
  * rules, or this tool reports a different metric than the experiment page shows.
  */
 export function resolveSharedMetric({ query, metadata }: SavedMetricAttachment): unknown {

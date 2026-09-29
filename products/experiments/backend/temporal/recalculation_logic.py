@@ -38,15 +38,11 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
+from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, resolve_scheduled_metrics
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
-)
-from products.experiments.backend.temporal.metric_resolution import (
-    build_metric,
-    find_metric_dict,
-    resolve_scheduled_metrics,
 )
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,

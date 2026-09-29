@@ -23,8 +23,8 @@ from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
-from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, ExperimentMetric
 
 logger = structlog.get_logger(__name__)
 

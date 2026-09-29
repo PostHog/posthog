@@ -48,6 +48,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     is_events_node_actions_node_confusion,
@@ -64,7 +65,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -1285,7 +1285,7 @@ class TestExperimentService(APIBaseTest):
             schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
         builders = {metric_type: builder.__name__ for metric_type, builder in METRIC_BUILDERS.items()}
         assert builders == schema_pairs, (
-            "ExperimentMetric union changed — update METRIC_BUILDERS in temporal/metric_resolution.py. "
+            "ExperimentMetric union changed — update METRIC_BUILDERS in metric_resolution.py. "
             f"Expected {schema_pairs}, got {builders}"
         )
 

@@ -32,16 +32,13 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import resolve_scheduled_metrics, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.metric_resolution import (
-    resolve_scheduled_metrics,
-    scheduled_metric_definitions,
-)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
