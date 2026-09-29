@@ -13,9 +13,7 @@
         background-size: 100% 100%;
         border-radius: 0.2em;
 
-        /* Slice lays out one background strip across all line fragments, so the stroke finishes one line before it starts the next. */
-        box-decoration-break: slice;
-        box-decoration-break: slice;
+        /* Keep the default `box-decoration-break: slice`: one background strip spans all line fragments, so the stroke finishes one line before it starts the next. */
     }
 
     /*
@@ -30,7 +28,6 @@
             linear-gradient(var(--quill-highlight-foreground), var(--quill-highlight-foreground)),
             linear-gradient(currentColor, currentColor),
             linear-gradient(var(--quill-highlight-background), var(--quill-highlight-background));
-        background-clip: text, text, padding-box;
         background-clip: text, text, padding-box;
         background-size:
             var(--quill-highlight-progress) 100%,
