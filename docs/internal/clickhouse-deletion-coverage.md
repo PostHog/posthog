@@ -250,6 +250,8 @@ It copies `person_id` from `sharded_events`, so its rows meet the same parity.
 It leaves `inserted_at` to the column default, which is the event `timestamp`, so every copied row sits inside the `inserted_at` bound of any request made after its event.
 Before each day it waits while a `squash_person_overrides`, `deletes_job` or data deletion request run is queued or executing.
 A day copied during one of them can read a row before the job rewrites it and insert it after the job sweeps `sharded_flag_evaluations`, which keeps what the job removed.
+The wait cannot stop a run that starts while a day copies, so after each day the shard stops if one of those runs started during the copy.
+The error names the day, and someone checks that day on that shard before the backfill runs again.
 
 ## Related, and deliberately unchanged
 

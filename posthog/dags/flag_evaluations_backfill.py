@@ -41,6 +41,8 @@ TIB = 1024 * GIB
 # removed: a stale person_id after a squash, or a row or property that a deletion erased.
 BLOCKING_JOB_NAMES = (squash_person_overrides.name, deletes_job.name, *DELETION_JOB_NAMES)
 
+_UNSTARTED_RUN_STATUSES = (dagster.DagsterRunStatus.QUEUED, dagster.DagsterRunStatus.NOT_STARTED)
+
 # The nine DEFAULT columns are left out so the shard computes them from properties, the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
 # that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` arm,
@@ -254,10 +256,12 @@ class ShardBackfill:
         total_rows = 0
         for day in days:
             self.wait_for_parts_to_merge(day)
-            self.wait_for_blocking_runs()
+            no_blocking_run_since = self.wait_for_blocking_runs()
             self.check_disk_headroom()
             self.check_consumer_lag()
             rows = self.copy_day(day, copy_query, settings)
+            if not self.config.dry_run:
+                self.check_no_blocking_run_started(since=no_blocking_run_since, day=day)
             total_rows += rows
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
@@ -280,12 +284,27 @@ class ShardBackfill:
             self.log.info(f"Waiting for partition {day:%Y%m} to merge: {active_parts} active parts")
             time.sleep(self.config.parts_check_poll_frequency_seconds)
 
-    def wait_for_blocking_runs(self) -> None:
+    def wait_for_blocking_runs(self) -> datetime:
         while blockers := describe_active_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id):
             self.log.info(
                 f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
             )
             time.sleep(self.config.blocking_run_poll_seconds)
+        return datetime.now(UTC)
+
+    def check_no_blocking_run_started(self, *, since: datetime, day: date) -> None:
+        started = [
+            f"{job_name} run {record.dagster_run.run_id}"
+            for job_name in BLOCKING_JOB_NAMES
+            for record in self.instance.get_run_records(dagster.RunsFilter(job_name=job_name, created_after=since))
+            if record.dagster_run.status not in _UNSTARTED_RUN_STATUSES
+        ]
+        if started:
+            raise dagster.Failure(
+                description=f"Stopping shard {self.shard_num}: {'; '.join(started)} started while {day} copied. "
+                "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
+                f"Check {day} on this shard before running the backfill again."
+            )
 
     def check_disk_headroom(self) -> None:
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.

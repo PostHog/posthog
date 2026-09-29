@@ -8,18 +8,21 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import dagster
 from clickhouse_driver import Client
 from dagster._core.remote_origin import RegisteredCodeLocationOrigin, RemoteJobOrigin, RemoteRepositoryOrigin
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.data_deletion_requests import data_deletion_request_property_removal
 from posthog.dags.deletes import deletes_job
 from posthog.dags.flag_evaluations_backfill import (
     FlagEvaluationsBackfillConfig,
     PolicyDisk,
+    ShardBackfill,
     disk_headroom,
     flag_evaluations_backfill_job,
     resolve_backfill_days,
@@ -289,6 +292,43 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
     assert result.success
     assert copies_seen_while_blocked == [0]
     assert stored_rows(cluster) == Counter([copied(INSIDE_RECENT)])
+
+
+@pytest.mark.parametrize(
+    "status, since_offset, stops",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, timedelta(minutes=-1), True, id="started_during_the_copy"),
+        pytest.param(dagster.DagsterRunStatus.SUCCESS, timedelta(minutes=-1), True, id="finished_during_the_copy"),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, timedelta(minutes=-1), False, id="not_started_yet"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, timedelta(minutes=1), False, id="created_before_the_copy"),
+    ],
+)
+def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
+    status: dagster.DagsterRunStatus, since_offset: timedelta, stops: bool
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(job_def=deletes_job, status=status)
+    backfill = ShardBackfill(
+        cluster=MagicMock(),
+        shard_num=1,
+        config=FlagEvaluationsBackfillConfig(),
+        instance=instance,
+        run_id="backfill-run",
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+
+    check = partial(
+        backfill.check_no_blocking_run_started, since=datetime.now(UTC) + since_offset, day=date(2026, 3, 10)
+    )
+
+    if stops:
+        with pytest.raises(dagster.Failure):
+            check()
+    else:
+        check()
 
 
 @pytest.mark.django_db
