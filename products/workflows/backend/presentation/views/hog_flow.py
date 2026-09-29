@@ -128,21 +128,6 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.api.action_redirects import compute_action_redirects
-from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
-from products.workflows.backend.api.graph_validation import validate_graph
-from products.workflows.backend.api.hog_flow_batch_job import (
-    HogFlowBatchJobCancelResponseSerializer,
-    HogFlowBatchJobSerializer,
-)
-from products.workflows.backend.api.message_assets import (
-    MessageAssetContentRequestSerializer,
-    MessageAssetSerializer,
-    MessageAssetsRequestSerializer,
-    fetch_message_asset_html,
-    fetch_message_assets,
-)
-from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -169,6 +154,21 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
+from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
+from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
+from products.workflows.backend.presentation.views.graph_validation import validate_graph
+from products.workflows.backend.presentation.views.hog_flow_batch_job import (
+    HogFlowBatchJobCancelResponseSerializer,
+    HogFlowBatchJobSerializer,
+)
+from products.workflows.backend.presentation.views.message_assets import (
+    MessageAssetContentRequestSerializer,
+    MessageAssetSerializer,
+    MessageAssetsRequestSerializer,
+    fetch_message_asset_html,
+    fetch_message_assets,
+)
+from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
