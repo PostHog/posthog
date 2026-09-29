@@ -355,19 +355,28 @@ class PipelineV3(Generic[ResumableData]):
             return True
         return self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
-    async def _finish_earlier_attempt(self, earlier: EarlierBatch) -> None:
-        """Send the final batch an interrupted earlier attempt never sent, when this retry found no new rows.
+    async def _finish_earlier_attempt(self, earlier: EarlierBatch) -> bool:
+        """Close out an interrupted earlier attempt when this retry found no new rows.
 
-        The loader then completes the job after that attempt's batches, publishes the table and promotes the
-        cursor through them. Without it the workflow completes the job before those batches load, and the
-        next sync reads them again.
+        Returns whether the loader completes the job. Normally this sends the final batch that attempt never
+        sent, so the loader completes the job after its batches, publishes the table and promotes the cursor
+        through them. Without it the workflow completes the job before those batches load, and the next sync
+        reads them again.
+
+        The loader never claims a final batch in a run with a failed batch. There the resume point is that
+        run's last loaded batch, so its cursor is committed here and the workflow completes the job.
         """
-        if earlier.is_final_batch:
-            return
-        await database_sync_to_async_pool(self._schema.stage_incremental_field_value)(
-            earlier.run_uuid, earlier.incremental_last_value
-        )
-        self._pg_producer.enqueue_final_batch_copy(earlier)
+        if earlier.run_failed:
+            await database_sync_to_async_pool(self._schema.advance_incremental_field_last_value)(
+                earlier.incremental_last_value
+            )
+            return False
+        if not earlier.is_final_batch:
+            await database_sync_to_async_pool(self._schema.stage_incremental_field_value)(
+                earlier.run_uuid, earlier.incremental_last_value
+            )
+            self._pg_producer.enqueue_final_batch_copy(earlier)
+        return True
 
     def _close_producers(self) -> None:
         self._pg_producer.close()
@@ -564,8 +573,7 @@ class PipelineV3(Generic[ResumableData]):
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
             if self._resume_after is not None and self._total_batches() == 0:
-                await self._finish_earlier_attempt(self._resume_after)
-                consumer_will_hear_about_this_run = True
+                consumer_will_hear_about_this_run = await self._finish_earlier_attempt(self._resume_after)
             else:
                 consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 

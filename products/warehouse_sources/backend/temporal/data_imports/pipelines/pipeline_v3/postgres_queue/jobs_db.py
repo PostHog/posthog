@@ -627,6 +627,8 @@ class EarlierBatch:
     run_uuid: str
     batch_index: int
     is_final_batch: bool
+    # The loader never claims more of a run with a failed batch, so such a run ends at its last loaded batch.
+    run_failed: bool
     # The cursor through this batch. None when the batch row carries no cursor.
     incremental_last_value: Any
 
@@ -1531,26 +1533,31 @@ class BatchQueue:
         job_id: str,
         current_run_uuid: str,
     ) -> EarlierBatch | None:
-        """The newest batch the job's earlier attempts queued, skipping runs that have a failed batch.
+        """The newest batch of the job's earlier attempts that is loaded or still going to load.
 
-        The loader never claims more batches of a run with a failed batch, so a retry must not continue after one.
+        The loader never claims more batches of a run with a failed batch, so only that run's loaded
+        batches count. Resuming after an older point would append that run's loaded rows again.
         """
         row = conn.execute(
             f"""
-            SELECT b.id, b.created_at, b.run_uuid, b.batch_index, b.is_final_batch,
-                b.metadata -> 'incremental_last_value'
-            FROM {BATCH_TABLE} b
-            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.job_id = %(job_id)s
-                AND b.run_uuid != %(current_run_uuid)s
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM {BATCH_TABLE} f
-                    WHERE f.run_uuid = b.run_uuid
-                        AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND f.latest_state = 'failed'
-                )
-            ORDER BY b.created_at DESC, b.batch_index DESC
+            SELECT id, created_at, run_uuid, batch_index, is_final_batch, run_failed, incremental_last_value
+            FROM (
+                SELECT b.id, b.created_at, b.run_uuid, b.batch_index, b.is_final_batch, b.latest_state,
+                    b.metadata -> 'incremental_last_value' AS incremental_last_value,
+                    EXISTS (
+                        SELECT 1
+                        FROM {BATCH_TABLE} f
+                        WHERE f.run_uuid = b.run_uuid
+                            AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            AND f.latest_state = 'failed'
+                    ) AS run_failed
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                    AND b.run_uuid != %(current_run_uuid)s
+            ) earlier
+            WHERE latest_state = 'succeeded' OR NOT run_failed
+            ORDER BY created_at DESC, batch_index DESC
             LIMIT 1
             """,
             {"job_id": job_id, "current_run_uuid": current_run_uuid},
@@ -1563,7 +1570,8 @@ class BatchQueue:
             run_uuid=row[2],
             batch_index=row[3],
             is_final_batch=row[4],
-            incremental_last_value=row[5],
+            run_failed=row[5],
+            incremental_last_value=row[6],
         )
 
     @staticmethod

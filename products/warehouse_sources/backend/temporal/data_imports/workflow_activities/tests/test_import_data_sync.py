@@ -1275,6 +1275,7 @@ async def test_probe_uncertainty_runs_the_full_sync(probe: Any):
                 run_uuid="wfrun-1-a1",
                 batch_index=4,
                 is_final_batch=False,
+                run_failed=False,
                 incremental_last_value=2_000,
             ),
             id="append_retry_resumes",

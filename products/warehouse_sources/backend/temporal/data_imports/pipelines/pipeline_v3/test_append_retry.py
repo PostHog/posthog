@@ -23,6 +23,7 @@ def _earlier_batch(incremental_last_value: Any = 2_000) -> EarlierBatch:
         run_uuid="wfrun-1-a1",
         batch_index=4,
         is_final_batch=False,
+        run_failed=False,
         incremental_last_value=incremental_last_value,
     )
 

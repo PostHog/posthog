@@ -58,13 +58,14 @@ def _make_logger() -> MagicMock:
     return logger
 
 
-def _earlier_batch(*, is_final_batch: bool) -> EarlierBatch:
+def _earlier_batch(*, is_final_batch: bool, run_failed: bool = False) -> EarlierBatch:
     return EarlierBatch(
         id="batch-1",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         run_uuid="wfrun-1-a1",
         batch_index=4,
         is_final_batch=is_final_batch,
+        run_failed=run_failed,
         incremental_last_value=2_000,
     )
 
@@ -236,6 +237,7 @@ class TestAttemptScopedRunUuid:
             (None, False, False, 0),
             (_earlier_batch(is_final_batch=False), True, True, 900),
             (_earlier_batch(is_final_batch=True), False, True, 900),
+            (_earlier_batch(is_final_batch=False, run_failed=True), False, False, 900),
         ],
     )
     @pytest.mark.asyncio
@@ -278,6 +280,10 @@ class TestAttemptScopedRunUuid:
         else:
             schema.stage_incremental_field_value.assert_not_called()
             producer.enqueue_final_batch_copy.assert_not_called()
+        if resume_after is not None and resume_after.run_failed:
+            schema.advance_incremental_field_last_value.assert_called_once_with(2_000)
+        else:
+            schema.advance_incremental_field_last_value.assert_not_called()
 
 
 @pytest.mark.asyncio
