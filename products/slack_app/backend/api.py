@@ -2198,6 +2198,86 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     return ROUTE_HANDLED_LOCALLY
 
 
+def _dispatch_mention_to_target(
+    event: dict,
+    mention_target: Integration,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    posthog_user: User,
+    untagged_followup_mapping: SlackThreadTaskMapping | None,
+    is_ext_shared_channel: bool,
+) -> str:
+    """Run the gates that need a resolved project, then start the mention workflow."""
+    slack = SlackIntegration(mention_target)
+    missing = slack.missing_scopes(REQUIRED_SLACK_SCOPES)
+    if missing:
+        if untagged_followup_mapping is not None:
+            logger.info(
+                "slack_app_thread_message_missing_scopes",
+                slack_team_id=slack_team_id,
+                integration_id=mention_target.id,
+            )
+            replied = False
+        else:
+            replied = _notify_missing_slack_scopes(slack, event, missing)
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            reason="missing_scopes",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+    if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
+        if untagged_followup_mapping is not None:
+            logger.info(
+                "slack_app_thread_message_channel_unapproved",
+                slack_team_id=slack_team_id,
+                channel=channel_id,
+            )
+            replied = False
+        else:
+            replied = _post_channel_approval_prompt(slack, mention_target, event)
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            reason="channel_not_approved",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    # Last gate on the untagged path: a thread whose creator has follow-ups off
+    # never reaches the workflow. ``ask`` is decided there instead, once the
+    # classifier has judged the reply worth forwarding.
+    if untagged_followup_mapping is not None and _untagged_followups_switched_off(
+        event,
+        mention_target,
+        slack_team_id,
+        mapping=untagged_followup_mapping,
+        posthog_user=posthog_user,
+    ):
+        return ROUTE_HANDLED_LOCALLY
+
+    if untagged_followup_mapping is not None:
+        _mark_message_handled(slack_team_id, event, "untagged_followup")
+
+    return _start_mention_workflow(
+        event,
+        mention_target,
+        slack_team_id,
+        event_id,
+        posthog_user=posthog_user,
+        untagged_followup=untagged_followup_mapping is not None,
+        is_ext_shared_channel=is_ext_shared_channel,
+    )
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -2570,71 +2650,13 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        slack = SlackIntegration(mention_target)
-        missing = slack.missing_scopes(REQUIRED_SLACK_SCOPES)
-        if missing:
-            if untagged_followup_mapping is not None:
-                logger.info(
-                    "slack_app_thread_message_missing_scopes",
-                    slack_team_id=slack_team_id,
-                    integration_id=mention_target.id,
-                )
-                replied = False
-            else:
-                replied = _notify_missing_slack_scopes(slack, event, missing)
-            _report_slack_mention_dropped(
-                event,
-                slack_team_id,
-                reason="missing_scopes",
-                replied=replied,
-                integration=mention_target,
-                posthog_user=posthog_user,
-            )
-            return ROUTE_HANDLED_LOCALLY
-
-        channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-        if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
-            if untagged_followup_mapping is not None:
-                logger.info(
-                    "slack_app_thread_message_channel_unapproved",
-                    slack_team_id=slack_team_id,
-                    channel=channel_id,
-                )
-                replied = False
-            else:
-                replied = _post_channel_approval_prompt(slack, mention_target, event)
-            _report_slack_mention_dropped(
-                event,
-                slack_team_id,
-                reason="channel_not_approved",
-                replied=replied,
-                integration=mention_target,
-                posthog_user=posthog_user,
-            )
-            return ROUTE_HANDLED_LOCALLY
-
-        # Last gate on the untagged path: a thread whose creator has follow-ups off
-        # never reaches the workflow. ``ask`` is decided there instead, once the
-        # classifier has judged the reply worth forwarding.
-        if untagged_followup_mapping is not None and _untagged_followups_switched_off(
-            event,
-            mention_target,
-            slack_team_id,
-            mapping=untagged_followup_mapping,
-            posthog_user=posthog_user,
-        ):
-            return ROUTE_HANDLED_LOCALLY
-
-        if untagged_followup_mapping is not None:
-            _mark_message_handled(slack_team_id, event, "untagged_followup")
-
-        return _start_mention_workflow(
+        return _dispatch_mention_to_target(
             event,
             mention_target,
             slack_team_id,
             event_id,
             posthog_user=posthog_user,
-            untagged_followup=untagged_followup_mapping is not None,
+            untagged_followup_mapping=untagged_followup_mapping,
             is_ext_shared_channel=is_ext_shared_channel,
         )
 
