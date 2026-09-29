@@ -2168,7 +2168,7 @@ export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
  * Request body for triggering a metrics recalculation.
  */
 export interface RecalculateMetricsRequestApi {
-    /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp and timeseries_sync are set by the server.
+    /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.
      *
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry

@@ -555,12 +555,16 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         # Written by the daily timeseries workflow, not by a user: a completed run assembled from the
         # timeseries points of one daily run, so the latest read serves fresh data without a recompute.
         TIMESERIES_SYNC = "timeseries_sync", "Timeseries Sync"
+        # Written by the scheduled recalculation workflow, not by a user: advances the window to now
+        # so every metric recomputes on fresh data.
+        SCHEDULED = "scheduled", "Scheduled"
 
     class RequestTrigger(models.TextChoices):
         """The subset of Trigger a client may send on POST. Each value must also exist on Trigger.
 
-        The rest are set server side: agent_mcp by the view from the client header, timeseries_sync by
-        the daily workflow. stale_refresh, auto_refresh and the deprecated values have no sender.
+        The rest are set server side: agent_mcp by the view from the client header, timeseries_sync and
+        scheduled by their workflows. stale_refresh, auto_refresh and the deprecated values have no
+        sender.
         """
 
         MANUAL = "manual", "Manual"

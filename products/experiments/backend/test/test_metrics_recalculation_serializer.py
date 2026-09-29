@@ -125,6 +125,7 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
             ("nonsense",),
             (ExperimentMetricsRecalculation.Trigger.AGENT_MCP,),
             (ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,),
+            (ExperimentMetricsRecalculation.Trigger.SCHEDULED,),
             (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH,),
         ]
     )
