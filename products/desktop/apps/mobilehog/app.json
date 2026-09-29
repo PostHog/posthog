@@ -29,6 +29,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PostHog to attach photos to your tasks"
+        }
+      ],
       "./plugins/withSceneLifecycle",
       "./plugins/withPodfileResourceBundleFix",
       [

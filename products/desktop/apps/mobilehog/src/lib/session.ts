@@ -1,15 +1,18 @@
 import { CloudCommandError } from "@posthog/api-client/posthog-client";
+import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import type {
   CloudTaskUpdatePayload,
   Task,
   TaskRunStatus,
 } from "@posthog/shared";
+import { deserializeCloudPrompt } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { create } from "zustand";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { type WatchHandle, watchRun } from "@/lib/engine";
 import { logger } from "@/lib/logger";
+import { buildPhotoPrompt, type PendingPhoto } from "@/lib/photos";
 import {
   type Block,
   closeOpenAgent,
@@ -59,6 +62,7 @@ interface SessionState {
     taskId: string,
     text: string,
     localId?: string,
+    photos?: PendingPhoto[],
   ) => Promise<string | null>;
   cancelTurn: (taskId: string) => Promise<void>;
   stopRun: (taskId: string) => Promise<void>;
@@ -241,7 +245,11 @@ export const useSessions = create<SessionState>((set, get) => {
     );
   };
 
-  const resumeRun = async (taskId: string, prompt: string): Promise<void> => {
+  const resumeRun = async (
+    taskId: string,
+    prompt: string,
+    displayText: string = prompt,
+  ): Promise<void> => {
     const currentGeneration = generation;
     const session = get().sessions[taskId];
     if (!session) return;
@@ -263,8 +271,9 @@ export const useSessions = create<SessionState>((set, get) => {
         [taskId]: {
           ...emptySession(taskId, runId),
           blocks: state.sessions[taskId]?.blocks ?? [],
+          localEchoes: state.sessions[taskId]?.localEchoes ?? new Set(),
           turnActive: true,
-          lastPrompt: prompt,
+          lastPrompt: displayText,
           resuming: true,
         },
       },
@@ -343,23 +352,41 @@ export const useSessions = create<SessionState>((set, get) => {
       for (const handle of handles.values()) handle.reconnectIfDisconnected();
     },
 
-    sendPrompt: async (taskId, text, localId = `local-${Date.now()}`) => {
+    sendPrompt: async (
+      taskId,
+      text,
+      localId = `local-${Date.now()}`,
+      photos = [],
+    ) => {
       const currentGeneration = generation;
       const session = get().sessions[taskId];
-      if (!session) return null;
+      if (!session) throw new Error("Task is not ready. Try again.");
+      const displayText = text || "Please look at the attached image.";
+      const wirePrompt = await buildPhotoPrompt(text, photos);
+      if (generation !== currentGeneration)
+        throw new Error("Session changed. Sign in again.");
+      const previews = photos.length
+        ? extractPromptDisplayContent(deserializeCloudPrompt(wirePrompt))
+            .attachments
+        : [];
       const echoes = new Set(session.localEchoes);
-      echoes.add(text);
+      echoes.add(displayText);
       patch(taskId, (s) => {
         const blocks = [...s.blocks];
         closeOpenAgent(blocks);
-        blocks.push({ kind: "user", id: localId, text });
+        blocks.push({
+          kind: "user",
+          id: localId,
+          text: displayText,
+          attachments: previews,
+        });
         return {
           blocks,
           turnActive: true,
           awaitingInput: false,
           error: null,
           localEchoes: echoes,
-          lastPrompt: text,
+          lastPrompt: displayText,
         };
       });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -368,17 +395,21 @@ export const useSessions = create<SessionState>((set, get) => {
           taskId,
           session.runId,
           "user_message",
-          { content: text },
+          { content: wirePrompt },
         );
       } catch (error) {
         if (generation !== currentGeneration) return null;
         if (error instanceof CloudCommandError && runIsGone(error)) {
           patch(taskId, () => ({ resuming: true }));
           try {
-            await resumeRun(taskId, text);
+            await resumeRun(taskId, wirePrompt, displayText);
           } catch (resumeError) {
             if (generation !== currentGeneration) return null;
-            patch(taskId, () => ({
+            if (photos.length) echoes.delete(displayText);
+            patch(taskId, (current) => ({
+              blocks: photos.length
+                ? current.blocks.filter((block) => block.id !== localId)
+                : current.blocks,
               resuming: false,
               turnActive: false,
               error:
@@ -386,14 +417,19 @@ export const useSessions = create<SessionState>((set, get) => {
                   ? resumeError.message
                   : String(resumeError),
             }));
+            if (photos.length) throw resumeError;
           }
           return localId;
         }
-        echoes.delete(text);
-        patch(taskId, () => ({
+        echoes.delete(displayText);
+        patch(taskId, (current) => ({
+          blocks: photos.length
+            ? current.blocks.filter((block) => block.id !== localId)
+            : current.blocks,
           turnActive: false,
           error: error instanceof Error ? error.message : String(error),
         }));
+        if (photos.length) throw error;
       }
       return localId;
     },
