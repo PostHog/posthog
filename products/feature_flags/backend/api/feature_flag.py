@@ -2926,8 +2926,8 @@ class FeatureFlagSerializer(
         serializers.CharField(
             help_text=(
                 "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
-                "serving state. Read the `active` field for that. A disabled flag reports ACTIVE, because "
-                "disabled flags are not evaluated for staleness."
+                "serving state. Read the `active` field for that. A disabled flag that is not archived or "
+                "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
             )
         )
     )
@@ -3227,9 +3227,9 @@ class FeatureFlagStatusResponseSerializer(serializers.Serializer):
         help_text=(
             "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving "
             "state, and this response carries no serving-state field: read the `active` field of the flag "
-            "itself from the list or retrieve endpoint. A disabled flag reports 'active', because disabled "
-            "flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted "
+            "reports 'active', because disabled flags are not evaluated for staleness. 'active' also does "
+            "NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
