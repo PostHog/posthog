@@ -52,6 +52,7 @@ import {
 } from "@/features/inbox/components/DismissReportSheet";
 import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
+import { ReportChecks } from "@/features/inbox/components/ReportChecks";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
 import { ReportVerdictBanner } from "@/features/inbox/components/ReportVerdictBanner";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
@@ -575,6 +576,9 @@ export default function ReportDetailScreen() {
         {signalsQuery.isLoading && (
           <Text className="text-[12px] text-gray-9">Loading signals…</Text>
         )}
+
+        {/* Follow-up checks: what is still watching this report */}
+        <ReportChecks reportId={report.id} artefacts={artefacts} />
 
         {/* Activity log */}
         <ReportActivity

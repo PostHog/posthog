@@ -1020,6 +1020,91 @@ export interface NoteContent {
   author?: string | null;
 }
 
+/** Artefact with `type: "check_result"` — one run of a follow-up check, with its verdict. */
+export interface CheckResultArtefact extends SignalReportArtefactBase {
+  type: "check_result";
+  content: CheckResultContent;
+}
+
+export interface CheckResultContent {
+  check_id: string;
+  kind: string;
+  title: string;
+  outcome: SignalReportCheckOutcome;
+  /** One line saying what was measured and how it compared. */
+  explanation: string;
+  observed_value?: number | null;
+  baseline_value?: number | null;
+  threshold?: string | null;
+  /** Scout run that answered an `agent` check; null on a deterministic run. */
+  run_id?: string | null;
+}
+
+/** How a follow-up check is evaluated: one bounded query, or one scout run. */
+export type SignalReportCheckKind = "metric_threshold" | "agent";
+
+/**
+ * `pending` while the check waits for its report to resolve, `active` while it still runs.
+ * Every other value is terminal — a check is never rescheduled out of one.
+ */
+export type SignalReportCheckStatus =
+  | "pending"
+  | "active"
+  | "passed"
+  | "failed"
+  | "errored"
+  | "expired"
+  | "cancelled";
+
+export type SignalReportCheckOutcome = "passed" | "failed" | "errored";
+
+/**
+ * A forward-looking claim attached to a report: an expectation plus the time to test it.
+ * Mirrors `SignalReportCheckSerializer`. Read-only apart from cancellation.
+ */
+export interface SignalReportCheck {
+  id: string;
+  title: string;
+  rationale: string;
+  kind: SignalReportCheckKind;
+  status: SignalReportCheckStatus;
+  /**
+   * What the check measures and what the result must satisfy; the shape depends on `kind`.
+   * `query` and `baseline_value` are null when the viewer cannot read the data they describe.
+   */
+  config: Record<string, unknown>;
+  /** When the coordinator next evaluates the check. Provisional while the check is `pending`. */
+  next_run_at: string;
+  /** How long after the report resolves a `pending` check waits before its first run. */
+  soak_minutes?: number | null;
+  /** Gap between runs for a recurring check; null for a one-shot. */
+  run_interval_minutes?: number | null;
+  /** Evaluations still owed before the check retires as passed. */
+  runs_remaining: number;
+  expires_at: string;
+  last_run_at?: string | null;
+  last_outcome?: SignalReportCheckOutcome | null;
+  /**
+   * When an `agent` check's scout run started, cleared as soon as a verdict is recorded. A
+   * non-null value is what tells a reader the check is running rather than waiting, because
+   * dispatch also pushes `next_run_at` out to the result window.
+   */
+  dispatched_at?: string | null;
+  consecutive_errors: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SignalReportChecksResponse {
+  results: SignalReportCheck[];
+  count: number;
+  unavailableReason?:
+    | "forbidden"
+    | "not_found"
+    | "invalid_payload"
+    | "request_failed";
+}
+
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1208,8 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | CheckResultArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];

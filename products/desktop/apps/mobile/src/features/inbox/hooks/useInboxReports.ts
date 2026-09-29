@@ -16,6 +16,8 @@ import type {
   SignalProcessingStateResponse,
   SignalReport,
   SignalReportArtefactsResponse,
+  SignalReportCheck,
+  SignalReportChecksResponse,
   SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportsQueryParams,
@@ -44,6 +46,7 @@ export const inboxKeys = {
   detail: (reportId: string) => [...inboxKeys.all, reportId, "detail"] as const,
   artefacts: (reportId: string) =>
     [...inboxKeys.all, reportId, "artefacts"] as const,
+  checks: (reportId: string) => [...inboxKeys.all, reportId, "checks"] as const,
   signals: (reportId: string) =>
     [...inboxKeys.all, reportId, "signals"] as const,
   commitDiff: (reportId: string, artefactId: string) =>
@@ -204,6 +207,48 @@ export function useInboxReportArtefacts(
     // List rows pass a calmer profile: reviewer suggestions rarely change mid-scroll.
     staleTime: options?.staleTime ?? 10_000,
     refetchInterval: options?.refetchInterval ?? 20_000,
+  });
+}
+
+/**
+ * A report's follow-up checks. Read once per mount rather than polled: a soak window is
+ * measured in days and the coordinator's tick is coarse, so a poll would catch nothing.
+ */
+export function useInboxReportChecks(reportId: string | null) {
+  const { projectId, oauthAccessToken } = useAuthStore();
+
+  return useQuery<SignalReportChecksResponse>({
+    queryKey: inboxKeys.checks(reportId ?? ""),
+    queryFn: () => {
+      if (!reportId) throw new Error("reportId is required");
+      return getPostHogApiClient().getSignalReportChecks(reportId);
+    },
+    enabled: !!projectId && !!oauthAccessToken && !!reportId,
+  });
+}
+
+/** Stop an open check. Terminal, so every caller confirms before it runs. */
+export function useCancelReportCheck(reportId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = inboxKeys.checks(reportId);
+
+  return useMutation<SignalReportCheck, Error, string>({
+    mutationFn: (checkId) =>
+      getPostHogApiClient().cancelSignalReportCheck(reportId, checkId),
+    onSuccess: (cancelled) => {
+      // Patch the row in place: the list read is not polled, so a refetch is the only other
+      // way the stopped check would stop reading as scheduled.
+      queryClient.setQueryData<SignalReportChecksResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            results: current.results.map((check) =>
+              check.id === cancelled.id ? cancelled : check,
+            ),
+          },
+      );
+    },
   });
 }
 

@@ -2669,6 +2669,22 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "check_result",
+        content: {
+          check_id: "chk-1",
+          kind: "metric_threshold",
+          title: "Rageclicks stay under 20 a week",
+          outcome: "passed",
+          explanation: "11 rageclicks in the last 14 days.",
+          observed_value: 11,
+          baseline_value: 34,
+          threshold: "lte 20",
+          run_id: null,
+        },
+        created_at: "2026-06-01T00:00:14Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {
@@ -2685,6 +2701,26 @@ describe("PostHogAPIClient", () => {
       expect(results.map((a) => a.id)).toEqual(ROWS.map((r) => r.id));
       expect(results.map((a) => a.type)).toEqual(ROWS.map((r) => r.type));
       expect(results.every((a) => !a.degraded)).toBe(true);
+    });
+
+    // The follow-up-checks section attaches a verdict to its check row by `check_id`. Without
+    // its own normalizer the row falls through to the fallback, which keeps only a text preview
+    // and loses the id, so every finished check reads without its explanation.
+    it("keeps a check verdict's check_id and explanation", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: ROWS.length, results: ROWS }),
+      });
+      const client = makeClient(fetch);
+
+      const { results } = await client.getSignalReportArtefacts("r1");
+
+      const verdict = results.find((a) => a.type === "check_result");
+      expect(verdict?.content).toMatchObject({
+        check_id: "chk-1",
+        outcome: "passed",
+        explanation: "11 rageclicks in the last 14 days.",
+      });
     });
 
     it("keeps rows whose content does not match the type's shape as degraded previews", async () => {
@@ -2776,6 +2812,128 @@ describe("PostHogAPIClient", () => {
 
       const { url } = fetch.mock.calls[0][0] as { url: URL };
       expect(url.searchParams.get("limit")).toBe(expected);
+    });
+  });
+
+  describe("report follow-up checks", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    const CHECK = {
+      id: "chk-1",
+      title: "Rageclicks stay under 20 a week",
+      rationale: "The fix should hold.",
+      kind: "metric_threshold",
+      status: "active",
+      config: { comparison: { operator: "lte", value: 20 } },
+      next_run_at: "2026-09-27T09:00:00Z",
+      soak_minutes: 10080,
+      run_interval_minutes: null,
+      runs_remaining: 1,
+      expires_at: "2026-10-27T09:00:00Z",
+      last_run_at: null,
+      last_outcome: null,
+      dispatched_at: null,
+      consecutive_errors: 0,
+      created_at: "2026-09-20T09:00:00Z",
+      updated_at: "2026-09-20T09:00:00Z",
+    };
+
+    it("reads a check row without losing the fields the row presents", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 1, results: [CHECK] }),
+      });
+
+      const { results } = await makeClient(fetch).getSignalReportChecks("r1");
+
+      expect(results).toEqual([CHECK]);
+    });
+
+    // Every presentation branch keys on kind and status, so a row carrying a value this build
+    // does not know cannot be rendered — guessing a branch would put the wrong verdict word on it.
+    it.each([
+      ["an unknown status", { status: "quarantined" }],
+      ["an unknown kind", { kind: "llm_judge" }],
+    ])("drops a check with %s", async (_name, overrides) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 1, results: [{ ...CHECK, ...overrides }] }),
+      });
+
+      const { results, unavailableReason } =
+        await makeClient(fetch).getSignalReportChecks("r1");
+
+      expect(results).toEqual([]);
+      expect(unavailableReason).toBe("invalid_payload");
+    });
+
+    it("degrades to a reason rather than throwing when the checks cannot be read", async () => {
+      const fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+
+      const response = await makeClient(fetch).getSignalReportChecks("r1");
+
+      expect(response).toEqual({
+        results: [],
+        count: 0,
+        unavailableReason: "forbidden",
+      });
+    });
+
+    it("returns the cancelled row so the caller can patch it in place", async () => {
+      const cancelled = { ...CHECK, status: "cancelled" };
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => cancelled,
+      });
+
+      const check = await makeClient(fetch).cancelSignalReportCheck(
+        "r1",
+        "chk-1",
+      );
+
+      expect(check).toEqual(cancelled);
+      const { method, url } = fetch.mock.calls[0][0] as {
+        method: string;
+        url: URL;
+      };
+      expect(method).toBe("delete");
+      expect(url.pathname).toBe(
+        "/api/projects/123/signals/reports/r1/checks/chk-1/",
+      );
+    });
+
+    // A check that finished between the read and the click is the expected race, and the
+    // endpoint's own message names the status it finished as.
+    it("surfaces the endpoint's message when the check already finished", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [400] {"error": "This check already finished as \'passed\' and cannot be cancelled."}',
+          ),
+        );
+
+      await expect(
+        makeClient(fetch).cancelSignalReportCheck("r1", "chk-1"),
+      ).rejects.toThrow(
+        "This check already finished as 'passed' and cannot be cancelled.",
+      );
     });
   });
 
