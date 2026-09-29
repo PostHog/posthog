@@ -2189,7 +2189,6 @@ describe('sqlEditorLogic', () => {
                 chartType: ChartDisplayType.TwoDimensionalHeatmap,
                 limit: 50000,
             }
-            const restoredConfig: BIConfig = { ...persistedConfig, limit: 1000 }
 
             router.actions.push(urls.sqlEditor(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
@@ -2201,17 +2200,17 @@ describe('sqlEditorLogic', () => {
                 .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     activeTab: partial({
-                        biEditorState: { editorView: BIEditorView.BI, config: restoredConfig },
+                        biEditorState: { editorView: BIEditorView.BI, config: persistedConfig },
                     }),
                 })
-            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: restoredConfig })
+            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: persistedConfig })
 
             await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
 
             expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
             expect(router.values.hashParams.bi).toEqual({
-                ...restoredConfig,
-                filters: [{ ...restoredConfig.filters[0], value: 'purchase' }],
+                ...persistedConfig,
+                filters: [{ ...persistedConfig.filters[0], value: 'purchase' }],
             })
 
             biLogic.unmount()
@@ -2276,12 +2275,12 @@ describe('sqlEditorLogic', () => {
                 biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
             ).toFinishAllListeners()
 
-            expect(biLogic.values.config.limit).toBe(1000)
-            expect(logic.values.queryInput).toContain('LIMIT 1000')
+            expect(biLogic.values.config.limit).toBe(50000)
+            expect(logic.values.queryInput).toContain('LIMIT 50000')
             expect(router.values.hashParams.bi).toEqual({
                 ...config,
                 chartType: ChartDisplayType.TwoDimensionalHeatmap,
-                limit: 1000,
+                limit: 50000,
             })
 
             biLogic.unmount()

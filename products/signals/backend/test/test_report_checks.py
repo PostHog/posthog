@@ -1372,6 +1372,12 @@ class TestCheckResultTool(APIBaseTest):
         assert check.last_outcome == SignalReportCheck.Outcome.INCONCLUSIVE
         assert check.last_outcome_reason == reason
         assert check.consecutive_errors == 0
+        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert listed.last_outcome_reason == reason
+        api_rows = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/").json()
+        assert [(row["status"], row["last_outcome_reason"]) for row in api_rows["results"]] == [
+            (expected_status, reason)
+        ]
         artefact = SignalReportArtefact.objects.get(
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
         )
