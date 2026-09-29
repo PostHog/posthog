@@ -81,23 +81,24 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def _request_patches(self):
         with (
             patch(
-                "products.growth.backend.account_audits.AccountAuditService._credential_is_eligible",
-                return_value=True,
-            ) as eligible,
-            patch(
                 "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
             patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
             patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
-            yield eligible, actor, skill, dispatch
+            yield actor, skill, dispatch
 
-    @parameterized.expand([(True,), (False,)])
-    def test_accepts_a_signed_delivery_and_reuses_the_same_run(self, explicit_team: bool) -> None:
+    @parameterized.expand([("US", 2, True), ("EU", 1, False)])
+    def test_accepts_a_signed_delivery_and_reuses_the_same_run(
+        self, region: str, growth_team_id: int, explicit_team: bool
+    ) -> None:
         payload: dict[str, object] = {"organization_id": str(self.organization.id)}
         if explicit_team:
             payload["team_id"] = self.team.id
-        with self._request_patches() as (_, _, _, dispatch):
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region, GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=growth_team_id),
+            self._request_patches() as (_, skill, dispatch),
+        ):
             first = self._post(payload)
             other_team = Team.objects.create(organization=self.organization, name="Recently active project")
             FileSystemViewLog.objects.create(team=other_team, user=self.user, type="dashboard", ref="1")
@@ -110,6 +111,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(second.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
         self.assertEqual(dispatch.call_count, 1)
         self.assertEqual(dispatch.call_args.kwargs["team_id"], self.team.id)
+        skill.assert_called_once_with(team_id=growth_team_id, skill_name="onboarding-account-audit")
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -129,7 +131,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             other_user = User.objects.create(email="other-viewer@example.com")
             FileSystemViewLog.objects.create(team=child, user=other_user, type="dashboard", ref="1")
         expected_id = next_team.id if is_demo or pending_deletion else self.team.id
-        with self._request_patches() as (_, actor, _, dispatch):
+        with self._request_patches() as (actor, _, dispatch):
             response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
@@ -159,7 +161,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         if explicit_team:
             payload["team_id"] = self.team.id
         expected_id = self.team.id if explicit_team or days_ago > 30 else active_team.id
-        with self._request_patches() as (_, _, _, dispatch):
+        with self._request_patches() as (_, _, dispatch):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
@@ -168,7 +170,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def test_rejects_an_organization_without_an_eligible_default_project(self) -> None:
         self.team.is_demo = True
         self.team.save(update_fields=["is_demo"])
-        with self._request_patches() as (_, _, _, dispatch):
+        with self._request_patches() as (_, _, dispatch):
             response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 400)
         dispatch.assert_not_called()
@@ -181,7 +183,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             "reason": "activation-review",
             "skill_name": "activation-audit",
         }
-        with self._request_patches() as (_, _, skill, dispatch):
+        with self._request_patches() as (_, skill, dispatch):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], explicit_team.id)
@@ -200,7 +202,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             return SimpleNamespace(latest_run=None)
 
         with (
-            self._request_patches() as (_, _, skill, create),
+            self._request_patches() as (_, skill, create),
             patch(
                 "products.growth.backend.audit_execution.tasks_facade.create_and_run_task", side_effect=fail_creation
             ) as native_create,
@@ -305,7 +307,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, _, _, dispatch):
+        with self._request_patches() as (_, _, dispatch):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 403)
@@ -314,7 +316,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
     def test_rejects_when_the_audit_skill_is_unavailable_without_admitting(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, _, skill, dispatch):
+        with self._request_patches() as (_, skill, dispatch):
             skill.return_value = None
             response = self._post(payload)
 
@@ -327,7 +329,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         other_org = Organization.objects.create(name="Other organization", is_ai_data_processing_approved=True)
         Team.objects.create(organization=other_org, name="Other team")
         payload = {"organization_id": str(other_org.id), "team_id": self.team.id}
-        with self._request_patches() as (_, _, _, dispatch):
+        with self._request_patches() as (_, _, dispatch):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 400)
@@ -335,7 +337,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
     def test_rejects_when_no_team_actor_is_available(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, actor, _, dispatch):
+        with self._request_patches() as (actor, _, dispatch):
             actor.return_value = None
             response = self._post(payload)
 
@@ -347,7 +349,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         changed_payload = {**payload, field: other_team.id if field == "team_id" else "another-audit"}
-        with self._request_patches() as (_, _, _, dispatch):
+        with self._request_patches() as (_, _, dispatch):
             self.assertEqual(self._post(payload).status_code, 202)
             response = self._post(changed_payload)
 
@@ -393,18 +395,27 @@ class TestAccountAuditStartAPI(APIBaseTest):
                     team_id=self.team.id,
                 )
 
-    @override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=37)
-    def test_credential_requires_an_active_staff_owner_and_matching_source_workflow(self) -> None:
-        credential = AccountAuditCredential.objects.select_related("owner").get(pk=self.credential.pk)
-        with patch("products.growth.backend.account_audits.is_workflow_staff_controlled", return_value=True) as active:
-            self.assertTrue(AccountAuditService._credential_is_eligible(credential))
-            active.assert_called_once_with(team_id=37, workflow_id=credential.workflow_id, owner_id=self.user.id)
-            for field in ("is_staff", "is_active"):
-                setattr(credential.owner, field, False)
-                self.assertFalse(AccountAuditService._credential_is_eligible(credential))
-                setattr(credential.owner, field, True)
-            active.return_value = False
-            self.assertFalse(AccountAuditService._credential_is_eligible(credential))
+    @parameterized.expand(
+        [("revoked",), ("owner_inactive",), ("owner_not_staff",), ("unknown_key",), ("wrong_secret",)]
+    )
+    def test_rejects_an_ineligible_destination_credential(self, condition: str) -> None:
+        if condition == "revoked":
+            AccountAuditCredential.objects.filter(pk=self.credential.pk).update(is_active=False)
+        elif condition == "owner_inactive":
+            User.objects.filter(pk=self.user.pk).update(is_active=False)
+        elif condition == "owner_not_staff":
+            User.objects.filter(pk=self.user.pk).update(is_staff=False)
+        elif condition == "unknown_key":
+            AccountAuditCredential.objects.filter(pk=self.credential.pk).update(public_key_id=uuid4())
+        else:
+            AccountAuditCredential.objects.filter(pk=self.credential.pk).update(
+                signing_secret=f"whsec_{base64.b64encode(b'b' * 32).decode()}"
+            )
+        with self._request_patches() as (_, _, dispatch):
+            response = self._post({"organization_id": str(self.organization.id)})
+        self.assertEqual(response.status_code, 401)
+        dispatch.assert_not_called()
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_preserves_historic_admissions_when_an_owner_or_credential_is_deleted(self) -> None:
         owner = User.objects.create_user(email="audit-owner@example.com", password=None, first_name="Audit")

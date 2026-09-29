@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("public_key_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
                 ("signing_secret", EncryptedTextField()),
-                ("workflow_id", models.UUIDField()),
+                ("workflow_id", models.UUIDField(blank=True, null=True)),
                 ("is_active", models.BooleanField(default=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

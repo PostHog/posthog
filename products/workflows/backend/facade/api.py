@@ -6,7 +6,6 @@ from django.db.models import F
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
-from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
@@ -129,30 +128,6 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         return HogFlow.objects.values_list("created_by_id", flat=True).get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
-
-
-def is_workflow_staff_controlled(*, team_id: int, workflow_id: UUID, owner_id: int) -> bool:
-    flow = (
-        HogFlow.objects.select_related("team")
-        .filter(
-            team_id=team_id,
-            id=workflow_id,
-            created_by_id=owner_id,
-            created_by__is_staff=True,
-            created_by__is_active=True,
-            status=HogFlow.State.ACTIVE,
-        )
-        .first()
-    )
-    if flow is None:
-        return False
-    non_staff_members = User.objects.filter(
-        organization_membership__organization_id=flow.team.organization_id, is_active=True, is_staff=False
-    )
-    return not any(
-        UserAccessControl(user=user, team=flow.team).check_access_level_for_object(flow, "editor")
-        for user in non_staff_members.iterator()
-    )
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:

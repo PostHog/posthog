@@ -6,7 +6,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django import forms
-from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
@@ -22,6 +21,7 @@ import structlog
 from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
+from posthog.utils import absolute_uri
 
 from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
@@ -34,7 +34,6 @@ from products.growth.backend.models import (
 )
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
-from products.workflows.backend.facade.api import is_workflow_staff_controlled
 
 
 class AccountAuditCredentialForm(forms.ModelForm):
@@ -42,22 +41,17 @@ class AccountAuditCredentialForm(forms.ModelForm):
         model = AccountAuditCredential
         fields = ("owner", "workflow_id", "is_active")
         help_texts = {
-            "workflow_id": "An active Workflow in the Growth project, owned by this staff user, with no non-staff editors.",
-            "is_active": "To rotate, add a credential and configure the Workflow with it, then disable the old credential.",
+            "workflow_id": "Optional reference to a workflow in either region. This does not restrict where the credential can be used.",
+            "is_active": "Disable to revoke access. To rotate, configure the workflow with a new credential before disabling this one.",
         }
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
         owner = cleaned.get("owner", self.instance.owner)
-        workflow_id = cleaned.get("workflow_id", self.instance.workflow_id)
         if (not self.instance.pk or cleaned.get("is_active")) and (
-            not owner
-            or not workflow_id
-            or not is_workflow_staff_controlled(
-                team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, workflow_id=workflow_id, owner_id=owner.id
-            )
+            not owner or not owner.is_active or not owner.is_staff
         ):
-            raise ValidationError("Choose an active Workflow owned by an active staff user, with no non-staff editors.")
+            raise ValidationError("Choose an active staff user as the credential owner.")
         return cleaned
 
 
@@ -102,7 +96,7 @@ class AccountAuditCredentialAdmin(admin.ModelAdmin):
                 "key_id": obj.public_key_id,
                 "signing_secret": obj.signing_secret,
                 "credential_url": reverse("admin:growth_accountauditcredential_change", args=[obj.pk]),
-                "workflow_url": f"/project/{settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID}/workflows/{obj.workflow_id}/workflow",
+                "api_url": absolute_uri(reverse("growth_account_audits-start")),
             },
         )
 

@@ -21,7 +21,7 @@ class AccountAuditCredential(models.Model):
     owner = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False, related_name="+"
     )
-    workflow_id = models.UUIDField()
+    workflow_id = models.UUIDField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

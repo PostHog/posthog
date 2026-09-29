@@ -15,7 +15,6 @@ from products.growth.backend.audit_execution import create_audit_task
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
 from products.skills.backend.facade.api import get_skill_prompt
-from products.workflows.backend.facade.api import is_workflow_staff_controlled
 
 COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
@@ -142,11 +141,6 @@ class AccountAuditService:
             and credential.owner is not None
             and credential.owner.is_active
             and credential.owner.is_staff
-            and is_workflow_staff_controlled(
-                workflow_id=credential.workflow_id,
-                team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID,
-                owner_id=credential.owner.id,
-            )
         )
 
     @staticmethod
