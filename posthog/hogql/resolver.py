@@ -33,6 +33,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -61,6 +62,7 @@ from posthog.hogql.transforms.trino.persons import (
 )
 from posthog.hogql.transforms.trino.pivot import TrinoPivotLowerer
 from posthog.hogql.type_system import (
+    constant_type_from_runtime_type,
     infer_array_access_constant_type,
     infer_array_constant_type,
     infer_array_slice_constant_type,
@@ -69,6 +71,7 @@ from posthog.hogql.type_system import (
     infer_try_cast_constant_type,
     infer_tuple_access_constant_type,
     least_common_supertype,
+    parse_clickhouse_type,
 )
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -1984,6 +1987,17 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
+        if node.name.lower() == "prompt_jev":
+            spec = PromptJevCall.parse(node)
+            node = clone_expr(node, clear_types=True)
+            node.args[0] = self.visit(spec.input)
+            node.type = ast.CallType(
+                name="prompt_jev",
+                arg_types=[],
+                return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
+            )
+            return node
+
         if self.dialect == "trino" and node.name.lower() == "date":
             node = clone_expr(node, clear_types=False)
             node.name = "toDate"
@@ -2506,6 +2520,13 @@ class Resolver(CloningVisitor):
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if isinstance(loop_type, (ast.FieldType, ast.FieldAliasType)) and self.dialect in {"hogql", "clickhouse"}:
+                tuple_type = loop_type.resolve_constant_type(self.context)
+                if isinstance(tuple_type, ast.TupleType) and str(next_chain) in tuple_type.field_names:
+                    expression: ast.Expr = ast.Field(chain=list(resolved_chain))
+                    for member in [next_chain, *chain_to_parse]:
+                        expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
+                    return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
                 previous_types.pop()
                 previous_types.pop()

@@ -51,6 +51,7 @@ from posthog.hogql.direct_sql import (
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
@@ -79,6 +80,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
+    from posthog.hogql.transforms.prompt_jev import PromptJevTable
+
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 tracer = trace.get_tracer(__name__)
@@ -168,6 +171,8 @@ class HogQLQueryExecutor:
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
+        self._prompt_jev_tables: list[PromptJevTable] = []
+        self._executing = False
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -308,6 +313,8 @@ class HogQLQueryExecutor:
             limit_context=self.limit_context,
             database=database,
         )
+        for table in self._prompt_jev_tables:
+            table.register(self.hogql_context)
 
         self._apply_optimizers()
 
@@ -697,6 +704,36 @@ class HogQLQueryExecutor:
             else:
                 raise
 
+    def _evaluate_prompt_jev(self) -> None:
+        from posthog.hogql.transforms.prompt_jev import (  # noqa: PLC0415 -- keep the optional model clients off ordinary query imports
+            PromptJevPlanner,
+            PromptJevRunner,
+            validate_prompt_jev_enabled,
+        )
+
+        validate_prompt_jev_enabled()
+        self._prompt_jev_tables = []
+
+        def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:
+            executor = dataclasses.replace(
+                self,
+                query=query,
+                context=dataclasses.replace(self.context, limit_top_select=False),
+                limit_context=LimitContext.SAVED_QUERY,
+            )
+            executor._prompt_jev_tables = self._prompt_jev_tables
+            return executor.execute()
+
+        planner = PromptJevPlanner(
+            execute=execute_source,
+            runner=PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None),
+            tables=self._prompt_jev_tables,
+        )
+        with self.timings.measure("prompt_jev"):
+            self.select_query = planner.visit(self.select_query)
+        if PromptJevFinder.contains(self.select_query):
+            raise QueryError("Use prompt_jev in a named SELECT column and filter its results in an outer query.")
+
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.referenced_saved_query_ids.clear()
         self._parse_query()
@@ -712,6 +749,10 @@ class HogQLQueryExecutor:
 
         self._process_variables()
         self._process_placeholders()
+        if PromptJevFinder.contains(self.select_query):
+            if embedded_select or not self._executing or self.connection_id is not None:
+                raise QueryError("prompt_jev requires a ClickHouse-backed query execution and cannot be embedded.")
+            self._evaluate_prompt_jev()
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
@@ -887,6 +928,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
