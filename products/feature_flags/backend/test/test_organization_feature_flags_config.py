@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
 from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled
@@ -44,14 +45,29 @@ class TestOrganizationFeatureFlagsConfig(BaseTest):
 class TestFlagEvaluationsTableGate(BaseTest):
     @parameterized.expand(
         [
-            ("events_without_the_flag", FlagEvaluationsMode.EVENTS, False, False),
-            ("events_with_the_flag", FlagEvaluationsMode.EVENTS, True, True),
-            ("read_flag_evaluations_without_the_flag", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, True),
-            ("flag_evaluations_only_without_the_flag", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
-            ("no_config_row_without_the_flag", None, False, False),
+            ("events_without_the_flag", FlagEvaluationsMode.EVENTS, False, False, False),
+            ("events_with_the_flag", FlagEvaluationsMode.EVENTS, True, False, True),
+            ("read_flag_evaluations_without_the_flag", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False, True),
+            (
+                "flag_evaluations_only_without_the_flag",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                False,
+                False,
+                True,
+            ),
+            ("no_config_row_without_the_flag", None, False, False, False),
+            (
+                "read_flag_evaluations_while_the_usage_tab_is_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                False,
+                True,
+                True,
+            ),
         ]
     )
-    def test_table_is_enabled_by_the_organization_mode_or_the_flag(self, _name, mode, flag_enabled, expected):
+    def test_table_is_enabled_by_the_organization_mode_or_the_flag(
+        self, _name, mode, flag_enabled, usage_tab_forced_to_events, expected
+    ):
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
             config.delete()
@@ -61,5 +77,6 @@ class TestFlagEvaluationsTableGate(BaseTest):
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
             patch("products.feature_flags.backend.facade.flags.feature_enabled_or_false", return_value=flag_enabled),
+            override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", usage_tab_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)

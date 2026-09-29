@@ -15,6 +15,7 @@ from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1063,6 +1064,34 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(
             OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
             FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "read_flag_evaluations_reads_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                FlagEvaluationsMode.EVENTS,
+            ),
+            (
+                "flag_evaluations_only_keeps_its_mode",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+        ]
+    )
+    def test_flag_evaluations_mode_while_the_usage_tab_is_forced_to_events(self, _name, stored_mode, expected_mode):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=stored_mode
+        )
+
+        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+
+        self.assertEqual(response.json()["flag_evaluations_mode"], expected_mode)
+        self.assertEqual(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).flag_evaluations_mode,
+            stored_mode,
         )
 
     def test_retrieve_project_does_not_500_when_broker_unavailable(self):

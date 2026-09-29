@@ -123,7 +123,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -973,7 +973,7 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_organization_flag_evaluations_mode(obj.organization_id)
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

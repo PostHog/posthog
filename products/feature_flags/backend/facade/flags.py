@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.conf import settings
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -28,6 +29,19 @@ def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
         .first()
     )
     return FlagEvaluationsMode.EVENTS if mode is None else mode
+
+
+def get_usage_tab_flag_evaluations_mode(organization_id: UUID) -> int:
+    """The mode that decides which table the flag Usage tab reads. FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS makes
+    it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves the stored mode unchanged."""
+    mode = get_organization_flag_evaluations_mode(organization_id)
+    # The switch skips FLAG_EVALUATIONS_ONLY. Once ingestion supports that mode, events holds none of the
+    # organization's flag calls, so the Usage tab would show empty days instead of the flag_evaluations rows.
+    if mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS and get_instance_setting(
+        "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS"
+    ):
+        return FlagEvaluationsMode.EVENTS
+    return mode
 
 
 def is_flag_evaluations_table_enabled(team: "Team") -> bool:

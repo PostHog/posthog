@@ -101,7 +101,9 @@ class StaffTeamConfigSerializer(serializers.Serializer):
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             "an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for "
             "ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support "
-            "deploys, so 2 acts as 1 until then."
+            "deploys, so 2 acts as 1 until then. This is the stored mode: while the "
+            "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab "
+            "read events anyway."
         ),
     )
     feature_flag_count = serializers.IntegerField(
