@@ -125,7 +125,12 @@ def shadow_db_connection(env_var: str) -> psycopg2.extensions.connection:
             )
         )
     require_shadow_dsn(connection_url)
-    return psycopg2.connect(connection_url, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=10)
+    return psycopg2.connect(
+        connection_url,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=10,
+        options="-c application_name=dagster_personhog_shadow_lane",
+    )
 
 
 def _load_k8s_config() -> None:
@@ -152,7 +157,8 @@ def deployment_pod_count(apps: k8s_client.AppsV1Api, namespace: str, name: str) 
         return deployment.spec.replicas
     selector = ",".join(f"{key}={value}" for key, value in deployment.spec.selector.match_labels.items())
     pods = k8s_client.CoreV1Api().list_namespaced_pod(namespace=namespace, label_selector=selector)
-    return len(pods.items)
+    terminal_phases = {"Succeeded", "Failed"}
+    return sum(1 for pod in pods.items if pod.status.phase not in terminal_phases)
 
 
 def scale_deployment(apps: k8s_client.AppsV1Api, namespace: str, name: str, replicas: int) -> None:
@@ -279,13 +285,14 @@ def _reset_shadow_state(
 
         context.log.info(f"Truncating {len(tables)} tables in the shadow persons database: {', '.join(tables)}")
         with connection.cursor() as cursor:
-            cursor.execute("SET application_name = 'dagster_personhog_shadow_lane'")
+            cursor.execute("SET lock_timeout = '30s'")
             cursor.execute("SET statement_timeout = '10min'")
             # One statement so the reset is atomic; CASCADE covers the FKs
             # between the person and distinct id tables on both sides. No
-            # RESTART IDENTITY: it needs sequence privileges the scoped
-            # dagster user does not hold, and id continuity is irrelevant
-            # because the drift comparison joins on uuid and distinct_id.
+            # RESTART IDENTITY: the shadow personhog leader stays up across
+            # resets and caches persons by (team_id, person_id) without
+            # re-reading Postgres, so restarted sequences would map new rows
+            # to stale cached persons from the previous run.
             cursor.execute(f"TRUNCATE {', '.join(tables)} CASCADE")
     context.log.info("Shadow persons database reset complete")
 
