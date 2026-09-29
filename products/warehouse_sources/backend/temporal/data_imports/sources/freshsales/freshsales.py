@@ -82,6 +82,9 @@ def _build_page_url(
     else:
         path = f"{root}/{config.resource}"
 
+    if config.is_selector:
+        return f"{path}?{urlencode(config.params)}" if config.params else path
+
     params: dict[str, Any] = {"page": page, "per_page": per_page, **config.params}
     if config.sort:
         params["sort"] = config.sort
@@ -111,6 +114,15 @@ def _fetch_page(session: Any, url: str, logger: FilteringBoundLogger) -> dict:
         response.raise_for_status()
 
     return response.json()
+
+
+def _extract_items(data: dict, config: FreshsalesEndpointConfig) -> list[dict]:
+    items = data.get(config.object_key)
+    if isinstance(items, list):
+        return items
+    if config.is_selector:
+        return next((v for v in data.values() if isinstance(v, list)), [])
+    return []
 
 
 def _resolve_view_id(session: Any, root: str, resource: str, logger: FilteringBoundLogger) -> Optional[int]:
@@ -171,11 +183,14 @@ def get_rows(
         url = _build_page_url(root, config, view_id, page)
         data = _fetch_page(session, url, logger)
 
-        items = data.get(config.object_key) or []
+        items = _extract_items(data, config)
         if not items:
             break
 
         yield items
+
+        if config.is_selector:
+            break
 
         meta = data.get("meta") or {}
         total_pages = meta.get("total_pages")
