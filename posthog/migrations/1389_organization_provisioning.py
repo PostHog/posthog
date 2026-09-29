@@ -50,9 +50,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.CheckConstraint(
                         condition=models.Q(
-                            models.Q(
-                                ("application__isnull", True), ("partner", "vercel")
-                            ),
+                            models.Q(("application__isnull", True), ("partner", "vercel")),
                             models.Q(
                                 models.Q(("partner", "vercel"), _negated=True),
                                 ("application__isnull", False),
