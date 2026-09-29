@@ -22,6 +22,7 @@ from products.replay_vision.backend.temporal.activities.fetch_session_events imp
 from products.replay_vision.backend.temporal.benchmark_types import (
     BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE,
     BENCHMARK_CASE_SKIPPED_ERROR_TYPE,
+    BENCHMARK_VERSION_ALREADY_BUILT_ERROR_TYPE,
     LoadBenchmarkCasesInputs,
     LoadBenchmarkCasesOutput,
     PrepareBenchmarkCaseInputs,
@@ -70,7 +71,11 @@ def _read_cases(layout: BenchmarkLayout) -> list[str]:
 def _snapshot(inputs: SnapshotBenchmarkInputs) -> SnapshotBenchmarkOutput:
     layout = _layout(inputs.version)
     if object_storage.head_object(layout.manifest_key, bucket=layout.bucket):
-        raise ValueError(f"benchmark version {inputs.version} is already built; versions are never rewritten")
+        raise ApplicationError(
+            f"benchmark version {inputs.version} is already built; versions are never rewritten",
+            type=BENCHMARK_VERSION_ALREADY_BUILT_ERROR_TYPE,
+            non_retryable=True,
+        )
     # A build that stopped partway resumes on the snapshot it took, so its cases keep describing one moment.
     if existing := _read_cases(layout):
         return SnapshotBenchmarkOutput(case_count=len(existing))
