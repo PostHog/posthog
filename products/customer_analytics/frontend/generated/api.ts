@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonsResponseApi,
     AccountPresenceApi,
     AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
@@ -34,6 +35,7 @@ import type {
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
+    AccountsPersonsListParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
@@ -962,6 +964,34 @@ export const accountsMeetingsList = async (
     options?: RequestInit
 ): Promise<PaginatedMeetingListApi> => {
     return apiMutator<PaginatedMeetingListApi>(getAccountsMeetingsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsPersonsListUrl = (projectId: string, id: string, params?: AccountsPersonsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/persons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+export const accountsPersonsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsListParams,
+    options?: RequestInit
+): Promise<AccountPersonsResponseApi> => {
+    return apiMutator<AccountPersonsResponseApi>(getAccountsPersonsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
