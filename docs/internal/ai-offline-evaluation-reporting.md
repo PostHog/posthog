@@ -100,9 +100,10 @@ It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
 Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
 When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
-Version 6 distinguishes missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
-New evaluations record judge version 6. Its prompt requires count claims to follow the query and observed identifiers: an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text from the corresponding source.
-Pending versions 1 through 5 retain their original prompts, evidence envelopes and citation normalization. Version 5 continues to use its separate, fixed reference context; previously saved snapshots and reports remain unchanged.
+Versions 6 and 7 distinguish missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
+New evaluations record judge version 7. It uses the same prompt as version 6: count claims must follow the query and observed identifiers, so an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text from the corresponding source.
+Version 7 allows at most 16,000 completion tokens per run; versions 1 through 6 retain their 8,000-token limit. A version 7 response that reaches the limit produces a judge error with guidance to review the rubric size before starting a new evaluation. It retains token usage but no partial verdicts and makes no automatic retry. The 64,000-character verdict-document limit is unchanged.
+Pending versions 1 through 6 retain their original prompts, evidence envelopes, citation normalization and request limits. Versions 5 and 6 continue to use their separate, fixed reference context; previously saved snapshots and reports remain unchanged.
 Missing evidence is unknown; not applicable means the criterion does not apply to that run.
 The judge assesses the saved text and does not independently verify external sources or measure recall.
 

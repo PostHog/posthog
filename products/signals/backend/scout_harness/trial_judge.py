@@ -31,7 +31,7 @@ from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-JUDGE_PROMPT_VERSION = "6"
+JUDGE_PROMPT_VERSION = "7"
 MAX_JUDGE_INPUT_CHARACTERS = 120_000
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
 MAX_TRACE_INPUT_CHARACTERS = 2_000_000
@@ -110,6 +110,7 @@ _JUDGE_SYSTEM_PROMPTS = {
     "4": _JUDGE_SYSTEM_PROMPT,
     "5": _SAVED_RUBRIC_SYSTEM_PROMPT_V5,
     "6": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
+    "7": _SAVED_RUBRIC_SYSTEM_PROMPT_V6,
 }
 
 
@@ -296,7 +297,7 @@ def build_trial_judge_messages(
     system_prompt = _JUDGE_SYSTEM_PROMPTS.get(snapshot.judge_prompt_version)
     if system_prompt is None:
         raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
-    uses_saved_reference = snapshot.judge_prompt_version in {"5", "6"}
+    uses_saved_reference = snapshot.judge_prompt_version in {"5", "6", "7"}
     criterion_ids = [criterion.id for criterion in snapshot.criteria]
     source_ids = [source.id for source in evidence.sources]
     if not 1 <= len(criterion_ids) <= 30 or len(set(criterion_ids)) != len(criterion_ids):
@@ -380,7 +381,7 @@ def parse_trial_judgment(
                     normalization_reasons.append("No citation to observed evidence was supplied.")
             reason = (
                 " ".join(dict.fromkeys(normalization_reasons))
-                if judge_prompt_version == "6"
+                if judge_prompt_version in {"6", "7"}
                 else "The cited sources do not establish this criterion."
             )
             criterion = criterion.model_copy(
@@ -461,11 +462,20 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                         model=snapshot.judge_model,
                         messages=messages,
                         response_format={"type": "json_object"},
-                        max_completion_tokens=8000,
+                        max_completion_tokens=16000 if snapshot.judge_prompt_version == "7" else 8000,
                     )
             if response.usage is not None:
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
+            if (
+                snapshot.judge_prompt_version == "7"
+                and response.choices
+                and response.choices[0].finish_reason == "length"
+            ):
+                raise TrialJudgeValidationError(
+                    "The judge reached its output token limit before completing the verdict document. "
+                    "Review the rubric size before starting a new evaluation; this request was not retried."
+                )
             if not response.choices or response.choices[0].finish_reason != "stop":
                 raise TrialJudgeValidationError("The judge did not return a complete verdict document.")
             content = response.choices[0].message.content

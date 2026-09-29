@@ -267,7 +267,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         )
         assert "The required skill was consulted." not in result.summary
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",)])
     def test_prompt_keeps_untrusted_text_in_data_and_omits_variant_identity(self, prompt_version: str) -> None:
         snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
         attack = (
@@ -281,17 +281,21 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         assert attack not in str(messages[0]["content"])
         assert json.loads(str(messages[1]["content"]))["sources"][0]["text"] == attack
         envelope = json.loads(str(messages[1]["content"]))
-        if prompt_version in {"5", "6"}:
+        if prompt_version in {"5", "6", "7"}:
             assert envelope["rubric_reference_context"]["instructions"] == "Inspect the checkout result."
         else:
             assert "rubric_reference_context" not in envelope
         system_prompt = str(messages[0]["content"])
-        if prompt_version == "6":
+        if prompt_version in {"6", "7"}:
             assert "A SQL alias such as users or accounts labels a result" in system_prompt
             assert "sentinel identifiers does not establish distinct real" in system_prompt
             assert "Check the observed identifiers and null handling" in system_prompt
             assert "top-level sources array's id field" in system_prompt
             assert "decoded value matches the source text exactly" in system_prompt
+            version_six_messages = build_trial_judge_messages(
+                snapshot.model_copy(update={"judge_prompt_version": "6"}), evidence
+            )
+            assert messages == version_six_messages
         else:
             expected_digest = (
                 "a2919fb33d21f674f1d7f5ef865ad3ff35566dd7a119889df950097bd2b3fffa"
@@ -308,7 +312,7 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
         ):
             assert identifier not in serialized
 
-    @parameterized.expand([("5",), ("6",)])
+    @parameterized.expand([("5",), ("6",), ("7",)])
     def test_reference_requirements_are_fixed_when_candidate_instructions_remove_work(
         self, prompt_version: str
     ) -> None:
@@ -330,7 +334,12 @@ class TestScoutTrialJudgeValidation(SimpleTestCase):
             build_trial_judge_messages(snapshot, snapshot.runs[0])
 
     @parameterized.expand(
-        [("4", "exceeds the judge input limit"), ("5", "exceed the scoring limit"), ("6", "exceed the scoring limit")]
+        [
+            ("4", "exceeds the judge input limit"),
+            ("5", "exceed the scoring limit"),
+            ("6", "exceed the scoring limit"),
+            ("7", "exceed the scoring limit"),
+        ]
     )
     def test_oversized_evidence_is_rejected_without_silent_truncation(self, prompt_version: str, message: str) -> None:
         snapshot = _snapshot().model_copy(update={"judge_prompt_version": prompt_version})
@@ -498,7 +507,16 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         assert result.status == "excluded"
         client.assert_not_called()
 
-    @parameterized.expand([("malformed", "6"), *[("citation", str(version)) for version in range(1, 7)]])
+    @parameterized.expand(
+        [
+            ("malformed", "6"),
+            ("malformed", "7"),
+            ("length", "6"),
+            ("length", "7"),
+            ("content_filter", "7"),
+            *[("citation", str(version)) for version in range(1, 8)],
+        ]
+    )
     async def test_output_validation_is_private_has_no_retry_and_revokes_token(
         self, scenario: str, prompt_version: str
     ) -> None:
@@ -521,6 +539,8 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         client.with_options.return_value = client
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=False)
+        completion_limit = 16000 if prompt_version == "7" else 8000
+        completion_tokens = completion_limit if scenario == "length" else 20
         content = (
             '{"private-response-marker": "invalid document"}'
             if scenario == "malformed"
@@ -540,11 +560,15 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 choices=[
                     {
                         "index": 0,
-                        "finish_reason": "stop",
+                        "finish_reason": scenario if scenario in {"length", "content_filter"} else "stop",
                         "message": {"role": "assistant", "content": content},
                     }
                 ],
-                usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": 100 + completion_tokens,
+                },
             )
         )
         with (
@@ -559,8 +583,20 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 "task_run__state": {},
             }
             result = await judge_trial_run(snapshot, evidence)
-        if scenario == "malformed":
+        if scenario != "citation":
             assert result.status == "judge_error"
+            assert result.criteria == []
+            assert result.score is None
+            assert result.error == (
+                "The judge returned an invalid verdict document."
+                if scenario == "malformed"
+                else (
+                    "The judge reached its output token limit before completing the verdict document. "
+                    "Review the rubric size before starting a new evaluation; this request was not retried."
+                    if scenario == "length" and prompt_version == "7"
+                    else "The judge did not return a complete verdict document."
+                )
+            )
         else:
             assert result.status == "judged"
             assert result.criteria[0].verdict == "unknown"
@@ -568,17 +604,17 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             assert result.criteria[0].reason == (
                 (
                     "A cited quotation does not match its saved source exactly."
-                    if prompt_version == "6"
+                    if prompt_version in {"6", "7"}
                     else "The cited sources do not establish this criterion."
                 )
                 + " Its outcome remains unknown from the saved evidence."
             )
         assert "private-response-marker" not in result.model_dump_json()
         assert result.input_tokens == 100
-        assert result.output_tokens == 20
+        assert result.output_tokens == completion_tokens
         client.with_options.assert_called_once_with(max_retries=0, timeout=120.0)
         client.chat.completions.create.assert_awaited_once()
-        assert client.chat.completions.create.call_args.kwargs["max_completion_tokens"] == 8000
+        assert client.chat.completions.create.call_args.kwargs["max_completion_tokens"] == completion_limit
         revoke.assert_called_once_with("synthetic-private-token")
 
     async def test_late_invalidation_prevents_credentials_and_model_calls(self) -> None:
