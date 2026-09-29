@@ -11,7 +11,7 @@ Where to look, in order:
 1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
 2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
 
-`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy. The one sanctioned exception is UI behind the `today-rail-nav` feature flag, which follows the root [`design.md`](../../design.md).
+This tree is moving from LemonUI to `@posthog/quill` behind the `today-rail-nav` feature flag, as a redesign of the whole UI. UI on that flag path uses quill and follows the root [`design.md`](../../design.md); read it before you build there. UI on the flag-off path stays on LemonUI, and the lookup order above applies to it. Outside the flag, a handful of files already import quill; treat those as exceptions rather than a pattern to copy.
 
 For `@posthog/quill-charts` consumers in the main app and product frontends, use `useChartTheme` from [`lib/charts/hooks`](./lib/charts/hooks.ts).
 Prefer its `useChartConfig` helper for memoized configuration.
@@ -33,7 +33,7 @@ If nothing fits, say so and propose extending the existing component before addi
 
 The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](../../design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
 ## Rule 2 — A product's UI goes in `products/<name>/frontend/`
 
