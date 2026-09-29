@@ -3,6 +3,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import {
     mergeResponsesByQuestion,
     processOpenEndedResults,
@@ -42,6 +43,11 @@ import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/gen
 jest.mock('products/surveys/frontend/generated/api', () => ({
     __esModule: true,
     surveysGenerateTranslationsCreate: jest.fn(),
+}))
+
+jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
+    ...jest.requireActual('scenes/approvals/ApprovalRequiredBanner'),
+    showApprovalRequiredToast: jest.fn(),
 }))
 
 const MULTIPLE_CHOICE_SURVEY: Survey = {
@@ -179,6 +185,80 @@ describe('editor sync', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.survey.name).toBe('Unsaved tabbed name')
+    })
+})
+
+describe('approval-gated saves', () => {
+    let saveResult: [number, Record<string, any>]
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.mocked(showApprovalRequiredToast).mockClear()
+
+        saveResult = [200, createPersistedSurvey()]
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+            patch: {
+                '/api/projects/:team/surveys/test-survey/': () => saveResult,
+            },
+            post: {
+                '/api/projects/:team/surveys/': () => saveResult,
+            },
+        })
+    })
+
+    const APPROVAL_TOAST_CALL = ['cr-1', 'save this survey', 'approval_required']
+
+    it.each([
+        [
+            'tells the user an approval-gated save needs approval, and keeps the unsaved edits',
+            [409, { change_request_id: 'cr-1', code: 'approval_required' }] as [number, Record<string, any>],
+            [APPROVAL_TOAST_CALL],
+            true,
+        ],
+        [
+            'leaves any other failure to the generic error toast',
+            [500, { detail: 'A server error occurred.' }] as [number, Record<string, any>],
+            [],
+            false,
+        ],
+        [
+            'ignores a conflict that carries no change request',
+            [409, { detail: 'Survey is already running.' }] as [number, Record<string, any>],
+            [],
+            false,
+        ],
+    ])('update %s', async (_name, result, expectedToastCalls, expectedEditing) => {
+        saveResult = result
+        const logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // `submit` closes the editor before the request resolves, so the save starts from closed.
+        logic.actions.editingSurvey(false)
+        logic.actions.updateSurvey({ name: 'Renamed survey' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(showApprovalRequiredToast).mock.calls).toEqual(expectedToastCalls)
+        expect(logic.values.isEditingSurvey).toBe(expectedEditing)
+    })
+
+    it('tells the user an approval-gated create needs approval, and keeps the unsaved edits', async () => {
+        saveResult = [409, { change_request_id: 'cr-1', code: 'approval_required' }]
+        const logic = surveyLogic({ id: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.editingSurvey(false)
+        logic.actions.createSurvey({ name: 'Brand new survey' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(showApprovalRequiredToast).mock.calls).toEqual([APPROVAL_TOAST_CALL])
+        expect(logic.values.isEditingSurvey).toBe(true)
     })
 })
 

@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,6 +32,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isObject } from 'lib/utils/guards'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -1515,6 +1517,23 @@ export interface surveyLogicMeta {
 
 export type surveyLogicType = MakeLogicType<surveyLogicValues, surveyLogicActions, SurveyLogicProps, surveyLogicMeta>
 
+/**
+ * A survey save writes the survey's targeting flags through the feature flag API, so a flag
+ * approval policy gates that write and the save comes back as a 409 with a pending change request
+ * (products/surveys/backend/api/survey.py). `initKea` leaves 409 out of its generic error toast,
+ * because each conflict flow is expected to show its own UI, so without the toast below a gated
+ * save tells the user nothing at all.
+ */
+function showSurveyApprovalRequiredToast(
+    errorObject: { status?: number; data?: { change_request_id: string; code?: string } } | null | undefined
+): boolean {
+    if (!isApprovalRequiredError(errorObject) || !errorObject?.data) {
+        return false
+    }
+    showApprovalRequiredToast(errorObject.data.change_request_id, 'save this survey', errorObject.data.code)
+    return true
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -2040,11 +2059,23 @@ export const surveyLogic = kea<surveyLogicType>([
                     derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
                 })
             },
+            createSurveyFailure: ({ errorObject }) => {
+                if (showSurveyApprovalRequiredToast(errorObject)) {
+                    actions.editingSurvey(true)
+                }
+            },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
                 actions.editingSurvey(false)
                 actions.reportSurveyEdited(survey)
                 actions.loadSurveys()
+            },
+            updateSurveyFailure: ({ errorObject }) => {
+                // `submit` closes the editor before the request resolves, so reopen it to keep the
+                // edits the user cannot save yet.
+                if (showSurveyApprovalRequiredToast(errorObject)) {
+                    actions.editingSurvey(true)
+                }
             },
             launchSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} launched</>)
