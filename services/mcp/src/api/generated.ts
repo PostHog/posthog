@@ -38796,12 +38796,14 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
-      /** Units matched at creation; the ceiling on dispatched_count. */
+      /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+      readonly failed_count: number;
       /**
          * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
          * @nullable
@@ -107179,49 +107181,6 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
-    export type OrgOrganizationsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type OrgOrganizationsBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
     export type BillingAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -113562,6 +113521,10 @@ export namespace Schemas {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean;
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.

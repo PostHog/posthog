@@ -11,6 +11,7 @@ from unittest.mock import ANY, MagicMock, PropertyMock, patch
 from django.core.management import call_command
 from django.db import connection
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -499,6 +500,66 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_eligible=true")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Broadcast", "Eligible"}
+
+    @parameterized.expand(
+        [
+            ("draft", {"Draft"}),
+            ("scheduled", {"Scheduled", "Recurring between runs", "Workflow waiting for an API send"}),
+            ("sending", {"Sending"}),
+            ("sent", {"Sent", "Sent after a failed run"}),
+            ("failed", {"Run failed", "Launch never finished"}),
+            ("archived", {"Archived"}),
+            ("sent,failed", {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"}),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_list_filter_by_broadcast_status(self, statuses, expected_names, _mock_dispatch):
+        def create(
+            name: str,
+            status: str = "active",
+            runs: tuple[str, ...] = (),
+            schedule: str | None = None,
+            origin_product: str | None = "broadcasts",
+        ) -> None:
+            flow = HogFlow.objects.create(
+                team=self.team, name=name, created_by=self.user, origin_product=origin_product, status=status
+            )
+            for minutes_ago, run in enumerate(reversed(runs)):
+                job = HogFlowBatchJob.objects.create(
+                    team=self.team, hog_flow=flow, status=run, filters={}, variables={}
+                )
+                HogFlowBatchJob.objects.filter(pk=job.pk).update(
+                    created_at=timezone.now() - timedelta(minutes=minutes_ago)
+                )
+            if schedule:
+                HogFlowSchedule.objects.create(
+                    team=self.team,
+                    hog_flow=flow,
+                    rrule="FREQ=WEEKLY;BYDAY=MO",
+                    starts_at=datetime(2026, 1, 5, 9, tzinfo=UTC),
+                    status=schedule,
+                )
+
+        create("Draft", status="draft")
+        create("Archived", status="archived")
+        create("Scheduled", schedule="active")
+        create("Recurring between runs", runs=("completed",), schedule="active")
+        create("Sending", runs=("active",))
+        create("Sent", runs=("completed",))
+        create("Sent after a failed run", runs=("failed", "completed"))
+        create("Run failed", runs=("failed",), schedule="active")
+        create("Launch never finished")
+        create("Workflow waiting for an API send", origin_product=None)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status={statuses}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_broadcast_status_rejects_unknown_values(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
+        assert response.status_code == 400
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
