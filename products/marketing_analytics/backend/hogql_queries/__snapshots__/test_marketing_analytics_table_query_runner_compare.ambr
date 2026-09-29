@@ -22,7 +22,7 @@
         toString('Facebook Ads') AS source,
         toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
         toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-        toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+        toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
         toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
         0 AS reported_conversion_value
       FROM
@@ -114,7 +114,7 @@
             toString('Facebook Ads') AS source,
             toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
             toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-            toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+            toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
             toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
             0 AS reported_conversion_value
           FROM
@@ -278,7 +278,7 @@
             toString('Facebook Ads') AS source,
             toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
             toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-            toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+            toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
             toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
             0 AS reported_conversion_value
           FROM
@@ -475,7 +475,7 @@
             toString('Facebook Ads') AS source,
             toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
             toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-            toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+            toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
             toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
             0 AS reported_conversion_value
           FROM
@@ -639,7 +639,7 @@
             toString('Facebook Ads') AS source,
             toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
             toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-            toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+            toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
             toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
             0 AS reported_conversion_value
           FROM
@@ -833,7 +833,7 @@
                 toString('Facebook Ads') AS source,
                 toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
                 toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
@@ -848,7 +848,7 @@
                 toString('TikTok Ads') AS source,
                 toFloat(coalesce(toFloat(impressions2), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks2), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend2), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend2), 0))) AS cost,
                 0 AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
@@ -863,7 +863,7 @@
                 toString('LinkedIn Ads') AS source,
                 toFloat(coalesce(toFloat(impressions3), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks3), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend3), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend3), 0))) AS cost,
                 0 AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
@@ -926,7 +926,7 @@
                 toString('Facebook Ads') AS source,
                 toFloat(coalesce(toFloat(impressions1), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks1), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend1), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend1), 0))) AS cost,
                 toFloat(coalesce(toFloat(conversions1), 0)) AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
@@ -941,7 +941,7 @@
                 toString('TikTok Ads') AS source,
                 toFloat(coalesce(toFloat(impressions2), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks2), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend2), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend2), 0))) AS cost,
                 0 AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
@@ -956,7 +956,7 @@
                 toString('LinkedIn Ads') AS source,
                 toFloat(coalesce(toFloat(impressions3), 0)) AS impressions,
                 toFloat(coalesce(toFloat(clicks3), 0)) AS clicks,
-                toFloat(convertCurrency(coalesce(nullIf('USD', ''), 'USD'), 'USD', coalesce(toFloat(spend3), 0))) AS cost,
+                toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend3), 0))) AS cost,
                 0 AS reported_conversion,
                 0 AS reported_conversion_value
               FROM
