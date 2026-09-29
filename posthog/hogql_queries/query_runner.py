@@ -159,7 +159,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
-from posthog.event_usage import AnalyticsProps, groups, report_team_action, report_user_or_team_action
+from posthog.event_usage import AnalyticsProps, EventSource, groups, report_team_action, report_user_or_team_action
 from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
@@ -193,7 +193,9 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHE_COUNTER,
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
+    QueryFailureCache,
     QueryFailureRecord,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
@@ -2431,6 +2433,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             raise
 
                     cache_manager = QueryCache(
+                        failure_cache=(
+                            WarmingQueryFailureCache(cache_key)
+                            if analytics_props is not None
+                            and analytics_props.get("source") == EventSource.CACHE_WARMING
+                            else QueryFailureCache(cache_key)
+                        ),
                         team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,

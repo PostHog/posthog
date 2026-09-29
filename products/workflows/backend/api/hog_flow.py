@@ -4,6 +4,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -15,7 +16,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -118,6 +119,8 @@ from products.messaging.backend.api.message_templates import DesignOperationSeri
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.tasks.backend.facade.api import list_workflow_last_runs
+from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
@@ -915,6 +918,44 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Lowercasing only preserves meaning for an operator that compares the value as a literal
+# string. `str.lower()` is not a case transform for a pattern - it turns "\D" into "\d", which
+# inverts what the pattern matches, and "(?P<name>" into "(?p<name>", which RE2 refuses - and a
+# presence operator carries the operator string rather than a repository name. The property
+# compiler treats a missing operator as exact, as `_has_exact_string_filter` does below.
+_LITERAL_REPOSITORY_OPERATORS = frozenset({"exact", "is_not"})
+
+
+def _lowercase_repository_properties(properties: object) -> None:
+    if not isinstance(properties, list):
+        return
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "repository":
+            continue
+        if (prop.get("operator") or "exact") not in _LITERAL_REPOSITORY_OPERATORS:
+            continue
+        value = prop.get("value")
+        if isinstance(value, str):
+            prop["value"] = value.lower()
+        elif isinstance(value, list):
+            prop["value"] = [item.lower() if isinstance(item, str) else item for item in value]
+
+
+def _normalize_github_repository_filters(filters: dict) -> None:
+    """Lowercase every `repository` filter value in place, to match the lowercased delivery property.
+
+    GitHub treats "PostHog/posthog" and "posthog/posthog" as the same repository, but the exact
+    filter does not, so a name typed in the wrong case compiles to a trigger that never fires.
+    The compiler ANDs the conditions on an event entry with the global ones, so a repository
+    filter written on the entry decides whether the trigger fires too.
+    """
+    _lowercase_repository_properties(filters.get("properties"))
+    events = filters.get("events")
+    for event in events if isinstance(events, list) else []:
+        if isinstance(event, dict) and event.get("id") == "$github_event_received":
+            _lowercase_repository_properties(event.get("properties"))
+
+
 # Exact is the only operator that names channels. Channel ids are opaque (C0...), so
 # substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
 # match every channel; presence operators match every message and carry the operator
@@ -1674,6 +1715,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             }
                         )
                 if _subscribes_to("$github_event_received"):
+                    _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
                         raise serializers.ValidationError(
                             {
@@ -2822,8 +2864,22 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     )
 
 
+class HogFlowLastRunSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(read_only=True, help_text="The task this run belongs to.")
+    status = serializers.CharField(
+        read_only=True,
+        help_text="Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled.",
+    )
+    ran_at = serializers.DateTimeField(
+        read_only=True, help_text="When the run started, or when the task was created if it has no run yet."
+    )
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    last_run = serializers.SerializerMethodField(
+        help_text="Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run."
+    )
     draft = serializers.JSONField(
         read_only=True,
         help_text=(
@@ -2859,8 +2915,22 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "variables",
             "billable_action_types",
             "user_access_level",
+            "last_run",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(HogFlowLastRunSerializer(allow_null=True))
+    def get_last_run(self, instance: HogFlow) -> dict | None:
+        if instance.origin_product != HogFlow.OriginProduct.LOOPS:
+            return None
+        # The list view batches this lookup for the whole page; other responses carry one flow.
+        last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = self.context.get("workflow_last_runs")
+        if last_runs is None:
+            request = self.context.get("request")
+            user_id = request.user.id if request is not None else None
+            last_runs = list_workflow_last_runs(instance.team_id, user_id, [instance.id])
+        last_run = last_runs.get(instance.id)
+        return HogFlowLastRunSerializer(last_run).data if last_run else None
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -3199,6 +3269,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "last_run",
         ]
         read_only_fields = [
             "id",
@@ -3221,6 +3292,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "last_run",
         ]
 
     def validate(self, data):
@@ -4402,6 +4474,55 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+
+
+def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
+    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
+    # latest run and whether a schedule still has sends to come.
+    latest_run_status = (
+        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
+        .order_by("-created_at")
+        .values("status")[:1]
+    )
+    queryset = queryset.annotate(
+        _latest_run_status=Subquery(latest_run_status),
+        _has_pending_schedule=Exists(
+            HogFlowSchedule.objects.filter(
+                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
+            )
+        ),
+    )
+    live = Q(status=HogFlow.State.ACTIVE)
+    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
+    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
+    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
+    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
+    conditions = {
+        "draft": Q(status=HogFlow.State.DRAFT),
+        "archived": Q(status=HogFlow.State.ARCHIVED),
+        "sending": live & Q(_latest_run_status__in=running),
+        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
+        "scheduled": live
+        & (
+            (
+                Q(_has_pending_schedule=True)
+                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
+            )
+            | (nothing_to_come & ~Q(origin_product="broadcasts"))
+        ),
+        "failed": live
+        & (
+            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
+            | unfinished_launch
+        ),
+    }
+    combined = Q()
+    for broadcast_status in statuses:
+        combined |= conditions[broadcast_status]
+    return queryset.filter(combined)
+
+
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
@@ -4551,6 +4672,15 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 OpenApiTypes.BOOL,
                 description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
             ),
+            OpenApiParameter(
+                "broadcast_status",
+                OpenApiTypes.STR,
+                description=(
+                    "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, "
+                    "sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and "
+                    "whether a schedule still has sends to come."
+                ),
+            ),
         ]
     )
 )
@@ -4603,6 +4733,7 @@ class HogFlowViewSet(
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
+    _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
@@ -4674,7 +4805,18 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
+        if self._workflow_last_runs is not None:
+            context["workflow_last_runs"] = self._workflow_last_runs
         return context
+
+    def paginate_queryset(self, queryset: QuerySet | Sequence[Any]) -> Sequence[Any] | None:
+        page = super().paginate_queryset(queryset)
+        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
+        if self.action == "list" and page is not None and self.get_serializer_class() is HogFlowMinimalSerializer:
+            # One lookup for every loop on the page, so each row does not query tasks on its own.
+            loop_ids = [flow.id for flow in page if flow.origin_product == HogFlow.OriginProduct.LOOPS]
+            self._workflow_last_runs = list_workflow_last_runs(self.team_id, self.request.user.id, loop_ids)
+        return page
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -4711,6 +4853,16 @@ class HogFlowViewSet(
                         _has_other_step=False,
                     )
                 )
+
+            broadcast_status = self.request.GET.get("broadcast_status")
+            if broadcast_status:
+                requested_statuses = {value for value in broadcast_status.split(",") if value}
+                unknown_statuses = sorted(requested_statuses - set(BROADCAST_STATUSES))
+                if unknown_statuses or not requested_statuses:
+                    raise exceptions.ValidationError(
+                        {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
+                    )
+                queryset = filter_by_broadcast_status(queryset, requested_statuses)
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
