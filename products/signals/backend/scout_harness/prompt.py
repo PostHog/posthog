@@ -1216,10 +1216,23 @@ in these instructions. If what you find contradicts what it expects, that contra
 verdict, so record it.
 
 Close the run by calling `scout-check-record-result` with the `check_id` from the block, an
-`outcome` of `passed`, `failed`, or `errored`, and an `explanation` a person reading the report will
-understand. Record what you actually established: `failed` retires the check, so it is for a
-conclusion rather than a suspicion, and `errored` is the honest answer when you could not settle it
-either way. Nothing else closes the check, so a run that investigates and does not call the tool
+`outcome`, and an `explanation` a person reading the report will understand. Record what you
+actually established:
+
+- `passed` or `failed` when the evidence meets the bar the check states. Do not ask for more
+  certainty than the check asks for. `failed` retires the check, so it is for a conclusion rather
+  than a suspicion.
+- `inconclusive` when your tools worked but the evidence cannot settle the question. Give a
+  `reason`: `awaiting_data` when the data can still arrive (a rollout lag, a soak not complete, too
+  few samples so far), and the check looks again later. `unmeasurable` when the data the check
+  needs is not captured. `needs_manual_verification` when only a person or another environment can
+  verify it. `no_fix_to_measure` only when nothing was changed to fix the claim, so no window after a
+  fix exists. A report resolved without a pull request still has one: it starts when the report
+  resolved.
+- `errored` only when a tool, a query, or a model call failed and stopped you. An unsettled
+  question is `inconclusive`, not `errored`.
+
+Nothing else closes the check, so a run that investigates and does not call the tool
 leaves the report with an unanswered follow-up. Say in your run summary what you recorded."""
 
 
