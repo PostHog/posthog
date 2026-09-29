@@ -312,6 +312,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["result_source"] == "timeseries_fallback"
+        # The latest response type declares metric_retries; the fallback has no run, so it reports none.
+        assert body["metric_retries"] == {}
         assert body["status"] == "completed"
         assert len(body["results"]) == 1
         assert body["results"][0]["result"] == {"ok": True}

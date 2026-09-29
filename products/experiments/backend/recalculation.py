@@ -501,6 +501,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "completed_metrics": len(results),
             "failed_metrics": 0,
             "metric_errors": {},
+            "metric_retries": {},
             "created_at": latest_query_to,
             "started_at": latest_query_to,
             "completed_at": latest_query_to,
