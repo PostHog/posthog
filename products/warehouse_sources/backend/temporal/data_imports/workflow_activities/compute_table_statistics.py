@@ -160,8 +160,11 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
 
         mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
         maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []
-        min_value = str(min(mins)) if mins else None
-        max_value = str(max(maxs)) if maxs else None
+        # A source string column can carry a NUL (0x00) byte; min_value/max_value land in a Postgres
+        # text column, which rejects it outright. Stripping it is consistent with treating these
+        # bounds as approximate (delta-rs already truncates long strings here).
+        min_value = str(min(mins)).replace("\x00", "") if mins else None
+        max_value = str(max(maxs)).replace("\x00", "") if maxs else None
         has_min_max = bool(mins or maxs)
 
         result[name] = _ColumnStat(
