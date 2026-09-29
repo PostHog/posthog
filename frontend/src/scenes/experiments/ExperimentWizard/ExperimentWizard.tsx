@@ -30,7 +30,8 @@ export function ExperimentWizard(): JSX.Element {
     )
 
     const stepper = (
-        <div className="flex justify-center">
+        // A container of its own, so the stepper hides step labels based on the width of the form column
+        <div className="@container flex justify-center">
             <ExperimentWizardStepper
                 currentStep={currentStep}
                 onStepClick={setStep}

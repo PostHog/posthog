@@ -97,8 +97,8 @@ export function ExperimentWizardStepper({
                                 <span
                                     className={cn(
                                         'text-sm whitespace-nowrap transition-colors duration-150',
-                                        // Four labels don't fit a narrow screen, so only the current one shows there
-                                        !isCurrent && 'hidden @2xl:inline',
+                                        // Four labels don't fit a narrow column, so only the current one shows there
+                                        !isCurrent && 'hidden @xl:inline',
                                         isCurrent && 'font-semibold text-primary',
                                         isCompleted && !hasErrors && 'font-medium text-primary',
                                         (!isCompleted || hasErrors) && !isCurrent && 'text-secondary'
