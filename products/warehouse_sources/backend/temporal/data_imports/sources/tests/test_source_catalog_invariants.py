@@ -77,7 +77,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Pinecone",
     "PromptingCompany",
     "Qdrant",
-    "RetellAI",
     "Roark",
     "ScaleAI",
     "Sim",

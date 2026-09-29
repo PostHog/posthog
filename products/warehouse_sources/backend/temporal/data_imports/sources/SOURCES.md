@@ -606,6 +606,7 @@ the row lists both.
 | replicate                        | HTTP                        | requests                                                        | ✅                          |
 | reply_io                         | HTTP                        | requests                                                        | ✅                          |
 | resend                           | HTTP                        | requests                                                        | ✅                          |
+| retell_ai                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | retently                         | HTTP                        | requests                                                        | ✅                          |
 | revenuecat                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | reverb                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1328,7 +1329,6 @@ doesn't conflict with concurrent PRs.
 - repairshopr
 - reply_io
 - retail_express
-- retell_ai
 - retently
 - revolut_merchant
 - ringcentral
