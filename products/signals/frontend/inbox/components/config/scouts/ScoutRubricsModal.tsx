@@ -40,6 +40,7 @@ export function ScoutRubricsModal({
         availableSuggestions,
         selectedSuggestionIds,
         selectedSuggestions,
+        newCriteriaCount,
         hasUnsavedChanges,
         saving,
         saveError,
@@ -129,7 +130,7 @@ export function ScoutRubricsModal({
                             }
                             data-attr="scout-rubrics-save"
                         >
-                            Save rubrics
+                            {newCriteriaCount > 0 ? `Save rubrics (${newCriteriaCount} new)` : 'Save rubrics'}
                         </LemonButton>
                     </div>
                 </div>
@@ -195,8 +196,8 @@ export function ScoutRubricsModal({
                                 {availableSuggestions.length ? (
                                     <>
                                         <p className="text-sm text-secondary">
-                                            Save rubrics includes your selected suggestions. To edit them first, click
-                                            Add selected.
+                                            Save rubrics adds and saves your selected suggestions. Add selected moves
+                                            them into the list for editing. It does not save.
                                         </p>
                                         <div className="flex flex-col gap-4">
                                             {availableSuggestions.map((suggestion) => (

@@ -331,7 +331,8 @@ Late failure callbacks preserve results from generations that already completed 
 The worker ends the session after success or failure.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
-Save includes checked suggestions. Add selected is optional; it moves them into the editable list before saving.
+Save includes checked suggestions and shows the number of new criteria it will add.
+Add selected is optional; it moves suggestions into the editable list without saving them.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
 Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.

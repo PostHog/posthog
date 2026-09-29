@@ -48,6 +48,7 @@ export interface scoutRubricsLogicValues {
     generationSubmitting: boolean
     hasUnsavedChanges: boolean
     loadError: string | null
+    newCriteriaCount: number
     rubricDocument: ScoutRubricDocumentApi | null
     rubricDocumentLoading: boolean
     saveConflict: boolean
@@ -177,6 +178,10 @@ export interface scoutRubricsLogicMeta {
             draftCriteria: ScoutRubricCriterionApi[],
             selectedSuggestions: ScoutRubricCriterionApi[]
         ) => ScoutRubricCriterionApi[]
+        newCriteriaCount: (
+            criteriaToSave: ScoutRubricCriterionApi[],
+            draftBaseline: ScoutRubricCriterionApi[]
+        ) => number
         sortedCriteria: (draftCriteria: ScoutRubricCriterionApi[]) => ScoutRubricCriterionApi[]
         validationError: (criteriaToSave: ScoutRubricCriterionApi[]) => string | null
     }
@@ -324,6 +329,11 @@ export const scoutRubricsLogic: LogicWrapper<scoutRubricsLogicType> = kea<scoutR
                 criteria: ScoutRubricCriterionApi[],
                 suggestions: ScoutRubricCriterionApi[]
             ): ScoutRubricCriterionApi[] => [...criteria, ...suggestions],
+        ],
+        newCriteriaCount: [
+            (s) => [s.criteriaToSave, s.draftBaseline],
+            (criteria: ScoutRubricCriterionApi[], baseline: ScoutRubricCriterionApi[]): number =>
+                criteria.filter(({ id }) => !baseline.some((saved) => saved.id === id)).length,
         ],
         sortedCriteria: [
             (s) => [s.draftCriteria],
