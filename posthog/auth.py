@@ -1184,7 +1184,7 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         return (None, team)
