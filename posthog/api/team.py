@@ -99,9 +99,10 @@ from posthog.permissions import (
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
     posthog_feature_flag_enabled,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported, scopes_not_covered
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -1348,6 +1349,15 @@ class ConversationsSettingsField(serializers.JSONField):
     pass
 
 
+def live_events_token_for_request(team: Team, request: request.Request | None) -> str | None:
+    if request is None or not request.user.is_authenticated:
+        return None
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
+        return None
+    return get_or_mint_live_events_token(team, request.user.id)
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1465,9 +1475,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:

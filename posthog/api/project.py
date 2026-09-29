@@ -47,12 +47,12 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
-    get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
+    live_events_token_for_request,
     merge_conversations_settings,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
@@ -1000,10 +1000,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.passthrough_team
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:

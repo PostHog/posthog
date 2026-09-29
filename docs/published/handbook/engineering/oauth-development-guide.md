@@ -241,6 +241,8 @@ See [Client Types](#client-types) section for detailed explanation.
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).
 
+Project and environment responses return `live_events_token` only when the authenticated caller can read queries. For scoped credentials, this requires `query:read`, `query:write`, or `*`. A key with only `project:read` receives `null` for this field.
+
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
 
 ### OpenID Connect Scopes
