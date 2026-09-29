@@ -192,6 +192,20 @@ export interface createExperimentLogicActions {
             secondary: ExperimentMetricUnion[]
         }
     }
+    setVariantNote: (
+        variantKey: string,
+        note: string
+    ) => {
+        note: string
+        variantKey: string
+    }
+    setVariantScreenshots: (
+        variantKey: string,
+        mediaIds: string[]
+    ) => {
+        mediaIds: string[]
+        variantKey: string
+    }
     validateField: (field: 'name') => {
         field: 'name'
     }
@@ -248,6 +262,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     actions(() => ({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
+        setVariantNote: (variantKey: string, note: string) => ({ variantKey, note }),
+        setVariantScreenshots: (variantKey: string, mediaIds: string[]) => ({ variantKey, mediaIds }),
         resetExperiment: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setCreateReplayVisionScanner: (enabled: boolean) => ({ enabled }),
@@ -274,6 +290,25 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             {
                 setExperiment: (_, { experiment }) => experiment,
                 setExperimentValue: (state, { name, value }) => ({ ...state, [name]: value }),
+                // Merge into the current parameters, not a copy a component rendered with: a screenshot upload
+                // finishes after later edits, and would otherwise drop a note typed in the meantime.
+                setVariantNote: (state, { variantKey, note }) => ({
+                    ...state,
+                    parameters: {
+                        ...state.parameters,
+                        variant_notes: { ...state.parameters?.variant_notes, [variantKey]: note },
+                    },
+                }),
+                setVariantScreenshots: (state, { variantKey, mediaIds }) => ({
+                    ...state,
+                    parameters: {
+                        ...state.parameters,
+                        variant_screenshot_media_ids: {
+                            ...state.parameters?.variant_screenshot_media_ids,
+                            [variantKey]: mediaIds,
+                        },
+                    },
+                }),
                 setExposureCriteria: (state, { criteria }) => ({
                     ...state,
                     exposure_criteria: {

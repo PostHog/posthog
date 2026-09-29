@@ -410,6 +410,18 @@ describe('createExperimentLogic', () => {
             logic.actions.setExperimentValue('parameters', parameters)
         }
 
+        it('keeps a note typed while a screenshot was uploading', () => {
+            logic.actions.setVariantScreenshots('control', ['media-1'])
+            logic.actions.setVariantNote('test', 'One-page checkout')
+            // The upload started before the note was typed, and finishes after
+            logic.actions.setVariantScreenshots('test', ['media-2'])
+
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { test: 'One-page checkout' },
+                variant_screenshot_media_ids: { control: ['media-1'], test: ['media-2'] },
+            })
+        })
+
         it("moves a renamed variant's notes and screenshots to its new key", () => {
             startWith(['control', 'test'], {
                 variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
