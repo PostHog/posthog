@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Optional, TypeVar
 from posthog.schema import HogQLQueryModifiers, WebAnalyticsScreenViewMode
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor
 
 if TYPE_CHECKING:
@@ -60,6 +62,30 @@ def sessions_view_count_expr(mode: Optional[WebAnalyticsScreenViewMode]) -> ast.
             )
             for e in view_event_names(mode)
         ]
+    )
+
+
+def screen_count_bounce_expr(modifiers: HogQLQueryModifiers) -> ast.Expr:
+    # Mirrors the default `$is_bounce` rule with screens in place of pageviews. NULL for a session
+    # without screens, so the session counts toward neither side of the rate.
+    duration_seconds = (
+        modifiers.bounceRateDurationSeconds
+        if modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
+    return parse_expr(
+        """
+        if(
+            session.$screen_count = 0,
+            NULL,
+            not(or(
+                session.$screen_count > 1,
+                session.$autocapture_count > 0,
+                session.$session_duration >= {duration_seconds}
+            ))
+        )
+        """,
+        placeholders={"duration_seconds": ast.Constant(value=duration_seconds)},
     )
 
 

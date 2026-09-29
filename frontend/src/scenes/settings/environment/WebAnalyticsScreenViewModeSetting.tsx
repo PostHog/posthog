@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { WebAnalyticsScreenViewMode, resolveScreenViewMode } from 'scenes/web-analytics/screenViewMode'
+import { WebAnalyticsScreenViewMode } from 'scenes/web-analytics/screenViewMode'
 
 const SCREEN_VIEW_MODE_OPTIONS: LemonRadioOption<WebAnalyticsScreenViewMode>[] = [
     {
@@ -55,11 +54,7 @@ export function WebAnalyticsScreenViewModeSetting(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const savedMode = resolveScreenViewMode(
-        currentTeam?.modifiers,
-        !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
-    )
+    const savedMode = currentTeam?.modifiers?.webAnalyticsScreenViewMode ?? null
     const [mode, setMode] = useState<WebAnalyticsScreenViewMode | null>(savedMode)
 
     return (

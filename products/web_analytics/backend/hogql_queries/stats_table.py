@@ -39,7 +39,10 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
     first_pageview_prop,
     first_pageview_properties_expr,
 )
-from products.web_analytics.backend.hogql_queries.screen_view_mode import with_screen_name_path_fallback
+from products.web_analytics.backend.hogql_queries.screen_view_mode import (
+    uses_screen_name_as_path,
+    with_screen_name_path_fallback,
+)
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
@@ -51,6 +54,8 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     NoJoinSimpleBreakdownStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
+    ScreenFallbackPathBounceAvgTimeStrategy,
+    ScreenFallbackPathBounceStrategy,
     SessionIdSetPathBounceAvgTimeStrategy,
     SessionIdSetPathBounceStrategy,
     SimpleBreakdownStrategy,
@@ -167,6 +172,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
+        if isinstance(strategy, ScreenFallbackPathBounceAvgTimeStrategy):
+            return "stats_table_screen_fallback_path_bounce_and_avg_time"
+        if isinstance(strategy, ScreenFallbackPathBounceStrategy):
+            return "stats_table_screen_fallback_path_bounce"
         # Session-id-set variants first: they subclass the no-join strategies.
         if isinstance(strategy, SessionIdSetPathBounceAvgTimeStrategy):
             return "stats_table_session_id_set_path_bounce_and_avg_time"
@@ -226,6 +235,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if breakdown == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
                 return SimpleBreakdownStrategy(self)
+            if uses_screen_name_as_path(self.screen_view_mode):
+                if self.query.includeAvgTimeOnPage:
+                    return ScreenFallbackPathBounceAvgTimeStrategy(self)
+                if self.query.includeBounceRate:
+                    return ScreenFallbackPathBounceStrategy(self)
             if self.query.includeAvgTimeOnPage:
                 if self.should_skip_session_join:
                     return NoJoinPathBounceAvgTimeStrategy(self)
@@ -494,6 +508,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy != WebStatsBreakdown.PAGE:
             return False
         if not (self.query.includeBounceRate or self.query.includeAvgTimeOnPage):
+            return False
+        if uses_screen_name_as_path(self.screen_view_mode):
             return False
         if self.should_skip_session_join:
             return False

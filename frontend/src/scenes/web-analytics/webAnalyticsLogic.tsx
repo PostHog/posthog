@@ -140,7 +140,7 @@ import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode
 import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { WebAnalyticsScreenViewMode, resolveScreenViewMode, viewSeriesEvent } from './screenViewMode'
+import { WebAnalyticsScreenViewMode, viewSeriesEvent } from './screenViewMode'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
 
@@ -537,10 +537,7 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        screenViewMode: (
-            currentTeam: TeamPublicType | TeamType | null,
-            featureFlags: FeatureFlagsSet
-        ) => WebAnalyticsScreenViewMode | null
+        screenViewMode: (currentTeam: TeamPublicType | TeamType | null) => WebAnalyticsScreenViewMode | null
         restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
@@ -1190,12 +1187,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
         screenViewMode: [
-            (s) => [s.currentTeam, s.featureFlags],
-            (
-                currentTeam: TeamPublicType | TeamType | null,
-                featureFlags: FeatureFlagsSet
-            ): WebAnalyticsScreenViewMode | null =>
-                resolveScreenViewMode(currentTeam?.modifiers, !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]),
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): WebAnalyticsScreenViewMode | null =>
+                currentTeam?.modifiers?.webAnalyticsScreenViewMode ?? null,
         ],
         restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],

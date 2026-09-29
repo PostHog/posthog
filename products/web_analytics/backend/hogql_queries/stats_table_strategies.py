@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from products.web_analytics.backend.hogql_queries.query_constants.screen_fallback_stats_table_queries import (
+    SCREEN_FALLBACK_PATH_BOUNCE_AND_AVG_TIME_QUERY,
+    SCREEN_FALLBACK_PATH_BOUNCE_QUERY,
+)
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
     FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
@@ -17,6 +21,7 @@ from products.web_analytics.backend.hogql_queries.query_constants.stats_table_qu
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
     PATH_BOUNCE_QUERY,
 )
+from products.web_analytics.backend.hogql_queries.screen_view_mode import screen_count_bounce_expr
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WEB_ANALYTICS_NO_JOIN_SERVED
 
 if TYPE_CHECKING:
@@ -375,6 +380,55 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
             )
         assert isinstance(query, ast.SelectQuery)
         return self._finalize_query(query)
+
+
+class ScreenFallbackPathBounceStrategy(StatsTableQueryStrategy):
+    """PAGE breakdown with bounce rate for the screen view modes that read `$screen_name` as the path.
+
+    Sessions that start on a `$screen` event have no `$entry_pathname`, so the bounce side keys them
+    by their first `$screen_name`, and falls back to a screen-count bounce where `$is_bounce` is NULL.
+    """
+
+    QUERY = SCREEN_FALLBACK_PATH_BOUNCE_QUERY
+    TIMING_KEY = "stats_table_screen_fallback_path_bounce"
+
+    def build_query(self) -> ast.SelectQuery:
+        with self.runner.timings.measure(self.TIMING_KEY):
+            query = parse_select(self.QUERY, timings=self.runner.timings, placeholders=self._placeholders())
+        assert isinstance(query, ast.SelectQuery)
+        return self._finalize_query(query)
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        screen_name = ast.Field(chain=["events", "properties", "$screen_name"])
+        return {
+            "breakdown_value": self.runner._counts_breakdown_value(),
+            "view_event_where": self.runner.view_event_expr,
+            "session_properties": self.runner.session_properties(),
+            "event_properties": self.runner._event_properties(),
+            "bounce_event_properties": self.runner._event_properties_for_bounce_rate(),
+            "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown(),
+            "screen_entry_value": self.runner._apply_path_cleaning(screen_name),
+            "screen_is_bounce": screen_count_bounce_expr(self.runner.modifiers),
+            "current_period": self.runner._current_period_expression(),
+            "previous_period": self.runner._previous_period_expression(),
+            "inside_periods": self.runner._periods_expression(),
+        }
+
+
+class ScreenFallbackPathBounceAvgTimeStrategy(ScreenFallbackPathBounceStrategy):
+    """`ScreenFallbackPathBounceStrategy` with average time on page, which only `$pageview` rows have."""
+
+    QUERY = SCREEN_FALLBACK_PATH_BOUNCE_AND_AVG_TIME_QUERY
+    TIMING_KEY = "stats_table_screen_fallback_path_bounce_and_avg_time"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "time_on_page_event_properties": self.runner._event_properties_for_scroll(),
+            "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "avg_current_period": self.runner._current_period_expression("timestamp"),
+            "avg_previous_period": self.runner._previous_period_expression("timestamp"),
+        }
 
 
 class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
