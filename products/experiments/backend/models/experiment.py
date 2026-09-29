@@ -280,6 +280,9 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     def get_analytics_metadata(self) -> dict[str, Any]:
         variants = self.feature_flag.variants
+        parameters = self.parameters if isinstance(self.parameters, dict) else {}
+        variant_notes = parameters.get("variant_notes")
+        variant_screenshots = parameters.get("variant_screenshot_media_ids")
 
         return {
             "experiment_id": self.id,
@@ -293,6 +296,15 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
+            # Per-variant notes and screenshots, set in the create wizard or on the Variants tab
+            "variants_with_notes_count": sum(
+                1 for note in variant_notes.values() if isinstance(note, str) and note.strip()
+            )
+            if isinstance(variant_notes, dict)
+            else 0,
+            "variants_with_screenshots_count": sum(1 for media_ids in variant_screenshots.values() if media_ids)
+            if isinstance(variant_screenshots, dict)
+            else 0,
             "created_at": self.created_at,
         }
 
