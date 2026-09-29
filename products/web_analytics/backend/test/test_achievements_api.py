@@ -25,8 +25,7 @@ class TestAchievementsAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/web_analytics_achievements/{action}/"
 
     @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_record_visit_creates_one_row_per_day(self, mock_enqueue, mock_recompute) -> None:
+    def test_record_visit_creates_one_row_per_day(self, mock_recompute) -> None:
         first = self.client.post(self._url("record_visit"))
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertTrue(first.json()["recorded"])
@@ -34,16 +33,16 @@ class TestAchievementsAPI(APIBaseTest):
         self.client.post(self._url("record_visit"))
         count = WebAnalyticsVisit.objects.for_team(self.team.id).filter(user=self.user).count()
         self.assertEqual(count, 1)
-        self.assertTrue(mock_enqueue.called)
 
+    @patch(f"{_TASKS}.recompute_web_analytics_achievements.delay")
     @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_record_visit_enqueues_team_recompute(self, mock_enqueue, mock_recompute) -> None:
+    def test_record_visit_creates_team_rows_for_the_sweep_without_enqueueing(self, mock_recompute, mock_delay) -> None:
         response = self.client.post(self._url("record_visit"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(mock_recompute.call_args.kwargs.get("cheap_only"))
-        mock_enqueue.assert_called_once()
-        self.assertIsNone(mock_enqueue.call_args.args[1])
+        team_rows = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user__isnull=True)
+        self.assertEqual({row.track_key for row in team_rows}, {"conversions", "traffic"})
+        mock_delay.assert_not_called()
 
     def test_record_interaction_recomputes_progress(self) -> None:
         with patch(f"{_TASKS}.streak_arm_for_user", return_value=None):
@@ -56,8 +55,7 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(progress.progress_value, 1)
         self.assertEqual(progress.state["pending_celebrations"], [1])
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_returns_six_tracks(self, mock_enqueue) -> None:
+    def test_overview_returns_six_tracks(self) -> None:
         with patch(f"{_VIEWSET}.streak_arm_for_user", return_value="daily-only"):
             response = self.client.get(self._url("overview"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -65,8 +63,7 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(len(body["definitions"]), 6)
         self.assertIn("streak", {track["key"] for track in body["definitions"]})
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_creates_team_rows_and_enqueues_when_stale(self, mock_enqueue) -> None:
+    def test_overview_creates_team_rows(self) -> None:
         with patch(f"{_VIEWSET}.streak_arm_for_user", return_value="daily-only"):
             response = self.client.get(self._url("overview"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -74,17 +71,14 @@ class TestAchievementsAPI(APIBaseTest):
         team_rows = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user__isnull=True)
         self.assertEqual({row.track_key for row in team_rows}, {"conversions", "traffic"})
         self.assertTrue(all(row.last_computed_at is None for row in team_rows))
-        mock_enqueue.assert_called_once()
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_control_user_creates_no_rows(self, mock_enqueue) -> None:
+    def test_overview_control_user_creates_no_rows(self) -> None:
         with patch(f"{_VIEWSET}.streak_arm_for_user", return_value="control"):
             response = self.client.get(self._url("overview"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["team_progress"], [])
         self.assertEqual(response.json()["user_progress"], [])
         self.assertEqual(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).count(), 0)
-        mock_enqueue.assert_not_called()
 
     def test_acknowledge_celebration_is_idempotent(self) -> None:
         WebAnalyticsAchievementProgress(
@@ -108,8 +102,7 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertFalse(second.json()["acknowledged"])
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_is_team_scoped(self, mock_enqueue) -> None:
+    def test_overview_is_team_scoped(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         WebAnalyticsAchievementProgress(
             team=other_team, user=self.user, track_key="loyalty", current_stage=3, progress_value=30, state={}
@@ -139,8 +132,7 @@ class TestAchievementsAPI(APIBaseTest):
         )
         self.assertEqual(other_row.state["pending_celebrations"], [2])
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_team_celebration_is_acknowledged_per_user(self, mock_enqueue) -> None:
+    def test_team_celebration_is_acknowledged_per_user(self) -> None:
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=None,
@@ -172,8 +164,7 @@ class TestAchievementsAPI(APIBaseTest):
         self.client.force_login(other)
         self.assertIn(("conversions", 1), _pending_keys(overview()))
 
-    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_exposes_stage_unlock_timestamps(self, mock_enqueue) -> None:
+    def test_overview_exposes_stage_unlock_timestamps(self) -> None:
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,

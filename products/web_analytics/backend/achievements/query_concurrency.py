@@ -14,7 +14,5 @@ def get_achievement_query_limiter() -> RateLimit:
         get_task_name=lambda *args, **kwargs: "web_analytics:achievements:queries",
         get_task_id=lambda *args, **kwargs: generate_short_id(),
         ttl=15 * 60,
-        retry=0.25,
-        retry_timeout=10.0,
         allow_team_bypass=False,
     )
