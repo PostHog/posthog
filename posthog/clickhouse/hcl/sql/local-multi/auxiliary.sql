@@ -419,6 +419,28 @@ CREATE TABLE posthog.sharded_marketing_touchpoints_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.marketing_touchpoints_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, person_id, touchpoint_timestamp) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_session_replay_features (
   session_id String,
   team_id Int64,
@@ -1243,6 +1265,28 @@ CREATE TABLE posthog.message_assets (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'message_assets_data');
+CREATE TABLE posthog.platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  episode_started_at Nullable(DateTime64(6, 'UTC')),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at Date DEFAULT today() + toIntervalDay(90)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,
