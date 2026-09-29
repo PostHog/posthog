@@ -641,6 +641,7 @@ tools:
                 - display_type
                 - target_type
                 - group_type_index
+                - is_big_number
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
         enabled: true

@@ -871,6 +871,7 @@ const customPropertyDefinitionsList = (): ToolBase<
                     'display_type',
                     'target_type',
                     'group_type_index',
+                    'is_big_number',
                 ])
             ),
         } as typeof result
