@@ -93,6 +93,38 @@ The category covers new advertising connectors automatically; it does not mean M
 Selecting a source outside this category, such as BigQuery, records only Data warehouse intent.
 Supported self-managed providers keep their separate Marketing analytics intent tracking.
 
+## Marketing source suggestions
+
+Marketing analytics suggests connecting an ad platform only when a matching `utm_source` has events with paid attribution signals.
+A source match, referral, fuzzy alias, or `utm_campaign` alone does not establish paid traffic.
+For example, [ChatGPT adds `utm_source=chatgpt.com` to referral links](https://help.openai.com/en/articles/12627856-publishers-and-developers-faq), and [campaign tags also describe non-ad marketing](https://support.google.com/analytics/answer/10917952).
+
+An explicit paid medium (`cpc`, `cpm`, `cpv`, `cpa`, `ppc`, `retargeting`, or a `paid` prefix) qualifies for any matched platform.
+The following platform-specific signals also qualify, in event properties or the query string of the same event's `$current_url`:
+
+| Platform              | Additional paid signal                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Google Ads            | [`gclid`, `gbraid`, `wbraid`](https://developers.google.com/google-ads/api/docs/conversions/legacy_oci_guide), [`gad_source`, `gad_campaignid`](https://support.google.com/google-ads/answer/16193746) |
+| OpenAI Ads            | [`oppref`](https://developers.openai.com/ads/conversion-tracking)                                                                                                                                      |
+| Microsoft Advertising | [`msclkid`](https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration?view=bingads-13)                                                                                       |
+| LinkedIn Ads          | [`li_fat_id`](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2026-03)                                                                       |
+| Reddit Ads            | [`rdt_cid`](https://ads-api.reddit.com/docs/v3/capi-click-id-persistence)                                                                                                                              |
+| Snapchat Ads          | [`ScCid`](https://developers.snap.com/marketing-api/Conversions-API/UsingTheAPI#sending-click-id) or `sccid`, not the `_scid` cookie                                                                   |
+| TikTok Ads            | [`ttclid`](https://ads.tiktok.com/resources/help/article/tiktok-click-id?lang=en)                                                                                                                      |
+| Rokt Ads              | [`rtid`](https://docs.rokt.com/developers/integration-guides/web/advanced/rokt-id-tag/)                                                                                                                |
+| Pinterest Ads         | [`pp=0`](https://help.pinterest.com/en/business/article/the-pp-query-string-parameter); `pp=1` excludes earned clicks even when paid campaign tags remain                                              |
+
+Meta, Amazon, and Apple rely on an explicit paid medium in this detector.
+`fbclid` and `epik` alone do not qualify.
+Apple app attribution requires [AdServices attribution records](https://developer.apple.com/documentation/AdServices/AAAttribution/attributionToken%28%29); an App Store campaign link does not establish an Apple Ads interaction.
+
+Each event counts at most once for its matched platform, even if it has both a paid medium and an ad identifier.
+Custom source mappings select which platform's signals apply; another platform's identifier cannot make that source paid.
+This check retains the UTM source catalogue's time window and top-500 limit, so it does not discover untagged sources or verify billable clicks.
+Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
+The medium count describes only matched events in the lookback window; zero can also mean no events matched that integration.
+This changes setup recommendations and diagnostic actions, not report attribution or connected-source sync checks.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres

@@ -2883,6 +2883,22 @@ export const SignalReportCheckOutcomeEnumApi = {
     Inconclusive: 'inconclusive',
 } as const
 
+/**
+ * * `awaiting_data` - Awaiting Data
+ * * `unmeasurable` - Unmeasurable
+ * * `needs_manual_verification` - Needs Manual Verification
+ * * `no_fix_to_measure` - No Fix To Measure
+ */
+export type SignalReportCheckInconclusiveReasonEnumApi =
+    (typeof SignalReportCheckInconclusiveReasonEnumApi)[keyof typeof SignalReportCheckInconclusiveReasonEnumApi]
+
+export const SignalReportCheckInconclusiveReasonEnumApi = {
+    AwaitingData: 'awaiting_data',
+    Unmeasurable: 'unmeasurable',
+    NeedsManualVerification: 'needs_manual_verification',
+    NoFixToMeasure: 'no_fix_to_measure',
+} as const
+
 export interface SignalReportCheckApi {
     readonly id: string
     /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
@@ -2935,6 +2951,13 @@ export interface SignalReportCheckApi {
      * * `errored` - Errored
      * * `inconclusive` - Inconclusive */
     readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /** Why the most recent run could not settle the claim. Set only when `last_outcome` is `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`.
+     *
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure */
+    readonly last_outcome_reason: SignalReportCheckInconclusiveReasonEnumApi | null
     /**
      * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
      * @nullable
@@ -5068,22 +5091,6 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
- * * `awaiting_data` - Awaiting Data
- * * `unmeasurable` - Unmeasurable
- * * `needs_manual_verification` - Needs Manual Verification
- * * `no_fix_to_measure` - No Fix To Measure
- */
-export type SignalReportCheckInconclusiveReasonEnumApi =
-    (typeof SignalReportCheckInconclusiveReasonEnumApi)[keyof typeof SignalReportCheckInconclusiveReasonEnumApi]
-
-export const SignalReportCheckInconclusiveReasonEnumApi = {
-    AwaitingData: 'awaiting_data',
-    Unmeasurable: 'unmeasurable',
-    NeedsManualVerification: 'needs_manual_verification',
-    NoFixToMeasure: 'no_fix_to_measure',
-} as const
-
-/**
  * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
  */
 export interface RecordCheckResultRequestApi {
@@ -5901,6 +5908,11 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome: string | null
+    /**
+     * Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome.
+     * @nullable
+     */
+    last_outcome_reason: string | null
     /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
     run_state: string
     /** True while an `agent` check waits on a dispatched run to record its verdict. */
