@@ -4007,10 +4007,12 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         [
             (serializer, value)
             for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
-            for value in ([], "text", 1, True)
+            for value in (list[object](), "text", 1, True)
         ]
     )
-    def test_conversations_settings_requires_an_object(self, serializer_class, value) -> None:
+    def test_conversations_settings_requires_an_object(
+        self, serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer], value: object
+    ) -> None:
         serializer = serializer_class(data={"conversations_settings": value}, partial=True)
         self.assertFalse(serializer.is_valid())
         self.assertIn("conversations_settings", serializer.errors)
