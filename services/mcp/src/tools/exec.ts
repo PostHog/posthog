@@ -242,7 +242,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -283,7 +283,7 @@ const EXEC_COMMAND_HELP: Record<string, string> = {
     search: 'search <words or regex_pattern> — find tools by name, title, or description',
     info: 'info [--json] <tool_name> — show a tool description and input schema',
     schema: 'schema <tool_name> [field_path] — inspect a tool input schema field',
-    call: 'call [--json] [--confirm] <tool_name> <json_input> — invoke a tool',
+    call: 'call [--json] [--confirm] <tool_name> [json_input] — invoke a tool',
 }
 
 const LEARN_COMMAND_HELP = 'learn <topic...> — load learning topics or list available topics'
@@ -452,7 +452,7 @@ export function parseExecCallInnerArgs(command: string): Record<string, unknown>
 
 /** Verbs the dispatcher grammar accepts. A verb outside this set is what the
  *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
-const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+const KNOWN_EXEC_VERBS = new Set(['help', 'learn', 'tools', 'search', 'info', 'schema', 'call'])
 
 /** Verbs whose first positional argument names a tool. */
 const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])

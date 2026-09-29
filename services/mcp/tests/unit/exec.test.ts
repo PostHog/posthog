@@ -81,7 +81,7 @@ describe('exec tool', () => {
             const result = await createExec().handler(mockContext, { command: 'help' })
 
             expect(result).toContain('search <words or regex_pattern>')
-            expect(result).toContain('call [--json] [--confirm] <tool_name> <json_input>')
+            expect(result).toContain('call [--json] [--confirm] <tool_name> [json_input]')
             expect(result).not.toContain('learn <topic...>')
         })
 
@@ -421,14 +421,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
@@ -1874,6 +1874,8 @@ describe('exec tool', () => {
         // from a mistyped verb in analytics. Flag handling differs per verb, so a
         // parser regression silently collapses the funnel back into one bucket.
         it.each([
+            ['help', 'help', undefined],
+            ['help search', 'help', undefined],
             ['tools', 'tools', undefined],
             ['search query-', 'search', undefined],
             ['info execute-sql', 'info', 'execute-sql'],
