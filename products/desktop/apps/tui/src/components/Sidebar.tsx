@@ -137,6 +137,7 @@ export function Sidebar({
       borderTop={false}
       borderBottom={false}
       borderLeft={false}
+      paddingX={1}
       overflow="hidden"
     >
       {rows.map((row, index) => (
