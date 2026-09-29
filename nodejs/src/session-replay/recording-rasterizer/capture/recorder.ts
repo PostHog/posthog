@@ -12,6 +12,7 @@ import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 import { BlockProxy, BlockSource } from './block-proxy'
 import { BrowserPool } from './browser-pool'
+import { ByteBudget } from './byte-budget'
 import { capturePlayback } from './capture'
 import { CapturePage } from './capture-page'
 import { buildCaptureConfig, buildPlayerConfig, validateInput } from './config'
@@ -54,6 +55,31 @@ export interface RasterizeOptions {
     // fast, so the browser-pool slot is reclaimed instead of riding out a doomed attempt.
     signal?: AbortSignal
     blockSource?: BlockSource
+    byteBudget?: ByteBudget
+}
+
+const BUDGET_WAIT_HEARTBEAT_MS = 10_000
+
+// A queued render makes no progress, so it calls onProgress on a timer. Without that, the activity
+// watchdog aborts a render that is only waiting its turn.
+async function acquireByteBudget(
+    budget: ByteBudget,
+    bytes: number,
+    onProgress: () => void,
+    log: Logger,
+    signal?: AbortSignal
+): Promise<() => void> {
+    const waitStart = Date.now()
+    const heartbeat = setInterval(onProgress, BUDGET_WAIT_HEARTBEAT_MS)
+    try {
+        return await budget.acquire(bytes, signal)
+    } finally {
+        clearInterval(heartbeat)
+        const waitedMs = Date.now() - waitStart
+        if (waitedMs >= 1000) {
+            log.info({ waited_s: waitedMs / 1000, in_flight_bytes: budget.inFlightBytes }, 'byte budget wait ended')
+        }
+    }
 }
 
 export async function rasterizeRecording(
@@ -82,6 +108,7 @@ export async function rasterizeRecording(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     let player: PlayerController | null = null
+    let releaseBytes: (() => void) | null = null
     try {
         // An abort that fired while getPage was launching Chromium predates the listener above and
         // would otherwise be silently missed; the finally below releases the page.
@@ -116,6 +143,11 @@ export async function rasterizeRecording(
                 false,
                 'RECORDING_TOO_LARGE'
             )
+        }
+
+        if (options.byteBudget) {
+            const budgetBytes = Number.isFinite(compressedBytes) ? compressedBytes : 0
+            releaseBytes = await acquireByteBudget(options.byteBudget, budgetBytes, onProgress, log, signal)
         }
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
@@ -159,6 +191,11 @@ export async function rasterizeRecording(
     } finally {
         signal?.removeEventListener('abort', onAbort)
         player?.dispose()
-        await pool.releasePage(rawPage)
+        try {
+            await pool.releasePage(rawPage)
+        } finally {
+            // A leaked grant blocks every later render on this worker.
+            releaseBytes?.()
+        }
     }
 }

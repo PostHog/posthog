@@ -6,6 +6,7 @@ import * as os from 'os'
 import * as path from 'path'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { ByteBudget } from '~/session-replay/recording-rasterizer/capture/byte-budget'
 import { blockSourceFromS3 } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
@@ -41,6 +42,7 @@ function toActivityError(err: unknown): Error {
 async function rasterizeRecordingActivity(
     pool: BrowserPool,
     playerHtml: string,
+    byteBudget: ByteBudget,
     input: RasterizeRecordingInput
 ): Promise<RasterizeRecordingOutput> {
     const { workflowExecution, activityId } = Context.current().info
@@ -140,6 +142,7 @@ async function rasterizeRecordingActivity(
             log,
             signal: abort.signal,
             blockSource,
+            byteBudget,
         })
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
@@ -225,8 +228,10 @@ async function rasterizeRecordingActivity(
 }
 
 export function createActivities(pool: BrowserPool, playerHtml: string) {
+    const byteBudget = new ByteBudget(config.maxInflightCompressedBytes)
     return {
-        'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
+        'rasterize-recording': (input: RasterizeRecordingInput) =>
+            rasterizeRecordingActivity(pool, playerHtml, byteBudget, input),
         // No browser and no pool: this one reads an MP4 the rasterizer already produced.
         'extract-thumbnail': async (input: ExtractThumbnailInput) => {
             // The media path is fail-soft, so these counters are the only sign that the fleet is failing.

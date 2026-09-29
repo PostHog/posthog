@@ -1,5 +1,6 @@
 import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { ByteBudget } from '~/session-replay/recording-rasterizer/capture/byte-budget'
 import { capturePlayback } from '~/session-replay/recording-rasterizer/capture/capture'
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
@@ -135,6 +136,43 @@ describe('rasterizeRecording', () => {
         expect(mockPlayer.load).not.toHaveBeenCalled()
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
     })
+
+    it.each([
+        ['succeeds', (): void => {}],
+        [
+            'fails',
+            (): void => {
+                mockedCapturePlayback.mockRejectedValue(new Error('capture failed'))
+            },
+        ],
+    ])(
+        'waits for the byte budget with heartbeats before loading, and returns the bytes when the render %s',
+        async (_, arrange) => {
+            arrange()
+            jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+            try {
+                const byteBudget = new ByteBudget(2000)
+                const releaseHolder = await byteBudget.acquire(1500)
+                const onProgress = jest.fn()
+                const render = rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', onProgress, {
+                    cfg,
+                    byteBudget,
+                }).catch(() => {})
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(mockPlayer.load).not.toHaveBeenCalled()
+
+                jest.advanceTimersByTime(10_000)
+                expect(onProgress).toHaveBeenCalledTimes(1)
+
+                releaseHolder()
+                await render
+                expect(mockPlayer.load).toHaveBeenCalled()
+                expect(byteBudget.inFlightBytes).toBe(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
 
     it('releases page and disposes player on success', async () => {
         await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })

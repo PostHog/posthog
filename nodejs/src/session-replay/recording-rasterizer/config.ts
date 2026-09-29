@@ -59,6 +59,9 @@ export const config = {
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its
     // memory limit. Deliberately generous: the every-render byte log is what tightens it over time.
     maxRecordingCompressedBytes: parsePositiveInt(process.env.MAX_RECORDING_COMPRESSED_BYTES, 512 * 1024 * 1024),
+    // Cap on the compressed bytes that all renders on this worker load at the same time. The per-render cap above
+    // does not stop several large renders from loading together and running the pod out of memory.
+    maxInflightCompressedBytes: parsePositiveInt(process.env.MAX_INFLIGHT_COMPRESSED_BYTES, 300 * 1024 * 1024),
 
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',
