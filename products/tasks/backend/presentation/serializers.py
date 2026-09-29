@@ -4925,6 +4925,14 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "to mark the agent idle without sending a completion notification or updating activity."
         ),
     )
+    turn_succeeded = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether 'awaiting_input' reports a turn that ended with the 'end_turn' stop reason. "
+            "False for any other stop reason."
+        ),
+    )
     task_id = serializers.CharField(
         max_length=36,
         help_text="UUID of the Task that owns this run. Must match the JWT claim.",

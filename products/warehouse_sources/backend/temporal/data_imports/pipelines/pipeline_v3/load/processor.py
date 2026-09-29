@@ -87,7 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 
 logger = structlog.get_logger(__name__)
 
@@ -852,6 +852,7 @@ def _process_external_destinations_only(
         deliver_batch_to_destinations,
     )
 
+    report_phase("deliver")
     deliver_batch_to_destinations(export_signal)
 
     if not export_signal.is_final_batch:
@@ -861,6 +862,7 @@ def _process_external_destinations_only(
     if verify_ownership is not None:
         verify_ownership()
 
+    report_phase("finalize")
     _mark_job_completed(export_signal)
 
 
@@ -958,6 +960,7 @@ def _process_message_reported(
         # delivery runs on every path and decides for itself what is left to do. Gating it on
         # the warehouse's marker would strand a destination that failed, and gating publication
         # on the write marker would leave a full refresh staged and never swapped in.
+        report_phase("deliver")
         deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
@@ -981,11 +984,13 @@ def _process_message_reported(
             )
             if verify_ownership is not None:
                 verify_ownership()
+            report_phase("post_load")
             prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
             # Post-load can run minutes (compaction, S3 prep) — re-check before
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
+            report_phase("finalize")
             _mark_job_completed(export_signal)
             if prepared_queryable_folder:
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
@@ -1004,6 +1009,7 @@ def _process_message_reported(
             sync_type=export_signal.sync_type,
         )
 
+        report_phase("read")
         with PARQUET_READ_DURATION_SECONDS.time():
             if constituents is not None:
                 pa_table = _read_constituents(constituents)
@@ -1085,6 +1091,8 @@ def _process_message_reported(
         if verify_ownership is not None:
             verify_ownership()
 
+        # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
+        report_phase("write")
         if cdc_write_mode == "scd2_append":
             logger.debug(
                 "writing_scd2_to_delta_lake",
@@ -1139,20 +1147,29 @@ def _process_message_reported(
         for index in batch_indexes:
             mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, index)
 
+        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
+        # but listing every file costs O(files in table), which is the very thing it measures. Sample
+        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
+        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
+
+        # The handle `write` returns can be one deltalite commit behind the log. Column names and
+        # types cannot differ across that commit, so the schema below reads it as is; a file list
+        # can, so the readers of one go through the ref, which catches the handle up first.
+        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
+            current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+            if current_delta_table is not None:
+                delta_table = current_delta_table
+
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
-        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
-        # but listing every file costs O(files in table), which is the very thing it measures. Sample
-        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
-        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
         logger.debug(
             "batch_written_to_delta_lake",
             batch_index=export_signal.batch_index,
-            delta_version=delta_table.version(),
+            delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=len(delta_table.file_uris()) if sample_file_count else None,
         )
 
@@ -1184,6 +1201,7 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
 
+            report_phase("post_load")
             prepared_queryable_folder = async_to_sync(run_post_load_operations)(
                 job=job,
                 schema=schema,
@@ -1201,6 +1219,7 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
 
+            report_phase("finalize")
             _mark_job_completed(export_signal)
 
             if prepared_queryable_folder:

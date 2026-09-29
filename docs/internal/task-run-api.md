@@ -42,6 +42,8 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
+Run responses omit internal cost accounting, including gateway request IDs.
+
 ## Event delivery
 
 Cloud runs send live events through event ingest. Clients can replay only events mirrored into the backend stream.
