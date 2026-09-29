@@ -685,6 +685,9 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+            if (values.hasNoConfiguredLoginMethod) {
+                posthog.capture('login no sign-in method banner shown')
+            }
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (

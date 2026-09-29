@@ -20,6 +20,7 @@ import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentica
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { signupLogic } from './signupForm/signupLogic'
@@ -39,13 +40,20 @@ const NOTES: Record<number, string[]> = {
 
 /** Step 1 — email (+ region, social, pending-invite branch). */
 function SignupEmailPanel(): JSX.Element {
-    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
-        useValues(signupLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        signupPanelEmail,
+        signupPanelEmailManualErrors,
+        emailAccountExists,
+        pendingInvite,
+        loginUrl,
+        emailCaseNotice,
+    } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = useLastLoginMethod()
-    const accountExists = !!signupPanelEmailManualErrors?.email
+    const hasEmailError = !!signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
         return <PendingInvitePanel />
@@ -99,7 +107,7 @@ function SignupEmailPanel(): JSX.Element {
                         />
                     )}
                 </LemonField>
-                {accountExists && (
+                {hasEmailError && (
                     <p className="text-xs text-danger -mt-2">
                         <span>{signupPanelEmailManualErrors.email}</span>{' '}
                         <Link
@@ -108,6 +116,20 @@ function SignupEmailPanel(): JSX.Element {
                         >
                             Log in instead →
                         </Link>
+                        {emailAccountExists && (
+                            <>
+                                {' '}
+                                <span>or</span>{' '}
+                                <Link
+                                    to={[urls.passwordReset(), { email: signupPanelEmail.email }]}
+                                    // An account without a sign-in method cannot log in, so a reset is its only way in.
+                                    data-attr="signup-account-exists-reset-password"
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Forgot password?
+                                </Link>
+                            </>
+                        )}
                     </p>
                 )}
                 <LemonButton

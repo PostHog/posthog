@@ -71,6 +71,7 @@ export interface signupLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     challengeNonce: string | null
     challengeRequired: boolean
+    emailAccountExists: boolean
     emailCaseNotice: string | undefined
     emailWasNormalized: boolean
     isPasskeyRegistering: boolean
@@ -153,6 +154,9 @@ export interface signupLogicActions {
     }
     setChallengeRequired: (required: boolean) => {
         required: boolean
+    }
+    setEmailAccountExists: (accountExists: boolean) => {
+        accountExists: boolean
     }
     setEmailNormalized: (wasNormalized: boolean) => {
         wasNormalized: boolean
@@ -302,6 +306,7 @@ export const signupLogic = kea<signupLogicType>([
         setPanel: (panel: number) => ({ panel }),
         normalizeEmailWithDelay: (email: string) => ({ email }),
         setEmailNormalized: (wasNormalized: boolean) => ({ wasNormalized }),
+        setEmailAccountExists: (accountExists: boolean) => ({ accountExists }),
         // Passkey actions
         registerPasskey: true,
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
@@ -331,6 +336,12 @@ export const signupLogic = kea<signupLogicType>([
             false,
             {
                 setEmailNormalized: (_, { wasNormalized }) => wasNormalized,
+            },
+        ],
+        emailAccountExists: [
+            false,
+            {
+                setEmailAccountExists: (_, { accountExists }) => accountExists,
             },
         ],
         passkeyRegistered: [
@@ -421,6 +432,7 @@ export const signupLogic = kea<signupLogicType>([
             // submit, leaving the user stuck on the email panel with a different email typed in.
             preSubmit: () => {
                 actions.setSignupPanelEmailManualErrors({})
+                actions.setEmailAccountExists(false)
             },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
@@ -437,6 +449,8 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({
                             email: errorMessage,
                         })
+                        actions.setEmailAccountExists(true)
+                        posthog.capture('signup existing email rejected')
                         actions.setPanel(0)
                         return
                     }

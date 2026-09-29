@@ -2,6 +2,7 @@ import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pe
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -192,6 +193,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
     })
 
     it('advances when a different email is submitted after an account-exists error', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
         logic.actions.setSignupPanelEmailValue('email', 'taken@example.com')
         logic.actions.submitSignupPanelEmail()
         await expectLogic(logic).toFinishAllListeners()
@@ -199,6 +201,8 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
         expect(logic.values.signupPanelEmailManualErrors.email).toBe(
             'There is already an account with this email address.'
         )
+        expect(logic.values.emailAccountExists).toBe(true)
+        expect(captureSpy).toHaveBeenCalledWith('signup existing email rejected')
 
         logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
         logic.actions.submitSignupPanelEmail()
@@ -206,6 +210,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
 
         expect(logic.values.panel).toBe(1)
         expect(logic.values.signupPanelEmailManualErrors.email).toBeUndefined()
+        expect(logic.values.emailAccountExists).toBe(false)
     })
 
     it('reissues the signup request when onboarding is submitted again after a generic error', async () => {

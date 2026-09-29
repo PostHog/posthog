@@ -398,6 +398,7 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            expect(posthog.capture).toHaveBeenCalledWith('login no sign-in method banner shown')
         })
 
         it('defers entirely to enforced SSO', async () => {
