@@ -25809,6 +25809,18 @@ class AccountsTableQuery(BaseModel):
         ...,
         description=("Columns to load for each account. Account identity fields are always returned."),
     )
+    filterGroups: (
+        list[
+            list[AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter]
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Nonempty property-filter groups are ORed together; filters within each"
+            " group use AND. Global filters still apply."
+        ),
+    )
     filters: (
         list[
             AccountsTableSearchFilter
