@@ -86,7 +86,6 @@ def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
 class TestTypeSafeEgress(SimpleTestCase):
     @parameterized.expand(
         [
-            ("instance_key", None, "https://api.typesafe.ai/v1"),
             ("explicit_instance_key", _FAKE_API_KEY, "https://api.typesafe.ai/v1"),
             ("customer_key", "fake-customer-key", "https://api.typesafe.ai/v1"),
             ("custom_endpoint", "fake-customer-key", "https://decisions.example.com/v1"),
@@ -152,6 +151,19 @@ class TestTypeSafeEgress(SimpleTestCase):
         assert "fake-customer-key" not in metrics
         assert "decisions.example.com" not in metrics
 
+    def test_default_typesafe_key_keeps_the_existing_requests_transport(self) -> None:
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(_ANSWERS).encode()
+        with (
+            patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
+            patch("requests.request", return_value=response) as request,
+        ):
+            result = system_one(state="hello", questions=_QUESTIONS, source="test")
+
+        assert result.model == "jev-1.13.0"
+        assert request.call_args.args == ("POST", "https://api.typesafe.ai/v1/systemone")
+
     @parameterized.expand(
         [
             ("rate_limited", 429, json.dumps({"error": "rate limited"}), 429),
@@ -198,7 +210,7 @@ class TestTypeSafeEgress(SimpleTestCase):
             patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=_response(status, body)),
             self.assertRaises(TypeSafeRequestFailed) as raised,
         ):
-            system_one(state="Payouts fail", questions=_QUESTIONS, source="test")
+            system_one(state="Payouts fail", questions=_QUESTIONS, source="test", api_key="fake-customer-key")
         assert raised.exception.status_code == expected_status_code
 
     @parameterized.expand(
@@ -216,7 +228,7 @@ class TestTypeSafeEgress(SimpleTestCase):
             patch("aiohttp.ClientSession.request", new_callable=AsyncMock, return_value=response),
             self.assertRaisesRegex(TypeSafeRequestFailed, "exceeded its limits"),
         ):
-            system_one(state="hello", questions=_QUESTIONS, source="test")
+            system_one(state="hello", questions=_QUESTIONS, source="test", api_key="fake-customer-key")
 
     @parameterized.expand(["headers", "body"])
     def test_slow_response_cannot_extend_the_total_time_limit(self, slow_part: str) -> None:

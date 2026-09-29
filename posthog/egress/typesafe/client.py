@@ -21,7 +21,7 @@ import requests
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID
-from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request_async
+from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request, typesafe_request_async
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
     JsonValue,
@@ -153,18 +153,35 @@ def system_one(
         else scope_fingerprint(base_url, resolved_api_key)
     )
 
-    response = asyncio.run(
-        _send_system_one(
-            url=f"{base_url}/systemone",
-            body=build_system_one_body(state=state, questions=questions, model=model),
+    url = f"{base_url}/systemone"
+    body = build_system_one_body(state=state, questions=questions, model=model)
+    # boffin: Instance TypeSafe calls may rely on environment proxies; customer endpoints use the pinned path.
+    if api_key is None:
+        response = typesafe_request(
+            "POST",
+            url,
             api_key=resolved_api_key,
             scope=scope,
             source=source,
+            endpoint=SYSTEM_ONE_ENDPOINT,
             priority=priority,
             timeout=timeout,
-            pinned_ip=pinned_ip,
+            allow_redirects=False,
+            json=body,
         )
-    )
+    else:
+        response = asyncio.run(
+            _send_system_one(
+                url=url,
+                body=body,
+                api_key=resolved_api_key,
+                scope=scope,
+                source=source,
+                priority=priority,
+                timeout=timeout,
+                pinned_ip=pinned_ip,
+            )
+        )
 
     if response.status_code != 200:
         # A 422 body can echo the state, so keep it out of the exception that gets logged.
