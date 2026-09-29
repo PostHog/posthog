@@ -424,7 +424,7 @@ def _cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v5_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v6_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 def _anchor_cache_key(
@@ -455,7 +455,7 @@ def _anchor_cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_anchor_v1_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_anchor_v2_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 @dataclass(frozen=True)
