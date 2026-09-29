@@ -1,23 +1,25 @@
 from datetime import date, datetime, timedelta
 from functools import partial
-from uuid import UUID
 
-from django.core.cache import cache
+from django.conf import settings
 from django.db import transaction
+from django.db.models import F, Min, Q
 from django.utils import timezone
 
 import structlog
 import posthoganalytics
 from celery import shared_task
+from prometheus_client import Counter
 from redis.exceptions import RedisError
 
+from posthog.celery_queues import CeleryQueue
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.utils import safe_cache_delete
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -27,12 +29,19 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend.achievements.definitions import (
+    STAGE_COUNT,
     STREAK_ARM_CONTROL,
     TRACKS,
     AchievementScope,
     TrackDefinition,
 )
-from products.web_analytics.backend.achievements.evaluators import EVALUATORS, EvalContext
+from products.web_analytics.backend.achievements.evaluators import (
+    EVALUATORS,
+    INCREMENTAL_EVALUATORS,
+    EvalContext,
+    PriorProgress,
+    TrackEvaluation,
+)
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
     WebAnalyticsUserConfig,
@@ -41,16 +50,23 @@ from products.web_analytics.backend.models import (
 
 logger = structlog.get_logger(__name__)
 
-RECOMPUTE_DEBOUNCE_TTL_SECONDS = 26 * 60 * 60
 STREAK_CADENCE_FLAG = "web-analytics-streak-cadence"
 ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
+RECOMPUTE_INTERVAL = timedelta(hours=20)
+RECOMPUTE_EXPIRES_SECONDS = 5 * 60
+TRANSIENT_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
+TEAM_QUERY_TRACK_KEYS = [str(track.key) for track in TRACKS.values() if track.evaluator_key in INCREMENTAL_EVALUATORS]
 
-# Only these (ClickHouse-backed) evaluators are gated to once per team-local day. The cheap DB-backed
-# tracks (streak, loyalty, first-party interaction counters) recompute on every trigger so they stay
-# same-day fresh.
-EXPENSIVE_EVALUATOR_KEYS = {"cumulative_pageviews", "conversions"}
-RETRYABLE_ACHIEVEMENT_ERRORS = (ConcurrencyLimitExceeded, RedisError, *CH_TRANSIENT_ERRORS)
+RECOMPUTE_RUNS = Counter(
+    "web_analytics_achievements_recompute_total",
+    "Background team recomputes of Web analytics achievements, by outcome.",
+    labelnames=["outcome"],
+)
+SWEEP_ENQUEUED = Counter(
+    "web_analytics_achievements_sweep_enqueued_total",
+    "Team recomputes enqueued by the Web analytics achievements sweep.",
+)
 
 
 def team_local_today(team: Team) -> date:
@@ -88,30 +104,6 @@ def _user_opted_out(team: Team, user: User) -> bool:
     return WebAnalyticsUserConfig.objects.for_team(team.id).filter(user_id=user.id, achievements_opt_out=True).exists()
 
 
-def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id: int | None, today: date) -> bool:
-    """Enqueue a recompute for this scope at most once per team-local day. Date-keyed (not a rolling
-    24h TTL) so the first visit each day recomputes promptly, keeping streaks fresh. Fails open on a
-    cache error so a Redis blip can't drop the visit signal."""
-    scope = str(user_id) if user_id is not None else "team"
-    debounce_key = f"wa_achievements_recompute:{team_id}:{scope}:{today.isoformat()}"
-    try:
-        claimed = cache.add(debounce_key, "1", timeout=RECOMPUTE_DEBOUNCE_TTL_SECONDS)
-    except Exception as e:
-        logger.warning("wa_achievements_debounce_cache_failure", team_id=team_id, exc_info=True)
-        capture_exception(e)
-        claimed = False
-    else:
-        if not claimed:
-            return False
-    try:
-        recompute_web_analytics_achievements.delay(team_id, user_id=user_id)
-    except Exception:
-        if claimed:
-            safe_cache_delete(debounce_key)
-        raise
-    return True
-
-
 def recompute_web_analytics_achievements_sync(
     team_id: int, user_id: int | None = None, cheap_only: bool = False
 ) -> None:
@@ -132,28 +124,43 @@ def recompute_web_analytics_achievements_sync(
             continue
         if track.scope == AchievementScope.TEAM and user is not None:
             continue
-        if cheap_only and track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS:
+        if cheap_only and track.evaluator_key in INCREMENTAL_EVALUATORS:
             continue
         _recompute_track(ctx, track)
 
 
 @shared_task(
     ignore_result=True,
-    autoretry_for=RETRYABLE_ACHIEVEMENT_ERRORS,
-    retry_backoff=30,
-    retry_backoff_max=5 * 60,
-    retry_jitter=True,
-    max_retries=24,
+    queue=CeleryQueue.ANALYTICS_LIMITED.value,
+    expires=RECOMPUTE_EXPIRES_SECONDS,
+    soft_time_limit=120,
+    time_limit=150,
 )
 @skip_team_scope_audit
 def recompute_web_analytics_achievements(team_id: int, user_id: int | None = None) -> None:
-    recompute_web_analytics_achievements_sync(team_id, user_id=user_id)
+    try:
+        recompute_web_analytics_achievements_sync(team_id, user_id=user_id)
+    except ConcurrencyLimitExceeded:
+        RECOMPUTE_RUNS.labels(outcome="contention").inc()
+        return
+    except TRANSIENT_ACHIEVEMENT_ERRORS:
+        RECOMPUTE_RUNS.labels(outcome="transient_error").inc()
+        logger.warning("wa_achievements_recompute_transient_error", team_id=team_id, exc_info=True)
+        return
+    RECOMPUTE_RUNS.labels(outcome="ok").inc()
+
+
+def ensure_team_progress(team: Team) -> None:
+    ctx = EvalContext(team=team, user=None, today=team_local_today(team), arm=None)
+    for track in TRACKS.values():
+        if track.scope == AchievementScope.TEAM:
+            get_or_create_progress(ctx, track)
 
 
 def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnalyticsAchievementProgress:
     user_id = ctx.user.id if (track.scope == AchievementScope.USER and ctx.user is not None) else None
     canonical_team_id = ctx.team.parent_team_id or ctx.team.id
-    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).get_or_create(
+    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
         user_id=user_id,
         track_key=str(track.key),
@@ -162,11 +169,8 @@ def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnaly
     return progress
 
 
-def is_due(ctx: EvalContext, progress: WebAnalyticsAchievementProgress) -> bool:
-    if progress.last_computed_at is None:
-        return True
-    last_local_date = progress.last_computed_at.astimezone(ctx.team.timezone_info).date()
-    return last_local_date < ctx.today
+def is_due(progress: WebAnalyticsAchievementProgress) -> bool:
+    return progress.last_computed_at is None or progress.last_computed_at <= timezone.now() - RECOMPUTE_INTERVAL
 
 
 def persist_progress(
@@ -197,28 +201,57 @@ def _last_visit_date_iso(ctx: EvalContext) -> str | None:
     return latest.isoformat() if latest else None
 
 
+def evaluate_track(
+    ctx: EvalContext, track: TrackDefinition, progress: WebAnalyticsAchievementProgress
+) -> TrackEvaluation:
+    incremental_evaluator = INCREMENTAL_EVALUATORS.get(track.evaluator_key)
+    if incremental_evaluator is None:
+        return TrackEvaluation(value=EVALUATORS[track.evaluator_key](ctx))
+    checkpoint = (progress.state or {}).get("checkpoint")
+    prior = PriorProgress(
+        value=progress.progress_value,
+        last_computed_at=progress.last_computed_at,
+        checkpoint=checkpoint if isinstance(checkpoint, dict) else {},
+    )
+    return incremental_evaluator(ctx, prior)
+
+
 def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     progress = get_or_create_progress(ctx, track)
     if progress.current_stage >= len(track.stages):
         return
-    if track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS and not is_due(ctx, progress):
+    if track.evaluator_key in INCREMENTAL_EVALUATORS and not is_due(progress):
         return
-    evaluator = EVALUATORS[track.evaluator_key]
     try:
-        new_value = evaluator(ctx)
-    except RETRYABLE_ACHIEVEMENT_ERRORS:
+        evaluation = evaluate_track(ctx, track, progress)
+    except TRANSIENT_ACHIEVEMENT_ERRORS:
         raise
     except Exception as e:
         logger.warning("wa_achievements_eval_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         capture_exception(e)
         return
 
-    _apply_progress(ctx, track, progress.pk, new_value)
+    _apply_progress(ctx, track, progress, evaluation)
 
 
-def _apply_progress(ctx: EvalContext, track: TrackDefinition, progress_pk: UUID, new_value: int) -> list[int]:
+def _apply_progress(
+    ctx: EvalContext,
+    track: TrackDefinition,
+    evaluated_progress: WebAnalyticsAchievementProgress,
+    evaluation: TrackEvaluation,
+) -> list[int]:
     with transaction.atomic():
-        progress = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).select_for_update().get(pk=progress_pk)
+        progress = (
+            WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id)
+            .select_for_update()
+            .get(pk=evaluated_progress.pk)
+        )
+        if evaluation.checkpoint is not None and (
+            progress.last_computed_at != evaluated_progress.last_computed_at
+            or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
+        ):
+            return []
+        new_value = evaluation.value
         is_cumulative = track.evaluator_key != "streak"
         value = max(new_value, progress.progress_value) if is_cumulative else new_value
         arm = ctx.arm if track.is_experiment_track else None
@@ -238,6 +271,8 @@ def _apply_progress(ctx: EvalContext, track: TrackDefinition, progress_pk: UUID,
         state["pending_celebrations"] = pending_celebrations
         if track.evaluator_key == "streak":
             state["streak"] = {"last_visit_date": _last_visit_date_iso(ctx)}
+        if evaluation.checkpoint is not None:
+            state["checkpoint"] = evaluation.checkpoint
 
         persist_progress(progress, value, new_stage, state)
 
@@ -285,19 +320,39 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
         capture_exception(e)
 
 
+def due_team_ids(limit: int) -> list[int]:
+    active_since = timezone.now().date() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
+    active_team_ids = (
+        WebAnalyticsVisit.objects.unscoped().filter(visit_date__gte=active_since).values("team_id").distinct()
+    )
+    return list(
+        WebAnalyticsAchievementProgress.objects.unscoped()
+        .filter(
+            user__isnull=True,
+            track_key__in=TEAM_QUERY_TRACK_KEYS,
+            current_stage__lt=STAGE_COUNT,
+            team_id__in=active_team_ids,
+        )
+        .filter(Q(last_computed_at__isnull=True) | Q(last_computed_at__lte=timezone.now() - RECOMPUTE_INTERVAL))
+        .values("team_id")
+        .annotate(oldest_computed_at=Min("last_computed_at"))
+        .order_by(F("oldest_computed_at").asc(nulls_first=True), "team_id")
+        .values_list("team_id", flat=True)[:limit]
+    )
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def sweep_web_analytics_achievement_team_tracks() -> None:
-    window_start = date.today() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
-    team_ids = (
-        WebAnalyticsVisit.objects.unscoped()
-        .filter(visit_date__gte=window_start)
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
+    kill_switch_level = get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF:
+        logger.info("wa_achievements_sweep_skipped_kill_switch", level=kill_switch_level)
+        return
+    batch_size = settings.WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE
+    if batch_size <= 0:
+        return
+    team_ids = due_team_ids(batch_size)
     for team_id in team_ids:
-        try:
-            team = Team.objects.get(id=team_id)
-            enqueue_recompute_web_analytics_achievements_debounced(team_id, None, team_local_today(team))
-        except Exception:
-            logger.warning("wa_achievements_sweep_enqueue_failed", team_id=team_id, exc_info=True)
+        recompute_web_analytics_achievements.delay(team_id)
+    SWEEP_ENQUEUED.inc(len(team_ids))
+    logger.info("wa_achievements_sweep_enqueued", count=len(team_ids))
