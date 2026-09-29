@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import {
     IconBolt,
@@ -686,8 +687,9 @@ const createPendingFieldsNode = (nodeId: string, pendingTableName: string): Tree
     }
 }
 
-const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
-    return {
+// `retryTableName` marks the table to hydrate again when the user clicks "Try again".
+const createFieldsErrorNodes = (nodeId: string, retryTableName: string): TreeDataItem[] => [
+    {
         id: `${nodeId}-fields-error/`,
         name: "Couldn't load columns",
         displayName: <span className="text-danger">Couldn't load columns</span>,
@@ -697,8 +699,18 @@ const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
         record: {
             type: 'fields-load-error',
         },
-    }
-}
+    },
+    {
+        id: `${nodeId}-fields-error-retry/`,
+        name: 'Try again',
+        displayName: <>Try again</>,
+        icon: <IconRefresh />,
+        record: {
+            type: 'fields-load-retry',
+            retryTableName,
+        },
+    },
+]
 
 // A failed schema load must not look like an empty project: say it failed and offer the retry.
 const createLoadErrorNodes = (prefix: string, message: string, onRetry: () => void): TreeDataItem[] => [
@@ -858,7 +870,7 @@ const createExpandedLazyTableChildren = (
             return [createPendingFieldsNode(lazyNodeId, referencedTable.name)]
         }
         if (state === 'error') {
-            return [createFieldsErrorNode(lazyNodeId)]
+            return createFieldsErrorNodes(lazyNodeId, referencedTable.name)
         }
     }
 
@@ -889,7 +901,7 @@ const createViewTableChildren = (
             return [createPendingFieldsNode(nodeId, referencedTable.name)]
         }
         if (state === 'error') {
-            return [createFieldsErrorNode(nodeId)]
+            return createFieldsErrorNodes(nodeId, referencedTable.name)
         }
     }
 
@@ -1262,7 +1274,7 @@ const createTableNode = (
         if (fieldsState === 'pending') {
             tableChildren.push(createPendingFieldsNode(tableId, schemaTableName))
         } else if (fieldsState === 'error') {
-            tableChildren.push(createFieldsErrorNode(tableId))
+            tableChildren.push(...createFieldsErrorNodes(tableId, schemaTableName))
         } else {
             sortFieldsWithPrimary(table.name, Object.values(table.fields))
                 .filter((field) => !shouldHideField(field))
@@ -1387,7 +1399,7 @@ const createViewNode = (
     if (fieldsState === 'pending') {
         viewChildren.push(createPendingFieldsNode(viewId, view.name))
     } else if (fieldsState === 'error') {
-        viewChildren.push(createFieldsErrorNode(viewId))
+        viewChildren.push(...createFieldsErrorNodes(viewId, view.name))
     } else {
         sortFieldsWithPrimary(view.name, Object.values(fields))
             .filter((column) => !shouldHideField(column))
@@ -1442,7 +1454,7 @@ const createManagedViewNode = (
     if (fieldsState === 'pending') {
         viewChildren.push(createPendingFieldsNode(managedViewId, managedView.name))
     } else if (fieldsState === 'error') {
-        viewChildren.push(createFieldsErrorNode(managedViewId))
+        viewChildren.push(...createFieldsErrorNodes(managedViewId, managedView.name))
     } else {
         sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
             .filter((field) => !shouldHideField(field))
@@ -1483,7 +1495,7 @@ const createEndpointNode = (
     if (fieldsState === 'pending') {
         children.push(createPendingFieldsNode(endpointNodeId, endpointTable.name))
     } else if (fieldsState === 'error') {
-        children.push(createFieldsErrorNode(endpointNodeId))
+        children.push(...createFieldsErrorNodes(endpointNodeId, endpointTable.name))
     } else {
         sortFieldsWithPrimary(endpointTable.name, Object.values(endpointTable.fields))
             .filter((column) => !shouldHideField(column))
@@ -2028,6 +2040,16 @@ export interface queryDatabaseLogicActions {
     hydrateTableFields: (tableNames: string[]) => {
         tableNames: string[]
     } // databaseTableListLogic
+    hydrateTableFieldsFailure: (tableNames: string[]) => {
+        tableNames: string[]
+    } // databaseTableListLogic
+    hydrateTableFieldsSuccess: (
+        tableNames: string[],
+        tables: Record<string, DatabaseSchemaTable>
+    ) => {
+        tableNames: string[]
+        tables: Record<string, DatabaseSchemaTable>
+    } // databaseTableListLogic
     refreshDatabaseSchema: () => {
         value: true
     } // databaseTableListLogic
@@ -2187,6 +2209,9 @@ export interface queryDatabaseLogicActions {
     }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
+    }
+    retryTableFields: (tableName: string) => {
+        tableName: string
     }
     selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary) => {
         schema: DatabaseSchemaTable | DataWarehouseSavedQuerySummary
@@ -2470,6 +2495,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         clearDraggedViewState: true,
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        retryTableFields: (tableName: string) => ({ tableName }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
     connect(() => ({
@@ -2530,7 +2556,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
             databaseTableListLogic,
-            ['refreshDatabaseSchema', 'hydrateTableFields', 'ensureAllTableFields'],
+            [
+                'refreshDatabaseSchema',
+                'hydrateTableFields',
+                'hydrateTableFieldsSuccess',
+                'hydrateTableFieldsFailure',
+                'ensureAllTableFields',
+            ],
             metricsLogic,
             ['loadMetrics', 'loadMetricsSuccess', 'loadMetricsFailure'],
         ],
@@ -3906,7 +3938,26 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        retryTableFields: ({ tableName }) => {
+            cache.retriedTableNames = new Set([...(cache.retriedTableNames ?? []), tableName])
+            posthog.capture('sql-editor-columns-retry-clicked')
+            actions.hydrateTableFields([tableName])
+        },
+        hydrateTableFieldsSuccess: ({ tableNames }) => {
+            const retried: Set<string> = cache.retriedTableNames ?? new Set()
+            const succeeded = tableNames.filter((name) => retried.has(name))
+            if (succeeded.length > 0) {
+                succeeded.forEach((name) => retried.delete(name))
+                posthog.capture('sql-editor-columns-retry-succeeded', { table_count: succeeded.length })
+            }
+        },
+        hydrateTableFieldsFailure: ({ tableNames }) => {
+            const retried: Set<string> = cache.retriedTableNames ?? new Set()
+            const isRetry = tableNames.some((name) => retried.has(name))
+            tableNames.forEach((name) => retried.delete(name))
+            posthog.capture('sql-editor-columns-load-failed', { table_count: tableNames.length, is_retry: isRetry })
+        },
         toggleFolderOpen: ({ folderId, isExpanded }) => {
             const expandedFolders = values.searchTerm ? values.expandedSearchFolders : values.expandedFolders
 

@@ -592,9 +592,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
+                fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING.get(
+                    hogql_type_str, STR_TO_HOGQL_MAPPING["UnknownDatabaseField"]
+                )(name=column)
             elif isinstance(type, dict):
-                fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
+                # An unmapped type must not fail the whole catalog build, which every query and the SQL editor need.
+                fields[column] = STR_TO_HOGQL_MAPPING.get(
+                    type.get("hogql", "UnknownDatabaseField"), STR_TO_HOGQL_MAPPING["UnknownDatabaseField"]
+                )(name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
