@@ -114,6 +114,9 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         partition_key="time",
         windowed=True,
         forward_days=180,
+        # Unlike the other market-wide endpoints, this one is premium, so a free-tier key gets
+        # a 403 the source treats as a permanent failure. Keep it opt-in.
+        should_sync_default=False,
         # Same future-dating caveat as the IPO and earnings calendars, and `actual` is only
         # filled in once a release lands, so this is a full refresh over a rolling window.
         description="Recent and upcoming macroeconomic releases over a rolling window. Full refresh.",

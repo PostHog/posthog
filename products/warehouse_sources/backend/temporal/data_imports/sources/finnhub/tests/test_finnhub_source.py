@@ -89,7 +89,7 @@ class TestGetSchemas:
             ("dividends", False),
             ("peers", False),
             ("index_constituents", False),
-            ("economic_calendar", True),
+            ("economic_calendar", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
