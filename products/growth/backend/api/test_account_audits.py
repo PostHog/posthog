@@ -4,6 +4,7 @@ import time
 import base64
 import hashlib
 from contextlib import contextmanager
+from datetime import timedelta
 from io import StringIO
 from uuid import UUID, uuid4
 
@@ -21,6 +22,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
 from products.growth.backend.api.account_audits import COOLDOWN, AccountAuditStartViewSet
@@ -92,10 +94,15 @@ class TestAccountAuditStartAPI(APIBaseTest):
         ):
             yield eligible, actor, skill, dispatch
 
-    def test_accepts_a_signed_delivery_and_retries_the_same_workflow(self) -> None:
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
+    @parameterized.expand([(True,), (False,)])
+    def test_accepts_a_signed_delivery_and_retries_the_same_workflow(self, explicit_team: bool) -> None:
+        payload: dict[str, object] = {"organization_id": str(self.organization.id)}
+        if explicit_team:
+            payload["team_id"] = self.team.id
         with self._request_patches() as (_, _, _, dispatch):
             first = self._post(payload)
+            other_team = Team.objects.create(organization=self.organization, name="Recently active project")
+            FileSystemViewLog.objects.create(team=other_team, user=self.user, type="dashboard", ref="1")
             second = self._post(payload)
 
         self.assertEqual(first.status_code, 202)
@@ -105,23 +112,58 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(second.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
         self.assertEqual(dispatch.return_value.call_count, 2)
         self.assertEqual(dispatch.return_value.call_args.kwargs["workflow_id"], str(admission.workflow_id))
+        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], self.team.id)
 
-    @parameterized.expand([(False, False), (True, False), (False, True)])
-    def test_defaults_to_the_oldest_eligible_root_project(self, is_demo: bool, pending_deletion: bool) -> None:
+    @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
+    def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
+        self, is_demo: bool, pending_deletion: bool, has_views: bool
+    ) -> None:
         self.team.is_demo = is_demo
         self.team.save(update_fields=["is_demo"])
         self.team.project.is_pending_deletion = pending_deletion
         self.team.project.save(update_fields=["is_pending_deletion"])
         next_team = Team.objects.create(organization=self.organization, name="Renamed project")
-        Team.objects.create(
+        child = Team.objects.create(
             organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
         )
+        if has_views:
+            for team in (self.team, next_team, child):
+                FileSystemViewLog.objects.create(team=team, user=self.user, type="dashboard", ref="1")
+            other_user = User.objects.create(email="other-viewer@example.com")
+            FileSystemViewLog.objects.create(team=child, user=other_user, type="dashboard", ref="1")
         expected_id = next_team.id if is_demo or pending_deletion else self.team.id
         with self._request_patches() as (_, actor, _, dispatch):
             response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
         actor.assert_called_once_with(expected_id)
+        self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], expected_id)
+
+    @parameterized.expand([(29, False), (30, False), (31, False), (29, True)])
+    @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
+    def test_selects_distinct_recent_viewers_unless_a_team_is_explicit(
+        self, days_ago: int, explicit_team: bool
+    ) -> None:
+        active_team = Team.objects.create(organization=self.organization, name="Active project")
+        other_user = User.objects.create(email="other-viewer@example.com")
+        for ref in ("1", "2", "3"):
+            FileSystemViewLog.objects.create(team=self.team, user=self.user, type="dashboard", ref=ref)
+        for user in (self.user, other_user):
+            FileSystemViewLog.objects.create(
+                team=active_team,
+                user=user,
+                type="dashboard",
+                ref="1",
+                viewed_at=timezone.now() - timedelta(days=days_ago),
+            )
+        payload: dict[str, object] = {"organization_id": str(self.organization.id)}
+        if explicit_team:
+            payload["team_id"] = self.team.id
+        expected_id = self.team.id if explicit_team or days_ago > 30 else active_team.id
+        with self._request_patches() as (_, _, _, dispatch):
+            response = self._post(payload)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["team_id"], expected_id)
         self.assertEqual(dispatch.return_value.call_args.kwargs["team_id"], expected_id)
 
     def test_rejects_an_organization_without_an_eligible_default_project(self) -> None:

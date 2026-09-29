@@ -11,7 +11,7 @@ export interface AccountAuditStartRequestApi {
     /** Organization that owns the target team. */
     organization_id: string
     /**
-     * Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion.
+     * Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.
      * @minimum 1
      */
     team_id?: number

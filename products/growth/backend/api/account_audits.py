@@ -6,7 +6,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import F
+from django.db.models import Count, F, FilteredRelation, Q
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -32,6 +32,7 @@ from products.workflows.backend.facade.api import is_workflow_active_for_owner
 MAX_BODY_BYTES = 4 * 1024
 SIGNATURE_TOLERANCE = timedelta(minutes=5)
 COOLDOWN = timedelta(days=7)
+PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
 SOURCE_TEAM_ID = 2
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class AccountAuditStartRequestSerializer(serializers.Serializer):
     organization_id = serializers.UUIDField(help_text="Organization that owns the target team.")
     team_id = serializers.IntegerField(
         required=False,
-        help_text="Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion.",
+        help_text="Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.",
         min_value=1,
     )
     reason = serializers.CharField(max_length=500, help_text="Why the account audit is being requested.")
@@ -122,7 +123,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
 
         if not self._credential_is_eligible(credential):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
-        team_id = self._resolve_team_id(payload)
+        team_id = self._resolve_team_id(payload, credential_id=credential.id, webhook_id=webhook_id)
         if team_id is None:
             return Response(status=status.HTTP_400_BAD_REQUEST)
         if not self._ai_processing_is_approved(organization_id):
@@ -258,13 +259,30 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         )
 
     @staticmethod
-    def _resolve_team_id(request: AccountAuditRequest) -> int | None:
+    def _resolve_team_id(request: AccountAuditRequest, *, credential_id: int, webhook_id: str) -> int | None:
         teams = Team.objects.filter(organization_id=request.organization_id).exclude(project__is_pending_deletion=True)
-        if request.team_id is not None:
-            return teams.filter(id=request.team_id).values_list("id", flat=True).first()
+        team_id = request.team_id
+        if team_id is None:
+            team_id = (
+                AccountAuditAdmission.objects.filter(
+                    credential_id=credential_id, webhook_id=webhook_id, organization_id=request.organization_id
+                )
+                .values_list("team_id", flat=True)
+                .first()
+            )
+        if team_id is not None:
+            return teams.filter(id=team_id).values_list("id", flat=True).first()
         return (
             teams.filter(id=F("project_id"), parent_team__isnull=True, is_demo=False)
-            .order_by("project__created_at", "id")
+            .alias(
+                recent_views=FilteredRelation(
+                    "filesystemviewlog",
+                    condition=Q(filesystemviewlog__viewed_at__gte=timezone.now() - PROJECT_ACTIVITY_WINDOW),
+                )
+            )
+            .values("id", "project__created_at")
+            .annotate(recent_active_users=Count("recent_views__user_id", distinct=True))
+            .order_by("-recent_active_users", "project__created_at", "id")
             .values_list("id", flat=True)
             .first()
         )

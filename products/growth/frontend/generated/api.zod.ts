@@ -21,7 +21,7 @@ export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe(
-            "Target team ID. Defaults to the organization's oldest non-demo root project that is not pending deletion."
+            'Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.'
         ),
     reason: zod
         .string()
