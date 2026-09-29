@@ -610,6 +610,46 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
 
+    @parameterized.expand(
+        [
+            ("create_insight_scope", None, {"scope": "dashboard_item"}, "dashboard_item"),
+            ("create_dashboard_scope", None, {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_to_insight_scope", "none", {"scope": "dashboard_item"}, "dashboard_item"),
+            ("patch_to_dashboard_scope", "none", {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_clears_insight", "insight", {"scope": "dashboard_item", "dashboard_item": None}, "dashboard_item"),
+            ("patch_keeps_stored_insight", "insight", {"scope": "dashboard_item"}, None),
+            ("patch_keeps_stored_dashboard", "dashboard", {"scope": "dashboard"}, None),
+            ("patch_without_scope_on_default_row", "none", {"content": "edited"}, None),
+        ]
+    )
+    def test_insight_and_dashboard_scopes_require_the_matching_id(
+        self, _name: str, existing_parent: str | None, payload: dict[str, Any], error_attr: str | None
+    ) -> None:
+        if existing_parent is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/annotations/",
+                {"content": "Scoped annotation", "date_marker": "2024-01-01T00:00:00.000000Z", **payload},
+            )
+        else:
+            annotation = Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_by=self.user,
+                content="Original annotation",
+                scope=Annotation.Scope.DASHBOARD if existing_parent == "dashboard" else Annotation.Scope.INSIGHT,
+                dashboard_item=Insight.objects.create(team=self.team) if existing_parent == "insight" else None,
+                dashboard=Dashboard.objects.create(team=self.team) if existing_parent == "dashboard" else None,
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/annotations/{annotation.id}/", payload, format="json"
+            )
+
+        if error_attr is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == error_attr
+
     def test_creating_annotation_with_insight_from_different_team_returns_400(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_insight = Insight.objects.create(team=other_team, name="Other Insight")

@@ -9,7 +9,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AnnotationCreateSchema = () => {
     const AnnotationsCreateBody = orvalSchemas.AnnotationsCreateBody()
-    return AnnotationsCreateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
+    return AnnotationsCreateBody.omit({ creation_type: true, deleted: true })
 }
 
 const annotationCreate = (): ToolBase<ReturnType<typeof AnnotationCreateSchema>, Schemas.Annotation> => ({
@@ -23,6 +23,12 @@ const annotationCreate = (): ToolBase<ReturnType<typeof AnnotationCreateSchema>,
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
@@ -130,12 +136,7 @@ const AnnotationsPartialUpdateSchema = () => {
     const AnnotationsPartialUpdateBody = orvalSchemas.AnnotationsPartialUpdateBody()
     const AnnotationsPartialUpdateParams = orvalSchemas.AnnotationsPartialUpdateParams()
     return AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-        AnnotationsPartialUpdateBody.omit({
-            creation_type: true,
-            dashboard_item: true,
-            dashboard_id: true,
-            deleted: true,
-        }).shape
+        AnnotationsPartialUpdateBody.omit({ creation_type: true, deleted: true }).shape
     )
 }
 
@@ -153,6 +154,12 @@ const annotationsPartialUpdate = (): ToolBase<
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
