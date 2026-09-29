@@ -1,7 +1,9 @@
 import re
+from pathlib import Path
 
 import pytest
 
+from django.conf import settings
 from django.test import override_settings
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
@@ -41,6 +43,56 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
 # Static-catalog sources with no curated descriptions at all: every table falls back to LLM
 # enrichment. Adding descriptions is an improvement, so drop the entry when one does.
 SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
+
+# Catalog icons are declared as a `/static/` URL and served from `frontend/public`.
+ICON_ROOT = Path(settings.BASE_DIR) / "frontend" / "public"
+
+# Sources whose declared icon has no file, so every catalog tile for them requests an image that
+# 404s and falls back to the placeholder hedgehog. Each entry is a logo to add, not an exemption.
+SOURCES_WITHOUT_AN_ICON_FILE = {
+    "AikidoSecurity",
+    "Appwrite",
+    "Backblaze",
+    "Baseten",
+    "BrowseAI",
+    "BrowserUse",
+    "Cohere",
+    "DenoDeploy",
+    "Fintoc",
+    "FlyIo",
+    "Groq",
+    "GrowthBook",
+    "Gumloop",
+    "Hatchet",
+    "Hetzner",
+    "HeyGen",
+    "KapaAI",
+    "Kernel",
+    "Linode",
+    "Maxio",
+    "Metriport",
+    "Mintlify",
+    "Mono",
+    "OpenRouter",
+    "Pinecone",
+    "PromptingCompany",
+    "Qdrant",
+    "RetellAI",
+    "Roark",
+    "ScaleAI",
+    "Sim",
+    "Skyvern",
+    "Slash",
+    "Synthesia",
+    "Telli",
+    "TerraApi",
+    "TriggerDev",
+    "Turso",
+    "TwelveLabs",
+    "Upstash",
+    "Vespa",
+    "Zep",
+}
 
 CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
 
@@ -195,3 +247,24 @@ def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
         is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
 
     assert not is_valid, f"{source_type} accepts a link-local host."
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
+def test_source_icon_file_exists(source_type):
+    icon_path = ALL_SOURCES[source_type].get_source_config.iconPath
+    assert icon_path.startswith(settings.STATIC_URL), (
+        f"{source_type} declares iconPath {icon_path!r}; catalog icons are served from {settings.STATIC_URL}."
+    )
+
+    exists = (ICON_ROOT / icon_path.removeprefix(settings.STATIC_URL)).is_file()
+    listed = str(source_type) in SOURCES_WITHOUT_AN_ICON_FILE
+
+    if listed:
+        assert not exists, f"{source_type} now ships its icon. Remove it from SOURCES_WITHOUT_AN_ICON_FILE."
+        return
+
+    assert exists, (
+        f"{source_type} declares iconPath {icon_path!r}, but no such file exists under "
+        f"frontend/public. Every catalog tile for it would request a 404 and fall back to the "
+        f"placeholder icon. Add the file, or correct the path."
+    )
