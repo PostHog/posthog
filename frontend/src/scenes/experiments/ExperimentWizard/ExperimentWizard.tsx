@@ -62,18 +62,19 @@ export function ExperimentWizard(): JSX.Element {
                     </LemonButton>
                 )}
             </div>
-            {!isImplementationStep && (
-                <p className="order-last m-0 w-full text-center text-xs text-muted @2xl:order-none @2xl:w-auto">
-                    Looking for no-code? They are created using the toolbar,{' '}
-                    <Link
-                        target="_blank"
-                        targetBlankIcon
-                        to="https://posthog.com/docs/experiments/no-code-web-experiments"
-                    >
-                        see no-code docs
-                    </Link>
-                </p>
-            )}
+            {/* Kept in place but hidden once saved, so the footer stays the same height on the implementation step */}
+            <p
+                className={cn(
+                    'order-last m-0 w-full text-center text-xs text-muted @2xl:order-none @2xl:w-auto',
+                    isImplementationStep && 'invisible'
+                )}
+                aria-hidden={isImplementationStep}
+            >
+                Looking for no-code? They are created using the toolbar,{' '}
+                <Link target="_blank" targetBlankIcon to="https://posthog.com/docs/experiments/no-code-web-experiments">
+                    see no-code docs
+                </Link>
+            </p>
             <div className="flex flex-1 basis-0 items-center justify-end gap-2">
                 {isImplementationStep ? (
                     <LemonButton
