@@ -194,6 +194,10 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub global_rate_limit_local_cache_idle_timeout_secs: u64,
 
+    /// Seconds reads (replica, then primary) must keep failing before a pod stops
+    /// limiting on its own unconfirmed counts. Unset uses each limiter's window; `0` disables.
+    pub global_rate_limit_max_read_outage_secs: Option<u64>,
+
     /// Timeout for a single global rate limiter Redis read command (milliseconds).
     #[envconfig(default = "250")]
     pub global_rate_limit_read_timeout_ms: u64,
