@@ -115,11 +115,12 @@ INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_e
 INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
 # Scoring sweep (products/signals/backend/ranking/sweep.py). Off by default: the schedule still
 # ticks, but the activity returns before it reads or writes anything. The max age keeps the vector
-# read inside a few weekly partitions and well inside the 3-month vector TTL. The per-tick cap
+# read inside one weekly partition and well inside the 3-month vector TTL. An older report keeps
+# its latest score and does not get a new score after a manifest change. The per-tick cap
 # makes the first run after enabling drain the backlog over several ticks.
 INBOX_RANKING_SCORING_ENABLED = get_from_env("INBOX_RANKING_SCORING_ENABLED", False, type_cast=str_to_bool)
 INBOX_RANKING_SCORING_INTERVAL_MINUTES = get_from_env("INBOX_RANKING_SCORING_INTERVAL_MINUTES", 15, type_cast=int)
-INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 30, type_cast=int)
+INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 7, type_cast=int)
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
