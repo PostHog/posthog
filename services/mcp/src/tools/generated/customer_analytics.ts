@@ -12,6 +12,7 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
+    pickResponseFields,
     withInformationalResponse,
     omitResponseFields,
     type WithPostHogUrl,
@@ -99,7 +100,13 @@ const accountRelationshipDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'is_single_holder'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
@@ -320,7 +327,18 @@ const accountsList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/customer_analytics/accounts/${item.id}`)
+                    )
+                ),
+            },
+            '/customer_analytics'
+        )
     },
 })
 
@@ -843,7 +861,20 @@ const customPropertyDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'display_type',
+                    'target_type',
+                    'group_type_index',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
