@@ -601,6 +601,41 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
     )
 
 
+# Every field carries a default because DigestRun.summary is a JSON blob whose shape grew over time.
+# A run stored before a key existed, or one that never summarized anything ({}), still renders.
+class _DigestSummaryPRSerializer(serializers.Serializer):
+    """One merged pull request as the digest listed it."""
+
+    pr_number = serializers.IntegerField(read_only=True, default=0, help_text="Pull request number on GitHub.")
+    title = serializers.CharField(read_only=True, default="", help_text="Pull request title.")
+    url = serializers.CharField(read_only=True, default="", help_text="Full URL to the pull request on GitHub.")
+    author_login = serializers.CharField(
+        read_only=True, default="", help_text="GitHub login of the pull request author."
+    )
+    summary = serializers.CharField(
+        read_only=True, default="", help_text="The one-line summary of the change that the digest posted."
+    )
+    repository = serializers.CharField(
+        read_only=True, default="", help_text="Repository full name, e.g. 'PostHog/posthog'. Blank on older runs."
+    )
+
+
+class _DigestSummarySerializer(serializers.Serializer):
+    """What the digest posted to Slack: the headline and the pull requests it listed."""
+
+    headline = serializers.CharField(
+        read_only=True,
+        default="",
+        help_text="Prose about the merges with real consequence. Blank when the digest led with its first line.",
+    )
+    prs = _DigestSummaryPRSerializer(
+        many=True,
+        read_only=True,
+        default=list,
+        help_text="The merged pull requests the digest listed, in the order it listed them.",
+    )
+
+
 @extend_schema_serializer(component_name="DigestRun")
 class DigestRunSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
@@ -623,9 +658,17 @@ class DigestRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="When the digest was posted to Slack, if it was.",
     )
-    # The rendered summary is deliberately NOT exposed here: it's generated from each PR's body_excerpt,
-    # so it reproduces repository content a project member without GitHub repo access must not read. It
-    # lives only in the Slack post (whose audience already has channel access).
+    # The digest writes each line from the PR title and the reviewer's change_summary, never from the
+    # PR body. Both already reach any project member through the pull request and review run APIs, so
+    # this exposes no repository content those do not. Keep body_excerpt out of the digest prompt, or
+    # this field starts to leak it.
+    summary = _DigestSummarySerializer(
+        read_only=True,
+        help_text=(
+            "What the digest posted: its headline and the merged pull requests it listed. "
+            "Both are empty on a run with nothing to post."
+        ),
+    )
 
     class Meta:
         dataclass = contracts.DigestRunDTO
@@ -637,6 +680,7 @@ class DigestRunSerializer(DataclassSerializer):
             "resolution_source",
             "status",
             "pr_count",
+            "summary",
             "slack_message_ts",
             "error",
             "created_at",
