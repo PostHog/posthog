@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.db.utils import IntegrityError
+from django.http import HttpRequest
 from django.test import override_settings
 from django.utils import timezone
 
@@ -462,27 +463,27 @@ class _ServiceJWTAuthentication(ScopedServiceJWTAuthentication):
 class TestBearerAuthenticationReplacesSessionActor(BaseTest):
     def _authenticator_and_request(
         self, credential_type: str
-    ) -> tuple[BaseAuthentication, Request, User | None, str | None]:
+    ) -> tuple[BaseAuthentication, HttpRequest, User | None, str | None]:
         factory = APIRequestFactory()
         if credential_type == "project_secret_key":
             psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
             request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return ProjectSecretAPIKeyAuthentication(), Request(request), None, psak.id
+            return ProjectSecretAPIKeyAuthentication(), request, None, psak.id
         if credential_type == "personal_api_key":
             token = generate_random_token_personal()
             pak = PersonalAPIKey.objects.create(
                 label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
             )
             request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return PersonalAPIKeyAuthentication(), Request(request), self.user, pak.id
+            return PersonalAPIKeyAuthentication(), request, self.user, pak.id
         if credential_type == "service_jwt":
             token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
             request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return _ServiceJWTAuthentication(), Request(request), None, PosthogJwtAudience.RECORDING_API.value
+            return _ServiceJWTAuthentication(), request, None, PosthogJwtAudience.RECORDING_API.value
         if credential_type == "sharing_access_token":
             sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
             request = factory.get("/", {"sharing_access_token": sharing_configuration.access_token})
-            return SharingAccessTokenAuthentication(), Request(request), None, str(sharing_configuration.id)
+            return SharingAccessTokenAuthentication(), request, None, str(sharing_configuration.id)
         if credential_type == "sharing_password":
             sharing_configuration = SharingConfiguration.objects.create(
                 team=self.team, enabled=True, password_required=True
@@ -492,9 +493,9 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
             )
             token = sharing_configuration.generate_password_protected_token(share_password)
             request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
-            return SharingPasswordProtectedAuthentication(), Request(request), None, str(share_password.id)
+            return SharingPasswordProtectedAuthentication(), request, None, str(share_password.id)
         request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
-        return InternalAPIAuthentication(), Request(request), None, None
+        return InternalAPIAuthentication(), request, None, None
 
     @parameterized.expand(
         [
@@ -515,7 +516,7 @@ class TestBearerAuthenticationReplacesSessionActor(BaseTest):
         activity_storage.set_was_impersonated(True)
         activity_storage.set_credential(ActivityCredential(type="session", id="session-id", impersonated_by_id=1))
         try:
-            authenticator.authenticate(request)
+            authenticator.authenticate(Request(request))
             log = log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
