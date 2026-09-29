@@ -248,8 +248,8 @@ class ResolveActingUserResult:
     # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
     # new workflow command; old runs must never reach it on replay). The model default is True.
     resolve_comments: bool = False
-    # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True —
-    # the model default — so pre-field histories keep the media and a resolve failure falls back to it.
+    # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
+    # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
     celebrate_clean_reviews: bool = True
     review_authored_prs: bool = False
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
@@ -693,11 +693,14 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
+    # Resolved even on override runs: the clean-review media switch keys off "is the acting user the
+    # PR author", which needs the mapped author identity regardless of how the acting user was chosen.
+    author_user_id = _login_to_user_id(input.team_id, input.author_login)
     acting_user_id: int | None
     if input.override_user_id is not None:
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = _login_to_user_id(input.team_id, input.author_login), "author"
+        acting_user_id, resolved_from = author_user_id, "author"
         # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
         # the trigger already resolved. Other triggers keep the author-only contract and skip.
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
@@ -738,9 +741,13 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
         # switch never governs someone else's PR — an unmapped author gets the default posture (on).
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
-        # Same author-protection shape as the personal switches above: the borrowed default user's
-        # own preference never governs someone else's PR, so a borrowed run gets the default (on).
-        celebrate_clean_reviews=settings.celebrate_clean_reviews if resolved_from in ("author", "override") else True,
+        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
+        # it to "your pull requests". An override run by someone else on their PR gets the default.
+        celebrate_clean_reviews=(
+            settings.celebrate_clean_reviews
+            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
+            else True
+        ),
         review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
         flash_reasoning_effort=(
             str(settings.flash_reasoning_effort)

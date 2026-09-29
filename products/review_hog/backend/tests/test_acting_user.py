@@ -189,6 +189,7 @@ class TestResolveActingUser(BaseTest):
             user_id=self.user.id,
             urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
             flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
+            celebrate_clean_reviews=False,
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
@@ -197,6 +198,18 @@ class TestResolveActingUser(BaseTest):
         )
         assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
         assert as_author.flash_reasoning_effort == "xhigh"
+        # The media switch follows the author: an override that IS the mapped author (a UI
+        # self-review) keeps the saved value...
+        as_author_override = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=self.user.id,
+                trigger_source=TRIGGER_LABEL,
+            )
+        )
+        assert as_author_override.celebrate_clean_reviews is False
+        # ...while an override by someone else (a UI requester on a teammate's PR) does not.
         as_override = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id, author_login="ghost", override_user_id=self.user.id, trigger_source=TRIGGER_LABEL
@@ -204,6 +217,7 @@ class TestResolveActingUser(BaseTest):
         )
         assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
         assert as_override.flash_reasoning_effort == "xhigh"
+        assert as_override.celebrate_clean_reviews is True
         as_default = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
