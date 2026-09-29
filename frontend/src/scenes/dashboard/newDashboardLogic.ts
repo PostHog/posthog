@@ -14,11 +14,11 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -257,7 +257,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect(() => ({
-        logic: [dashboardsModel, eventUsageLogic],
+        logic: [dashboardsModel],
     })),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
@@ -421,7 +421,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 
-                eventUsageLogic.actions.reportWebDashboardCreatedFromTemplate({
+                posthog.capture('dashboard created from template', {
                     dashboard_id: result.id,
                     template_id: template.id,
                     template_name: template.template_name,

@@ -3,7 +3,7 @@ import json
 import uuid
 import functools
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -25,6 +25,7 @@ import psycopg
 import pyarrow as pa
 import aioboto3
 import deltalake
+import structlog
 import pytest_asyncio
 import pyarrow.parquet as pq
 import posthoganalytics
@@ -95,6 +96,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient as PostHogRESTClient,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     XminBounds,
     _TableChunking,
@@ -454,7 +459,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -492,7 +497,14 @@ async def _run(
             # so that case only checks storage_delta_mib was computed at all, above.
             assert run.storage_delta_mib != 0
 
-        mock_compact_table.assert_called()
+        if existing_schema_id is not None:
+            # A genuine re-sync also runs the pre-write defensive maintenance pass (see
+            # DeltaMaintenance.run_scheduled's callers in pipeline_v2/pipeline_v3), so both that call
+            # and the post-load call must land — asserting only "called" would still pass if the
+            # post-load call were dropped, since the pre-write call alone satisfies it.
+            assert mock_run_scheduled.call_count == 2
+        else:
+            mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
             source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
         )
@@ -2346,6 +2358,13 @@ _COARSEN_FLAGS_ON = (
     ".is_auto_repartition_enabled",
     "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
     ".is_auto_coarsen_enabled",
+    # `repartition_activity_has_work` (used by job creation to decide whether to schedule the
+    # activity at all) calls the module-local `is_auto_repartition_enabled` binding inside
+    # `repartition_controller`, a separate name from the one `repartition_table` imported for its
+    # own use above. Patching only the latter leaves job creation seeing the real (disabled) flag,
+    # so organic pre-extraction detection never gets scheduled and coarsening never runs.
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+    ".is_auto_repartition_enabled",
 )
 
 
@@ -2439,7 +2458,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert len(ids_before) == len(timestamps)
 
     # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2455,7 +2478,11 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
 
     # And it must settle: a table just coarsened must not be split straight back on the next sync.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2593,7 +2620,11 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
     ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2679,7 +2710,11 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
     assert len(ids_before) == 320
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with (
+        mock.patch(_COARSEN_FLAGS_ON[0], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[1], return_value=True),
+        mock.patch(_COARSEN_FLAGS_ON[2], return_value=True),
+    ):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3269,7 +3304,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -4354,7 +4389,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4545,7 +4580,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4673,6 +4708,107 @@ async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connec
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
     assert [row[0] for row in res.results] == [1, 2, 3]
+
+
+def _keyset_source_inputs(team_id: int, schema_name: str, job_id: str) -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id=str(uuid.uuid4()),
+        source_id=str(uuid.uuid4()),
+        team_id=team_id,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id=job_id,
+        logger=structlog.get_logger(),
+        reset_pipeline=False,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh_keyset_pages_whole_table(team, mysql_config, mysql_connection):
+    """A full-refresh load over an integer primary key pages via keyset (seek) pagination and lands
+    every row. A tiny chunk size forces several pages so the pagination itself is exercised end to
+    end through the real pipeline, not just the first page."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS keyset_full", None),
+            ("CREATE TABLE keyset_full (id INT PRIMARY KEY, payload VARCHAR(64))", None),
+            *[(f"INSERT INTO keyset_full VALUES ({i}, 'row-{i}')", None) for i in range(1, 6)],
+        ],
+    )
+
+    # chunk_size 2 over 5 rows -> keyset pages of [2, 2, 1].
+    # `ignore_assertions` skips `_run`'s single-row expectation (the other MySQL tests load one row);
+    # the multi-row assertion below is what proves keyset paging landed the whole table.
+    with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
+        await _run(
+            team=team,
+            schema_name="keyset_full",
+            table_name="mysql_keyset_full",
+            source_type="MySQL",
+            job_inputs=_mysql_job_inputs(mysql_config),
+            mock_data_response=[],
+            ignore_assertions=True,
+        )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, payload FROM mysql_keyset_full ORDER BY id", team)
+    assert [(row[0], row[1]) for row in res.results] == [(i, f"row-{i}") for i in range(1, 6)]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mysql_connection):
+    """With a keyset checkpoint already persisted (as a prior pod would have left it), the source
+    resumes the load from `WHERE id > checkpoint` and re-reads nothing at or below it. This is the
+    property that makes a bailed-and-resumed full load safe: no skipped or duplicated rows."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS keyset_resume", None),
+            ("CREATE TABLE keyset_resume (id INT PRIMARY KEY, payload VARCHAR(64))", None),
+            *[(f"INSERT INTO keyset_resume VALUES ({i}, 'row-{i}')", None) for i in range(1, 8)],
+        ],
+    )
+
+    with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
+        source = MySQLSource()
+        config = source.parse_config(_mysql_job_inputs(mysql_config))
+        inputs = _keyset_source_inputs(team_id=team.pk, schema_name="keyset_resume", job_id=str(uuid.uuid4()))
+        manager = source.get_resumable_source_manager(inputs)
+
+        # Simulate the checkpoint a previous pod committed just before it drained. The commit is what
+        # puts it in Redis — `save_state` only stages — and `can_resume()` reads Redis.
+        await sync_to_async(manager.save_state)(KeysetResumeState(last_key=3))
+        await sync_to_async(manager.commit)()
+
+        # A small chunk keeps resumption paging rather than one-shotting the tail.
+        with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
+            source_response = await sync_to_async(source.source_for_pipeline)(config, manager, inputs)
+
+            def _collect_ids() -> list[int]:
+                ids: list[int] = []
+                items = source_response.items()
+                assert not isinstance(items, AsyncIterable)  # the keyset MySQL source yields a sync iterable
+                for table in items:
+                    ids.extend(v.as_py() for v in table.column("id"))
+                return ids
+
+            ids = await sync_to_async(_collect_ids)()
+
+        # The source walked the table to the end, so it drops its own checkpoint — the next
+        # scheduled sync starts from the top rather than resuming past row 7.
+        walked_to_completion = not await sync_to_async(manager.can_resume)()
+
+        await sync_to_async(manager.clear_state)()
+
+    assert ids == [4, 5, 6, 7]  # rows 1..3 (<= checkpoint) are never re-read; 4..7 arrive once, in order
+    assert source_response.supports_resume is True
+    assert walked_to_completion
 
 
 @pytest.mark.django_db(transaction=True)

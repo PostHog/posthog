@@ -7,6 +7,12 @@ Notable changes to the `owners-yaml` package. The format follows
 `publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
+## Unreleased
+
+### Added
+
+- The resolution of a path that the resolver's tree does not hold carries `added`: the first part of the path, from the root, that the tree does not hold as a directory, and the owners of additions there. Resolved against the tree before a change, this names the new directory for every file a change adds, so a consumer can use `additions` without its own tree walk. `null` when the tree holds the path, or when the resolver reads only ownership files. SPEC sections 4 and 7.2 define it.
+
 ## 0.3.0
 
 ### Added
