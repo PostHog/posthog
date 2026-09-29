@@ -257,11 +257,9 @@ Rows a merge stranded before `sharded_flag_evaluations` joined the squash age ou
 `flag_evaluations_backfill_job` (`posthog/dags/flag_evaluations_backfill.py`) is a second producer.
 It copies `person_id` from `sharded_events`, so its rows meet the same parity.
 It leaves `inserted_at` to the column default, which is the event `timestamp`, so every copied row sits inside the `inserted_at` bound of any request made after its event.
-Before each day it waits while a `squash_person_overrides`, `deletes_job` or data deletion request run is queued or executing.
+It does not copy a day while a `squash_person_overrides`, `deletes_job` or data deletion request run is queued or executing.
 A day copied during one of them can read a row before the job rewrites it and insert it after the job sweeps `sharded_flag_evaluations`, which keeps what the job removed.
-The wait cannot stop a run that starts while a day copies, so after each day the shard stops if one of those runs started during the copy.
-The check also runs when a copy fails, because an insert that fails partway keeps the parts it already wrote.
-The error names the day and the repair: after that run finishes, delete the rows the backfill copied for that day on that shard, which carry `inserted_at = timestamp`, and run the backfill again.
+When one of those runs starts during a copy, the shard stops, and its error names the rows to delete before the backfill runs again.
 
 ## Related, and deliberately unchanged
 

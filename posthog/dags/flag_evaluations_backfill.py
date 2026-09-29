@@ -53,16 +53,19 @@ _FINISHED_RUN_STATUSES = (
 # and it keeps copied rows out of the consumer-lag query below.
 _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp"
 
-# A copied row's inserted_at is its timestamp, and the window ends no later than the start of
-# yesterday, so every row this query reads arrived through the Kafka path.
+# A copied row's inserted_at is its timestamp, so the inserted_at != timestamp filter limits this
+# query to rows that arrived through the Kafka path.
 # Rows from every Kafka partition reach every shard. The slowest partition therefore sets the
-# consumer's position. A partition that has delivered nothing for a day drops out of this query.
+# consumer's position. The lookback spans several days so that a partition that stops delivering
+# stays in the query and reports its real lag. A partition that has delivered nothing for the whole
+# lookback drops out of this query.
+_KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
     SELECT _partition, dateDiff('second', max(inserted_at), now64(6)) AS lag_seconds
     FROM {FLAG_EVALUATIONS_DATA_TABLE}
-    WHERE inserted_at >= now() - INTERVAL 1 DAY
+    WHERE inserted_at >= now() - INTERVAL {_KAFKA_LOOKBACK_DAYS} DAY AND inserted_at != timestamp
     GROUP BY _partition
 )
 """
@@ -362,12 +365,16 @@ class ShardBackfill:
             if run not in check.finished_runs
         ]
         if started:
+            # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
+            team_filter = (
+                f" AND team_id IN ({', '.join(map(str, self.config.team_ids))})" if self.config.team_ids else ""
+            )
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: {'; '.join(started)} started while {day} copied. "
                 "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
                 f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
                 f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
-                "AND inserted_at = timestamp`), then run the backfill again."
+                f"AND inserted_at = timestamp{team_filter}`), then run the backfill again for the same teams."
             )
 
     def check_disk_headroom(self) -> None:
@@ -401,7 +408,7 @@ class ShardBackfill:
         if kafka_partitions == 0:
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: no row reached {FLAG_EVALUATIONS_DATA_TABLE} "
-                "through Kafka in the last day, so the consumer position is unknown."
+                f"through Kafka in the last {_KAFKA_LOOKBACK_DAYS} days, so the consumer position is unknown."
             )
         if lag_seconds > self.config.max_consumer_lag_seconds:
             raise dagster.Failure(

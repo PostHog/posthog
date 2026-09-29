@@ -31,7 +31,7 @@ from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 
 TEAM_ONE, TEAM_TWO, TEAM_THREE = 1, 2, 3
 
@@ -123,9 +123,10 @@ SOURCE_EVENTS = [
     flag_called("past_retention", TEAM_ONE, timedelta(days=91)),
 ]
 
-# The job stops unless flag_evaluations holds a row inserted within the consumer-lag limit, because
-# only such a row shows that the Kafka path has delivered everything up to the copy window. This
-# row stands in for that traffic, and its age sets the lag that the job reads.
+# The job stops unless each Kafka partition in flag_evaluations delivered a row within the
+# consumer-lag limit, because only such rows show that the Kafka path has delivered everything up to
+# the copy window. Rows with this identity stand in for that traffic. Their ages set the lag that
+# the job reads.
 KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timedelta(0), properties={})
 
 SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
@@ -176,6 +177,33 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
 def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: SourceEvent) -> None:
     row = (event.team_id, event.distinct_id, uuid5(NAMESPACE_URL, event.distinct_id), event.uuid, now - event.age)
     cluster.any_host(partial(insert_flag_evaluations, [row])).result()
+
+
+def seed_kafka_path_row(
+    cluster: ClickhouseCluster, now: datetime, age: timedelta = timedelta(0), partition: int = 0
+) -> None:
+    # The lag check skips rows whose inserted_at equals their timestamp, because the backfill copies
+    # rows that way. A Kafka row arrives after its event, so its inserted_at is later.
+    inserted_at = now - age
+    row = (
+        KAFKA_PATH_ROW.team_id,
+        KAFKA_PATH_ROW.distinct_id,
+        uuid5(NAMESPACE_URL, KAFKA_PATH_ROW.distinct_id),
+        KAFKA_PATH_ROW.uuid,
+        inserted_at - timedelta(seconds=1),
+        inserted_at,
+        partition,
+    )
+
+    def insert(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_flag_evaluations
+            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _partition)
+            VALUES""",
+            [row],
+        )
+
+    cluster.any_host(insert).result()
 
 
 def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
@@ -250,7 +278,7 @@ def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     seed_source_events(cluster, now, SOURCE_EVENTS)
     seed_flag_evaluation(cluster, now, ALREADY_FORKED)
     seed_flag_evaluation(cluster, now, SAME_UUID_OTHER_TEAM)
-    seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
+    seed_kafka_path_row(cluster, now)
 
     results = [run_backfill(cluster, **config_for(now)) for _ in reported_rows]
 
@@ -288,7 +316,7 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
         INSIDE_RECENT, age=now - datetime.combine(now.date() - timedelta(days=2), time(12), tzinfo=UTC)
     )
     seed_source_events(cluster, now, [on_first_copied_day])
-    seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
+    seed_kafka_path_row(cluster, now)
     instance = dagster.DagsterInstance.ephemeral()
     # Dagster refuses to store a QUEUED run that has no code location origin.
     origin = RemoteJobOrigin(
@@ -316,23 +344,37 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
     assert stored_rows(cluster) == Counter([copied(on_first_copied_day)])
 
 
+REPAIR_DELETE = (
+    f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '2026-03-10' AND inserted_at = timestamp"
+)
+
+
 @pytest.mark.parametrize(
-    "status, created_before_the_check, stops",
+    "status, created_before_the_check, team_ids, repair",
     [
-        pytest.param(dagster.DagsterRunStatus.STARTED, False, True, id="started_during_the_copy"),
-        pytest.param(dagster.DagsterRunStatus.SUCCESS, False, True, id="finished_during_the_copy"),
-        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, False, id="not_started_yet"),
-        pytest.param(dagster.DagsterRunStatus.CANCELED, True, False, id="finished_before_the_check"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, False, None, f"`{REPAIR_DELETE}`", id="started_during_the_copy"),
+        pytest.param(
+            dagster.DagsterRunStatus.SUCCESS, False, None, f"`{REPAIR_DELETE}`", id="finished_during_the_copy"
+        ),
+        pytest.param(
+            dagster.DagsterRunStatus.STARTED,
+            False,
+            [TEAM_TWO, TEAM_THREE],
+            f"`{REPAIR_DELETE} AND team_id IN ({TEAM_TWO}, {TEAM_THREE})`",
+            id="started_during_a_team_scoped_copy",
+        ),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, None, None, id="not_started_yet"),
+        pytest.param(dagster.DagsterRunStatus.CANCELED, True, None, None, id="finished_before_the_check"),
     ],
 )
 def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
-    status: dagster.DagsterRunStatus, created_before_the_check: bool, stops: bool
+    status: dagster.DagsterRunStatus, created_before_the_check: bool, team_ids: list[int] | None, repair: str | None
 ) -> None:
     instance = dagster.DagsterInstance.ephemeral()
     backfill = ShardBackfill(
         cluster=MagicMock(),
         shard_num=1,
-        config=FlagEvaluationsBackfillConfig(),
+        config=FlagEvaluationsBackfillConfig(team_ids=team_ids),
         instance=instance,
         run_id="backfill-run",
         log=MagicMock(),
@@ -346,11 +388,12 @@ def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
     if not created_before_the_check:
         instance.create_run_for_job(job_def=deletes_job, status=status)
 
-    if stops:
-        with pytest.raises(dagster.Failure, match="2026-03-10"):
-            backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
-    else:
+    if repair is None:
         backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
+    else:
+        with pytest.raises(dagster.Failure) as failure:
+            backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
+        assert repair in str(failure.value.description)
 
 
 @pytest.mark.django_db
@@ -362,7 +405,7 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
 ) -> None:
     now = datetime.now(UTC)
     seed_source_events(cluster, now, [INSIDE_RECENT])
-    seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
+    seed_kafka_path_row(cluster, now)
     instance = dagster.DagsterInstance.ephemeral()
     copy_day = ShardBackfill.copy_day
 
@@ -422,21 +465,23 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "overrides, kafka_path_row_age",
+    "overrides, kafka_path_row_ages",
     [
-        pytest.param({"min_free_bytes": 1 << 60}, timedelta(0), id="free_space_below_the_floor"),
+        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], id="free_space_below_the_floor"),
         pytest.param(
-            {"max_consumer_lag_seconds": 3600}, timedelta(hours=2), id="kafka_path_behind_by_more_than_the_limit"
+            {"max_consumer_lag_seconds": 3600}, [timedelta(hours=2)], id="kafka_path_behind_by_more_than_the_limit"
         ),
-        pytest.param({}, timedelta(days=2), id="kafka_path_silent_for_over_a_day"),
+        pytest.param({}, [timedelta(0), timedelta(days=2)], id="one_kafka_partition_silent_for_over_a_day"),
+        pytest.param({}, [timedelta(days=8)], id="kafka_path_silent_for_the_whole_lookback"),
     ],
 )
 def test_backfill_fails_without_copying_when_a_safety_check_fails(
-    cluster: ClickhouseCluster, overrides: dict[str, Any], kafka_path_row_age: timedelta
+    cluster: ClickhouseCluster, overrides: dict[str, Any], kafka_path_row_ages: list[timedelta]
 ) -> None:
     now = datetime.now(UTC)
     seed_source_events(cluster, now, [INSIDE_RECENT])
-    seed_flag_evaluation(cluster, now, replace(KAFKA_PATH_ROW, age=kafka_path_row_age))
+    for partition, age in enumerate(kafka_path_row_ages):
+        seed_kafka_path_row(cluster, now, age=age, partition=partition)
 
     result = run_backfill(cluster, **overrides)
 
