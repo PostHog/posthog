@@ -21,7 +21,7 @@ _INCREMENTAL_FIELD_PREFERENCE = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SourceSchema:
     name: str
     supports_incremental: bool

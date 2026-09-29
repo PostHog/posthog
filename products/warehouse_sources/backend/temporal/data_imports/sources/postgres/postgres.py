@@ -1600,7 +1600,7 @@ def _schemas_from_conn(
 
 def _row_estimates_from_conn(
     connection: psycopg.Connection, cursor: psycopg.Cursor, schema_placeholders: str, schema_params: dict[str, str]
-) -> dict[tuple[str, str], int]:
+) -> dict[tuple[str, str], int]:  # nosemgrep: tuple-return-prefer-dataclass -- a dict key, not a positional result
     """The catalog's row estimate per (schema, table), for the HogQL cost planner.
 
     ``reltuples`` is what the planner keeps after ANALYZE and is -1 before the first one; the stats
