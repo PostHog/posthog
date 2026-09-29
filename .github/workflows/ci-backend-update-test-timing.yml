@@ -450,3 +450,82 @@ jobs:
                   # The per-segment files are absent when their multi-run average failed.
                   if-no-files-found: error
                   retention-days: 30
+
+    find-events-json-recording:
+        name: Find the newest events_json recording
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            run_id: ${{ steps.find-run.outputs.run_id }}
+            revision: ${{ steps.find-run.outputs.revision }}
+            cached: ${{ steps.cached.outputs.cache-hit }}
+        steps:
+            - name: Find the newest scheduled Backend CI run with recordings
+              id: find-run
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Only the scheduled runs that take the events_json rows record. A successful
+                  # one carries every shard's recording, because a shard that wrote none fails.
+                  # Without the created filter the API can return runs that are weeks old.
+                  cutoff=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
+                  gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=10&created=>=$cutoff" \
+                      --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' | while read -r id sha; do
+                      count=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?per_page=100" \
+                          --jq '[.artifacts[] | select((.name | startswith("events-schema-record-")) and .expired == false)] | length' | jq -s add)
+                      if [ "${count:-0}" -gt 0 ]; then
+                          echo "Using run $id at $sha, with $count recordings"
+                          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+                          echo "revision=$sha" >> "$GITHUB_OUTPUT"
+                          break
+                      fi
+                  done
+                  if ! grep -q '^run_id=' "$GITHUB_OUTPUT"; then
+                      echo "::error::No recent successful scheduled Backend CI run has events_json recordings, so the prune manifest stays as it is"
+                      exit 1
+                  fi
+
+            - name: Check whether that run's manifest is cached
+              id: cached
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ steps.find-run.outputs.run_id }}
+                  lookup-only: true
+
+    rebuild-events-schema-prune-manifest:
+        name: Rebuild the events_json prune manifest
+        needs: find-events-json-recording
+        if: needs.find-events-json-recording.outputs.cached != 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            RUN_ID: ${{ needs.find-events-json-recording.outputs.run_id }}
+            REVISION: ${{ needs.find-events-json-recording.outputs.revision }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Build the manifest
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # The manifest digests each test file at the recorded revision, so a file that
+                  # changed since then runs in full until a newer recording replaces the manifest.
+                  git fetch --no-tags --depth=1 origin "$REVISION"
+                  gh run download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+                  uv run --no-project --with pytest python posthog/test/events_schema_prune.py \
+                      --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --revision "$REVISION" \
+                      --output events-schema-prune.json events-schema-records/*/events-schema-record.json
+
+            - name: Save the manifest to the Actions cache
+              # ci-backend's turbo-discover restores the newest entry by the
+              # posthog-events-schema-prune- prefix and pins it for every shard of the run.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ env.RUN_ID }}
