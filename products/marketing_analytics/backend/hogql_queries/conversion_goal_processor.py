@@ -93,6 +93,12 @@ class _FieldChainFinder(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         self.names.update(str(part) for part in node.chain)
 
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        # `person.properties['$virt_revenue']` names the property as a subscript, not in the field chain.
+        if isinstance(node.property, ast.Constant) and isinstance(node.property.value, str):
+            self.names.add(node.property.value)
+        super().visit_array_access(node)
+
 
 # kw_only off: the TRACKED_FIELDS table below reads as a table, one positional row per field.
 @frozen(kw_only=False)
