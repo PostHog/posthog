@@ -351,6 +351,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 10,
     paddingVertical: 12,
+    marginTop: 8,
     marginBottom: 8,
     borderRadius: 20,
     backgroundColor: colors.surface,
