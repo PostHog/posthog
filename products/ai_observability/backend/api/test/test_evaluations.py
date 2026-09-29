@@ -811,6 +811,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
 
+    @parameterized.expand([("decision_model", "typesafe/jev-1.13", 400), ("chat_model", "openai/gpt-4o", 201)])
+    def test_llm_judge_creation_rejects_openrouter_non_chat_model(self, _name, model, expected_status):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+            return_value=frozenset({"typesafe/jev-1.13"}),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "OpenRouter judge",
+                    "enabled": False,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test"},
+                    "output_type": "boolean",
+                    "model_configuration": {"provider": "openrouter", "model": model},
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.data["attr"], "model_configuration")
+
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
         payload: dict[str, object] = {
@@ -1885,9 +1908,9 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
     that put it there is resolved — otherwise the next workflow run just re-disables it for the
     same reason. Matters for agent callers who can't see a red banner."""
 
-    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None):
+    def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None, provider="openai"):
         mc = LLMModelConfiguration.objects.create(
-            team=self.team, provider="openai", model=model, provider_key=provider_key
+            team=self.team, provider=provider, model=model, provider_key=provider_key
         )
         eval_obj = Evaluation.objects.create(
             team=self.team,
@@ -2004,6 +2027,34 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
         self.assertIsNone(eval_obj.status_reason)
+
+    def test_rejects_re_enable_when_model_still_not_supported(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openrouter",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-or-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(
+            status_reason="model_not_supported", model="typesafe/jev-1.13", provider_key=key, provider="openrouter"
+        )
+
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+            return_value=frozenset({"typesafe/jev-1.13"}),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {"enabled": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "model_configuration")
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
         key = LLMProviderKey.objects.create(

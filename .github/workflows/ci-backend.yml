@@ -39,7 +39,9 @@ on:
         # The events_json leg runs wherever the legacy tests run, the hourly master run
         # included: the paths in .github/new-events-schema-targets.txt rerun against the
         # native-JSON events table, all of them on full runs and the reached ones on
-        # narrowed runs. The `test-new-events-schema` label opts a PR into the doubled
+        # narrowed runs. A PR whose product-only change forced the full run reruns only
+        # that product's paths, because the merge queue runs the whole list before merge.
+        # The `test-new-events-schema` label opts a PR into the doubled
         # matrices that run the whole suite in both events schemas, in place of that leg.
         # Apply it before a push or ready_for_review because label events do not start
         # this workflow. Manual dispatches also run both modes.
@@ -1862,9 +1864,10 @@ jobs:
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
 
-                      # Only show SQL for new migrations, not modifications to existing ones
-                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
-                        echo "Skipping $file (already exists on base branch)"
+                      # A stacked PR can carry master's migration at this path. Keep a
+                      # conflicting version visible even when master has the same path.
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git diff --quiet origin/master HEAD -- "$file"; then
+                        echo "Skipping $file (already exists on the base branch or matches master)"
                         continue
                       fi
 
@@ -2226,21 +2229,34 @@ jobs:
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
 
-            - name: Check CH migrations
+            - name: List this PR's ClickHouse migrations
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  set -euo pipefail
+                  export LC_ALL=C
                   DIFF_BASE=origin/master
-                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
-                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
-                          DIFF_BASE="origin/$BASE_REF"
-                      else
-                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                  if [ -n "$BASE_SHA" ]; then
+                      if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+                          git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
                       fi
+                      DIFF_BASE="$BASE_SHA"
                   fi
-                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  ch_migrations() {
+                      # Migrations share most of their text, so rename detection would pair this PR's
+                      # migration with one master added later and report it as R, dropping it here.
+                      git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- 'posthog/clickhouse/migrations/[0-9]*' | sort
+                  }
+                  ch_migrations A origin/master > "$RUNNER_TEMP/ch-master-added.txt"
+                  ch_migrations AM origin/master > "$RUNNER_TEMP/ch-master-changed.txt"
+                  # A stacked branch can carry master's migrations, and master can edit one later.
+                  # Only a file that master lacks counts as this PR's addition.
+                  ch_migrations A "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-added.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
+                  ch_migrations AM "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-changed.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
+                  cat "$RUNNER_TEMP/ch-migrations-changed.txt"
+
+            - name: Check CH migrations
+              run: python manage.py test_ch_migrations_are_safe < "$RUNNER_TEMP/ch-migrations-added.txt"
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2253,7 +2269,7 @@ jobs:
               id: render_ch_sql
               if: github.event_name == 'pull_request'
               run: |
-                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  CHANGED=$(cat "$RUNNER_TEMP/ch-migrations-changed.txt")
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
                       echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -2829,8 +2845,14 @@ jobs:
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS, JsonTargets=$JSON_TARGETS_FULL_SHARDS"
                       fi
-                      # A full run takes every listed events_json path.
+                      # A full run takes every listed events_json path, unless discovery
+                      # shortened the list: a skipped product, or a product-only diff whose
+                      # legacy paths the merge queue runs. An empty list gives 0 rows.
                       json_targets_count="$JSON_TARGETS_FULL_SHARDS"
+                      if [[ -n "$JSON_TARGETS_SHARDS" ]] && (( JSON_TARGETS_SHARDS < json_targets_count )); then
+                          json_targets_count="$JSON_TARGETS_SHARDS"
+                          echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
+                      fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not
                       # land: merge queue and master. Ordinary PR lanes run the
