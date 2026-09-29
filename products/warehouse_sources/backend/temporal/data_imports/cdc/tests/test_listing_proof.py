@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
+    BUFFER_LISTED_TAIL_KEY,
     LEGACY_CONVERTED_AT_KEY,
+    ListingProof,
     buffer_may_have_expired_unread,
     clear_listing,
     read_completed_listing_proof,
@@ -34,10 +36,12 @@ class TestCompletedListingProof(BaseTest):
         )
         return ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
 
-    def _job(self, schema, *, status, listed_at=None, companion_of=None, billable=True) -> ExternalDataJob:
+    def _job(self, schema, *, status, listed_at=None, companion_of=None, billable=True, tail=None) -> ExternalDataJob:
         snapshot: dict = {}
         if listed_at is not None:
             snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+        if tail is not None:
+            snapshot[BUFFER_LISTED_TAIL_KEY] = tail
         if companion_of is not None:
             snapshot["companion_of"] = str(companion_of)
         job = ExternalDataJob.objects.create(
@@ -58,9 +62,9 @@ class TestCompletedListingProof(BaseTest):
         # leave no companion row. An empty companion set has to count as proof.
         schema = self._schema()
         listed = dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC)
-        self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=listed)
+        self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=listed, tail={"f.parquet": "etag-1"})
 
-        assert self._proof(schema) == listed
+        assert self._proof(schema) == ListingProof(listed_at=listed, tail={"f.parquet": "etag-1"})
 
     def test_a_run_still_going_proves_nothing(self):
         schema = self._schema()
@@ -88,7 +92,7 @@ class TestCompletedListingProof(BaseTest):
         )
         self._job(schema, status=ExternalDataJob.Status.FAILED, companion_of=newer.id, billable=False)
 
-        assert self._proof(schema) == older
+        assert self._proof(schema) == ListingProof(listed_at=older, tail={})
 
     def test_a_run_that_never_listed_proves_nothing(self):
         # The in-flight no-op tick returns an empty response without listing, so it must not count.
@@ -234,7 +238,10 @@ class TestClearListing(BaseTest):
 
     def test_only_the_stamp_comes_off(self):
         schema = self._schema()
-        job = self._job(schema, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", "name": "users"})
+        job = self._job(
+            schema,
+            {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", BUFFER_LISTED_TAIL_KEY: {"f": "e"}, "name": "users"},
+        )
 
         clear_listing(str(job.id), self.team.id)
 
