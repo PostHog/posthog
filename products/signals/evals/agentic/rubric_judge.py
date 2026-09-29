@@ -15,6 +15,7 @@ from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
+    from openai.types.chat.completion_create_params import ResponseFormat
 
 JUDGE_VERSION = "scout-rubric-judge-v2"
 DEFAULT_JUDGE_MODEL = "gpt-6-sol"
@@ -71,6 +72,7 @@ class RubricModelResponse(BaseModel):
     prompt_sha256: str = ""
     messages: list[dict[str, object]] = Field(default_factory=list)
     messages_sha256: str = ""
+    response_format: dict[str, object] = Field(default_factory=dict)
     max_output_tokens: int | None = None
     timeout_seconds: float | None = None
     started_at: str | None = None
@@ -483,7 +485,9 @@ class PrivateRubricClient:
     ) -> None:
         await self._client.close()
 
-    async def _request(self, prompt: str, messages: list[ChatCompletionMessageParam]) -> RubricModelResponse:
+    async def _request(
+        self, prompt: str, messages: list[ChatCompletionMessageParam], *, response_format: ResponseFormat
+    ) -> RubricModelResponse:
         started = time.monotonic()
         retained_messages: list[dict[str, object]] = [dict(message) for message in messages]
         response = RubricModelResponse(
@@ -495,6 +499,7 @@ class PrivateRubricClient:
             prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             messages=retained_messages,
             messages_sha256=content_hash(retained_messages),
+            response_format=dict(response_format),
             max_output_tokens=self.max_output_tokens,
             timeout_seconds=self.timeout_seconds,
             started_at=datetime.now(UTC).isoformat(),
@@ -506,7 +511,7 @@ class PrivateRubricClient:
                 messages=messages,
                 reasoning_effort=self.reasoning_effort,
                 max_completion_tokens=self.max_output_tokens,
-                response_format={"type": "json_object"},
+                response_format=response_format,
                 extra_body={"allowed_openai_params": ["reasoning_effort"]}
                 if self.model.removeprefix("openai/").startswith("gpt-6-")
                 else None,
@@ -539,13 +544,22 @@ class PrivateRubricClient:
     async def complete(self, prompt: str) -> RubricModelResponse:
         """Start fresh so one scout output cannot influence another output's judgment."""
         return await self._request(
-            prompt, [{"role": "system", "content": _MODEL_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+            prompt,
+            [{"role": "system", "content": _MODEL_SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "scout_rubric_judgment",
+                    "schema": _ModelJudgment.model_json_schema(),
+                    "strict": True,
+                },
+            },
         )
 
     async def ask(self, prompt: str) -> str:
         """Keep the generator's correction and selection turns in one conversation."""
         self._conversation.append({"role": "user", "content": prompt})
-        response = await self._request(prompt, self._conversation)
+        response = await self._request(prompt, self._conversation, response_format={"type": "json_object"})
         if response.text:
             self._conversation.append({"role": "assistant", "content": response.text})
         if response.error or response.finish_reason != "stop" or not response.text:

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import httpx
+import jsonschema
 from openai import AsyncOpenAI
 from parameterized import parameterized
 
@@ -426,7 +427,12 @@ class TestPrivateRubricClient(SimpleTestCase):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {"role": "assistant", "content": '{"suggestions":[]}'},
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps({"criteria": [verdict("check")]})
+                                if len(requests) == 3
+                                else '{"suggestions":[]}',
+                            },
                             "finish_reason": "stop",
                         }
                     ],
@@ -457,3 +463,15 @@ class TestPrivateRubricClient(SimpleTestCase):
         self.assertEqual(client.calls[1].messages_sha256, content_hash(requests[1]["messages"]))
         self.assertEqual(len(client.calls[0].messages), 2)
         self.assertEqual(client.calls[2].messages[1:], [{"role": "user", "content": "Judge this independent result"}])
+        self.assertEqual([request["response_format"] for request in requests[:2]], [{"type": "json_object"}] * 2)
+        for call, request in zip(client.calls, requests):
+            self.assertEqual(call.response_format, request["response_format"])
+        response_format = requests[2]["response_format"]
+        assert isinstance(response_format, dict)
+        self.assertEqual(response_format["type"], "json_schema")
+        schema = response_format["json_schema"]
+        self.assertTrue(schema["strict"])
+        validator = jsonschema.Draft202012Validator(schema["schema"])
+        validator.validate(json.loads(client.calls[2].text))
+        with self.assertRaises(jsonschema.ValidationError):
+            validator.validate({"verdicts": [verdict("check")]})

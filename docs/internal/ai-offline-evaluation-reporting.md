@@ -127,6 +127,7 @@ Pass and fail are separate from unknown, not applicable, and judging errors.
 Missing historical evidence does not become a failed criterion; a failed model request does not become a scout-quality verdict.
 The aggregate rubric score is omitted when any enabled criterion remains unknown or errored.
 Detailed private judgment files remain available, including original responses and recorded usage.
+Judging requests a strict JSON schema and records the requested format; local schema and literal-citation checks still validate the response.
 Dollar costs remain unknown when the model route does not provide them.
 
 Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
