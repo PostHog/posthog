@@ -370,8 +370,9 @@ class TestFiringStart:
             ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.FIRING, STARTED),
             ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.NOT_FIRING, None),
             ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, None),
-            # A row that was firing before the field existed has no start to carry forward.
-            ("firing_without_a_start", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.FIRING, NOW),
+            # A firing older than the field keeps an unknown start: `now` would be later than the
+            # announcement it already sent, which reads as never announced.
+            ("firing_without_a_start", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.FIRING, None),
             # clear_check_ends_snooze parks a breached alert in SNOOZED, so the firing continues
             # underneath the mute and resumes as the same one.
             ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, STARTED),

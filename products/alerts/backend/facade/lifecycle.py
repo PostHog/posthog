@@ -232,9 +232,9 @@ def decide_firing_started_at(
         return None
     if snapshot.state not in FIRING_STATES and not held_firing:
         return now
-    # A row that was already firing before this field existed has no start to continue, so the
-    # first check after that stamps one rather than leaving it null for the life of the firing.
-    return snapshot.firing_started_at or now
+    # A firing that began before this field existed keeps an unknown start rather than taking
+    # `now`, because a start later than `last_notified_at` would read as never announced.
+    return snapshot.firing_started_at
 
 
 def evaluate_alert_check(
