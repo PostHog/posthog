@@ -4,7 +4,8 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, NodeRole
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.client.migration_tools import SkipIfTableMissing, run_sql_with_exceptions
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
 class TestAlterReplicatedValidation(unittest.TestCase):
@@ -131,3 +132,56 @@ class TestShardedAlterRouting(unittest.TestCase):
         for role in SINGLE_SHARD_DATA_NODE_ROLES:
             self.assertIn(role, DATA_NODE_ROLES)
         self.assertNotIn(NodeRole.DATA, SINGLE_SHARD_DATA_NODE_ROLES)
+
+
+def _cluster_with_unknown_role_host() -> ClickhouseCluster:
+    bootstrap_client = mock.Mock()
+    bootstrap_client.execute = mock.Mock(
+        return_value=[
+            ("data-host", "9000", "1", "1", "online", "data"),
+            ("test-host", "9000", "1", "1", "online", "test"),
+        ]
+    )
+    return ClickhouseCluster(bootstrap_client)
+
+
+class TestAllRoleHostSelection(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("alter_skips_unknown_role", "ALTER TABLE t ADD COLUMN IF NOT EXISTS c String", {"data-host"}),
+            (
+                "create_keeps_unknown_role",
+                "CREATE TABLE IF NOT EXISTS t (c String) ENGINE = Log",
+                {"data-host", "test-host"},
+            ),
+        ]
+    )
+    def test_all_role_hosts_in_cloud(self, _name: str, sql: str, expected: set[str]) -> None:
+        cluster = _cluster_with_unknown_role_host()
+        visited: set[str] = set()
+
+        def fake_task(_self, host, fn):
+            visited.add(host.connection_info.host)
+            return lambda: None
+
+        with (
+            mock.patch("posthog.clickhouse.client.migration_tools._collapses_to_all_nodes", return_value=False),
+            mock.patch("posthog.clickhouse.client.migration_tools.get_migrations_cluster", return_value=cluster),
+            mock.patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", fake_task),
+        ):
+            run_sql_with_exceptions(sql, node_roles=[NodeRole.ALL])._func(None)
+
+        self.assertEqual(visited, expected)
+
+
+class TestSkipIfTableMissing(unittest.TestCase):
+    @parameterized.expand([("table_missing", 0, 1), ("table_present", 1, 2)])
+    def test_runs_query_only_when_table_exists(self, _name: str, table_count: int, expected_calls: int) -> None:
+        client = mock.Mock()
+        client.execute.return_value = [[table_count]]
+
+        SkipIfTableMissing("t", Query("ALTER TABLE t ADD COLUMN IF NOT EXISTS c String"))(client)
+
+        self.assertEqual(client.execute.call_count, expected_calls)
+        if expected_calls == 2:
+            self.assertEqual(client.execute.call_args.args[0], "ALTER TABLE t ADD COLUMN IF NOT EXISTS c String")
