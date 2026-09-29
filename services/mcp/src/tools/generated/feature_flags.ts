@@ -255,9 +255,7 @@ const featureFlagGetAll = (): ToolBase<
                     'tags',
                     'last_called_at',
                     'active',
-                    'archived',
                     'created_at',
-                    'filters.groups.*.rollout_percentage',
                 ])
             ),
         } as typeof result
