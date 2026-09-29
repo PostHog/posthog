@@ -294,6 +294,923 @@ export interface InstrumentationCheckActionApi {
     check: AIObservabilityInstrumentationCheckEnumApi
 }
 
+/**
+ * * `ci` - CI
+ * * `local` - Local
+ * * `scheduled` - Scheduled
+ */
+export type OfflineExperimentRunSourceEnumApi =
+    (typeof OfflineExperimentRunSourceEnumApi)[keyof typeof OfflineExperimentRunSourceEnumApi]
+
+export const OfflineExperimentRunSourceEnumApi = {
+    Ci: 'ci',
+    Local: 'local',
+    Scheduled: 'scheduled',
+} as const
+
+/**
+ * * `uploading` - Uploading
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type OfflineExperimentStatusEnumApi =
+    (typeof OfflineExperimentStatusEnumApi)[keyof typeof OfflineExperimentStatusEnumApi]
+
+export const OfflineExperimentStatusEnumApi = {
+    Uploading: 'uploading',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface OfflineExperimentReadApi {
+    /** Stable experiment UUID. */
+    id: string
+    /** Experiment name. */
+    name: string
+    /** Execution source.
+     *
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled */
+    run_source: OfflineExperimentRunSourceEnumApi | null
+    /** Upload lifecycle state.
+     *
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: OfflineExperimentStatusEnumApi
+    /** Caller-supplied execution time. */
+    started_at: string
+    /** First server acceptance time. */
+    created_at: string
+    /**
+     * Server closure time, or null while uploading.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Declared expected items, when supplied.
+     * @nullable
+     */
+    expected_item_count: number | null
+    /**
+     * Declared expected results across all scorers.
+     * @nullable
+     */
+    expected_result_count: number | null
+    /** Observed items, including items without a selected scorer result. */
+    accepted_item_count: number
+    /**
+     * Results visible to this caller; unavailable without scorer-read scope.
+     * @nullable
+     */
+    visible_result_count: number | null
+    /**
+     * Distinct visible scorer definitions.
+     * @nullable
+     */
+    visible_scorer_definition_count: number | null
+    /**
+     * Distinct visible scorer versions.
+     * @nullable
+     */
+    visible_scorer_version_count: number | null
+    /** authorized for visible-result counts, or unavailable without scorer-read scope. */
+    result_count_scope: string
+    /**
+     * Durable suite identifier.
+     * @nullable
+     */
+    suite_key: string | null
+    /**
+     * Dataset provider or source.
+     * @nullable
+     */
+    dataset_source: string | null
+    /**
+     * Durable dataset identifier.
+     * @nullable
+     */
+    dataset_identifier: string | null
+    /**
+     * Durable dataset revision identifier.
+     * @nullable
+     */
+    dataset_revision_identifier: string | null
+    /**
+     * Optional hosted revision navigation reference.
+     * @nullable
+     */
+    dataset_revision_id: string | null
+    /**
+     * Application revision under evaluation.
+     * @nullable
+     */
+    application_version: string | null
+    /**
+     * Model revision under evaluation.
+     * @nullable
+     */
+    model_version: string | null
+    /**
+     * Prompt revision under evaluation.
+     * @nullable
+     */
+    prompt_version: string | null
+}
+
+export interface OfflineExperimentPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment page. */
+    results: OfflineExperimentReadApi[]
+}
+
+export interface OfflineEvaluationValidationErrorApi {
+    /** Stable validation error code. */
+    code: string
+    /** Explanation of the invalid value. */
+    detail: string
+    /**
+     * Invalid field path, with dot-separated fields and zero-based batch indexes.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface OfflineEvaluationErrorApi {
+    /** Error category for standard API errors. */
+    type?: string
+    /** Stable error code. */
+    code: string
+    /** Explanation of the rejected request. */
+    detail: string
+    /**
+     * Invalid field, including batch entry index.
+     * @nullable
+     */
+    attr?: string | null
+    /**
+     * Declared item count.
+     * @nullable
+     */
+    expected_item_count?: number | null
+    /**
+     * Declared result count.
+     * @nullable
+     */
+    expected_result_count?: number | null
+    /** Accepted items at failed completion. */
+    accepted_item_count?: number
+    /** Accepted results at failed completion. */
+    accepted_result_count?: number
+    /** All validation errors found in the request. */
+    errors?: OfflineEvaluationValidationErrorApi[]
+}
+
+export interface ExperimentSubmissionApi {
+    /** Caller-generated experiment UUID. Reuse it for exact retries. */
+    id: string
+    /**
+     * Display name for this experiment execution.
+     * @maxLength 400
+     */
+    name: string
+    /** Execution start time in ISO 8601 format, supplied by the caller. */
+    started_at: string
+    /** Where the execution started: ci, local, or scheduled. Omit or use null when unknown.
+     *
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled */
+    run_source?: OfflineExperimentRunSourceEnumApi | null
+    /**
+     * Expected number of distinct items. Completion must match this count when supplied.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    expected_item_count?: number | null
+    /**
+     * Expected number of distinct item/scorer-version results, including non-success statuses.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    expected_result_count?: number | null
+    /**
+     * Stable identifier for comparing executions of the same evaluation suite.
+     * @maxLength 255
+     * @nullable
+     */
+    suite_key?: string | null
+    /**
+     * Source of an external dataset. Hosted dataset provenance is derived from its revision.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_source?: string | null
+    /**
+     * Stable identifier for the external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_identifier?: string | null
+    /**
+     * Pinned revision identifier of the external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_revision_identifier?: string | null
+    /**
+     * UUID of a hosted dataset revision in this project.
+     * @nullable
+     */
+    dataset_revision_id?: string | null
+    /**
+     * Version of the application under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    application_version?: string | null
+    /**
+     * Version of the model under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
+     * Version of the prompt under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    prompt_version?: string | null
+}
+
+export interface ExperimentReceiptApi {
+    /** Stable experiment UUID supplied at creation. */
+    id: string
+    /** Current upload lifecycle state.
+     *
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: OfflineExperimentStatusEnumApi
+    /** Whether this request created the experiment. */
+    created: boolean
+    /** Caller-supplied execution start time. */
+    started_at: string
+    /** Time the experiment was first accepted. */
+    created_at: string
+    /**
+     * Server closure time; null while uploading.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Declared item count, when supplied.
+     * @nullable
+     */
+    expected_item_count: number | null
+    /**
+     * Declared result count, when supplied.
+     * @nullable
+     */
+    expected_result_count: number | null
+    /** Number of unique accepted items. */
+    accepted_item_count: number
+    /** Number of unique accepted results across all statuses. */
+    accepted_result_count: number
+}
+
+/**
+ * * `not_provided` - Not provided
+ * * `available` - Available
+ * * `expired` - Expired
+ */
+export type PayloadStateEnumApi = (typeof PayloadStateEnumApi)[keyof typeof PayloadStateEnumApi]
+
+export const PayloadStateEnumApi = {
+    NotProvided: 'not_provided',
+    Available: 'available',
+    Expired: 'expired',
+} as const
+
+/**
+ * * `ok` - OK
+ * * `error` - Error
+ * * `skipped` - Skipped
+ * * `not_applicable` - Not applicable
+ */
+export type OfflineEvaluationResultStatusEnumApi =
+    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
+
+export const OfflineEvaluationResultStatusEnumApi = {
+    Ok: 'ok',
+    Error: 'error',
+    Skipped: 'skipped',
+    NotApplicable: 'not_applicable',
+} as const
+
+export interface OfflineResultCellApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Exact scorer-version UUID in the item page's scorer_versions list. */
+    scorer_version_id: string
+}
+
+export interface OfflineItemReadApi {
+    /** Stable item UUID. */
+    id: string
+    /** Owning experiment UUID. */
+    experiment_id: string
+    /**
+     * Optional stable case identifier.
+     * @nullable
+     */
+    case_key: string | null
+    /**
+     * Optional trial identifier within a case.
+     * @nullable
+     */
+    trial: string | null
+    /**
+     * Durable dataset item identifier.
+     * @nullable
+     */
+    dataset_item_identifier: string | null
+    /**
+     * Durable dataset item-version identifier.
+     * @nullable
+     */
+    dataset_item_version_identifier: string | null
+    /**
+     * Optional hosted item-version navigation reference.
+     * @nullable
+     */
+    dataset_item_version_id: string | null
+    /**
+     * Optional application trace navigation reference.
+     * @nullable
+     */
+    application_trace_id: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Item payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Cells for explicitly selected scorer versions; empty when none selected. */
+    results: OfflineResultCellApi[]
+}
+
+/**
+ * * `categorical` - categorical
+ * * `numeric` - numeric
+ * * `boolean` - boolean
+ */
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
+
+export const ScoreDefinitionKindEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface OfflineScorerVersionReadApi {
+    /** Exact immutable scorer-version UUID. */
+    id: string
+    /** Stable scorer definition UUID. */
+    definition_id: string
+    /** Version number within the definition. */
+    version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Current scorer display name. */
+    name: string
+    /** Current scorer description. */
+    description: string
+    /** Whether the scorer is archived. */
+    archived: boolean
+    /** Pinned immutable configuration used to interpret these results. */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface OfflineItemPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Item page. */
+    results: OfflineItemReadApi[]
+    /** Selected scorer versions, each returned once, including versions with no results. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+}
+
+export type OfflineExperimentItemPayloadInputApiInput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiExpectedOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * @nullable
+ */
+export type OfflineExperimentItemPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineExperimentItemPayloadInputApi {
+    input?: OfflineExperimentItemPayloadInputApiInput
+    output?: OfflineExperimentItemPayloadInputApiOutput
+    expected_output?: OfflineExperimentItemPayloadInputApiExpectedOutput
+    /** @nullable */
+    metadata?: OfflineExperimentItemPayloadInputApiMetadata
+}
+
+export interface OfflineItemPayloadReadApi {
+    /** Owning item UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
+    data: OfflineExperimentItemPayloadInputApi | null
+}
+
+export interface OfflineResultReadApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Pinned scorer version. */
+    scorer: OfflineScorerVersionReadApi
+}
+
+export interface OfflineResultPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Result page. */
+    results: OfflineResultReadApi[]
+}
+
+/**
+ * @nullable
+ */
+export type OfflineEvaluationResultPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineEvaluationResultPayloadInputApi {
+    /** @nullable */
+    reasoning?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    metadata?: OfflineEvaluationResultPayloadInputApiMetadata
+}
+
+export interface OfflineResultPayloadReadApi {
+    /** Owning result UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored reasoning/error payload; null if unavailable. */
+    data: OfflineEvaluationResultPayloadInputApi | null
+}
+
+export interface OfflineStatusCountsApi {
+    /** Successful results. */
+    ok: number
+    /** Evaluator errors. */
+    error: number
+    /** Skipped evaluations. */
+    skipped: number
+    /** Not-applicable evaluations. */
+    not_applicable: number
+}
+
+export interface OfflineCategorySummaryApi {
+    /** Category key from the pinned configuration. */
+    key: string
+    /** Successful results selecting this category. */
+    count: number
+    /**
+     * Selection count divided by successful result count; null with no successes.
+     * @nullable
+     */
+    rate: number | null
+    /** Category label from the pinned configuration. */
+    label: string
+}
+
+export interface OfflineScorerSummaryApi {
+    /** Exact scorer version summarized. */
+    scorer: OfflineScorerVersionReadApi
+    /** All observed experiment items, independent of scorer selection or item pagination. */
+    observed_item_count: number
+    /** Submitted results for this scorer version, across all statuses. */
+    result_count: number
+    /** Counts for each submitted outcome. */
+    status_counts: OfflineStatusCountsApi
+    /** Observed items without a result for this version; not the number of all intended missing items. */
+    missing_result_count: number
+    /** Distinct non-null case keys in observed items. */
+    distinct_case_count: number
+    /** Observed items with case keys. */
+    items_with_case_key_count: number
+    /** Observed items without case keys. */
+    items_without_case_key_count: number
+    /** Observed items with trial identifiers. */
+    trial_item_count: number
+    /** Distinct case/trial identities; trial-only items remain independent. */
+    distinct_trial_count: number
+    /**
+     * Numeric mean of successful scores only; null for other kinds or no successes.
+     * @nullable
+     */
+    mean: number | null
+    /**
+     * Successful boolean true results; null for other kinds.
+     * @nullable
+     */
+    true_count: number | null
+    /**
+     * Successful boolean false results; null for other kinds.
+     * @nullable
+     */
+    false_count: number | null
+    /**
+     * Boolean true fraction among successes; null with no successes or for other kinds.
+     * @nullable
+     */
+    true_rate: number | null
+    /** Pinned categorical distribution; multiselect rates may sum above one. */
+    categories: OfflineCategorySummaryApi[]
+}
+
+export interface OfflineSummaryPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Scorer-version summary page; each group includes all matching results. */
+    results: OfflineScorerSummaryApi[]
+}
+
+export interface ItemSubmissionApi {
+    /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
+    id: string
+    /**
+     * Stable case identifier for matching inputs across experiments.
+     * @maxLength 255
+     * @nullable
+     */
+    case_key?: string | null
+    /**
+     * Identifier for a repeated execution of the same case.
+     * @maxLength 255
+     * @nullable
+     */
+    trial?: string | null
+    /**
+     * Stable item identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_identifier?: string | null
+    /**
+     * Pinned item-version identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_version_identifier?: string | null
+    /**
+     * UUID of the hosted item version in the experiment's dataset revision.
+     * @nullable
+     */
+    dataset_item_version_id?: string | null
+    /**
+     * Trace identifier for the application execution that produced this output.
+     * @maxLength 255
+     * @nullable
+     */
+    application_trace_id?: string | null
+    /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
+    payload?: OfflineExperimentItemPayloadInputApi
+}
+
+export interface ResultSubmissionApi {
+    /** UUID of an item declared in this request or already accepted in this experiment. */
+    item_id: string
+    /** Exact UUID of an existing scorer version in this project. */
+    scorer_version_id: string
+    /** Outcome of this scorer execution.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    value?: number | boolean | string[] | null
+    /**
+     * Optional stable error code, permitted only for error outcomes.
+     * @maxLength 128
+     * @nullable
+     */
+    error_code?: string | null
+    /**
+     * Trace identifier of the evaluator that produced this result.
+     * @maxLength 255
+     * @nullable
+     */
+    evaluator_trace_id?: string | null
+    /**
+     * Caller-supplied evaluation time in ISO 8601 format.
+     * @nullable
+     */
+    evaluated_at?: string | null
+    /** Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels. */
+    payload?: OfflineEvaluationResultPayloadInputApi
+}
+
+export interface UploadSubmissionApi {
+    /**
+     * Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.
+     * @maxItems 1000
+     */
+    items?: ItemSubmissionApi[]
+    /**
+     * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+     * @minItems 1
+     * @maxItems 1000
+     */
+    results: ResultSubmissionApi[]
+}
+
+export interface ItemReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+}
+
+export interface ResultReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+    /** Item this result evaluates. */
+    item_id: string
+    /** Pinned scorer version used by this result. */
+    scorer_version_id: string
+}
+
+export interface UploadReceiptApi {
+    /** One acknowledgment per referenced item. */
+    items: ItemReceiptApi[]
+    /** Acknowledgments in the submitted result order. */
+    results: ResultReceiptApi[]
+}
+
+export interface OfflineHistoryPointApi {
+    /** Experiment execution and cohort context. */
+    experiment: OfflineExperimentReadApi
+    /** Complete summary for one experiment and scorer version. */
+    summary: OfflineScorerSummaryApi
+}
+
+export interface OfflineHistoryPageApi {
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment/scorer-version history page. */
+    results: OfflineHistoryPointApi[]
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
@@ -481,9 +1398,10 @@ export const CodeEnumApi = {
  * * `dataset_items` - dataset_items
  * * `dataset_item_versions` - dataset_item_versions
  */
-export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+export type DatasetConflictResponseResourceEnumApi =
+    (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
 
-export const ResourceEnumApi = {
+export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
@@ -517,7 +1435,7 @@ export interface DatasetConflictResponseApi {
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions */
-    resource?: ResourceEnumApi
+    resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
     /** Maximum number of resources allowed. */
@@ -870,6 +1788,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -883,6 +1802,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    OpenaiCompatible: 'openai_compatible',
 } as const
 
 /**
@@ -1123,12 +2043,14 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
-    /** Units matched at creation; the ceiling on dispatched_count. */
+    /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
     readonly dispatched_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
+    /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+    readonly failed_count: number
     /**
      * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
      * @nullable
@@ -1744,6 +2666,13 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display: string | null
+    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+    base_url?: string
+    /**
+     * OpenAI-compatible base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -2329,6 +3258,13 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display?: string | null
+    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+    base_url?: string
+    /**
+     * OpenAI-compatible base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2415,95 +3351,6 @@ export interface PatchedReviewQueueUpdateApi {
     name?: string
 }
 
-/**
- * * `categorical` - categorical
- * * `numeric` - numeric
- * * `boolean` - boolean
- */
-export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
-
-export const ScoreDefinitionKindEnumApi = {
-    Categorical: 'categorical',
-    Numeric: 'numeric',
-    Boolean: 'boolean',
-} as const
-
-export interface CategoricalScoreOptionApi {
-    /**
-     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-     * @maxLength 128
-     */
-    key: string
-    /**
-     * Human-readable option label.
-     * @maxLength 256
-     */
-    label: string
-}
-
-/**
- * * `single` - single
- * * `multiple` - multiple
- */
-export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
-
-export const SelectionModeEnumApi = {
-    Single: 'single',
-    Multiple: 'multiple',
-} as const
-
-export interface CategoricalScoreDefinitionConfigApi {
-    /** Ordered categorical options available to the scorer. */
-    options: CategoricalScoreOptionApi[]
-    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-     *
-     * * `single` - single
-     * * `multiple` - multiple */
-    selection_mode?: SelectionModeEnumApi
-    /**
-     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    min_selections?: number | null
-    /**
-     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    max_selections?: number | null
-}
-
-export interface NumericScoreDefinitionConfigApi {
-    /**
-     * Optional inclusive minimum score.
-     * @nullable
-     */
-    min?: number | null
-    /**
-     * Optional inclusive maximum score.
-     * @nullable
-     */
-    max?: number | null
-    /**
-     * Optional increment step for numeric input, for example 1 or 0.5.
-     * @nullable
-     */
-    step?: number | null
-}
-
-export interface BooleanScoreDefinitionConfigApi {
-    /** Optional label for a true value. */
-    true_label?: string
-    /** Optional label for a false value. */
-    false_label?: string
-}
-
-export type ScoreDefinitionConfigApi =
-    | CategoricalScoreDefinitionConfigApi
-    | NumericScoreDefinitionConfigApi
-    | BooleanScoreDefinitionConfigApi
-
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
@@ -2582,6 +3429,39 @@ export interface ScoreDefinitionNewVersionApi {
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface ScoreDefinitionVersionApi {
+    /** UUID identifying this exact immutable version. */
+    readonly id: string
+    /** Scorer definition that owns this version. */
+    readonly definition_id: string
+    /** Immutable version number within this scorer. */
+    readonly version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    readonly kind: ScoreDefinitionKindEnumApi
+    /** Immutable configuration for this exact version. */
+    readonly config: ScoreDefinitionConfigApi
+    /** Time this version was created. */
+    readonly created_at: string
+    /** User who created this version. */
+    readonly created_by: UserBasicApi | null
+}
+
+export interface ScoreDefinitionVersionPageApi {
+    /** Total immutable versions for this scorer. */
+    count: number
+    /**
+     * Continuation cursor, or null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Versions on this page, newest first. */
+    results: ScoreDefinitionVersionApi[]
 }
 
 /**
@@ -3268,7 +4148,8 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -3322,7 +4203,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
+     * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -3491,6 +4373,259 @@ export type AiObservabilityInstrumentationChecklistRetrieveParams = {
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
      */
     refresh?: boolean
+}
+
+export type AiObservabilityOfflineExperimentsListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
+}
+
+export type AiObservabilityOfflineExperimentsItemsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineScorersHistoryListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
 }
 
 export type DatasetItemsListParams = {
@@ -3746,6 +4881,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Gemini: 'gemini',
     Minimax: 'minimax',
     Openai: 'openai',
+    OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
     Zeabur: 'zeabur',
@@ -3855,6 +4991,21 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      * Search scorers by name or description.
      */
     search?: string
+}
+
+export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
+    /**
+     * Continuation cursor from the prior page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }

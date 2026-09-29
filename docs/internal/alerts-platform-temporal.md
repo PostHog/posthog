@@ -26,12 +26,14 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
-## Dev schedule
+## Tick schedule
 
 `python manage.py schedule_temporal_workflows` creates or updates `alerts-platform-check-due-schedule`
-only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this command.
-Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
-It does not delete schedules created manually in those environments.
+in every deployment that runs it. The normal deployment migration step runs this command, and `bin/migrate`
+skips that step on hobby deploys and on local development. Only the `posthog-web-django` chart app enables
+that migration job, and it has dev, US and EU values files, so registration reaches those three and nowhere
+else. A new deployment that enables the job registers the schedule too. There is no per-region gate: the schedule is the same everywhere, and what differs between
+deployments is which configurations have been backfilled.
 
 The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration queue every minute (UTC).
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
@@ -39,12 +41,35 @@ It uses SKIP overlap, a one-minute catchup window, a 50-second workflow executio
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
-To stop future smoke-test ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
-Disabling registration alone does not remove an existing Temporal schedule.
+To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
+Reverting the code that registers a schedule does not remove one already registered.
 
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
-Enable production only in a separate rollout after dev verification.
+
+### Turning a production deployment on
+
+A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what
+would have been sent and contacts no destination, so a production tick never notifies anybody and never
+writes a source product's rows. What it does cost is the evaluation queries its sources run, on top of the
+ones the source's own production fleet is already running for the same alerts.
+
+The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
+`python manage.py backfill_platform_alert_configurations [--team-id N]` is the only writer, and it is manual.
+So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
+is run, one cohort at a time.
+
+1. Bring up that deployment's three `alerts-platform-*` workers and confirm all three are ready and
+   polling. Do this before the code that registers the schedule reaches the deployment. They cost nothing
+   while they idle, because no schedule is starting work for them yet.
+2. Let the deploy carry the code in. Migration-time reconciliation registers the schedule unpaused, and
+   with no configurations backfilled each tick discovers empty demand and exits.
+3. Backfill one team at a time with `--team-id` and watch that team's evaluation and preview metrics
+   before widening.
+
+Registering the schedule before the workers poll is untidy rather than dangerous: each tick is created,
+nothing picks up its workflow task, and the 50-second execution timeout closes it. That repeats every
+minute until the workers are ready, then stops on its own.
 
 ### Shared orchestration rollout and rollback
 
@@ -61,7 +86,7 @@ Schedule reconciliation routes directly to orchestration; merging the code alone
    Record the current image, queue configuration, and schedule action for rollback.
 2. Pause `alerts-product-check-due-schedule` if it exists, and stop manual starts and delivery-preview requests during the cutover.
    Before migration-time reconciliation runs with the new code, create `alerts-platform-check-due-schedule` in Temporal with its state explicitly paused.
-   Use the action and policy from [Dev schedule](#dev-schedule). If the new schedule already exists, pause it instead.
+   Use the action and policy from [Tick schedule](#tick-schedule). If the new schedule already exists, pause it instead.
    Pause state is preserved only for the same schedule ID; pausing the old ID does not pause a newly created schedule.
 3. Keep the old images polling all three `alerts-product-*` queues until queued and running orchestration, source-dispatch, evaluation, and delivery work drains.
    Verify this in Temporal rather than waiting a fixed interval. Delivery can outlive its parent, and manual runs can have different timeouts.
@@ -121,7 +146,7 @@ Real notification delivery guarantees remain undecided.
 
 The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEvaluateWorkflow`), the probe activity is `alerts_platform_probe_postgres_activity`, and the schedule is registered by `create_alerts_platform_tick_schedule`.
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
-A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
+A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and no production deployment was registering the schedule when this rename landed. A later rename has to account for whichever deployments have since opted in.
 The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
 Registration never deletes a schedule, so the rollout above deletes the old ID by hand.
 
@@ -228,7 +253,60 @@ Going to the shared machine directly keeps the platform's lifecycle out of a sou
 It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
 resolves the same windows and derives the same evaluation keys as the attempt it replaced.
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
-can have been disabled, snoozed or broken since.
+can have been disabled or broken since.
+
+### Every check produces an outcome
+
+A check the source cannot evaluate still records what it decided, and the two cases decide differently.
+
+| Case                            | State                                   | Schedule                                                   |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Filter config no data satisfies | BROKEN                                  | The next cadence step, though discovery stops selecting it |
+| Query failed                    | The shared machine's error path decides | The next cadence step                                      |
+
+A skip that records nothing leaves its due time where it was, so discovery hands the same check back every tick.
+That is the whole reason these exist: the work is not lost, it is repeated, and a permanently broken alert repeats it forever.
+The source reports the skip; the platform stays the only writer of `next_check_at`.
+
+The failure case goes through `evaluate_alert_check` with an errored `CheckInput`, so the shared machine raises
+`consecutive_failures` and escalates to BROKEN at five, and `classify_alert_error` decides whether the error is
+transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
+disable every alert that ran during it.
+
+`suppressed` is the single definition of what holds a configuration back, and it is BROKEN alone.
+Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert that still mints
+a batch key spends the manifest bound on work its own evaluation then drops.
+It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
+lookup into a subquery per leaf, which would let the conditions match different alert rows once a source writes
+a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
+
+### A mute holds the announcement, not the check
+
+A snooze and a schedule restriction both mute. Neither stops a check.
+The alert evaluates on its cadence, transitions as its data says, and records what happened; only the
+announcement is held. `enabled=False` and BROKEN are the only states that stop a check.
+
+This is how a muted alert keeps telling the truth. Under the older behavior an incident that started and ended
+inside a quiet-hours window left no trace at all, and the alert's state stayed at whatever the last check before
+the window decided.
+
+The semantics arrive as `AlertPolicy.mute_gates_notification_only`, which the platform's
+`PLATFORM_LOGS_ALERT_POLICY` sets and production logs does not. The two stacks therefore disagree about a muted
+alert on purpose, and a comparison against the logs stack has to expect it.
+
+Three consequences worth stating:
+
+- `update_last_notified_at` is held with the announcement, so the cooldown keeps measuring real notifications.
+  An alert is never gated by a send that did not happen.
+- A mute holds FIRE and RESOLVE only. ERROR and BROKEN describe the alert's health rather than its condition,
+  and BROKEN stops future checks, so an announcement held there would never be released.
+- `next_check_at` stays on the cadence through a blocked window. Parking it at the end of the window is what the
+  older skip behavior did, and it also made every restricted alert for a team come due in the same minute.
+
+`AlertCheckOutcome.muted_notification` carries what was held, and
+`alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
 ### Evaluating and writing are separate activities
 

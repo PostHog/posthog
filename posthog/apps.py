@@ -142,11 +142,13 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
 
-        from posthog.async_migrations.setup import setup_async_migrations
-
         if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
+            from posthog.async_migrations.setup import (
+                setup_async_migrations,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
+
             setup_async_migrations()
 
         from posthog.api.file_system import registrations as file_system_registrations

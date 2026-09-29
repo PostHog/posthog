@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -12,10 +12,11 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import { tasksLogic } from '../../logics/tasksLogic'
-import { TaskRunEnvironment } from '../../types/taskTypes'
 import type { Task } from '../../types/taskTypes'
-import { TaskEnvironmentIcon } from '../TaskEnvironmentIcon'
 import { TaskRunLivenessDot } from '../TaskRunLivenessDot'
+import { TaskSourceIcon } from '../TaskSourceIcon'
+import { getTaskSourceTooltip } from '../taskSourceMeta'
+import { openRenameTaskDialog } from './openRenameTaskDialog'
 
 function compactTimeAgo(iso: string): string {
     const seconds = dayjs().diff(dayjs(iso), 'second')
@@ -30,13 +31,10 @@ function getHref(taskId: string): string {
 }
 
 function TaskTypeIcon({ task }: { task: Task }): JSX.Element {
-    const environment = task.latest_run?.environment
-    const label = environment === TaskRunEnvironment.CLOUD ? 'Cloud task' : 'Local task'
-
     return (
-        <Tooltip title={environment ? label : 'Task'} placement="right">
+        <Tooltip title={getTaskSourceTooltip(task.origin_product, task.latest_run?.environment)} placement="right">
             <span className="flex size-4 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50">
-                <TaskEnvironmentIcon environment={environment} />
+                <TaskSourceIcon originProduct={task.origin_product} environment={task.latest_run?.environment} />
             </span>
         </Tooltip>
     )
@@ -62,14 +60,28 @@ function Content({ task }: { task: Task }): JSX.Element {
     )
 }
 
-function Actions({ taskId }: { taskId: string }): JSX.Element {
-    const { deleteTask } = useActions(tasksLogic)
+function Actions({ task }: { task: Task }): JSX.Element {
+    const { deleteTask, renameTask } = useActions(tasksLogic)
 
     return (
         <LinkListItem.Actions>
             <DropdownMenuGroup>
                 <DropdownMenuItem asChild>
-                    <ButtonPrimitive menuItem variant="danger" onClick={() => deleteTask({ taskId })}>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() =>
+                            openRenameTaskDialog(task.title || task.slug, (title) =>
+                                renameTask({ taskId: task.id, title })
+                            )
+                        }
+                        data-attr="task-rename"
+                    >
+                        <IconPencil className="size-4 text-tertiary" />
+                        Rename
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <ButtonPrimitive menuItem variant="danger" onClick={() => deleteTask({ taskId: task.id })}>
                         <IconArchive className="size-4 text-danger" />
                         <span className="text-danger">Archive task</span>
                     </ButtonPrimitive>

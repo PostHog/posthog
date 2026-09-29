@@ -458,7 +458,13 @@ class InsightViewed(models.Model):
     # Empty source identifies legacy/unattributed history, not a standalone view.
     source = models.CharField(max_length=64, default="", db_default="", blank=True)
     dashboard = models.ForeignKey(
-        "dashboards.Dashboard", on_delete=models.DO_NOTHING, null=True, blank=True, db_constraint=False, db_index=False
+        "dashboards.Dashboard",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
     )
 
     class Meta:

@@ -238,6 +238,28 @@ export const ValueFormatEnumApi = {
 } as const
 
 /**
+ * * `at_most` - at_most
+ * * `at_least` - at_least
+ */
+export type GoalDirectionEnumApi = (typeof GoalDirectionEnumApi)[keyof typeof GoalDirectionEnumApi]
+
+export const GoalDirectionEnumApi = {
+    AtMost: 'at_most',
+    AtLeast: 'at_least',
+} as const
+
+/**
+ * * `whole_window` - whole_window
+ * * `per_interval` - per_interval
+ */
+export type GoalGrainEnumApi = (typeof GoalGrainEnumApi)[keyof typeof GoalGrainEnumApi]
+
+export const GoalGrainEnumApi = {
+    WholeWindow: 'whole_window',
+    PerInterval: 'per_interval',
+} as const
+
+/**
  * Snapshot-only metric shape for report lists.
  *
  * Omitting query definitions keeps the paginated inbox payload bounded.
@@ -306,6 +328,35 @@ export interface ReportMetricListApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
 }
 
 export type SignalReportAssignmentPrStateEnumApi =
@@ -527,6 +578,28 @@ export const SignalReportBillingExemptReasonEnumApi = {
     PosthogSystem: 'posthog_system',
 } as const
 
+/**
+ * Outcome head name to its calibrated probability. Empty when the served model skipped the report.
+ */
+export type ReportRankingApiScores = { [key: string]: number }
+
+export interface ReportRankingApi {
+    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+    served_key: string
+    /** Feature family of the served model. */
+    model_name: string
+    /** Training partition of the served model, as `YYYY-MM-DD`. */
+    model_version: string
+    /** Version of the serving manifest that chose the model. */
+    manifest_version: string
+    /** When the scoring sweep scored the report. */
+    scored_at: string
+    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+    scores: ReportRankingApiScores
+    /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
+    readable_heads: string[]
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -631,6 +704,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
+    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    readonly ranking: ReportRankingApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -711,6 +786,35 @@ export interface ReportMetricApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
 }
 
 export interface SignalReportApi {
@@ -817,6 +921,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
+    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    readonly ranking: ReportRankingApi | null
 }
 
 /**
@@ -2468,6 +2574,7 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  * * `report_link` - Report Link
+ * * `autostart_skip` - Autostart Skip
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
@@ -2480,6 +2587,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
  * * `ranking_score` - Ranking Score
+ * * `impact_measurement_plan` - Impact Measurement Plan
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2503,6 +2611,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
     ReportLink: 'report_link',
+    AutostartSkip: 'autostart_skip',
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
@@ -2515,6 +2624,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
     RankingScore: 'ranking_score',
+    ImpactMeasurementPlan: 'impact_measurement_plan',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2571,7 +2681,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2619,11 +2729,10 @@ export interface PatchedSignalReportArtefactLogUpdateApi {
 }
 
 /**
- * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
- * repository default branch.
+ * Response for the `commit` artefact diff endpoint.
  */
 export interface CommitDiffResponseApi {
-    /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+    /** Unified diff (patch) text from the linked pull request or branch comparison. */
     readonly diff: string
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean
@@ -3454,6 +3563,11 @@ export interface ScoutChatTaskCreateApi {
      * @maxLength 64
      */
     suggestion_id?: string
+    /**
+     * Optional description, in the user's own words, of what the new scout should watch. The chat then opens on this request instead of asking from scratch. `author_scout` only, and not together with `suggestion_id`.
+     * @maxLength 2000
+     */
+    user_prompt?: string
 }
 
 export interface ScoutChatTaskApi {
@@ -3676,6 +3790,79 @@ export interface SignalScoutManualRunApi {
     workflow_id: string
     /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
     started: boolean
+}
+
+/**
+ * One MCP tool, with what a scout would need to call it.
+ */
+export interface ScoutToolCatalogueEntryApi {
+    /** The tool's permanent identifier, for example `insight-get`. This is the name a scout calls. */
+    name: string
+    /** The label people read, for example `Get insight`. */
+    title: string
+    /** One line on what the tool does. The tool's full description runs to several kilobytes on some tools, so it is not part of this listing. */
+    summary: string
+    /** The product area the tool belongs to, for example `Error tracking`. Use it to group the listing. */
+    category: string
+    /** The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`. */
+    feature: string
+    /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
+    required_scopes: string[]
+    /** True when the tool only reads. A false value means the tool can change the project's data. */
+    is_read_only: boolean
+    /** True when the tool is hidden until the project consents to AI features. */
+    requires_ai_consent: boolean
+    /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
+    holdable: boolean
+    /** Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these are what the scout has to be granted, or the preset it has to opt into. On a tool that is not holdable they include every scope no scout can reach, and can also include scopes a person can grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart. */
+    missing_scopes: string[]
+    /**
+     * Feature flag key that gates the tool, or null when the tool is always served. The flag resolves per project, so evaluate it for the project you are configuring before you offer the tool.
+     * @nullable
+     */
+    feature_flag: string | null
+    /**
+     * How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` (served only while the flag is off). Null means the default, `enable`.
+     * @nullable
+     */
+    feature_flag_behavior: string | null
+    /**
+     * Variant of `feature_flag` the tool needs, or null when any truthy value serves it.
+     * @nullable
+     */
+    feature_flag_variant: string | null
+    /**
+     * A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.
+     * @nullable
+     */
+    hidden_when_flag_on: string | null
+    /**
+     * Plan feature the organization must have for the tool to be served, or null when the tool is free.
+     * @nullable
+     */
+    feature_entitlement: string | null
+}
+
+/**
+ * A scope preset a scout run can be dispatched with.
+ */
+export interface ScoutScopePresetApi {
+    /** The preset's name. `signals_scout` is what every scout holds; `signals_scout_reports` adds the report channel and is used only by a scout whose skill opted into it. */
+    name: string
+    /** Every scope a token minted from this preset carries, including the internal ones. */
+    scopes: string[]
+}
+
+/**
+ * The MCP tool catalogue, with the scout scope postures to read it against.
+ */
+export interface ScoutToolCatalogueApi {
+    /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
+    tools: ScoutToolCatalogueEntryApi[]
+    /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
+    presets: ScoutScopePresetApi[]
+    /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
+    grantable_write_scopes: string[]
 }
 
 /**
@@ -4874,6 +5061,35 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
+    /**
+     * Proposed threshold after release. Informational only; does not schedule a check.
+     * @nullable
+     */
+    goal_value?: number | null
+    /** Whether success means at most or at least goal_value.
+     *
+     * * `at_most` - at_most
+     * * `at_least` - at_least */
+    goal_direction?: GoalDirectionEnumApi | null
+    /** Whether the goal compares with the whole query window or each chart bucket.
+     *
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval */
+    goal_grain?: GoalGrainEnumApi
+    /**
+     * Suggested days after release before assessing impact, not a monitoring schedule.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    decision_window_days?: number | null
+    /**
+     * Optional number of qualifying observations before assessing impact.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
@@ -5497,6 +5713,20 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome: string | null
+    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+    run_state: string
+    /** True while an `agent` check waits on a dispatched run to record its verdict. */
+    waiting_on_run: boolean
+    /**
+     * The scout run the coordinator dispatched for the check, once it started. Null while queued.
+     * @nullable
+     */
+    dispatched_run_id: string | null
+    /**
+     * When the coordinator last dispatched a run for the check. Null when no run waits.
+     * @nullable
+     */
+    dispatched_at: string | null
 }
 
 /**
@@ -6385,6 +6615,12 @@ export type SignalsScoutNotesListParams = {
      * @minLength 1
      */
     skill_name?: string
+    /**
+     * Return only the notes whose content contains this text, case-insensitively. Pass an entity (an error id, a flag key, a page path, an event name) to find the notes about it, including older ones the newest-first cap would hide.
+     * @minLength 1
+     * @maxLength 200
+     */
+    text?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {
@@ -6500,6 +6736,13 @@ export type SignalsScoutRunsRecentPerScoutParams = {
      * @maximum 100
      */
     per_scout_limit?: number
+}
+
+export type SignalsScoutReportCheckListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string
 }
 
 export type SignalsScoutScratchpadSearchParams = {

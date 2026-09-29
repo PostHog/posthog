@@ -313,6 +313,29 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.NOT_EQ], options)).toBe(true)
     })
 
+    test('comparing today against an unparseable date is no match, not an error', () => {
+        // A null guard written before the comparison does not save it: AND evaluates every operand
+        // before combining them, so the comparison runs for a person without the property.
+        const compare = (value: string, operation: number) => [
+            '_h',
+            op.STRING,
+            value,
+            op.CALL_GLOBAL,
+            'toDate',
+            1,
+            op.CALL_GLOBAL,
+            'today',
+            0,
+            operation,
+        ]
+        for (const operation of [op.LT_EQ, op.GT_EQ]) {
+            expect(execSync(compare('', operation), {})).toBe(false)
+            expect(execSync(compare('nonsense', operation), {})).toBe(false)
+        }
+        // The shape people actually write, and the one the guard does not save.
+        expect(execSync(['_h', op.FALSE, ...compare('', op.GT_EQ).slice(1), op.AND, 2], {})).toBe(false)
+    })
+
     test('async limits', async () => {
         const callSleep = [
             33,
@@ -484,6 +507,73 @@ describe('hogvm execute', () => {
         await expect(execAsync(bytecode)).rejects.toThrow(
             'Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes.'
         )
+    })
+
+    const billionRange = ['_H', 1, op.INTEGER, 0, op.INTEGER, 1_000_000_000, op.CALL_GLOBAL, 'range', 2, op.RETURN]
+
+    test.each([
+        ['range(0, 1000000000)', billionRange, {}],
+        [
+            '(range)(0, 1000000000)',
+            [
+                '_H',
+                1,
+                op.INTEGER,
+                0,
+                op.INTEGER,
+                1_000_000_000,
+                op.STRING,
+                'range',
+                op.GET_GLOBAL,
+                1,
+                op.CALL_LOCAL,
+                2,
+                op.RETURN,
+            ],
+            {},
+        ],
+        ['range(0, 1000000000) with the memory limit off', billionRange, { memoryLimit: 0 }],
+        [
+            'range(0, 200) after a retained string',
+            [
+                '_H',
+                1,
+                op.STRING,
+                'x'.repeat(1000),
+                op.INTEGER,
+                0,
+                op.INTEGER,
+                200,
+                op.CALL_GLOBAL,
+                'range',
+                2,
+                op.RETURN,
+                op.POP,
+            ],
+            { memoryLimit: 2048 },
+        ],
+        [
+            "range('000…0', 10) of long strings",
+            ['_H', 1, op.STRING, '0'.repeat(100), op.INTEGER, 10, op.CALL_GLOBAL, 'range', 2, op.RETURN],
+            { memoryLimit: 1000 },
+        ],
+    ])('%s is refused before the array is built', (_name, bytecode, options) => {
+        // A real oversized range stops the process with a fatal V8 error, so the spy fails every allocation.
+        const arrayFrom = jest.spyOn(Array, 'from').mockImplementation(() => {
+            throw new Error('Allocated range')
+        })
+        let error: unknown
+        try {
+            execSync(bytecode, options)
+        } catch (e) {
+            error = e
+        } finally {
+            arrayFrom.mockRestore()
+        }
+        expect(error).toMatchObject({
+            kind: 'limit',
+            message: expect.stringMatching(/^Memory limit of \d+ bytes exceeded/),
+        })
     })
 
     test('should execute user-defined stringify function correctly', async () => {

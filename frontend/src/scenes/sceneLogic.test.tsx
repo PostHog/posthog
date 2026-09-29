@@ -3,16 +3,20 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityTab, type AppContext } from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -173,6 +177,26 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
     })
 
+    it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
+        router.actions.push('/data-management/sources/src-1')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.dataWarehouseSource('src-1', 'schemas')
+        )
+    })
+
+    // The redirect table is keyed on exact paths, so the `:id` entry above must not swallow the
+    // sources list or a source path that already names its tab — the latter would redirect to
+    // itself forever.
+    it.each([
+        ['the sources list', urls.sources()],
+        ['a source that names its tab', urls.dataWarehouseSource('src-1', 'schemas')],
+    ])('leaves %s on its own route', async (_label, path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(path)
+    })
+
     it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
         // `/replay/:id` would otherwise match and read `vision` as a recording id.
         router.actions.push('/replay/vision')
@@ -180,15 +204,18 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
     })
 
-    it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
-        router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
+    // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
+    // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
+    // both across. The hash also carries global side-panel state, so it has to survive too.
+    it.each([
+        ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
+        ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
+    ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
+        router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.codeReview())
-        // ?review=<report id> is a permanent public contract baked into GitHub PR comments — the
-        // redirect must carry it across so those links keep opening the right report. The hash
-        // carries global side-panel state, so it has to survive the redirect too.
-        expect(router.values.searchParams.review).toEqual('r-9')
-        expect(router.values.hashParams.panel).toEqual('max:inspect')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(to())
+        expect(router.values.searchParams).toEqual(search)
+        expect(router.values.hashParams).toEqual(hash)
     })
 
     it.each([
@@ -306,6 +333,81 @@ describe('sceneLogic', () => {
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
         }
+
+        it('saves a dashboard homepage and confirms the change', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            useMocks({ patch: { '/api/user_home_settings/@me/': [200, {}] } })
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage?.id).toBe(dashboardHomepage.id)
+            expect(successToast).toHaveBeenCalledWith('Homepage updated')
+            expect(capture).toHaveBeenCalledWith('dashboard set as homepage', { source: 'dashboards list' })
+            capture.mockRestore()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps the previous homepage if saving from the dashboard list fails', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const errorLog = jest.spyOn(console, 'error').mockImplementation()
+            useMocks({ patch: { '/api/user_home_settings/@me/': [500, {}] } })
+            const previousHomepage = logic.values.homepage
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage).toEqual(previousHomepage)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(errorToast).toHaveBeenCalledWith('Could not save your homepage. Please try again.')
+            errorLog.mockRestore()
+            errorToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps a newer homepage when a dashboard-list save is in flight', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            const savedHomepageIds: string[] = []
+            useMocks({
+                patch: {
+                    '/api/user_home_settings/@me/': async ({ request }) => {
+                        const body = (await request.json()) as { homepage: { id: string } }
+                        savedHomepageIds.push(body.homepage.id)
+                        if (savedHomepageIds.length === 1) {
+                            startSave()
+                            await saveResponse
+                        }
+                        return [200, {}] as const
+                    },
+                },
+            })
+
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            await saveStarted
+            const latestHomepage = { ...dashboardHomepage, id: 'homepage-dashboard-43', pathname: urls.dashboard(43) }
+            logic.actions.setHomepage(latestHomepage)
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedHomepageIds).toEqual([dashboardHomepage.id, latestHomepage.id])
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(successToast).not.toHaveBeenCalled()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
 
         it('redirects /home to the configured dashboard homepage', async () => {
             logic.actions.setHomepage(dashboardHomepage)

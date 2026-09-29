@@ -160,8 +160,15 @@ describe('sourceWizardLogic', () => {
             // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
             // user nothing, and it masked the 5xx branch below.
             const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
-            expect(message).toContain('check your connection details')
+            expect(message).toContain('the details you entered')
             expect(message).not.toContain('A server error occurred.')
+        })
+
+        it('keeps the 5xx guidance free of causes only database sources have', () => {
+            // Every source shares this branch, so wording aimed at a database sent users of
+            // API-backed sources looking for a schema and a host they never configured.
+            const message = resolveConnectErrorMessage({ status: 504 })
+            expect(message).not.toMatch(/database|schema/i)
         })
 
         it('never returns undefined for a 4xx with no message body', () => {

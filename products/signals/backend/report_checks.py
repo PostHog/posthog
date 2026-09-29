@@ -24,7 +24,7 @@ Temporal payload modules import it during process setup.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -255,6 +255,16 @@ class AgentCheckConfig(BaseModel):
         if any(len(hint) > MAX_CHECK_PROBE_HINT_LENGTH for hint in hints):
             raise ValueError(f"a probe hint must be at most {MAX_CHECK_PROBE_HINT_LENGTH} characters")
         return hints
+
+
+def soak_minutes_from_gap(next_run_at: datetime, since: datetime) -> int:
+    """The soak a dated check keeps while its report has not resolved.
+
+    The author left a gap before the first run to allow for deploy and soak time, so that gap is
+    what the check waits out once the report resolves, bounded by what a soak may be.
+    """
+    minutes = round((next_run_at - since).total_seconds() / 60)
+    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
 
 
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {

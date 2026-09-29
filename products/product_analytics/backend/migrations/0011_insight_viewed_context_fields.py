@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                 db_index=False,
                 null=True,
                 on_delete=django.db.models.deletion.DO_NOTHING,
+                related_name="+",
                 to="dashboards.dashboard",
             ),
         ),
