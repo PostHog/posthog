@@ -63,6 +63,19 @@ class TestWixTransport:
         assert batches == [[{"id": "1"}], [{"id": "2"}]]
         assert session.post.call_count == 2
 
+    def test_repeated_cursor_raises_instead_of_paging_forever(self) -> None:
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            _response(payload=_page([{"id": "1"}], "orders", "metadata", "cursor-2")),
+            _response(payload=_page([{"id": "2"}], "orders", "metadata", "cursor-2")),
+        ]
+
+        with mock.patch(f"{_MODULE}._get_session", return_value=session):
+            with pytest.raises(RuntimeError, match="repeated cursor"):
+                list(get_rows("key", "site", "orders", mock.MagicMock(), _manager()))
+
+        assert session.post.call_count == 2
+
     def test_follow_up_pages_send_the_cursor_without_filter_or_sort(self) -> None:
         # Wix encodes the filter and sort into the cursor and rejects a request that repeats them.
         session = mock.MagicMock()
@@ -136,11 +149,16 @@ class TestWixTransport:
 
     def test_a_400_on_the_first_page_is_not_swallowed(self) -> None:
         session = mock.MagicMock()
-        session.post.return_value = _response(status_code=400)
+        response = _response(status_code=400)
+        response.text = "potentially sensitive upstream error"
+        session.post.return_value = response
+        logger = mock.MagicMock()
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
             with pytest.raises(requests.HTTPError):
-                list(get_rows("key", "site", "orders", mock.MagicMock(), _manager()))
+                list(get_rows("key", "site", "orders", logger, _manager()))
+
+        assert "potentially sensitive upstream error" not in str(logger.error.call_args)
 
     def test_state_is_saved_for_each_page_that_has_a_successor(self) -> None:
         session = mock.MagicMock()

@@ -16,7 +16,7 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class WixResumeConfig:
     cursor: str
 
@@ -152,10 +152,11 @@ def get_rows(
             criteria = {"cursorPaging": {"limit": PAGE_SIZE, "cursor": page_cursor}}
         response = session.post(url, json={config.body_key: criteria}, timeout=REQUEST_TIMEOUT_SECONDS)
         if not response.ok:
-            logger.error(f"Wix API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(f"Wix API request failed for {endpoint}: status={response.status_code}")
             response.raise_for_status()
         return response.json()
 
+    seen_cursors = {cursor} if cursor is not None else set()
     while True:
         try:
             payload = fetch(cursor)
@@ -167,12 +168,16 @@ def get_rows(
             # Restarting the stream is safe: merge dedupes on the primary key.
             logger.warning(f"Wix: {endpoint} cursor expired, restarting the stream from the first page")
             cursor = None
+            seen_cursors.clear()
             payload = fetch(None)
 
         items = payload.get(config.data_key) or []
         cursor = _next_cursor(payload, config.cursors_key)
 
         if cursor is not None:
+            if cursor in seen_cursors:
+                raise RuntimeError(f"Wix returned a repeated cursor while paging {endpoint}")
+            seen_cursors.add(cursor)
             resumable_source_manager.save_state(WixResumeConfig(cursor=cursor))
 
         if items:
