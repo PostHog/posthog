@@ -784,6 +784,26 @@ describe('scoutFleetLogic', () => {
         }
     })
 
+    it.each([
+        ['a trailing space', 'checkout ', 'checkout'],
+        ['a trailing space after a number', '123 ', '123'],
+        ['only spaces', '  ', undefined],
+    ])('keeps %s in the search box after the debounced URL write', async (_, typed, written) => {
+        jest.useFakeTimers()
+        try {
+            // The enabled filter keeps a roster param in the URL, so the search write reaches the
+            // shared-link hydration path.
+            router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+            logic.actions.setScoutSearch(typed)
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutSearch).toEqual(written)
+            expect(logic.values.scoutSearch).toEqual(typed)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('keeps the roster filters out of a bare URL that a sibling logic replaces', async () => {
         router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
         await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
