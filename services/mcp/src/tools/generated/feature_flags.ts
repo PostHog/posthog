@@ -208,7 +208,7 @@ const FeatureFlagGetAllSchema = () => {
             'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
         ),
         active: FeatureFlagsListQueryParams.shape['active'].describe(
-            'Filter by flag state. `true` returns enabled flags, `false` returns disabled flags, and `STALE` returns enabled flags that PostHog classifies as stale.'
+            'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'
         ),
         limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
