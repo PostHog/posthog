@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    ImpactMeasurementPlan,
     ImplementationAssessment,
     ImplementationDecision,
     NoteArtefact,
@@ -39,6 +40,7 @@ from products.signals.backend.report_metrics import (
     MAX_LIVE_METRIC_WINDOW_DAYS,
     MAX_METRIC_SERIES_POINTS,
     MAX_REPORT_METRICS,
+    REPORT_METRIC_GOAL_FIELDS,
     ReportMetric,
 )
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
@@ -62,6 +64,7 @@ __all__ = [
     "ImplementationDecision",
     "Priority",
     "PriorityAssessment",
+    "ReportLayer",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
@@ -79,6 +82,35 @@ def _rejection_reason(error: Exception) -> str:
         return type(error).__name__
     return ", ".join(
         f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+    )
+
+
+MIN_REPORT_LAYERS = 2
+MAX_REPORT_LAYERS = 6
+MAX_REPORT_LAYER_TITLE_LENGTH = 96
+MAX_REPORT_LAYER_SCOPE_LENGTH = 2_000
+
+
+class ReportLayer(BaseModel):
+    """One pull request in a stack of dependent pull requests. Each layer becomes a child report."""
+
+    title: str = Field(
+        description="A PR-style title for this layer alone, in the same Conventional Commits style as the report title.",
+        max_length=MAX_REPORT_LAYER_TITLE_LENGTH,
+    )
+    scope: str = Field(
+        description=(
+            "What this layer changes and what it leaves to the other layers, in two to five plain sentences. "
+            "This becomes the layer's own summary, so it must stand alone for the engineer who implements it."
+        ),
+        max_length=MAX_REPORT_LAYER_SCOPE_LENGTH,
+    )
+    depends_on: int | None = Field(
+        default=None,
+        description=(
+            "Zero-based index of the earlier layer whose pull request this layer builds on, or null when "
+            "the layer can land on the default branch by itself."
+        ),
     )
 
 
@@ -142,6 +174,59 @@ Hard rules:
             "EventsNode or ActionsNode sources. Its value/value_at snapshot is an optional cached fallback."
         ),
     )
+    revise_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    retire_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    layers: list[ReportLayer] = Field(
+        default_factory=list,
+        description=(
+            "An optional plan of dependent pull requests. Leave empty unless the work is too large for one "
+            "reviewable PR and splits into layers that a reviewer can review one at a time. When the source "
+            "issue has a `## Stack`, `## Phases` or landing plan section, follow its layers. Otherwise decide "
+            f"yourself, and use between {MIN_REPORT_LAYERS} and {MAX_REPORT_LAYERS} layers in landing order. "
+            "When you fill this, the report title and summary describe the whole plan, and each layer "
+            "becomes its own report with its own pull request."
+        ),
+    )
+
+    @field_validator("layers", mode="before")
+    @classmethod
+    def drop_a_plan_with_a_layer_that_does_not_validate(cls, v: object) -> object:
+        # Pydantic checks each layer's own fields (a missing scope, a title over the length cap, a
+        # non-integer dependency) before `layers_form_a_plan` runs, and the presentation turn has no
+        # retry. So a malformed layer drops the whole plan here, and the report continues as a single
+        # pull request with its title and summary, the same as a plan with a blank layer.
+        if not isinstance(v, list):
+            return v
+        for index, entry in enumerate(v):
+            try:
+                ReportLayer.model_validate(entry)
+            except ValidationError as e:
+                logger.warning(
+                    "presentation: dropped layer plan, layer at index %d did not validate (%s)",
+                    index,
+                    _rejection_reason(e),
+                )
+                return []
+        return v
+
+    @field_validator("layers")
+    @classmethod
+    def layers_form_a_plan(cls, layers: list[ReportLayer]) -> list[ReportLayer]:
+        # A plan outside the bounds, or with a layer that has no title or scope, keeps the report a
+        # single pull request instead of failing the whole presentation turn. A dependency must point
+        # at an earlier layer, which keeps the order acyclic. A forward or self reference falls back
+        # to the previous layer, the usual shape of a stack, and the first layer falls back to no
+        # dependency.
+        if not MIN_REPORT_LAYERS <= len(layers) <= MAX_REPORT_LAYERS:
+            return []
+        if any(not layer.title.strip() or not layer.scope.strip() for layer in layers):
+            return []
+        return [
+            layer
+            if layer.depends_on is None or 0 <= layer.depends_on < index
+            else layer.model_copy(update={"depends_on": index - 1 if index else None})
+            for index, layer in enumerate(layers)
+        ]
 
     @field_validator("charts", mode="before")
     @classmethod
@@ -163,6 +248,44 @@ Hard rules:
                 logger.warning(
                     "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
                 )
+        return kept
+
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def clear_goals_that_do_not_validate(cls, v: object) -> object:
+        # A goal is an optional proposal on a metric that is otherwise valid. Without this, a bad
+        # threshold or a missing decision rule fails the whole presentation step, and the run ends
+        # with no report. A metric that validates without its goal keeps its measurement. A metric
+        # that fails for any other reason still fails the response.
+        if not isinstance(v, list):
+            return v
+        kept: list[object] = []
+        for index, entry in enumerate(v):
+            if not isinstance(entry, dict) or all(entry.get(field) is None for field in REPORT_METRIC_GOAL_FIELDS):
+                kept.append(entry)
+                continue
+            if entry.get("minimum_data_points") is not None and entry.get("eligibility_query") is None:
+                # A saved plan rejects a minimum-data rule with no opportunities to count. Drop the rule
+                # so that a decision window can still carry the goal into a plan.
+                entry = {**entry, "minimum_data_points": None}
+                logger.warning(
+                    "presentation: dropped minimum data points without an eligibility query at index %d", index
+                )
+            try:
+                kept.append(ReportMetric.model_validate(entry))
+                continue
+            except Exception as e:
+                reason = _rejection_reason(e)
+            try:
+                kept.append(
+                    ReportMetric.model_validate(
+                        {key: value for key, value in entry.items() if key not in REPORT_METRIC_GOAL_FIELDS}
+                    )
+                )
+            except Exception:
+                kept.append(entry)
+                continue
+            logger.warning("presentation: cleared goal on metric at index %d that did not validate (%s)", index, reason)
         return kept
 
     @field_validator("title", "summary")
@@ -297,6 +420,13 @@ class ReportResearchOutput(BaseModel):
             "The report's whole typed impact-metric set, replaced with title, summary, and charts. "
             "Every entry has a bounded live EventsNode/ActionsNode Trends query; its snapshot is optional."
         ),
+    )
+    revise_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    retire_measurement_plan_metric_ids: list[str] = Field(default_factory=list)
+    layers: list[ReportLayer] = Field(
+        default_factory=list,
+        description="The plan of dependent pull requests, when research split the work. Each layer becomes "
+        "a child report when the report settles ready.",
     )
     research_task_id: str | None = Field(
         default=None,
@@ -687,12 +817,47 @@ Put reproducible report-level measurements under `metrics`. A metric tells the r
 - **At most {MAX_REPORT_METRICS} metrics per report.** Prefer the handful that changes a decision. `metrics` replaces the previous set with the new title and summary, so repeat any still-valid metric on re-research. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be re-sent.
 """
 
+_EXPECTED_IMPACT_GUIDANCE = """## Proposed impact measurement
 
-def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> str:
-    if not previous_metrics:
+When the solution has an Expected impact section and the research supports it, give one live metric that directly measures the intended change a `goal_value` and `goal_direction` (`at_most` or `at_least`). Suggest `decision_window_days` (1–30) based on observed traffic. Set `minimum_data_points` (1–1000) only when you can also supply a bounded `eligibility_query`. Count qualifying opportunities, not failures: a zero-failure goal cannot require failures to occur. Prefer a short useful window over waiting for certainty. State the baseline and intended outcome in the Expected impact prose. The goal is a proposal, not a scheduled check or a statistical confidence claim. If the metric cannot observe the intended outcome, or no credible threshold or traffic estimate exists, omit the goal rather than invent one. Keep an existing valid goal on re-research unless evidence changes it.
+Choose `goal_grain=per_interval` only when the threshold applies to each chart bucket; otherwise use `whole_window`. The proposal is saved as an impact measurement artefact separate from the report's observation metrics. Do not call it statistically significant without a suitable test.
+"""
+
+
+def _render_previous_measurement_plans_context(
+    previous_plans: dict[str, tuple[str, ImpactMeasurementPlan]],
+) -> str:
+    if not previous_plans:
         return ""
     rendered = json.dumps(
-        [metric.model_dump(mode="json", exclude={"comparison"}) for metric in previous_metrics], indent=2
+        [
+            {"artefact_id": artefact_id, **plan.model_dump(mode="json")}
+            for _, (artefact_id, plan) in sorted(previous_plans.items())
+        ],
+        indent=2,
+    )
+    return (
+        "## Existing impact measurement plans\n\n"
+        "Review each attached plan against the new signals, current code and data, and the Expected impact prose. "
+        "Keep a sound plan unchanged: do not list its metric ID in either decision field. "
+        "If its measure, goal, or decision window needs a material change, include its metric ID in "
+        "`revise_measurement_plan_metric_ids` and return the complete updated observation metric, including "
+        "goal fields, in `metrics`. If the outcome is no longer relevant or measurable, include its metric ID "
+        "in `retire_measurement_plan_metric_ids`. Do not use both decisions for one plan, and do not treat "
+        "an omitted metric as a request to retire its plan. Revisions need fresh human approval. "
+        "Keep the Expected impact prose consistent with the plans you keep, revise, or retire.\n\n"
+        f"```json\n{rendered}\n```"
+    )
+
+
+def _render_previous_metrics_context(previous_metrics: list[ReportMetric], *, include_goals: bool = True) -> str:
+    if not previous_metrics:
+        return ""
+    excluded_fields = {"comparison"}
+    if not include_goals:
+        excluded_fields.update(REPORT_METRIC_GOAL_FIELDS)
+    rendered = json.dumps(
+        [metric.model_dump(mode="json", exclude=excluded_fields) for metric in previous_metrics], indent=2
     )
     return (
         "## Impact metrics this report already shows\n\n"
@@ -1022,20 +1187,35 @@ def build_report_presentation_prompt(
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
     previous_metrics: list[ReportMetric] | None = None,
+    previous_measurement_plans: dict[str, tuple[str, ImpactMeasurementPlan]] | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not metrics_enabled:
         schema_dict.get("properties", {}).pop("metrics", None)
         schema_dict.get("$defs", {}).pop("ReportMetric", None)
         schema_dict.get("$defs", {}).pop("ReportMetricComparison", None)
+    elif not expected_impact_authoring_enabled:
+        metric_properties = schema_dict["$defs"]["ReportMetric"]["properties"]
+        for field_name in REPORT_METRIC_GOAL_FIELDS:
+            metric_properties.pop(field_name, None)
+    if not (expected_impact_authoring_enabled and previous_measurement_plans):
+        schema_dict["properties"].pop("revise_measurement_plan_metric_ids", None)
+        schema_dict["properties"].pop("retire_measurement_plan_metric_ids", None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
     visual_sections: list[str] = []
     if metrics_enabled:
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
-        previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
+        if expected_impact_authoring_enabled:
+            visual_sections.append(_EXPECTED_IMPACT_GUIDANCE)
+            if previous_measurement_plans:
+                visual_sections.append(_render_previous_measurement_plans_context(previous_measurement_plans))
+        previous_metrics_context = _render_previous_metrics_context(
+            previous_metrics or [], include_goals=expected_impact_authoring_enabled
+        )
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
     visual_sections.append(_REPORT_CHARTS_GUIDANCE)
@@ -1182,6 +1362,7 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
+    previous_measurement_plans: dict[str, tuple[str, ImpactMeasurementPlan]] | None = None,
     branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -1191,6 +1372,7 @@ async def run_multi_turn_research(
     resolved_report_summary: str | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
     agent_checks_enabled: bool = False,
     steering_section: str = "",
     implementation_context: ImplementationResearchContext = NO_IMPLEMENTATION_CONTEXT,
@@ -1362,7 +1544,9 @@ async def run_multi_turn_research(
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
+            previous_measurement_plans=previous_measurement_plans,
             metrics_enabled=metrics_enabled,
+            expected_impact_authoring_enabled=expected_impact_authoring_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -1462,6 +1646,13 @@ async def run_multi_turn_research(
         summary=presentation_result.summary,
         charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
+        revise_measurement_plan_metric_ids=(
+            presentation_result.revise_measurement_plan_metric_ids if previous_measurement_plans else []
+        ),
+        retire_measurement_plan_metric_ids=(
+            presentation_result.retire_measurement_plan_metric_ids if previous_measurement_plans else []
+        ),
+        layers=presentation_result.layers,
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,

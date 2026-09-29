@@ -528,6 +528,7 @@ def test_create_batch_export_with_custom_schema(
         "schema": expected_schema,
         "hogql_query": None,
         "user_id": None,
+        "hogql_modifiers": None,
     }
 
 
@@ -631,6 +632,7 @@ def test_create_batch_export_with_hogql_model(
         "schema": None,
         "hogql_query": hogql_batch_export_data["hogql_query"],
         "user_id": user.pk,
+        "hogql_modifiers": None,
     }
 
 

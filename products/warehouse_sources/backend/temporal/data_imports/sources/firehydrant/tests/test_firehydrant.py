@@ -284,6 +284,37 @@ class TestFanout:
             )
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_service_dependencies_read_the_flattened_named_array(self, MockSession) -> None:
+        # This endpoint answers outside the `data` envelope: reading `data` would sync zero rows,
+        # and reading the split arrays instead of the flattened one would double-count each edge.
+        session = MockSession.return_value
+        dependencies = Response()
+        dependencies.status_code = 200
+        dependencies._content = json.dumps(
+            {
+                "child_service_dependencies": [{"id": "d1", "type": "child"}],
+                "parent_service_dependencies": [{"id": "d2", "type": "parent"}],
+                "service_dependencies": [{"id": "d1", "type": "child"}, {"id": "d2", "type": "parent"}],
+            }
+        ).encode()
+        params, urls = _wire(session, [_response([{"id": "svc1"}], next_page=None), dependencies])
+
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "service_dependencies", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert urls[1] == "https://api.firehydrant.io/v1/services/svc1/dependencies"
+        # The parent service id is what keeps an edge unique — the same edge id comes back under
+        # both services it joins.
+        assert rows == [
+            {"id": "d1", "type": "child", "service_id": "svc1"},
+            {"id": "d2", "type": "parent", "service_id": "svc1"},
+        ]
+        assert params[1]["flatten"] == "true"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_child_body_is_zero_rows(self, MockSession) -> None:
         # An empty container carries no rows and no alternative shape, so it must not fail loud.
         session = MockSession.return_value
@@ -322,9 +353,10 @@ class TestSourceResponse:
 
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # A partition key that changes (updated_at/lastSeen) rewrites partitions every sync.
+        # `occurred_at` is when a timeline event happened, which is as immutable as `created_at`.
         for config in FIREHYDRANT_ENDPOINTS.values():
             if config.partition_key:
-                assert config.partition_key == "created_at"
+                assert config.partition_key in {"created_at", "occurred_at"}
 
     @parameterized.expand(
         [

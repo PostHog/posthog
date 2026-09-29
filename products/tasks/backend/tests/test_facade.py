@@ -1241,7 +1241,13 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
-    def test_run_task_resume_carries_self_driving_head_branch(self):
+    @parameterized.expand(
+        [
+            ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
+            ("stack_base_branch", "posthog-self-driving/schema-abc123"),
+        ]
+    )
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -1253,7 +1259,7 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+            state={state_key: branch},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1266,7 +1272,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+        self.assertEqual(new_run.state.get(state_key), branch)
 
     @parameterized.expand(
         [
