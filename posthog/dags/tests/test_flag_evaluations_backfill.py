@@ -390,6 +390,45 @@ def test_backfill_stops_when_a_blocking_run_is_created_after_the_wait_starts_its
             backfill.run([day])
 
 
+@pytest.mark.parametrize(
+    "status, same_run, stops",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, False, True, id="another_run_executing"),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, False, id="another_run_not_started"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, True, False, id="only_this_run_executing"),
+    ],
+)
+def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
+    status: dagster.DagsterRunStatus, same_run: bool, stops: bool
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    other_run = instance.create_run_for_job(job_def=flag_evaluations_backfill_job, status=status)
+    backfill = ShardBackfill(
+        cluster=MagicMock(),
+        shard_num=1,
+        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
+        instance=instance,
+        run_id=other_run.run_id if same_run else "backfill-run",
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+
+    with (
+        patch.object(ShardBackfill, "check_disk_headroom"),
+        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
+    ):
+        if stops:
+            with pytest.raises(dagster.Failure, match=other_run.run_id):
+                backfill.run([date(2026, 3, 10)])
+        else:
+            backfill.run([date(2026, 3, 10)])
+
+    assert copy_day.called is not stops
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "overrides, kafka_path_row_age",

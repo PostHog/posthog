@@ -42,6 +42,11 @@ TIB = 1024 * GIB
 BLOCKING_JOB_NAMES = (squash_person_overrides.name, deletes_job.name, *DELETION_JOB_NAMES)
 
 _UNSTARTED_RUN_STATUSES = (dagster.DagsterRunStatus.QUEUED, dagster.DagsterRunStatus.NOT_STARTED)
+_EXECUTING_RUN_STATUSES = (
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+)
 
 # The nine DEFAULT columns are left out so the shard computes them from properties, the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
@@ -245,6 +250,7 @@ class ShardBackfill:
     node_role: NodeRole
 
     def run(self, days: Sequence[date]) -> int:
+        self.check_no_other_backfill_run()
         copy_query = build_copy_query(
             dry_run=self.config.dry_run, team_ids=bool(self.config.team_ids), chunked=self.config.team_id_chunks > 1
         )
@@ -300,6 +306,25 @@ class ShardBackfill:
                 f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
             )
             time.sleep(self.config.blocking_run_poll_seconds)
+
+    def check_no_other_backfill_run(self) -> None:
+        # Two runs that copy the same shard and day at once both find a row missing, and both insert
+        # it. The two rows are identical, so no later run or delete can remove only one of them.
+        # Waiting here would leave two runs waiting on each other, so the later run stops instead.
+        # The check runs once per shard op, so a second run that stops here does not also stop the
+        # run that was already copying.
+        others = describe_active_runs(
+            self.instance,
+            (flag_evaluations_backfill_job.name,),
+            exclude_run_id=self.run_id,
+            statuses=_EXECUTING_RUN_STATUSES,
+        )
+        if others:
+            raise dagster.Failure(
+                description=f"Stopping shard {self.shard_num}: {'; '.join(others)} is executing. "
+                "Two backfill runs copying at once can insert the same row twice. "
+                "Wait for that run to finish or cancel it, then run the backfill again."
+            )
 
     def check_no_blocking_run_started(self, *, since: datetime, day: date) -> None:
         started = [
