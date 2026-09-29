@@ -2,6 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "active": {
+            "description": "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' answers a different question: it selects flags the staleness check calls stale, which means not called in 30 days, or never called, at least 30 days old and rolled out to everyone.",
             "enum": ["STALE", "false", "true"],
             "type": "string"
         },

@@ -600,6 +600,7 @@ export interface FeatureFlagApi {
     is_remote_configuration?: boolean | null
     /** @nullable */
     has_encrypted_payloads?: boolean | null
+    /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag reports ACTIVE, because disabled flags are not evaluated for staleness. */
     readonly status: string
     /** Specifies where this feature flag should be evaluated
      *
@@ -1347,7 +1348,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -2055,6 +2056,9 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 } as const
 
 export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' answers a different question: it selects flags the staleness check calls stale, which means not called in 30 days, or never called, at least 30 days old and rolled out to everyone.
+     */
     active?: FeatureFlagsListActive
     /**
      * Filter by archived state. When omitted, archived flags are excluded.

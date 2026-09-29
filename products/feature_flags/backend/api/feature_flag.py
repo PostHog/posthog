@@ -2921,6 +2921,15 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
+    @extend_schema_field(
+        serializers.CharField(
+            help_text=(
+                "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+                "serving state. Read the `active` field for that. A disabled flag reports ACTIVE, because "
+                "disabled flags are not evaluated for staleness."
+            )
+        )
+    )
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -3215,8 +3224,10 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
+            "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving "
+            "state, and this response carries no serving-state field: read the `active` field of the flag "
+            "itself from the list or retrieve endpoint. A disabled flag reports 'active', because disabled "
+            "flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled "
             "out. Use the `rollout` object to determine rollout completeness."
         )
     )
@@ -4067,6 +4078,12 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
+                description=(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
+                    "answers a different question: it selects flags the staleness check calls stale, "
+                    "which means not called in 30 days, or never called, at least 30 days old and "
+                    "rolled out to everyone."
+                ),
             ),
             OpenApiParameter(
                 "created_by_id",

@@ -13481,6 +13481,52 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             assert result["status"] == "STALE"
 
 
+# `status` is a staleness classification and `active` is the serving state, so the two disagree on
+# a disabled flag: staleness is never evaluated for it, so it stays ACTIVE while `active` is false.
+# The schema help text states that, which makes it a contract every path has to keep.
+class TestFeatureFlagServingStateContract(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        FeatureFlag.objects.all().delete()
+        self.disabled_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="disabled-flag",
+            active=False,
+        )
+        self.enabled_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="enabled-flag",
+            active=True,
+        )
+
+    def test_active_false_filters_on_the_column_and_not_on_status(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags?active=false")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert [result["key"] for result in results] == ["disabled-flag"]
+        assert results[0]["active"] is False
+        # Both flags report status ACTIVE, so the enabled flag is only absent because the filter
+        # reads the `active` column.
+        assert results[0]["status"] == "ACTIVE"
+
+        enabled = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.enabled_flag.id}").json()
+        assert enabled["status"] == "ACTIVE"
+
+    def test_list_definition_and_status_endpoint_agree_on_a_disabled_flag(self):
+        list_row = self.client.get(f"/api/projects/{self.team.id}/feature_flags?active=false").json()["results"][0]
+        definition = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.disabled_flag.id}").json()
+        staleness = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.disabled_flag.id}/status").json()
+
+        assert list_row["active"] is False
+        assert definition["active"] is False
+        assert list_row["status"] == definition["status"] == "ACTIVE"
+        assert staleness["status"] == "active"
+        assert staleness["reason"] == "Flag is disabled (not evaluated for staleness)"
+
+
 class TestFeatureFlagMatchingIds(APIBaseTest):
     def setUp(self):
         super().setUp()
