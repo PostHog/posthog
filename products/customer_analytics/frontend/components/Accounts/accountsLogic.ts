@@ -1634,6 +1634,9 @@ export const accountsLogic = kea<accountsLogicType>([
         loadRelationshipDefinitionsFailure: () => {
             cache.relationshipDefinitionsLoaded = true
             actions.setAccountFilters(values.accountFilters)
+            if (!cache.customPropertyDefinitionsLoaded) {
+                return
+            }
             const supportedGroups = values.accountFilterGroups.map((group) =>
                 supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
             )
@@ -2094,6 +2097,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (values.accountFilters.length > 0) {
                     actions.setAccountFilters([])
+                }
+                if (values.accountFilterGroups.length > 0) {
+                    actions.setAccountFilterGroups([])
                 }
                 const term = externalId || name
                 if (term) {

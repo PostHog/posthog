@@ -510,6 +510,36 @@ describe('accountsLogic', () => {
         expect(logic.values.activeFilterCount).toBe(0)
     })
 
+    it('keeps custom-property groups until definitions load after a relationship failure', async () => {
+        logic.unmount()
+        silenceKeaLoadersErrors()
+        let resolveDefinitions!: (result: Awaited<ReturnType<typeof customPropertyDefinitionsList>>) => void
+        mockCustomPropertiesList.mockReturnValueOnce(
+            new Promise<Awaited<ReturnType<typeof customPropertyDefinitionsList>>>((resolve) => {
+                resolveDefinitions = resolve
+            })
+        )
+        mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
+        logic = accountsLogic()
+        logic.mount()
+        const customFilter = {
+            type: PropertyFilterType.AccountCustomProperty as const,
+            key: CSM_DEFINITION_ID,
+            operator: PropertyOperator.Exact,
+            value: 5,
+        }
+        logic.actions.setAccountFilterGroups([[customFilter]])
+
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toDispatchActions([
+            'loadRelationshipDefinitionsFailure',
+        ])
+        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
+
+        resolveDefinitions({ count: 1, results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })] })
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
+    })
+
     it('keeps overview metrics off the list query', () => {
         expect(logic.values.accountsQuerySource?.metrics).toBeUndefined()
     })
@@ -1394,6 +1424,16 @@ describe('accountsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.accountsQuerySource?.filters).toEqual([{ kind: 'account_id', accountId: ACCOUNT_ID }])
+        })
+
+        it('clears OR groups when opening an account hidden by the current filters', () => {
+            logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+            logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
+
+            logic.actions.openAccount(ACCOUNT_ID, 'target-account', 'Target account', DEFAULT_ACCOUNT_TAB)
+
+            expect(logic.values.accountFilters).toEqual([])
+            expect(logic.values.accountFilterGroups).toEqual([])
         })
 
         it('survives a view-state restore rewriting the URL', async () => {
