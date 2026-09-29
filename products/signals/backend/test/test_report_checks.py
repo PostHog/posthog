@@ -54,10 +54,10 @@ from products.signals.backend.report_check_execution import (
     run_due_report_checks,
 )
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
-    MAX_AWAITING_DATA_RETRIES,
     MAX_CHECK_HORIZON,
     MAX_CHECK_INSTRUCTIONS_LENGTH,
     MAX_CHECK_INTERVAL_MINUTES,
@@ -556,10 +556,10 @@ class TestReportCheckExecution(APIBaseTest):
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.INCONCLUSIVE
-        assert check.consecutive_inconclusive == MAX_AWAITING_DATA_RETRIES + 1
+        assert check.consecutive_inconclusive == len(AWAITING_DATA_RETRY_WAITS) + 1
         assert check.last_outcome_reason == SignalReportCheck.InconclusiveReason.AWAITING_DATA
         results = self._results()
-        assert len(results) == MAX_AWAITING_DATA_RETRIES + 1
+        assert len(results) == len(AWAITING_DATA_RETRY_WAITS) + 1
         assert json.loads(results[-1].content)["reason"] == "awaiting_data"
         properties = capture.call_args.kwargs["properties"]
         assert properties["outcome"] == "inconclusive"
@@ -594,19 +594,6 @@ class TestReportCheckExecution(APIBaseTest):
             CheckVerdict(outcome="errored", reason="awaiting_data", explanation="The query failed.")
         with self.assertRaises(PydanticValidationError):
             CheckResult(check_id="c", kind="agent", title="t", outcome="inconclusive", explanation="Too few samples.")
-
-    def test_an_active_check_that_waited_on_data_ends_inconclusive_at_its_horizon(self) -> None:
-        check = self._check(
-            next_run_at=timezone.now() + timedelta(days=1),
-            expires_at=timezone.now() - timedelta(minutes=1),
-            last_run_at=timezone.now() - timedelta(days=2),
-            last_outcome=SignalReportCheck.Outcome.INCONCLUSIVE,
-            last_outcome_reason=SignalReportCheck.InconclusiveReason.AWAITING_DATA,
-        )
-        with patch(_CAPTURE):
-            assert expire_overdue_checks(timezone.now()) == 1
-        check.refresh_from_db()
-        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
 
     def test_an_unrun_check_past_its_horizon_expires(self) -> None:
         check = self._check(

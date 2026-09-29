@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from django.db import transaction
-from django.db.models import Case, F, Value, When, Window
+from django.db.models import F, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -54,11 +54,8 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
-    AWAITING_DATA_FIRST_RETRY_AFTER,
-    AWAITING_DATA_MAX_RETRY_AFTER,
-    AWAITING_DATA_RETRY_FACTOR,
+    AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_SOAK_HOURS,
-    MAX_AWAITING_DATA_RETRIES,
     MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
@@ -234,13 +231,6 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
-def awaiting_data_retry_after(retries_so_far: int) -> timedelta:
-    """How long an `awaiting_data` check waits before it looks again: 24 hours, then 72, then 7 days."""
-    return min(
-        AWAITING_DATA_FIRST_RETRY_AFTER * AWAITING_DATA_RETRY_FACTOR**retries_so_far, AWAITING_DATA_MAX_RETRY_AFTER
-    )
-
-
 def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> _CheckTransition:
     """The check's status after this verdict, its next run time, and its remaining runs.
 
@@ -272,15 +262,14 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
         )
 
     if verdict.outcome == "inconclusive":
-        retire = _CheckTransition(
-            status=SignalReportCheck.Status.INCONCLUSIVE, next_run_at=None, runs_remaining=check.runs_remaining
-        )
-        if verdict.reason != "awaiting_data" or check.consecutive_inconclusive >= MAX_AWAITING_DATA_RETRIES:
-            return retire
-        retry_at = now + awaiting_data_retry_after(check.consecutive_inconclusive)
+        retries = check.consecutive_inconclusive
+        can_wait = verdict.reason == "awaiting_data" and retries < len(AWAITING_DATA_RETRY_WAITS)
+        retry_at = now + AWAITING_DATA_RETRY_WAITS[retries] if can_wait else None
         # `>=`, because a row due exactly at its horizon is swept rather than collected.
-        if retry_at >= check.expires_at:
-            return retire
+        if retry_at is None or retry_at >= check.expires_at:
+            return _CheckTransition(
+                status=SignalReportCheck.Status.INCONCLUSIVE, next_run_at=None, runs_remaining=check.runs_remaining
+            )
         return _CheckTransition(
             status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
         )
@@ -482,9 +471,6 @@ def expire_overdue_checks(now: datetime) -> int:
 
     Pending rows are swept too, so a check waiting on a report that never resolves retires at the
     horizon instead of waiting forever for a clock that will not start.
-
-    An active row whose last run was `inconclusive` retires as `inconclusive`, not `expired`: its
-    runs already said why they could not settle the claim.
     """
 
     overdue = list(
@@ -503,17 +489,7 @@ def expire_overdue_checks(now: datetime) -> int:
         id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
         expires_at__lte=now,
-    ).update(
-        status=Case(
-            When(
-                status=SignalReportCheck.Status.ACTIVE,
-                last_outcome=SignalReportCheck.Outcome.INCONCLUSIVE,
-                then=Value(SignalReportCheck.Status.INCONCLUSIVE),
-            ),
-            default=Value(SignalReportCheck.Status.EXPIRED),
-        ),
-        updated_at=now,
-    )
+    ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
         _log_expired_checks(overdue, now, expired)
         _report_expired_checks(overdue)
@@ -534,9 +510,7 @@ def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime, expired
         if expired == len(overdue)
         else set(
             SignalReportCheck.all_teams.filter(
-                id__in=[check.id for check in overdue],
-                status__in=[SignalReportCheck.Status.EXPIRED, SignalReportCheck.Status.INCONCLUSIVE],
-                updated_at=now,
+                id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
             ).values_list("id", flat=True)
         )
     )
