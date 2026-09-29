@@ -3185,6 +3185,7 @@ def _apply_account_table_filters(
     team_id: int,
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...],
     custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
     member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
@@ -3198,13 +3199,25 @@ def _apply_account_table_filters(
                 break
 
     try:
-        return apply_account_filters(
+        queryset = apply_account_filters(
             queryset,
             team_id=team_id,
             filters=filters,
             custom_property_display_types=custom_property_display_types,
             member_external_ids_by_query=member_external_ids_by_query,
         )
+        if filter_groups:
+            matching_groups = Q()
+            for group in filter_groups:
+                group_query = apply_account_filters(
+                    queryset,
+                    team_id=team_id,
+                    filters=group,
+                    custom_property_display_types=custom_property_display_types,
+                )
+                matching_groups |= Q(pk__in=group_query.order_by().values("pk"))
+            queryset = queryset.filter(matching_groups)
+        return queryset
     except InvalidAccountFilter as error:
         raise InvalidAccountTableColumn(str(error)) from error
 
@@ -3321,6 +3334,7 @@ def query_accounts_metrics(
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
     metrics: tuple[contracts.AccountTableMetric, ...],
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> list[float | int | None]:
@@ -3332,7 +3346,7 @@ def query_accounts_metrics(
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
         selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
-        filters=filters,
+        filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=None,
     )
     for definition_id in definition_ids:
@@ -3340,15 +3354,17 @@ def query_accounts_metrics(
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
-    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+    all_filters = filters + tuple(filter_ for group in filter_groups for filter_ in group)
+    if not include_churned and not _filters_account_table_field(all_filters, contracts.AccountTableField.CHURNED_AT):
         accounts = accounts.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+    if not include_ignored and not _filters_account_table_field(all_filters, contracts.AccountTableField.IGNORED_AT):
         accounts = accounts.filter(ignored_at__isnull=True)
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
+        filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
     )
     results: list[float | int | None] = [None] * len(metrics)
@@ -3418,26 +3434,29 @@ def query_accounts_table(
     sort: contracts.AccountTableSort | None,
     offset: int,
     limit: int,
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
         selection=selection,
-        filters=filters,
+        filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=sort,
     )
 
     queryset = _accounts_queryset(team_id, user_access_control)
-    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+    all_filters = filters + tuple(filter_ for group in filter_groups for filter_ in group)
+    if not include_churned and not _filters_account_table_field(all_filters, contracts.AccountTableField.CHURNED_AT):
         queryset = queryset.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+    if not include_ignored and not _filters_account_table_field(all_filters, contracts.AccountTableField.IGNORED_AT):
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
+        filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
     )
     queryset = _apply_account_table_sort(
