@@ -1286,3 +1286,11 @@ environment:
         bin_script: docker-worker-ai-training-privacy
         description: 'Start the dedicated AI training privacy worker'
         hidden: true
+    build:recording:rasterizer:image:
+        bin_script: build-recording-rasterizer-image
+        description: 'Build the recording rasterizer Docker image'
+        hidden: true
+    rasterize:recording:file:
+        bin_script: rasterize-recording-file
+        description: 'Render a recording JSONL file to video with the rasterizer'
+        hidden: true

@@ -349,6 +349,7 @@ class TraceHogTestResult:
     input_preview: str
     output_preview: str
     score: float | None = None
+    categories: list[str] | None = None
     applicable: bool | None = None
 
 
@@ -509,6 +510,7 @@ def run_hog_eval_over_recent_traces(
                 trace_id=sample.trace_id,
                 verdict=result.get("verdict"),
                 score=result.get("score"),
+                categories=result.get("categories"),
                 applicable=result.get("applicable"),
                 reasoning=result["reasoning"],
                 error=result["error"],
@@ -672,9 +674,9 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] not in ("boolean", "numeric"):
+    if evaluation["output_type"] not in ("boolean", "numeric", "categorical"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric', 'categorical'.",
             non_retryable=True,
         )
 
@@ -871,7 +873,7 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
-            if evaluation.get("output_type") != "numeric":
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
                 disabled_result["verdict"] = None
             return disabled_result
 
@@ -954,6 +956,8 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
             workflow_result["verdict"] = result["verdict"]
         if "score" in result:
             workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

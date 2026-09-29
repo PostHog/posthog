@@ -24,7 +24,7 @@ class EvaluationReportQuerySet(models.QuerySet):
 
     def reportable(self) -> "EvaluationReportQuerySet":
         return self.for_supported_evaluations().exclude(
-            models.Q(evaluation__output_type="numeric")
+            models.Q(evaluation__output_type__in=("numeric", "categorical"))
             & (
                 ~models.Q(evaluation__output_config__has_key="passing_rule")
                 | models.Q(evaluation__output_config__passing_rule=None)

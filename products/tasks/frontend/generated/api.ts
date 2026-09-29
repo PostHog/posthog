@@ -1589,7 +1589,7 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Create a new task run and kick off the workflow.
+ * Create a new task run and kick off the workflow. **Responds with the task, not the run**: the new run is nested under `latest_run`, and the top-level `id` is still the task's. Read `latest_run.id` for anything run-scoped, such as the run's stream and command endpoints.
  * @summary Run task
  */
 export const tasksRunCreate = async (
@@ -2329,7 +2329,7 @@ export const getTasksRunsSetSummaryPartialUpdateUrl = (projectId: string, taskId
 }
 
 /**
- * Replace the running summary for a task run.
+ * Replace the running summary for a task run, and optionally its slug tags.
  * @summary Set task run summary
  */
 export const tasksRunsSetSummaryPartialUpdate = async (

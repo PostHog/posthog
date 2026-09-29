@@ -315,6 +315,15 @@
             ],
             "label": "AI Evaluation Applicable (LLM)"
         },
+        "$ai_evaluation_categorical_result": {
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": [
+                "[\"resolved\"]",
+                "[\"fast\", \"reliable\"]",
+                "[]"
+            ],
+            "label": "AI evaluation categorical result"
+        },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
             "examples": [
@@ -5177,6 +5186,15 @@
                 false
             ],
             "label": "AI Evaluation Applicable (LLM)"
+        },
+        "$ai_evaluation_categorical_result": {
+            "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
+            "examples": [
+                "[\"resolved\"]",
+                "[\"fast\", \"reliable\"]",
+                "[]"
+            ],
+            "label": "AI evaluation categorical result"
         },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
