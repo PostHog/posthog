@@ -54,13 +54,11 @@ class Trimmed implements Component {
   }
 }
 
-// A tool call next to agent text reads as a separate block.
+// Each change between user, tool and agent blocks gets one blank line.
 const needsGap = (
   previous: TranscriptLine | undefined,
   line: TranscriptLine,
-): boolean =>
-  (previous?.kind === "tool" && line.kind === "assistant") ||
-  (previous?.kind === "assistant" && line.kind === "tool");
+): boolean => previous !== undefined && previous.kind !== line.kind;
 
 function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
@@ -135,8 +133,9 @@ export class ChatView {
       : null;
     const visible = content
       .slice(top, top + height)
-      .map((line) => line.replace(PROMPT_MARKS, ""));
-    return [...visible, ...Array<string>(height - visible.length).fill("")];
+      // Ink gives an empty string no height, so blank lines carry a space.
+      .map((line) => line.replace(PROMPT_MARKS, "") || " ");
+    return [...visible, ...Array<string>(height - visible.length).fill(" ")];
   }
 
   isAtTop(): boolean {

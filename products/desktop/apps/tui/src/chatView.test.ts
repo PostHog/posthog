@@ -62,24 +62,28 @@ describe("ChatView", () => {
     expect(plain(chat.render(40, 5))).toEqual(reading);
   });
 
-  it("keeps user messages tight and spaces tool calls from agent replies", () => {
+  it("keeps messages tight and puts one blank line between user, tool and agent blocks", () => {
     const chat = new ChatView();
     chat.setTranscript([
       { kind: "user", id: "u1", text: "yo" },
-      { kind: "tool", id: "t1", title: "Summary update", status: "completed" },
-      { kind: "assistant", id: "a1", text: "Hey!" },
-      { kind: "tool", id: "t2", title: "Summary update", status: "completed" },
+      { kind: "tool", id: "t1", title: "Read file", status: "completed" },
+      { kind: "tool", id: "t2", title: "Edit file", status: "completed" },
+      { kind: "assistant", id: "a1", text: "Done." },
+      { kind: "user", id: "u2", text: "thanks!" },
     ]);
-    const lines = plain(chat.render(40, 7)).map((line) => line.trim());
+    const lines = plain(chat.render(40, 8)).map((line) => line.trim());
 
     expect(lines).toEqual([
       "yo",
-      "● Summary update",
       "",
-      "Hey!",
+      "● Read file",
+      "● Edit file",
       "",
-      "● Summary update",
+      "Done.",
       "",
+      "thanks!",
     ]);
+    // Ink draws an empty string with no height, so a blank line must carry a space to take up a row.
+    expect(chat.render(40, 8).every((line) => line.length > 0)).toBe(true);
   });
 });
