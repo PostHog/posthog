@@ -14,7 +14,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
-import { useAuth } from "@/lib/auth";
+import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 
@@ -117,14 +117,17 @@ export const useSeenReports = create<SeenState>((set, get) => ({
   seen: new Set(),
   hydrated: false,
   hydrate: async () => {
+    if (!useAuth.getState().session) return;
+    const identity = sessionIdentity();
     try {
-      const raw = await SecureStore.getItemAsync(SEEN_KEY);
+      const raw = await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
+      if (sessionIdentity() !== identity) return;
       set({
         seen: new Set(raw ? (JSON.parse(raw) as string[]) : []),
         hydrated: true,
       });
     } catch {
-      set({ hydrated: true });
+      if (sessionIdentity() === identity) set({ hydrated: true });
     }
   },
   markSeen: async (ids) => {
@@ -132,6 +135,9 @@ export const useSeenReports = create<SeenState>((set, get) => ({
     for (const id of ids) next.add(id);
     const list = [...next].slice(-SEEN_CAP);
     set({ seen: new Set(list) });
-    await SecureStore.setItemAsync(SEEN_KEY, JSON.stringify(list));
+    await SecureStore.setItemAsync(
+      accountStorageKey(SEEN_KEY),
+      JSON.stringify(list),
+    );
   },
 }));

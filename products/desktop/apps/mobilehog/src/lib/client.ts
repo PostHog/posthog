@@ -7,6 +7,7 @@ import {
   getProjectId,
   refreshAccessTokenOnce,
 } from "@/lib/api";
+import { sessionIdentity } from "@/lib/auth";
 
 const nativeFetch: FetchImplementation = (input, init) =>
   fetch(
@@ -19,36 +20,48 @@ const nativeFetch: FetchImplementation = (input, init) =>
   );
 
 let client: PostHogAPIClient | null = null;
-let clientHost: string | null = null;
-let clientProjectId: number | null = null;
+let clientIdentity: string | null = null;
 
 export function getClient(): PostHogAPIClient {
+  const identity = sessionIdentity();
   const projectId = getProjectId();
   const host = getBaseUrl();
-  if (!client || clientHost !== host) {
+  if (!client || clientIdentity !== identity) {
+    const assertCurrent = (): void => {
+      if (sessionIdentity() !== identity)
+        throw new Error("Session changed. Sign in again.");
+    };
     client = new PostHogAPIClient(
       host,
-      async () => getAccessToken(),
-      () => refreshAccessTokenOnce(),
+      async () => {
+        assertCurrent();
+        return getAccessToken();
+      },
+      async () => {
+        assertCurrent();
+        const token = await refreshAccessTokenOnce();
+        assertCurrent();
+        return token;
+      },
       projectId,
       {
         appVersion: "0.1.0",
-        fetch: nativeFetch,
+        fetch: async (input, init) => {
+          assertCurrent();
+          const response = await nativeFetch(input, init);
+          assertCurrent();
+          return response;
+        },
         githubConnectFrom: "posthog_mobile",
         userAgent: "posthog/mobilehog; version: 0.1.0",
       },
     );
-    clientHost = host;
-    clientProjectId = projectId;
-  } else if (clientProjectId !== projectId) {
-    client.setTeamId(projectId);
-    clientProjectId = projectId;
+    clientIdentity = identity;
   }
   return client;
 }
 
 export function resetClient(): void {
   client = null;
-  clientHost = null;
-  clientProjectId = null;
+  clientIdentity = null;
 }

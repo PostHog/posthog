@@ -24,3 +24,5 @@ pnpm --filter @posthog/mobilehog start   # afterwards
 ```
 
 The host lives in `src/config.ts`. Use your LAN IP instead of `localhost` on a real phone.
+
+See [Mobilehog release checks](../../../../docs/internal/mobilehog-release-checks.md) before you share a build.
