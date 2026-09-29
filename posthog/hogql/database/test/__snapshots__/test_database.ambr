@@ -2756,6 +2756,16 @@
                   "table": null,
                   "type": "json"
               },
+              "answer_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "answer_text",
+                  "id": null,
+                  "name": "answer_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "target_urls": {
                   "chain": null,
                   "fields": null,
@@ -14871,6 +14881,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "answer_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "answer_text",
+                  "id": null,
+                  "name": "answer_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "target_urls": {
                   "chain": null,

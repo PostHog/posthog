@@ -197,7 +197,7 @@ import {
     HomepageSetting,
     SidebarItemsSetting,
     SidebarLayoutSetting,
-    SidebarMyToolsSetting,
+    SidebarMyProductsSetting,
 } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -2142,8 +2142,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
                 component: <NotificationGovernanceSetting />,
-                flag: 'ORG_NOTIFICATION_GOVERNANCE',
-                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                organizationAdminOnly: true,
                 keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
             },
         ],
@@ -2352,10 +2351,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new tools',
+                title: 'Automatically suggest new products',
                 description:
-                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
+                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
+                // Suggestions land in custom products, which the simple sidebar does not show.
+                flag: '!SIMPLE_SIDEPANEL',
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
@@ -2401,7 +2402,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-navigation',
         title: 'Navigation',
-        flag: 'UI_CUSTOMIZATION',
+        // The simple sidebar edits these inline, from its own customize dialog.
+        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
         settings: [
             {
                 id: 'homepage',
@@ -2428,11 +2430,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-my-tools',
-                title: 'My Tools',
+                title: 'My products',
                 description:
-                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyToolsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyProductsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },

@@ -94,10 +94,28 @@ impl FlagFilters {
         if self.is_v1() {
             Ok(())
         } else {
-            Err(FlagError::flag_data_parsing(
-                "unsupported feature flag configuration format",
-            ))
+            Err(Self::unsupported_format())
         }
+    }
+
+    pub(crate) fn supported_v2(&self) -> Option<&config_v2::Config> {
+        self.non_v1.as_ref()?.parsed_v2.as_ref()?.as_ref().ok()
+    }
+
+    pub(crate) fn is_supported(&self) -> bool {
+        self.is_v1() || self.supported_v2().is_some()
+    }
+
+    pub(crate) fn require_supported(&self) -> Result<(), FlagError> {
+        if self.is_supported() {
+            Ok(())
+        } else {
+            Err(Self::unsupported_format())
+        }
+    }
+
+    fn unsupported_format() -> FlagError {
+        FlagError::flag_data_parsing("unsupported feature flag configuration format")
     }
 }
 

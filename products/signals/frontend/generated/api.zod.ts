@@ -456,7 +456,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -823,10 +823,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; an `author_scout` chat can carry the user's request, which the server fences inside that prompt. The response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
 export const signalsScoutChatTasksCreateBodySuggestionIdMax = 64
+
+export const signalsScoutChatTasksCreateBodyUserPromptMax = 2000
 
 export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
     chat_type: zod
@@ -843,6 +845,13 @@ export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional id of a suggestion from this project's scout suggestion batch. The chat then opens on that draft instead of scanning from scratch. `author_scout` only."
+        ),
+    user_prompt: zod
+        .string()
+        .max(signalsScoutChatTasksCreateBodyUserPromptMax)
+        .optional()
+        .describe(
+            "Optional description, in the user's own words, of what the new scout should watch. The chat then opens on this request instead of asking from scratch. `author_scout` only, and not together with `suggestion_id`."
         ),
 })
 
@@ -1277,7 +1286,7 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
     .describe('Request body for `notes-create`.')
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResultBodyExplanationMax = 1000
@@ -1343,6 +1352,11 @@ export const signalsScoutEditReportBodyMetricsItemValueFormatDefault = `number`
 export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEditReportBodyMetricsItemGoalGrainDefault = `whole_window`
+export const signalsScoutEditReportBodyMetricsItemDecisionWindowDaysMax = 30
+
+export const signalsScoutEditReportBodyMetricsItemMinimumDataPointsMax = 1000
 
 export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
 
@@ -1573,6 +1587,44 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
                             ),
+                        goal_value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Proposed threshold after release. Informational only; does not schedule a check.'
+                            ),
+                        goal_direction: zod
+                            .union([
+                                zod
+                                    .enum(['at_most', 'at_least'])
+                                    .describe('\* `at_most` - at_most\n\* `at_least` - at_least'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
+                            ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEditReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
+                            ),
+                        decision_window_days: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEditReportBodyMetricsItemDecisionWindowDaysMax)
+                            .nullish()
+                            .describe(
+                                'Suggested days after release before assessing impact, not a monitoring schedule.'
+                            ),
+                        minimum_data_points: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEditReportBodyMetricsItemMinimumDataPointsMax)
+                            .nullish()
+                            .describe('Optional number of qualifying observations before assessing impact.'),
                         comparison: zod
                             .union([
                                 zod.object({
@@ -1676,6 +1728,11 @@ export const signalsScoutEmitReportBodyMetricsItemValueFormatDefault = `number`
 export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
 
 export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyMetricsItemGoalGrainDefault = `whole_window`
+export const signalsScoutEmitReportBodyMetricsItemDecisionWindowDaysMax = 30
+
+export const signalsScoutEmitReportBodyMetricsItemMinimumDataPointsMax = 1000
 
 export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
 
@@ -1918,6 +1975,44 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
                             ),
+                        goal_value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Proposed threshold after release. Informational only; does not schedule a check.'
+                            ),
+                        goal_direction: zod
+                            .union([
+                                zod
+                                    .enum(['at_most', 'at_least'])
+                                    .describe('\* `at_most` - at_most\n\* `at_least` - at_least'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Whether success means at most or at least goal_value.\n\n\* `at_most` - at_most\n\* `at_least` - at_least'
+                            ),
+                        goal_grain: zod
+                            .enum(['whole_window', 'per_interval'])
+                            .describe('\* `whole_window` - whole_window\n\* `per_interval` - per_interval')
+                            .default(signalsScoutEmitReportBodyMetricsItemGoalGrainDefault)
+                            .describe(
+                                'Whether the goal compares with the whole query window or each chart bucket.\n\n\* `whole_window` - whole_window\n\* `per_interval` - per_interval'
+                            ),
+                        decision_window_days: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEmitReportBodyMetricsItemDecisionWindowDaysMax)
+                            .nullish()
+                            .describe(
+                                'Suggested days after release before assessing impact, not a monitoring schedule.'
+                            ),
+                        minimum_data_points: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutEmitReportBodyMetricsItemMinimumDataPointsMax)
+                            .nullish()
+                            .describe('Optional number of qualifying observations before assessing impact.'),
                         comparison: zod
                             .union([
                                 zod.object({
