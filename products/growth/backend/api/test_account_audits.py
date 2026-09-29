@@ -211,6 +211,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
 
     @parameterized.expand([(False,), (True,)])
+    @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_reconciler_recovers_uncertain_dispatch_without_another_audit(self, already_started: bool) -> None:
         payload = {"organization_id": str(self.organization.id)}
         with self._request_patches() as (_, _, _, dispatch):
