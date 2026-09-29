@@ -189,6 +189,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
