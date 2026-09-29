@@ -7,7 +7,12 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { askPlaygroundChat, createPlaygroundChat, getPlaygroundChat, listPlaygroundChats } from '../api'
-import type { PlaygroundChatApi, PlaygroundChatListApi, SandboxRunApi } from '../generated/api.schemas'
+import type {
+    PaginatedPlaygroundChatListListApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxRunApi,
+} from '../generated/api.schemas'
 import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundLogic'
 
 jest.mock('../api', () => ({
@@ -75,13 +80,23 @@ const listed: PlaygroundChatListApi = {
     has_open_turn: false,
 }
 
+const listPage = (
+    results: PlaygroundChatListApi[],
+    next: string | null = null
+): PaginatedPlaygroundChatListListApi => ({
+    count: results.length,
+    next,
+    previous: null,
+    results,
+})
+
 describe('businessKnowledgePlaygroundLogic', () => {
     let logic: ReturnType<typeof businessKnowledgePlaygroundLogic.build>
 
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        mockedList.mockResolvedValue([])
+        mockedList.mockResolvedValue(listPage([]))
         logic = businessKnowledgePlaygroundLogic()
         logic.mount()
     })
@@ -92,7 +107,7 @@ describe('businessKnowledgePlaygroundLogic', () => {
 
     it('opens a saved chat from the URL', async () => {
         mockedGet.mockResolvedValue(chat('completed'))
-        mockedList.mockResolvedValue([listed])
+        mockedList.mockResolvedValue(listPage([listed]))
         router.actions.push(urls.businessKnowledgePlayground('chat-1'))
         await expectLogic(logic).toDispatchActions(['chatLoaded'])
         expect(logic.values.chatId).toBe('chat-1')
@@ -259,7 +274,13 @@ describe('businessKnowledgePlaygroundLogic', () => {
     ])('with %i answers running elsewhere, a new chat ask is blocked: %s', async (openCount, blocked) => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         mockedList.mockResolvedValue(
-            Array.from({ length: openCount }, (_, index) => ({ ...listed, id: `open-${index}`, has_open_turn: true }))
+            listPage(
+                Array.from({ length: openCount }, (_, index) => ({
+                    ...listed,
+                    id: `open-${index}`,
+                    has_open_turn: true,
+                }))
+            )
         )
         mockedCreate.mockResolvedValue(emptyChat)
         mockedAsk.mockResolvedValue(chat('running'))
@@ -276,13 +297,36 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.question).toBe(blocked ? 'Can I get a refund?' : '')
     })
 
+    it('loads older chats without losing them when the first page refreshes', async () => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        const older = { ...listed, id: 'chat-2', title: 'Older question' }
+        mockedList.mockResolvedValueOnce(listPage([listed], '/chats/?offset=1'))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        mockedList.mockResolvedValueOnce(listPage([older]))
+        await expectLogic(logic, () => logic.actions.loadMoreChats()).toDispatchActions(['appendOlderChats'])
+
+        expect(mockedList).toHaveBeenLastCalledWith(1)
+        expect(logic.values.chatGroups.flatMap((group) => group.chats).map((chat) => chat.id)).toEqual([
+            'chat-1',
+            'chat-2',
+        ])
+        expect(logic.values.nextChatsOffset).toBeNull()
+
+        mockedList.mockResolvedValueOnce(listPage([{ ...listed, title: 'Updated question' }], '/chats/?offset=1'))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.chatGroups.flatMap((group) => group.chats).map((chat) => chat.title)).toEqual([
+            'Updated question',
+            'Older question',
+        ])
+    })
+
     it('refreshes the chat list until no chat has an answer running', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         jest.useFakeTimers()
         try {
             mockedList
-                .mockResolvedValueOnce([{ ...listed, has_open_turn: true }])
-                .mockResolvedValue([{ ...listed, has_open_turn: false }])
+                .mockResolvedValueOnce(listPage([{ ...listed, has_open_turn: true }]))
+                .mockResolvedValue(listPage([{ ...listed, has_open_turn: false }]))
             await expectLogic(logic, () => {
                 logic.actions.loadChats()
             }).toDispatchActions(['loadChatsSuccess'])

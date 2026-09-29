@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -49,6 +49,9 @@ const playgroundValues = {
     chatId: 'chat-1',
     chatSearch: '',
     chatsLoading: false,
+    nextChatsOffset: null,
+    loadingMoreChats: false,
+    moreChatsError: null,
     chats: [listedChat],
     chatGroups: [{ label: 'Today', chats: [listedChat] }],
     deletingChatId: null,
@@ -94,6 +97,7 @@ describe('BusinessKnowledgePlaygroundScene', () => {
             newChat: jest.fn(),
             deleteChat: jest.fn(),
             setChatSearch: jest.fn(),
+            loadMoreChats: jest.fn(),
         })
     })
 
@@ -122,5 +126,15 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         expect(document.querySelector('[data-slot="composer-root"]')).toBeInTheDocument()
         expect(document.querySelector('[data-slot="composer-frame"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="business-knowledge-playground-ask"]')).toBeInTheDocument()
+    })
+
+    it('lets people load older chats when another page exists', () => {
+        const loadMoreChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({ ...playgroundValues, nextChatsOffset: 1 })
+        jest.mocked(useActions).mockReturnValue({ loadMoreChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Load more chats' }))
+        expect(loadMoreChats).toHaveBeenCalledTimes(1)
     })
 })
