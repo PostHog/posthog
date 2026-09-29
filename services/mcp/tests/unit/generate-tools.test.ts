@@ -481,6 +481,7 @@ describe('generateToolCode with input_schema', () => {
         )
 
         expect(result.code).toContain(".extend({ expand: z.array(z.enum(['items.*.body'])).min(1).optional()")
+        expect(result.code).toContain('const { expand: _expand, ...parsedParams } = ThingGetSchema().parse(params)')
         expect(result.code).toContain(
             "omitResponseFields(result, ['secret', ...(['items.*.body'] as const).filter((path) => !params.expand?.includes(path))])"
         )

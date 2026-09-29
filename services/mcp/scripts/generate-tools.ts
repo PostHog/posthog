@@ -1609,7 +1609,9 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    handlerBody += `        const parsedParams = ${schemaName}().parse(params)\n`
+    // `expand` only shapes the response, so keep it out of the API request.
+    const parsedTarget = config.response?.expandable?.length ? '{ expand: _expand, ...parsedParams }' : 'parsedParams'
+    handlerBody += `        const ${parsedTarget} = ${schemaName}().parse(params)\n`
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
