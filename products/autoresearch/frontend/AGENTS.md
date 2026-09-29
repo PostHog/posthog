@@ -8,7 +8,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 
 | File                    | Scene / role                                                                                                                           |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `AutoresearchScene.tsx` | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point.                |
+| `AutoresearchScene.tsx` | `/autoresearch` — the pipeline list, with row actions (pause, resume, delete) and the "New model" entry point.                         |
 | `autoresearchLogic.ts`  | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                  |
 | `PipelineStatusTag.tsx` | Status tag + tooltip, shared with the detail scene once it lands.                                                                      |
 | `emptyState/`           | `ProductEmptyState` config + example-data preview for the first-run gate.                                                              |

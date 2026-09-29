@@ -24,6 +24,7 @@ export interface autoresearchLogicValues {
     currentTeamId: number | null // teamLogic
     mutatingPipelineIds: Record<string, boolean>
     pipelines: AutoresearchPipelineApi[]
+    pipelinesLoadFailed: boolean
     pipelinesLoading: boolean
 }
 
@@ -98,6 +99,13 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 ) => ({ ...state, [id]: mutating }),
             },
         ],
+        pipelinesLoadFailed: [
+            false,
+            {
+                loadPipelinesSuccess: () => false,
+                loadPipelinesFailure: () => true,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         pipelines: [
@@ -107,8 +115,17 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await autoresearchList(String(values.currentTeamId))
-                    return response.results
+                    // The endpoint pages at 100 rows. Follow every page so a team with more models sees all of them.
+                    const pipelines: AutoresearchPipelineApi[] = []
+                    for (;;) {
+                        const response = await autoresearchList(String(values.currentTeamId), {
+                            offset: pipelines.length,
+                        })
+                        pipelines.push(...response.results)
+                        if (!response.next || response.results.length === 0) {
+                            return pipelines
+                        }
+                    }
                 },
             },
         ],
@@ -176,8 +193,11 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         // Reload whenever the list route is entered — the scene logic can stay mounted across
         // navigation (e.g. returning from the create flow), so afterMount alone leaves the list
         // showing a stale snapshot that omits a just-created pipeline.
-        [urls.autoresearch()]: () => {
-            actions.loadPipelines()
+        // Skip the initial call that urlToAction makes on mount, because afterMount already loads.
+        [urls.autoresearch()]: (_, __, ___, { initial }) => {
+            if (!initial) {
+                actions.loadPipelines()
+            }
         },
     })),
     afterMount(({ actions }) => {

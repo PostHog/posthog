@@ -15,7 +15,7 @@ const HedgehogEinstein = pngHoggie(einsteinPng)
 
 export const autoresearchEmptyState: SceneProductEmptyState = {
     statusLogic: autoresearchLogic,
-    // The whole product is behind this flag; the scene's own gate handles the flag-off case.
+    // The whole product is behind this flag. With the flag off the gate renders the scene, and the scene shows NotFound.
     featureFlag: FEATURE_FLAGS.AUTORESEARCH,
     config: {
         productKey: ProductKey.AUTORESEARCH,

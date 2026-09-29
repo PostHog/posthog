@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -44,5 +46,26 @@ describe('autoresearchLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(statusLogicValues()).toBe('unknown')
+        expect(logic.values.pipelinesLoadFailed).toBe(true)
+    })
+
+    it('follows every page of the list', async () => {
+        mockList
+            .mockResolvedValueOnce({ results: [{ id: 'a' }, { id: 'b' }], next: 'page-2' })
+            .mockResolvedValueOnce({ results: [{ id: 'c' }], next: null })
+        const logic = autoresearchLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pipelines.map((p) => p.id)).toEqual(['a', 'b', 'c'])
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), { offset: 2 })
+    })
+
+    it('loads once when mounted on the list route', async () => {
+        mockList.mockResolvedValue({ results: [] })
+        router.actions.push(urls.autoresearch())
+        const logic = autoresearchLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).toHaveBeenCalledTimes(1)
     })
 })

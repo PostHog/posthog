@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPause, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -28,8 +30,13 @@ export const scene: SceneExport = {
 }
 
 export function AutoresearchScene(): JSX.Element {
-    const { pipelines, pipelinesLoading, mutatingPipelineIds } = useValues(autoresearchLogic)
-    const { deletePipeline, pausePipeline, resumePipeline } = useActions(autoresearchLogic)
+    const isEnabled = useFeatureFlag('AUTORESEARCH')
+    const { pipelines, pipelinesLoading, pipelinesLoadFailed, mutatingPipelineIds } = useValues(autoresearchLogic)
+    const { deletePipeline, pausePipeline, resumePipeline, loadPipelines } = useActions(autoresearchLogic)
+
+    if (!isEnabled) {
+        return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
+    }
 
     const columns: LemonTableColumn<AutoresearchPipelineApi, keyof AutoresearchPipelineApi | undefined>[] = [
         {
@@ -161,7 +168,21 @@ export function AutoresearchScene(): JSX.Element {
                 }
             />
 
-            <LemonTable loading={pipelinesLoading} columns={columns} dataSource={pipelines} rowKey="id" />
+            {pipelinesLoadFailed && !pipelinesLoading && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadPipelines(),
+                        'data-attr': 'autoresearch-list-retry',
+                    }}
+                >
+                    Couldn't load your models. Try again, and if it keeps happening contact support.
+                </LemonBanner>
+            )}
+            {!(pipelinesLoadFailed && pipelines.length === 0) && (
+                <LemonTable loading={pipelinesLoading} columns={columns} dataSource={pipelines} rowKey="id" />
+            )}
         </SceneContent>
     )
 }
