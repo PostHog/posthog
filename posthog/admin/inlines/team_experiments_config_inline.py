@@ -25,6 +25,9 @@ class TeamExperimentsConfigInlineForm(forms.ModelForm):
             self.instance.experiment_recalculation_times = recalculation_times_from_legacy(
                 self.instance.experiment_recalculation_time
             )
+            self.instance.experiment_recalculation_time = legacy_from_recalculation_times(
+                self.instance.experiment_recalculation_times
+            )
         return super().save(commit)
 
 

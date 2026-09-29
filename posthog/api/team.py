@@ -438,6 +438,9 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
                     validated_data["experiment_recalculation_time"]
                 )
+                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
+                    validated_data["experiment_recalculation_times"]
+                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:

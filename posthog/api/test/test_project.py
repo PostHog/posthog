@@ -1201,7 +1201,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
 
-    def test_experiments_config_recalculation_times_sync_with_legacy_field(self):
+    @parameterized.expand([("08:00:00",), ("08:30:00",), ("08:00:15",)])
+    def test_experiments_config_recalculation_times_sync_with_legacy_field(self, legacy_time: str) -> None:
         # The hourly workflow and older clients read experiment_recalculation_time while
         # newer clients read the list; if the sync breaks, recalcs run at the wrong hour.
         response = self.client.patch(
@@ -1216,7 +1217,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"experiment_recalculation_time": "08:00:00"},
+            {"experiment_recalculation_time": legacy_time},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())

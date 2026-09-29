@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from django.forms import ModelForm, modelform_factory
 
+from parameterized import parameterized
+
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInlineForm
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -26,7 +28,8 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
         self.assertFalse(form.is_valid())
         self.assertIn("experiment_recalculation_times", form.errors)
 
-    def test_admin_saves_keep_recalculation_fields_in_sync(self):
+    @parameterized.expand([("08:00:00",), ("08:30:00",), ("08:00:15",)])
+    def test_admin_saves_keep_recalculation_fields_in_sync(self, legacy_time: str) -> None:
         # The hourly workflows read the legacy column; an admin edit that skips the
         # sync leaves recalculations running at the old hour.
         form = self._form({"experiment_recalculation_times": '["14:00:00", "02:00:00"]'})
@@ -38,10 +41,11 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
         # with the list field holding its unchanged value.
         form = self._form(
             {
-                "experiment_recalculation_time": "08:00:00",
+                "experiment_recalculation_time": legacy_time,
                 "experiment_recalculation_times": '["14:00:00", "02:00:00"]',
             }
         )
         self.assertTrue(form.is_valid(), form.errors)
         config = form.save()
         self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
+        self.assertEqual(config.experiment_recalculation_time, time(hour=8))
