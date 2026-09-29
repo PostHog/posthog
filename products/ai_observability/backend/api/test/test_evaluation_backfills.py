@@ -36,6 +36,7 @@ from products.ai_observability.backend.models.evaluation_backfill import Evaluat
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 API_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
+CAPTURE = "posthog.event_usage.posthoganalytics.capture"
 
 
 def _other_team() -> Team:
@@ -105,6 +106,10 @@ def _scope(to_evaluate: int, already_judged: int = 0) -> BackfillScope:
     return BackfillScope(to_evaluate=to_evaluate, already_judged=already_judged)
 
 
+def _captured(capture: MagicMock, event: str) -> list[dict]:
+    return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs["event"] == event]
+
+
 def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
 
@@ -168,8 +173,9 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
+    @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42, already_judged=8))
-    def test_estimate_counts_without_creating_a_row(self, _count):
+    def test_estimate_counts_without_creating_a_row(self, _count, capture):
         response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -177,10 +183,30 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.json()["already_evaluated_units"] == 8
         assert response.json()["unit"] == "generation"
         assert EvaluationBackfill.objects.unscoped().count() == 0
+        [properties] = _captured(capture, "llma evaluation backfill estimated")
+        assert properties == {
+            **properties,
+            "source": "web",
+            "evaluation_id": str(self.evaluation.id),
+            "target": "generation",
+            "evaluation_type": "hog",
+            "units_to_evaluate": 42,
+            "units_already_evaluated": 8,
+            "window_days": 7.0,
+            "rerun_existing": False,
+        }
 
+    @patch(CAPTURE, side_effect=RuntimeError("capture down"))
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42))
+    def test_a_failed_capture_does_not_fail_the_request(self, _count, _capture):
+        response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_create_freezes_conditions_and_starts_workflow(self, connect, _count):
+    def test_create_freezes_conditions_and_starts_workflow(self, connect, _count, capture):
         connect.return_value = _temporal_client()
 
         response = self.client.post(f"{self.url}/", _body(), format="json")
@@ -202,6 +228,17 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert call.args[1].team_id == self.team.id
         assert call.kwargs["id"] == f"llma-evaluation-backfill-{row.id}"
         assert call.kwargs["task_queue"] == settings.LLMA_TASK_QUEUE
+
+        [properties] = _captured(capture, "llma evaluation backfill started")
+        assert properties == {
+            **properties,
+            "source": "web",
+            "backfill_id": str(row.id),
+            "total_count": 42,
+            "units_to_evaluate": 42,
+            "evaluation_type": "hog",
+            "rerun_existing": False,
+        }
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
@@ -260,12 +297,21 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         connect.return_value = _temporal_client(workflow_status, describe_error)
         stale = self._stale_backfill()
 
-        response = self.client.post(f"{self.url}/", _body(), format="json")
+        with patch("posthog.temporal.ai_observability.evaluation_backfill.ph_background_capture") as capture:
+            response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.CANCELLED
         assert stale.finished_at is not None
+        finished = [
+            call.kwargs["properties"]
+            for call in capture.return_value.call_args_list
+            if call.kwargs["event"] == "llma evaluation backfill finished"
+        ]
+        assert [(event["backfill_id"], event["status"], event["stop_reason"]) for event in finished] == [
+            (str(stale.pk), "failed", "workflow_not_running")
+        ]
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
@@ -518,7 +564,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["create", "estimate"])
-    def test_a_disabled_evaluation_cannot_be_backfilled(self, case):
+    @patch(CAPTURE)
+    def test_a_disabled_evaluation_cannot_be_backfilled(self, case, capture):
         self.evaluation.enabled = False
         self.evaluation.save()
         path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
@@ -528,6 +575,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "Enable the evaluation before backfilling it."
         assert EvaluationBackfill.objects.unscoped().count() == 0
+        capture.assert_not_called()
 
     @parameterized.expand(["list", "estimate"])
     def test_another_teams_evaluation_is_not_addressable(self, case):
@@ -564,9 +612,10 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code >= 500
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
+    @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count):
+    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count, capture):
         connect.return_value = _temporal_client()
         connect.return_value.start_workflow.side_effect = RuntimeError("stream closed")
 
@@ -575,9 +624,11 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code >= 500
         row = EvaluationBackfill.objects.unscoped().get()
         assert row.status == EvaluationBackfillStatus.RUNNING
+        assert _captured(capture, "llma evaluation backfill started") == []
 
+    @patch(CAPTURE)
     @patch(f"{API_MODULE}.sync_connect")
-    def test_cancel_marks_terminal_and_is_idempotent(self, connect):
+    def test_cancel_marks_terminal_and_is_idempotent(self, connect, capture):
         connect.return_value = _temporal_client()
         backfill = self._running_backfill()
 
@@ -592,6 +643,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["status"] == EvaluationBackfillStatus.CANCELLED
         assert second.json()["finished_at"] == first.json()["finished_at"]
+        [properties] = _captured(capture, "llma evaluation backfill cancelled")
+        assert properties == {**properties, "source": "web", "backfill_id": str(backfill.id), "total_count": 1}
 
     @parameterized.expand(
         [
