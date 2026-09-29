@@ -521,16 +521,16 @@ tools:
             understand. Use `passed` or `failed` when the evidence meets the bar the check states. Use `inconclusive`
             with a `reason` when your tools worked but the evidence cannot settle the question: `awaiting_data` (the
             data can still arrive, so the check looks again later), `unmeasurable` (the data is not captured),
-            `needs_manual_verification` (only a person or another environment can verify it), or `no_fix_to_measure`
-            (no merged fix or deploy time defines a window after the fix). Use `errored` only when a tool, a query, or a
+            `needs_manual_verification` (only a person or another environment can verify it), or `no_fix_to_measure` (no
+            merged fix or deploy time defines a window after the fix). Use `errored` only when a tool, a query, or a
             model call failed. The verdict lands on the report as a `check_result` entry in the inbox. Record what you
             established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
-            `errored` retries it, and `inconclusive` ends it unless the reason is `awaiting_data`. Nothing else closes a check, so a run that investigates and never calls this
-            leaves the report with an unanswered follow-up. You may also record a check on your own scout whose
-            `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for
-            a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, a
-            `paused` check whose report is suppressed or whose horizon passed, a check your run already answered, and a
-            check the coordinator measures itself.
+            `errored` retries it, and `inconclusive` ends it unless the reason is `awaiting_data`. Nothing else closes a
+            check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. You
+            may also record a check on your own scout whose `run_state` in `scout-report-check-list` is `due`, `queued`,
+            `running`, or `stale`. The call is refused for a check on another scout, a `pending` check whose report has
+            not resolved, a check that is not due yet, a `paused` check whose report is suppressed or whose horizon
+            passed, a check your run already answered, and a check the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
