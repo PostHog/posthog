@@ -1820,7 +1820,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_anchored_non_null_bound_keeps_comparison_unwrapped(self, _name, bound):
-        # An ifNull() around the comparison would stop ClickHouse from using the column's indexes.
         sql, _ = self._compile_hogql(
             f"SELECT count() FROM posthog.hog_invocation_results WHERE scheduled_at >= {bound}",
             timezone="America/New_York",
@@ -1940,7 +1939,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_date_bounds_use_project_timezone(self, _name, where):
-        # Tokyo is UTC+9, so Tokyo's 2024-03-01 starts at 2024-02-29 15:00 UTC and only the last two events fall on it.
         for timestamp in (
             datetime(2024, 2, 29, 14, 30, 0),
             datetime(2024, 2, 29, 15, 30, 0),
@@ -1959,7 +1957,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_nanosecond_bound_keeps_its_precision(self, _name, bound):
-        # The bound is 500 ns after the first event, so only the second event is at or after it.
         for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
             _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
         flush_persons_and_events()

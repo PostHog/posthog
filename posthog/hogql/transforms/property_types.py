@@ -621,19 +621,11 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap the other side of the comparison with toDateTime64(..., tz) unless it already pins the time zone.
-
-        ClickHouse converts a Date or a string compared with a DateTime in the time zone of that DateTime.
-        The bare field is UTC, so without the wrap a Date bound such as toStartOfWeek(...) or today() means
-        UTC midnight instead of midnight in the project time zone. A bound that is already a DateTime keeps
-        its instant through the wrap.
-        """
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
         if isinstance(inner, ast.Call):
-            # HogQL prints toDateTime and toDateTime64 with the project time zone, so they already pin it.
             if inner.name in ("toDateTime", "toDateTime64"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
@@ -657,8 +649,6 @@ class PropertySwapper(CloningVisitor):
                 inner.value = zoned
                 return expr
 
-        # A constant keeps the precision HogQL prints for datetime literals. Any other bound can be a DateTime64
-        # with up to 9 decimals, so it gets the maximum precision and the wrap never truncates it.
         precision = 6 if isinstance(inner, ast.Constant) else 9
         new_call = ast.Call(
             name="toDateTime64",
@@ -675,8 +665,6 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
-        # The printer wraps a comparison in ifNull() when it can't tell that both sides are non-null,
-        # and ClickHouse can't use an index through ifNull().
         return ast.CallType(name=name, arg_types=[], return_type=ast.DateTimeType(nullable=nullable))
 
     @staticmethod
