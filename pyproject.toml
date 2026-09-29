@@ -727,7 +727,8 @@ ignore_imports = [
     # TODO: workflows presentation wave — the moved viewsets still reach in-product internals and
     # sibling products (cdp, cohorts, feature_flags, messaging) directly. Thin each viewset to
     # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
-    # this list is empty.
+    # this list is empty. Only delete entries here: a new import from these views goes through
+    # the facade.
     "products.workflows.backend.presentation.views.hog_flow -> products.cdp.backend.models.hog_function_template",
     "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.cohort",
     "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.util",

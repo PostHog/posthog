@@ -1110,6 +1110,9 @@ depends_on = [
 layer = "modules"
 
 # Facade + views: the canonical public surface for all isolated products.
+# When `hogli lint:tach` rejects an import into a product listed here, do not widen this block or
+# add an expose entry or a legacy-leak block for it. Add a function to the product's
+# backend/facade/api.py that returns a contract, or a backend/facade/testing.py helper for a test.
 
 [[interfaces]]
 expose = [
