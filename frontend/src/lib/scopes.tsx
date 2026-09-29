@@ -571,6 +571,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'batch_import_support',
             'clickhouse_test_cluster_perf',
             'context_layer_internal',
+            'hog_flow_proposal',
             'internal_run',
             'mcp_builtin_agent',
             'query_performance',

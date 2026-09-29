@@ -742,6 +742,7 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.metrics",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_batch_job",
+    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_optimization",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_schedule",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.team_workflows_config",
