@@ -107181,49 +107181,6 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
-    export type OrgOrganizationsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type OrgOrganizationsBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
     export type BillingAlertsListParams = {
     /**
      * Number of results to return per page.
