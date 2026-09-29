@@ -35,9 +35,13 @@ function TriggerSettings({
     repo: StamphogRepoConfigApi
     updatingReason?: string
 }): JSX.Element {
-    const { triggerLabelFieldResets } = useValues(stamphogSceneLogic)
+    const { triggerLabelFieldResets, savingTriggerLabelRepoIds } = useValues(stamphogSceneLogic)
     const { updateRepoConfig, triggerLabelEditStarted, resetTriggerLabelField } = useActions(stamphogSceneLogic)
     const accessReason = managerDisabledReason(toAccessControlLevel(repo.user_access_level))
+    // Only the access level and the label's own save lock the label. An update elsewhere in the row
+    // must not swap the editor out and drop its draft.
+    const labelReadOnlyReason =
+        accessReason ?? (savingTriggerLabelRepoIds.includes(repo.id) ? 'Saving the label' : null)
     const disabledReason = accessReason ?? updatingReason
 
     const saveTriggerLabel = (value: string): void => {
@@ -64,10 +68,9 @@ function TriggerSettings({
                 data-attr="stamphog-repo-review-mode"
             />
             {repo.review_mode === ReviewModeEnumApi.Label &&
-                // EditableField has no disabled state, so a member who cannot change the label reads it as text.
-                // An in-flight update elsewhere in the row must not swap the editor out and drop its draft.
-                (accessReason ? (
-                    <Tooltip title={accessReason}>
+                // EditableField has no disabled state, so a locked label reads as text.
+                (labelReadOnlyReason ? (
+                    <Tooltip title={labelReadOnlyReason}>
                         <span className="font-mono text-xs" data-attr="stamphog-repo-trigger-label">
                             {repo.trigger_label}
                         </span>

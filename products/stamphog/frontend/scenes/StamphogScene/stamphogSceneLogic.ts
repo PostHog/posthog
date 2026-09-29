@@ -89,6 +89,7 @@ export interface stamphogSceneLogicValues {
     repoConfigsLoading: boolean
     repoSearch: string
     repositoryToAdd: string | null
+    savingTriggerLabelRepoIds: string[]
     skippedRepos: readonly string[]
     stamphogAccessLevel: AccessControlLevel | undefined
     syncResult: StamphogSyncInstallationResponseApi | null
@@ -245,6 +246,9 @@ export interface stamphogSceneLogicActions {
     triggerLabelEditStarted: (id: string) => {
         id: string
     }
+    triggerLabelSaveDone: (id: string) => {
+        id: string
+    }
     updateRepoConfig: (
         id: string,
         patch: PatchedStamphogRepoConfigWriteApi
@@ -299,6 +303,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
         triggerLabelEditStarted: (id: string) => ({ id }),
         resetTriggerLabelField: (id: string) => ({ id }),
+        triggerLabelSaveDone: (id: string) => ({ id }),
         repoUpdateDone: (id: string) => ({ id }),
         repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
         setRepoSearch: (search: string) => ({ search }),
@@ -400,6 +405,16 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             {
                 updateRepoConfig: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 repoUpdateDone: (state, { id }) => state.filter((x) => x !== id),
+            },
+        ],
+        // Repos with an in-flight label PATCH. A second label save before the first settles could land
+        // out of order and leave the older label stored.
+        savingTriggerLabelRepoIds: [
+            [] as string[],
+            {
+                updateRepoConfig: (state, { id, patch }) =>
+                    'trigger_label' in patch && !state.includes(id) ? [...state, id] : state,
+                triggerLabelSaveDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
         // The label editor keeps a draft it did not save on screen, so a bumped count remounts it from the stored label.
@@ -592,6 +607,9 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 }
             } finally {
                 actions.repoUpdateDone(id)
+                if ('trigger_label' in patch) {
+                    actions.triggerLabelSaveDone(id)
+                }
             }
         },
         triggerLabelEditStarted: ({ id }) => {
