@@ -91,18 +91,24 @@ export function VariantScreenshotEditor({
     const [isFocused, setIsFocused] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
+    // `onUpload` is the callback from the render that started the upload. Read the props current when it finishes,
+    // or a screenshot removed while it was uploading comes back.
+    const latestPropsRef = useRef({ mediaIds, onChange, onUploaded })
+    latestPropsRef.current = { mediaIds, onChange, onUploaded }
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
             if (!id) {
                 return
             }
-            if (mediaIds.length >= 5) {
+            const latest = latestPropsRef.current
+            if (latest.mediaIds.length >= 5) {
                 lemonToast.error('Maximum of 5 images allowed')
                 return
             }
 
-            onChange([...mediaIds, id])
-            onUploaded?.()
+            latest.onChange([...latest.mediaIds, id])
+            latest.onUploaded?.()
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
