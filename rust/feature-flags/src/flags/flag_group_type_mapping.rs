@@ -374,6 +374,15 @@ mod tests {
             m1.group_types_to_indexes().len(),
             m2.group_types_to_indexes().len()
         );
+
+        // A request that spent its persons deadline on earlier queries still gets a cache hit
+        let expired_deadline = Some(Instant::now());
+        let result3 = cache.get_mappings(TEAM_ID, expired_deadline).await;
+        assert_eq!(
+            result3.unwrap().group_types_to_indexes(),
+            m1.group_types_to_indexes()
+        );
+        assert_eq!(fetch_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
