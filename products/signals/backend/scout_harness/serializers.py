@@ -800,6 +800,13 @@ class ScoutCheckSummarySerializer(serializers.Serializer):
     last_outcome = serializers.CharField(
         allow_null=True, help_text="Verdict of the most recent run; null before the first."
     )
+    last_outcome_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, "
+            "`needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome."
+        ),
+    )
     run_state = serializers.CharField(
         help_text=(
             "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. "
