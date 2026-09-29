@@ -76,10 +76,16 @@ async def test_an_experiment_publishes_before_the_whole_batch_finishes():
             fast_published.set()
         return f"recalc-{experiment_id}"
 
-    result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
+    with patch("temporalio.workflow.metric_meter") as mock_meter:
+        result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
 
     assert publish_calls == [FAST_EXPERIMENT, SLOW_EXPERIMENT]
     assert result == {"hour": 2, "total": 2, "succeeded": 2, "failed": 0, "recalculations_synced": 2}
+    # Asserted through the harness so the test fails if the workflow body stops calling the helper,
+    # which would silently kill the missing-publish alert.
+    mock_meter.return_value.with_additional_attributes.assert_called_once_with(
+        {"workflow_type": "experiment-saved-metrics-workflow", "status": "published"}
+    )
 
 
 @pytest.mark.asyncio
