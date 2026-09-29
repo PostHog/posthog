@@ -2542,13 +2542,14 @@ def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifes
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
-    for target in (store, mirror) if mirror is not None else (store,):
-        assert target.objects == store.objects
-        assert target.written[-1] == serving_manifest_key(prefix)
-        # Every entry the manifest names has its record and its booster in the store the sweep reads.
-        for entry in manifest.models:
-            assert f"{entry.prefix}/{METADATA_FILE}" in target.objects
-            assert f"{entry.prefix}/open.ubj" in target.objects
+    # Every entry the manifest names has its record and its booster in the store the sweep reads.
+    for entry in manifest.models:
+        assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
+        assert f"{entry.prefix}/open.ubj" in store.objects
+    assert store.written[-1] == serving_manifest_key(prefix)
+    if mirror is not None:
+        assert mirror.objects == store.objects
+        assert mirror.written[-1] == serving_manifest_key(prefix)
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 
