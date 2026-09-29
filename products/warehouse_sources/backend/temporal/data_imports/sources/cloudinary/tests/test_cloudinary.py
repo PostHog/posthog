@@ -1,5 +1,7 @@
-import pytest
+from typing import Any, cast
 from unittest import mock
+
+import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.cloudinary import (
     CloudinaryResumeConfig,
@@ -33,6 +35,10 @@ def _response(status_code: int = 200) -> mock.MagicMock:
     return response
 
 
+def _resource(endpoint: str) -> dict[str, Any]:
+    return cast(dict[str, Any], get_resource(endpoint))
+
+
 def _source(endpoint: str = "images", region: str = "global", manager: mock.MagicMock | None = None):
     return cloudinary_source("my-cloud", "key", "secret", region, endpoint, 1, "job", manager or _manager())
 
@@ -55,19 +61,19 @@ class TestCloudinaryResources:
     @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
     def test_rows_are_selected_from_the_endpoints_own_envelope(self, endpoint: str) -> None:
         config = CLOUDINARY_ENDPOINTS[endpoint]
-        resource = get_resource(endpoint)
+        resource = _resource(endpoint)
         assert resource["endpoint"]["data_selector"] == f"{config.data_key}[*]"
         assert resource["primary_key"] == config.primary_key
 
     @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
     def test_every_endpoint_asks_for_the_largest_page(self, endpoint: str) -> None:
         # Cloudinary counts each call against an hourly quota, so a small page multiplies the cost.
-        assert get_resource(endpoint)["endpoint"]["params"]["max_results"] == MAX_RESULTS
+        assert _resource(endpoint)["endpoint"]["params"]["max_results"] == MAX_RESULTS
 
     @pytest.mark.parametrize("endpoint", ["images", "videos", "raw_files"])
     def test_asset_tables_ask_for_tags_and_context(self, endpoint: str) -> None:
         # Cloudinary omits both unless asked, and they are the fields users join on.
-        params = get_resource(endpoint)["endpoint"]["params"]
+        params = _resource(endpoint)["endpoint"]["params"]
         assert params["tags"] == "true"
         assert params["context"] == "true"
 

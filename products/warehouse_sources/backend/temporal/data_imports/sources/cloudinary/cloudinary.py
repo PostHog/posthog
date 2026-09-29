@@ -21,7 +21,7 @@ CLOUDINARY_API_HOSTS = {
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CloudinaryResumeConfig:
     cursor: str
 
