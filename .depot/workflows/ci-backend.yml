@@ -4439,6 +4439,22 @@ jobs:
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
+            - name: DIAG trivial run step
+              run: echo "DIAG trivial run step executed"
+            - name: DIAG context
+              env:
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+                  TELEMETRY: ${{ needs.turbo-discover.outputs.telemetry }}
+                  MODE: ${{ needs.turbo-discover.outputs.mode }}
+                  HAS_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN != '' }}
+              run: |
+                  echo "DIAG run_attempt expr=[$RUN_ATTEMPT] env=[${GITHUB_RUN_ATTEMPT:-unset}]"
+                  echo "DIAG mode=[$MODE] telemetry_len=${#TELEMETRY} has_token=$HAS_TOKEN"
+                  echo "DIAG telemetry head: ${TELEMETRY:0:300}"
+                  echo "DIAG GITHUB_SHA=$GITHUB_SHA GITHUB_RUN_ID=$GITHUB_RUN_ID"
+            - name: DIAG guarded run step
+              if: github.run_attempt == '1'
+              run: echo "DIAG guarded step ran"
             - name: Capture test selection to DevEx PostHog
               # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
               # so this guard stays on the step for the Depot copy of this job to run.
@@ -4449,6 +4465,9 @@ jobs:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-test-selection'
                   properties: ${{ needs.turbo-discover.outputs.telemetry }}
+            - name: DIAG after action
+              if: always()
+              run: echo "DIAG after action; action step finished"
 
     report-test-timings:
         name: Report per-test traces
