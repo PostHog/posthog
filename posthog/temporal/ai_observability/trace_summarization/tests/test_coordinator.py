@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 
 from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -34,6 +36,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
     BatchSummarizationResult,
+    CoordinatorResult,
 )
 
 from products.ai_observability.backend.summarization.models import SummarizationMode
@@ -77,6 +80,25 @@ async def fake_fetch_jobs(inputs: FetchAllClusteringJobsInput) -> dict[int, list
 @activity.defn(name="fetch_all_clustering_filters_activity")
 async def fake_fetch_filters(inputs: FetchAllClusteringFiltersInput) -> dict[int, list[dict[str, Any]]]:
     return {}
+
+
+async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[BatchTraceSummarizationCoordinatorWorkflow, FakeTeamSummarizationWorkflow],
+            activities=[fake_team_discovery, fake_fetch_jobs, fake_fetch_filters],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            return await env.client.execute_workflow(
+                BatchTraceSummarizationCoordinatorWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=timedelta(minutes=55),
+            )
 
 
 def _max_overlap(runs: list[dict[str, Any]]) -> int:
@@ -249,22 +271,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_sliding_window_does_not_hold_teams_behind_a_slow_team(self):
         child_runs.clear()
-        task_queue = str(uuid.uuid4())
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=task_queue,
-                workflows=[BatchTraceSummarizationCoordinatorWorkflow, FakeTeamSummarizationWorkflow],
-                activities=[fake_team_discovery, fake_fetch_jobs, fake_fetch_filters],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                result = await env.client.execute_workflow(
-                    BatchTraceSummarizationCoordinatorWorkflow.run,
-                    BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2),
-                    id=str(uuid.uuid4()),
-                    task_queue=task_queue,
-                    execution_timeout=timedelta(minutes=55),
-                )
+        result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
 
         runs_by_team = {run["team_id"]: run for run in child_runs}
         assert result.teams_processed == len(DISCOVERED_TEAM_IDS)
@@ -275,3 +282,14 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         windows = {run["window"] for run in child_runs}
         assert len(windows) == 1
         assert None not in next(iter(windows))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("max_concurrent_teams", [0, -1])
+    async def test_non_positive_concurrency_fails_instead_of_hanging(self, max_concurrent_teams):
+        child_runs.clear()
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=max_concurrent_teams))
+
+        assert isinstance(exc_info.value.cause, ApplicationError)
+        assert "max_concurrent_teams" in str(exc_info.value.cause)
+        assert child_runs == []

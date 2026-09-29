@@ -64,7 +64,8 @@ The coordinator keeps up to `max_concurrent_teams` per-team workflows running at
 It starts the next team when any running team finishes, so one slow team holds one slot and does not delay the others.
 The coordinator fixes one window from the time Temporal started the run, and passes it to every per-team workflow as `window_start` and `window_end`.
 So each team covers the same hour however late in the run it starts, and consecutive runs cover consecutive hours.
-A run that is skipped, or that stops before it reaches a team, still loses that hour for the teams it did not reach.
+Continue-as-new carries the remaining teams and the window into the next run, so it loses nothing.
+A run that is skipped, or that reaches its timeout before it reaches a team, still loses that hour for the teams it did not reach.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 

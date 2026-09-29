@@ -23,6 +23,7 @@ from typing import Any
 
 import structlog
 import temporalio
+from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.ai_observability.trace_summarization import constants
@@ -218,6 +219,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         )
 
         if temporalio.workflow.patched(SLIDING_WINDOW_PATCH_ID):
+            # With no slot the dispatch loop would wait forever without starting a child.
+            if inputs.max_concurrent_teams < 1:
+                raise ApplicationError(
+                    f"max_concurrent_teams must be at least 1, got {inputs.max_concurrent_teams}",
+                    non_retryable=True,
+                )
             if not (inputs.window_start and inputs.window_end):
                 # workflow_start_time, not start_time: a worker can pick the run up late, for
                 # example during a deploy, and that must not shift the hour the run covers.
