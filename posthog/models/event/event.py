@@ -33,7 +33,7 @@ class SelectorPart:
 
         result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
         pairs = self._attribute_pairs(tag, result)
-        self.confine_attributes = bool(pairs)
+        self.confine_to_element = bool(pairs)
         if result and pairs:
             for key, value in pairs:
                 self.data[f"attributes__attr__{key}"] = value
@@ -96,8 +96,15 @@ class SelectorPart:
         # a selector that matches events today compiles exactly as before.
         if not result or "[id=" in tag or not re.search(r"[\"']", result[2]):
             return []
-        pairs = [(key, value) for key, _quote, value in re.findall(ATTRIBUTE_PAIR_REGEX, tag)]
-        return pairs if "[" not in re.sub(ATTRIBUTE_PAIR_REGEX, "", tag) else []
+        # Fall back unless the pairs run to the end of the part, so a trailing .class or a
+        # repeated key never turns into a match that ignores it.
+        brackets = tag[result.end(1) :]
+        pairs = [
+            (key, re.sub(r"\\(.)", r"\1", value)) for key, _quote, value in re.findall(ATTRIBUTE_PAIR_REGEX, brackets)
+        ]
+        if re.sub(ATTRIBUTE_PAIR_REGEX, "", brackets) or len({key for key, _ in pairs}) != len(pairs):
+            return []
+        return pairs
 
     def _unescape_class(self, class_name):
         r"""Separate all double slashes "\\" (replace them with "\") and remove all single slashes between them."""

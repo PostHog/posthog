@@ -247,6 +247,24 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 False,
             ),
             (
+                "two attributes followed by a class the element does not have",
+                'button[type="button"][data-x="a"].active',
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "the same attribute with two different values",
+                '[data-x="a"][data-x="b"]',
+                [Element(tag_name="div", attributes={"attr__data-x": "b"})],
+                False,
+            ),
+            (
+                "two attributes with an escaped quote in a value",
+                "[title='it\\'s'][data-x='a']",
+                [Element(tag_name="div", attributes={"attr__data-x": "a", "attr__title": "it's"})],
+                True,
+            ),
+            (
                 "an attribute value with nested quotes and an equals sign",
                 "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
                 [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],
