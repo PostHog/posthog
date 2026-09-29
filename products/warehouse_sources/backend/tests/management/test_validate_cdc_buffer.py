@@ -206,10 +206,10 @@ class TestFetchLegacyRowSums:
 
     @pytest.fixture(autouse=True)
     def _tables(self):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-            _ensure_tables,
-            _get_test_database_url,
-            _truncate_tables,
+        from products.warehouse_sources_queue.backend.testing import (
+            ensure_queue_tables as _ensure_tables,
+            get_test_database_url as _get_test_database_url,
+            truncate_queue_tables as _truncate_tables,
         )
 
         url = _get_test_database_url()
@@ -220,9 +220,7 @@ class TestFetchLegacyRowSums:
         yield
 
     def _seed(self, rows: list[dict]) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-            _insert_batch,
-        )
+        from products.warehouse_sources_queue.backend.testing import insert_batch as _insert_batch
 
         async def seed() -> None:
             async with await psycopg.AsyncConnection.connect(self._url, autocommit=True) as conn:

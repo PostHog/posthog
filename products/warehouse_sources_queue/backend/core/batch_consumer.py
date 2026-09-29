@@ -18,18 +18,13 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+from products.warehouse_sources_queue.backend.core.batch_phase import (
     BatchPhaseProgress,
     publish_phase_gauges,
     track_batch_phases,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
-    DELTA_CONSUMER_METRICS,
-    ConsumerMetrics,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.metrics import DELTA_CONSUMER_METRICS, ConsumerMetrics
 
 logger = structlog.get_logger(__name__)
 
@@ -239,7 +234,7 @@ class PermanentBatchApplyError(Exception):
     permanent error only delays the terminal state and burns sink throughput."""
 
 
-@dataclass
+@dataclass(frozen=False)  # mutable: tests reach into `consumer._config` to tweak knobs mid-run
 class BatchConsumerConfig:
     """Tuning knobs for the batch consumer."""
 
@@ -453,7 +448,7 @@ class BatchConsumer:
     ) -> None:
         self._config = config
         self._process_batch = process_batch
-        # Loads several consecutive batches of one run in one write; None keeps every batch single.
+        # Loads several consecutive batches in one write; None keeps every batch single.
         self._process_batches = process_batches
         self._adapter = adapter
         # Per-pod identity for group-lease ownership. A new token each start means
@@ -1195,7 +1190,8 @@ class BatchConsumer:
             return await self._process_single_inner(batch, attempt, lock_conn)
 
     async def _process_set(self, batches: list[PendingBatch], lock_conn: psycopg.AsyncConnection[Any] | None) -> bool:
-        """Load several consecutive batches of one run as one write. Returns True only on success.
+        """Load several consecutive batches, of one run or of consecutive runs, as one write.
+        Returns True only on success.
 
         Every constituent gets the same status transitions a single batch would, so recovery,
         the claim gates and the reconcile sweeps see nothing new. Anything that stops the set
@@ -1207,6 +1203,9 @@ class BatchConsumer:
         assert self._process_batches is not None
         head = batches[0]
         attempts = {batch.id: batch.latest_attempt + 1 for batch in batches}
+        run_uuids = list(dict.fromkeys(batch.run_uuid for batch in batches))
+        row_count = sum(batch.row_count for batch in batches)
+        byte_size = sum(batch.byte_size for batch in batches)
         if any(attempt > self._config.max_attempts for attempt in attempts.values()):
             return await self._process_singly(batches, lock_conn, spent_attempt=False)
 
@@ -1222,7 +1221,11 @@ class BatchConsumer:
                 self._event("batch_set_picked_up"),
                 batch_ids=[batch.id for batch in batches],
                 run_uuid=head.run_uuid,
+                run_uuids=run_uuids,
                 batch_indexes=[batch.batch_index for batch in batches],
+                batch_count=len(batches),
+                row_count=row_count,
+                byte_size=byte_size,
                 is_final_batch=batches[-1].is_final_batch,
                 resource_name=head.resource_name,
             )
@@ -1255,6 +1258,7 @@ class BatchConsumer:
                     logger.warning(
                         self._event("batch_set_failed_loading_singly"),
                         run_uuid=head.run_uuid,
+                        run_uuids=run_uuids,
                         batch_indexes=[batch.batch_index for batch in batches],
                         error=str(err),
                         error_type=type(err).__name__,
@@ -1282,10 +1286,17 @@ class BatchConsumer:
                     )
                     self._metrics.batches_processed_total.labels(status="success").inc()
                 self._metrics.coalesced_sets_total.labels(outcome="success").inc()
+                self._metrics.coalesced_set_batches.observe(len(batches))
+                self._metrics.coalesced_set_runs.observe(len(run_uuids))
+                self._metrics.coalesced_set_rows.observe(row_count)
                 logger.info(
                     self._event("batch_set_processed_ok"),
                     run_uuid=head.run_uuid,
+                    run_uuids=run_uuids,
                     batch_indexes=[batch.batch_index for batch in batches],
+                    batch_count=len(batches),
+                    row_count=row_count,
+                    byte_size=byte_size,
                     is_final_batch=batches[-1].is_final_batch,
                     duration_seconds=round(duration, 3),
                 )

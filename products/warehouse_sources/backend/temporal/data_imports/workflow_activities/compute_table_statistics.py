@@ -20,7 +20,7 @@ import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, localcontext
 from typing import Any
 
@@ -246,9 +246,20 @@ def _read_commit_actions(table_uri: str, storage_options: dict[str, str], versio
     filesystem = pafs.PyFileSystem(DeltaStorageHandler(table_uri, storage_options))
     with filesystem.open_input_stream(f"_delta_log/{version:020d}.json") as stream:
         raw = stream.read()
+    return _parse_commit_actions(raw)
+
+
+def _parse_commit_actions(raw: bytes) -> list[dict[str, Any]]:
+    """The actions of one `_delta_log` commit file, which holds one JSON action per line feed.
+
+    Split on the line feed alone, because `str.splitlines()` also breaks on U+0085, U+2028 and
+    U+2029. JSON allows those characters raw inside a string, and an action's `stats` embed the
+    table's own min and max strings, so one of them cuts an action in half and leaves the fragment
+    unparseable.
+    """
     # Floats as Decimal: a decimal column's stats arrive as JSON numbers, and a float would lose
     # the digits the stored representation keeps.
-    return [json.loads(line, parse_float=Decimal) for line in raw.decode().splitlines() if line.strip()]
+    return [json.loads(line, parse_float=Decimal) for line in raw.decode().split("\n") if line.strip()]
 
 
 # Actions a commit may carry without touching the live file set or the schema. Anything else
@@ -269,6 +280,19 @@ class _UnparseableValue(Exception):
     be a real customer value. This message never does, so the fold's `except Exception` handler can
     report it to logs and Sentry safely.
     """
+
+
+def _normalize_timestamp(delta_type: str, value: datetime) -> datetime:
+    """Give a Delta timestamp one offset shape per type, whatever shape its spelling carried.
+
+    A `timestamp` is a UTC instant and a `timestamp_ntz` is a wall clock, but writers disagree on
+    whether to spell the offset out: a commit log can carry a `timestamp` bound with no offset while
+    the stored bound came from the Add-action scan's UTC-aware value, or the reverse. The fold
+    compares the two, and comparing a naive datetime with an aware one raises TypeError.
+    """
+    if delta_type == "timestamp_ntz":
+        return value.replace(tzinfo=None)
+    return value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _parse_stored_value(delta_type: Any, text: str) -> Any:
@@ -294,7 +318,7 @@ def _parse_stored_value(delta_type: Any, text: str) -> Any:
         if delta_type == "date":
             return date.fromisoformat(text)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(text)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(text))
         if delta_type.startswith("decimal("):
             return Decimal(text)
     except (ValueError, ArithmeticError):
@@ -326,7 +350,7 @@ def _parse_log_value(delta_type: Any, value: Any) -> Any:
         if delta_type == "date":
             return date.fromisoformat(value)
         if delta_type in ("timestamp", "timestamp_ntz"):
-            return datetime.fromisoformat(value)
+            return _normalize_timestamp(delta_type, datetime.fromisoformat(value))
         if delta_type.startswith("decimal("):
             precision, scale = (int(p) for p in delta_type[len("decimal(") : -1].split(","))
             # The default context (28 significant digits) is narrower than Delta allows (up to 38),
