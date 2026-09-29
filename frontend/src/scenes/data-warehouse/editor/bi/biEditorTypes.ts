@@ -1,4 +1,9 @@
-import { DataVisualizationNode, DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataVisualizationNode,
+    DatabaseSchemaTable,
+    DatabaseSerializedFieldType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -185,6 +190,138 @@ export function defaultAggregationForField(field: BIField): BIAggregation {
     }
 
     return isNumericBIField(field) ? 'sum' : 'count_distinct'
+}
+
+const IDENTIFIER_FIELD_NAME_REGEX = /(^|_)(id|uuid)$/i
+
+/** Numeric fields that are not identifiers aggregate by default, like measures in a BI tool. */
+export function isBIMeasureField(field: BIField): boolean {
+    return (
+        isNumericBIField(field) &&
+        defaultAggregationForField(field) !== 'count' &&
+        !IDENTIFIER_FIELD_NAME_REGEX.test(field.name)
+    )
+}
+
+export const BI_SHELF_PILL_DRAG_MIME_TYPE = 'application/x-posthog-bi-shelf-pill'
+
+export interface BIShelfPillDragData {
+    shelf: BIShelf
+    index: number
+}
+
+export function parseBIShelfPillDragData(serialized: string): BIShelfPillDragData | null {
+    try {
+        const candidate = JSON.parse(serialized) as Partial<BIShelfPillDragData>
+        if (
+            ['rows', 'columns', 'values', 'filters'].includes(candidate.shelf as string) &&
+            typeof candidate.index === 'number'
+        ) {
+            return { shelf: candidate.shelf as BIShelf, index: candidate.index }
+        }
+    } catch {
+        return null
+    }
+    return null
+}
+
+/**
+ * Where a field dropped from the data pane lands. Measures dropped on rows or columns are aggregated
+ * rather than grouped, and exact timestamps are bucketed by day so grouping stays readable.
+ */
+export function getBIDropTarget(field: BIField, shelf: BIShelf): { field: BIField; shelf: BIShelf } {
+    if ((shelf === 'rows' || shelf === 'columns') && isBIMeasureField(field)) {
+        return { field, shelf: 'values' }
+    }
+    if ((shelf === 'rows' || shelf === 'columns') && field.type === 'datetime' && !field.dateBucket) {
+        return { field: { ...field, dateBucket: 'day' }, shelf }
+    }
+    return { field, shelf }
+}
+
+const DATA_PANE_FIELD_TYPES = new Set<DatabaseSerializedFieldType>([
+    'integer',
+    'float',
+    'decimal',
+    'string',
+    'datetime',
+    'date',
+    'boolean',
+    'array',
+    'json',
+    'expression',
+    'unknown',
+])
+
+export interface BIDataPaneFields {
+    dimensions: BIField[]
+    measures: BIField[]
+}
+
+export function getBIDataPaneFields(table: DatabaseSchemaTable | undefined, source: BIDataSource): BIDataPaneFields {
+    const fields = Object.values(table?.fields ?? {})
+        .filter((field) => DATA_PANE_FIELD_TYPES.has(field.type))
+        .map((field): BIField => {
+            const expression = escapeDottedHogQLIdentifier(field.name)
+            return { id: getBIFieldId(source, expression), name: field.name, expression, type: field.type, source }
+        })
+        .sort((first, second) => first.name.localeCompare(second.name))
+
+    return {
+        dimensions: fields.filter((field) => !isBIMeasureField(field)),
+        measures: fields.filter(isBIMeasureField),
+    }
+}
+
+export interface BIChartFit {
+    fits: boolean
+    requirement: string
+}
+
+/** Mirrors the "Show me" panel of desktop BI tools: which chart types suit the fields on the shelves. */
+export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BIChartFit {
+    const rowCount = config.rows.length
+    const columnCount = config.columns.length
+    const dimensionCount = rowCount + columnCount
+    const hasDateDimension = [...config.rows, ...config.columns].some(isDateTimeBIField)
+
+    switch (chartType) {
+        case ChartDisplayType.Auto:
+            return { fits: true, requirement: 'Picks a chart type from the query results' }
+        case ChartDisplayType.ActionsTable:
+            return { fits: true, requirement: 'any combination of fields' }
+        case ChartDisplayType.ActionsLineGraph:
+        case ChartDisplayType.ActionsAreaGraph:
+            return {
+                fits: hasDateDimension && dimensionCount <= 2,
+                requirement: '1 date, up to 1 more dimension, and any measures',
+            }
+        case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsStackedBar:
+            return {
+                fits: dimensionCount >= 1 && dimensionCount <= 2,
+                requirement: '1 or 2 dimensions, and any measures',
+            }
+        case ChartDisplayType.ActionsPie:
+        case ChartDisplayType.ActionsDonut:
+            return {
+                fits: dimensionCount === 1 && config.values.length <= 1,
+                requirement: '1 dimension and up to 1 measure',
+            }
+        case ChartDisplayType.TwoDimensionalHeatmap:
+            return {
+                fits: rowCount >= 1 && columnCount >= 1,
+                requirement: '1 or more dimensions on rows and on columns',
+            }
+        case ChartDisplayType.BoldNumber:
+        case ChartDisplayType.Metric:
+            return {
+                fits: dimensionCount === 0 && config.values.length <= 1,
+                requirement: 'no dimensions and up to 1 measure',
+            }
+        default:
+            return { fits: true, requirement: '' }
+    }
 }
 
 export function createDefaultDateFilter(source: BIDataSource): BIFilter | null {
@@ -586,6 +723,42 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
         seenKeys.add(option.key)
         return true
     })
+}
+
+/** The sort option key for the value at `index`, matching the keys `getBISortOptions` returns. */
+export function getBIValueSortKey(config: BIConfig, index: number): string | null {
+    const value = config.values[index]
+    if (!value || !aggregationExpression(value)) {
+        return null
+    }
+    const occurrence = config.values
+        .slice(0, index)
+        .filter((previous) => previous.field.id === value.field.id && !!aggregationExpression(previous)).length
+    return occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`
+}
+
+const PILL_AGGREGATION_PREFIXES: Record<Exclude<BIAggregation, 'custom'>, string> = {
+    count: 'COUNT',
+    count_distinct: 'COUNTD',
+    sum: 'SUM',
+    average: 'AVG',
+    minimum: 'MIN',
+    maximum: 'MAX',
+}
+
+export function getBIFieldPillLabel(field: BIField): string {
+    const name = field.name || field.expression.trim()
+    if (!name) {
+        return 'New calculation'
+    }
+    return field.dateBucket ? `${field.dateBucket.toUpperCase()}(${name})` : name
+}
+
+export function getBIValuePillLabel(value: BIValue): string {
+    if (value.aggregation === 'custom') {
+        return value.customExpression?.trim() || 'New calculation'
+    }
+    return `${PILL_AGGREGATION_PREFIXES[value.aggregation]}(${getBIFieldPillLabel(value.field)})`
 }
 
 function buildOrderByExpression(

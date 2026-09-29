@@ -9,8 +9,10 @@ import {
     createDefaultDateFilter,
     defaultAggregationForField,
     getBIDataSourceKey,
+    getBIDropTarget,
     getBIFieldId,
     getBISortOptions,
+    getBIValueSortKey,
     isBIFieldCompatible,
     parseBIEditorState,
 } from './biEditorTypes'
@@ -388,12 +390,41 @@ describe('BI editor query generation', () => {
             `values:${revenueField.id}`,
             `values:${revenueField.id}:2`,
         ])
+        expect([0, 1].map((index) => getBIValueSortKey(twoAggregationsConfig, index))).toEqual([
+            `values:${revenueField.id}`,
+            `values:${revenueField.id}:2`,
+        ])
         expect(
             buildBIQuery({
                 ...twoAggregationsConfig,
                 sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
             })?.query
         ).toContain('ORDER BY\n    average_revenue_2 ASC')
+    })
+
+    const userIdField: BIField = { ...revenueField, id: 'warehouse:events:user_id', name: 'user_id', type: 'integer' }
+
+    test.each([
+        ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],
+        ['a measure dropped on columns becomes a value', revenueField, 'columns', revenueField, 'values'],
+        ['a measure dropped on filters stays a filter', revenueField, 'filters', revenueField, 'filters'],
+        ['a numeric identifier stays a dimension', userIdField, 'rows', userIdField, 'rows'],
+        [
+            'a timestamp on rows is bucketed by day',
+            timestampField,
+            'rows',
+            { ...timestampField, dateBucket: 'day' },
+            'rows',
+        ],
+        [
+            'a bucketed timestamp keeps its bucket',
+            { ...timestampField, dateBucket: 'month' },
+            'columns',
+            { ...timestampField, dateBucket: 'month' },
+            'columns',
+        ],
+    ] as const)('routes a dropped field: %s', (_, field, shelf, expectedField, expectedShelf) => {
+        expect(getBIDropTarget(field as BIField, shelf)).toEqual({ field: expectedField, shelf: expectedShelf })
     })
 
     test.each([
