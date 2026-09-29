@@ -5,19 +5,20 @@ description: 'Guidance for adding an API scope object to posthog/scopes.py and m
 
 # Adding an API scope
 
-A scope object such as `feature_flag` gives a token `feature_flag:read` and `feature_flag:write`.
+A scope has two parts: an object and an action, as in `feature_flag:read`.
+Adding a scope means adding a scope object, such as `feature_flag`. It gives tokens `feature_flag:read` and `feature_flag:write`.
 `posthog/scopes.py` is the source of the object list.
 The frontend type and the MCP OAuth list are generated from it.
 The picker rows and the groups are kept by hand in `frontend/src/lib/scopes.tsx`, and a test checks them.
 They stay in the frontend on purpose: labels, plurals, groups and picker omissions are UI decisions, while `posthog/scopes.py` decides what exists and what it grants.
 
-## Decide if you need a new object
+## Decide if you need a new scope
 
-Most endpoints belong under an existing object.
-Add a new object only for a product surface that a person wants to grant or refuse on its own.
-Use a `snake_case` singular noun.
+Most endpoints fit an existing scope, for example `insight:read`.
+Add a new scope only for a product area that a person wants to grant or withhold on its own, on a key or an OAuth app.
+Name its object with a `snake_case` singular noun, such as `feature_flag`.
 
-## Decide what kind of object it is
+## Decide what kind of scope it is
 
 - **Public:** OAuth lists it, MCP can request it, and the key picker offers it. This is the default.
 - **Internal:** only the server creates tokens with it. Use `INTERNAL_API_SCOPE_OBJECTS`.
