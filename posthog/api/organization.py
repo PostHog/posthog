@@ -90,10 +90,11 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         min_level = (
             OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
         )
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= min_level
-        )
+        membership = OrganizationMembership.objects.filter(
+            user=cast(User, request.user), organization=organization
+        ).first()
+        # Deleting an organization removes the memberships, so a retry arrives without one.
+        return membership is not None and membership.level >= min_level
 
 
 tracer = trace.get_tracer(__name__)
