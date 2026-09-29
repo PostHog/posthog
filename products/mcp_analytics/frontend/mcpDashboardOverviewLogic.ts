@@ -19,6 +19,7 @@ import {
     HogQLQueryResponse,
     MCPHarnessBreakdownItem,
     MCPModelBreakdownItem,
+    MCPProtocolVersionBreakdownItem,
     MCPToolCallBreakdownItem,
     MCPToolCallsAndErrorsItem,
     NodeKind,
@@ -395,6 +396,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     hasFilterInteraction: boolean
     hasModelData: boolean
+    hasProtocolVersionData: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -403,6 +405,8 @@ export interface mcpDashboardOverviewLogicValues {
     modelRows: ModelRow[]
     modelRowsLoading: boolean
     notableSessions: NotableSession[]
+    protocolVersionRows: MCPProtocolVersionBreakdownItem[]
+    protocolVersionRowsLoading: boolean
     queryFilters: HogQLFilters
     sessionRows: SessionRow[]
     sessionRowsLoading: boolean
@@ -500,6 +504,21 @@ export interface mcpDashboardOverviewLogicActions {
         payload?: void
     ) => {
         modelRows: ModelRow[]
+        payload?: void
+    }
+    loadProtocolVersionRows: (_: void) => void
+    loadProtocolVersionRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProtocolVersionRowsSuccess: (
+        protocolVersionRows: MCPProtocolVersionBreakdownItem[],
+        payload?: void
+    ) => {
+        protocolVersionRows: MCPProtocolVersionBreakdownItem[]
         payload?: void
     }
     loadSessionRows: (_: void) => void
@@ -615,6 +634,7 @@ export interface mcpDashboardOverviewLogicMeta {
             sessionRowsLoading: boolean,
             harnessRowsLoading: boolean,
             modelRowsLoading: boolean,
+            protocolVersionRowsLoading: boolean,
             activityRowsLoading: boolean,
             toolDailyRowsLoading: boolean
         ) => boolean
@@ -637,6 +657,7 @@ export interface mcpDashboardOverviewLogicMeta {
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
         hasModelData: (modelRows: ModelRow[]) => boolean
+        hasProtocolVersionData: (protocolVersionRows: MCPProtocolVersionBreakdownItem[]) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
@@ -834,6 +855,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        protocolVersionRows: [
+            [] as MCPProtocolVersionBreakdownItem[],
+            {
+                loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
+                    const response = (await api.query({
+                        kind: NodeKind.MCPProtocolVersionBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                    })) as { results?: MCPProtocolVersionBreakdownItem[] }
+                    breakpoint()
+                    return response?.results ?? []
+                },
+            },
+        ],
         activityRows: [
             [] as ActivityRow[],
             {
@@ -886,6 +923,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 s.sessionRowsLoading,
                 s.harnessRowsLoading,
                 s.modelRowsLoading,
+                s.protocolVersionRowsLoading,
                 s.activityRowsLoading,
                 s.toolDailyRowsLoading,
             ],
@@ -943,6 +981,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.modelRows],
             (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
         ],
+        hasProtocolVersionData: [
+            (s) => [s.protocolVersionRows],
+            (protocolVersionRows: MCPProtocolVersionBreakdownItem[]): boolean => protocolVersionRows.length > 0,
+        ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report
             // the run's true count, not the length of the truncated list.
@@ -985,6 +1027,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.loadSessionRows()
             actions.loadHarnessRows()
             actions.loadModelRows()
+            actions.loadProtocolVersionRows()
             actions.loadActivityRows()
             actions.loadToolDailyRows()
         },

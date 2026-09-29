@@ -239,6 +239,7 @@ export {
     ItemHeader,
     ItemFooter,
 } from './item'
+export { Highlight, highlightVariants, type HighlightColor, type HighlightProps } from './highlight'
 export { Kbd, KbdGroup, KbdText } from './kbd'
 export { Label } from './label'
 export {

@@ -6,13 +6,10 @@ import psycopg
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-    EarlierBatch,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     connect_with_retry,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue, EarlierBatch
 
 
 def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:

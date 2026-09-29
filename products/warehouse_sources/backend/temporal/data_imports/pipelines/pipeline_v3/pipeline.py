@@ -71,9 +71,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_rows_extracted_metric,
     get_run_attempt_metric,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    EarlierBatch,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
     SyncTypeLiteral,
@@ -91,6 +88,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (

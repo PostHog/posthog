@@ -34,9 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core imp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    EarlierBatch,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     SimpleSource,
     SourceExtractionNotImplementedError,
@@ -61,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     import_data_activity_sync,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 
 class _FakeAsyncCM:

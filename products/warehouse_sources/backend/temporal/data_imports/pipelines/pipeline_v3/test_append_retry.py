@@ -8,10 +8,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
     find_append_retry_resume,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    EarlierBatch,
-)
 from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources_queue.backend.core.jobs_db import EarlierBatch
 
 _NEWEST = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry.BatchQueue.newest_batch_of_earlier_attempts"
 

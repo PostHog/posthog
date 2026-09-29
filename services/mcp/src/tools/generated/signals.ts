@@ -354,6 +354,7 @@ const inboxReportsList = (): ToolBase<
                 count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
+                include_source_metadata: params.include_source_metadata,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -743,6 +744,9 @@ const scoutCheckRecordResult = (): ToolBase<
         }
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
         }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
