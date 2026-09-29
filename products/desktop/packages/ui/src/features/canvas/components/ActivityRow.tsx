@@ -25,10 +25,6 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import {
-  canvasCommentFocusKey,
-  useCommentNavigationStore,
-} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ReactElement } from "react";
 
@@ -118,15 +114,6 @@ export function ActivityRow({
       task_id: item.taskId ?? undefined,
     });
     onMarkRead(item);
-    if (item.commentId && item.commentTarget) {
-      useCommentNavigationStore
-        .getState()
-        .requestCommentFocus(
-          canvasId ? canvasCommentFocusKey(canvasId) : (item.taskId ?? ""),
-          item.commentTarget,
-          item.commentId,
-        );
-    }
     onActivate(item);
   };
 

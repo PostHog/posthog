@@ -306,13 +306,12 @@ export function TaskCommentsList({
   commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
-  const focusKey = onlySource
-    ? commentTargetKey(onlySource.target)
-    : (taskId ?? "");
+  const taskKey = taskId ?? "";
+  const focusKey = onlySource ? commentTargetKey(onlySource.target) : taskKey;
   const { runs } = useTaskRuns(onlySource ? undefined : (taskId ?? undefined));
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const activeArtifactId = useActiveArtifactId(focusKey);
+  const activeArtifactId = useActiveArtifactId(taskKey);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
@@ -343,8 +342,8 @@ export function TaskCommentsList({
     [task, timeline, runs],
   );
   const sources = useMemo(
-    () => (onlySource ? [onlySource] : commentSources(focusKey, rows)),
-    [focusKey, rows, onlySource],
+    () => (onlySource ? [onlySource] : commentSources(taskKey, rows)),
+    [taskKey, rows, onlySource],
   );
   const targets = useMemo(
     () =>
@@ -362,7 +361,7 @@ export function TaskCommentsList({
   );
   const taskComments = useCommentsForTargetsQuery(
     onlySource ? [] : targets,
-    focusKey,
+    taskKey,
     {
       live: true,
       intervalMs: POLL_INTERVAL_MS,
@@ -414,7 +413,7 @@ export function TaskCommentsList({
     prUrls.length,
   ]);
 
-  const taskTarget = useMemo(() => taskCommentTarget(focusKey), [focusKey]);
+  const taskTarget = useMemo(() => taskCommentTarget(taskKey), [taskKey]);
   const composerTarget = onlySource?.target ?? taskTarget;
   const createComment = useCreateComment(composerTarget, taskId ?? undefined);
 
@@ -510,13 +509,13 @@ export function TaskCommentsList({
     (thread: TaskCommentThread, requestThreadFocus = true) => {
       const origin = thread.origin;
       if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
-        openPrInReview(focusKey, origin.prUrl);
+        openPrInReview(taskKey, origin.prUrl);
         if (origin.kind === "pr-review") {
           // The review pane scrolls by file; a specific comment is as close as it
           // gets until it grows a per-thread target.
           useReviewNavigationStore
             .getState()
-            .requestScrollToFile(focusKey, origin.filePath);
+            .requestScrollToFile(taskKey, origin.filePath);
         }
         return;
       }
@@ -536,7 +535,7 @@ export function TaskCommentsList({
       }
       // A thread on the task itself has nowhere else to open because it lives here.
       if (source.kind === "task" || !source.runId) return;
-      openArtifactTab(focusKey, {
+      openArtifactTab(taskKey, {
         runId: source.runId,
         artifactId: source.target.itemId,
         name: source.name,
@@ -545,7 +544,13 @@ export function TaskCommentsList({
         requestCommentFocus(focusKey, source.target, root.id);
       }
     },
-    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, focusKey],
+    [
+      onCanvasCommentOpen,
+      openArtifactTab,
+      requestCommentFocus,
+      focusKey,
+      taskKey,
+    ],
   );
 
   // A thread picked on the artifact itself has to surface here, even when a

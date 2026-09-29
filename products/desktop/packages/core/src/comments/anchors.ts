@@ -1,4 +1,7 @@
-import type { CommentScope } from "@posthog/api-client/posthog-client";
+import {
+  COMMENT_SCOPES,
+  type CommentScope,
+} from "@posthog/api-client/posthog-client";
 import { z } from "zod";
 
 const CONTEXT_LENGTH = 32;
@@ -13,12 +16,6 @@ export type CommentTarget = {
   scope: CommentScope;
   itemId: string;
 };
-
-const COMMENT_SCOPES: readonly CommentScope[] = [
-  "task",
-  "task_artifact",
-  "canvas",
-];
 
 export function commentScopeFromWire(
   scope: string | null | undefined,

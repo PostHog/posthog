@@ -44,7 +44,7 @@ import {
   useCommentNavigationStore,
 } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityRow";
-import { openActivityItem } from "./openActivityItem";
+import { openActivityItem, openActivityItemInRail } from "./openActivityItem";
 import type { TaskRowMenuProps } from "./TaskRowMenu";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -218,52 +218,74 @@ describe("ActivityRow", () => {
     expect(onArchive).toHaveBeenCalledOnce();
   });
 
-  it("opens an activity mention at its exact comment thread", () => {
-    const activity = item({
-      activityKind: "mention",
-      channelId: "channel-1",
-      commentId: "comment-1",
-      commentTarget: { scope: "canvas", itemId: "canvas-1" },
-      author: {
-        id: 2,
-        uuid: "author",
-        email: "author@posthog.com",
-        first_name: "Ann",
-      },
-    });
+  it.each([
+    [
+      "the feed",
+      openActivityItem,
+      "task-1",
+      canvasCommentFocusKey("canvas-1"),
+      true,
+    ],
+    ["the rail", openActivityItemInRail, "task-1", "task-1", false],
+    [
+      "the rail without a task",
+      openActivityItemInRail,
+      null,
+      canvasCommentFocusKey("canvas-1"),
+      true,
+    ],
+  ])(
+    "opens an activity mention from %s at its exact comment thread",
+    (_where, activate, taskId, focusKey, opensCanvas) => {
+      const activity = item({
+        activityKind: "mention",
+        taskId,
+        channelId: "channel-1",
+        commentId: "comment-1",
+        commentTarget: { scope: "canvas", itemId: "canvas-1" },
+        author: {
+          id: 2,
+          uuid: "author",
+          email: "author@posthog.com",
+          first_name: "Ann",
+        },
+      });
 
-    render(
-      <ActivityRow
-        item={activity}
-        menu={taskMenu()}
-        onMarkRead={vi.fn()}
-        onActivate={openActivityItem}
-        blockedTaskIds={NO_BLOCKED_TASKS}
-      />,
-    );
-    const activityButton = screen
-      .getByText("Ann mentioned you")
-      .closest("button");
-    if (!activityButton) throw new Error("Expected activity row button");
-    fireEvent.click(activityButton);
+      render(
+        <ActivityRow
+          item={activity}
+          menu={taskMenu()}
+          onMarkRead={vi.fn()}
+          onActivate={activate}
+          blockedTaskIds={NO_BLOCKED_TASKS}
+        />,
+      );
+      const activityButton = screen
+        .getByText("Ann mentioned you")
+        .closest("button");
+      if (!activityButton) throw new Error("Expected activity row button");
+      fireEvent.click(activityButton);
 
-    expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
-      "channel-1",
-      "canvas-1",
-    );
-    expect(navigation.toChannelTask).not.toHaveBeenCalled();
-    expect(
-      useCommentNavigationStore.getState().focusByTask[
-        canvasCommentFocusKey("canvas-1")
-      ],
-    ).toEqual({
-      target: { scope: "canvas", itemId: "canvas-1" },
-      threadId: "comment-1",
-      nonce: expect.any(Number),
-      openCommentsTab: true,
-      intent: "navigate",
-    });
-  });
+      if (opensCanvas) {
+        expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
+          "channel-1",
+          "canvas-1",
+        );
+      } else {
+        expect(navigation.toChannelDashboard).not.toHaveBeenCalled();
+      }
+      expect(navigation.toChannelTask).not.toHaveBeenCalled();
+      expect(
+        useCommentNavigationStore.getState().focusByTask[focusKey],
+      ).toEqual({
+        target: { scope: "canvas", itemId: "canvas-1" },
+        threadId: "comment-1",
+        nonce: expect.any(Number),
+        openCommentsTab: true,
+        intent: "navigate",
+      });
+    },
+  );
 
   it("copies a canvas link, not a task link, for a canvas comment row", () => {
     render(
