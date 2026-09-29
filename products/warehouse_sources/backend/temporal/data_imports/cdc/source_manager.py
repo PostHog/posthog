@@ -715,6 +715,24 @@ class CDCSourceManager:
             return False
         return modified < proof.listed_at - _CONSUMED_MTIME_MARGIN
 
+    async def _still_as_listed(self, s3: Any, file: _BufferFile) -> bool:
+        """Whether a consumed file still holds the bytes the listing saw, checked right before its delete.
+
+        Below the floor any content is settled, because a capture retry only re-emits changes every lane
+        already holds. At the floor the proof covers the listed bytes, and a retry can replace them with
+        unread rows of the same transaction while this run reads earlier files. The HEAD leaves only the
+        gap between it and the delete, which a delete conditioned on the ETag would close.
+        """
+        if self._deletion_floor is None or file.span.end_seq < self._deletion_floor:
+            return True
+        try:
+            info = await s3._info(file.key, refresh=True)
+        except FileNotFoundError:
+            return False
+        etag = info.get("ETag")
+        current = etag.strip('"') if isinstance(etag, str) and etag else None
+        return current is not None and current == file.etag
+
     async def stamp_listing(self, listed_at: dt.datetime, tail: Mapping[str, str]) -> None:
         """Record on this run's own job that it listed the buffer, before any file is read.
 
@@ -805,7 +823,7 @@ class CDCSourceManager:
         async with aget_s3_client() as s3:
             for file in files:
                 # The only place a buffer file is deleted — see `_is_consumed` for the proof.
-                if self._is_consumed(file):
+                if self._is_consumed(file) and await self._still_as_listed(s3, file):
                     await s3._rm(file.key)
                     continue
 

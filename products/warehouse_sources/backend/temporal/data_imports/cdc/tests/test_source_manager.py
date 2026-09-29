@@ -109,6 +109,7 @@ class _FakeS3:
         mtimes: dict[str, dt.datetime] | None = None,
         missing_keys: set[str] | None = None,
         etags: dict[str, str] | None = None,
+        etags_at_delete: dict[str, str] | None = None,
     ) -> None:
         self.files = dict(files)
         # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
@@ -118,6 +119,8 @@ class _FakeS3:
         self.missing_prefix = missing_prefix
         self.mtimes = mtimes or {}
         self.etags = etags or {}
+        # What a HEAD sees after the listing, for a file capture rewrote in between.
+        self.etags_at_delete = etags_at_delete or {}
 
     async def _ls(self, prefix, detail=True, refresh=False):
         # The manager must always bypass the fsspec dircache — capture writes through a different
@@ -134,6 +137,12 @@ class _FakeS3:
             }
             for key in self.files
         ]
+
+    async def _info(self, key, refresh=False):
+        assert refresh, "a check before a delete must not read a cached listing"
+        if key not in self.files:
+            raise FileNotFoundError(key)
+        return {"ETag": f'"{self.etags_at_delete.get(key, self.etags.get(key, "etag-0"))}"'}
 
     async def _rm(self, key):
         self.removed.append(key)
@@ -680,25 +689,34 @@ class TestFloorDeletion:
 
     @parameterized.expand(
         [
-            ("listed_with_the_same_etag", {build_buffer_file_name(11, 20, 0): "etag-1"}, _RECENT, True),
-            ("rewritten_since_the_listing", {build_buffer_file_name(11, 20, 0): "etag-0"}, _RECENT, False),
+            ("listed_with_the_same_etag", {build_buffer_file_name(11, 20, 0): "etag-1"}, _RECENT, "etag-1", True),
+            ("rewritten_since_the_listing", {build_buffer_file_name(11, 20, 0): "etag-0"}, _RECENT, "etag-1", False),
             (
                 "rewritten_with_an_mtime_that_looks_old",
                 {build_buffer_file_name(11, 20, 0): "etag-0"},
                 _OLD_MTIME,
+                "etag-1",
                 False,
             ),
-            ("not_in_the_listing", {}, _RECENT, False),
+            ("not_in_the_listing", {}, _RECENT, "etag-1", False),
+            (
+                "rewritten_after_this_runs_listing",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-2",
+                False,
+            ),
         ]
     )
     async def test_a_file_written_just_before_the_listing_goes_on_the_next_run_only_if_that_listing_read_it(
-        self, _name: str, tail: dict[str, str], modified: dt.datetime, deleted: bool
+        self, _name: str, tail: dict[str, str], modified: dt.datetime, etag_at_delete: str, deleted: bool
     ) -> None:
         key = _key(11, 20)
         s3 = _FakeS3(
             {key: _parquet_bytes(_table([1], [20]))},
             mtimes={key: modified},
             etags={key: "etag-1"},
+            etags_at_delete={key: etag_at_delete},
         )
         await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail=tail))
 
