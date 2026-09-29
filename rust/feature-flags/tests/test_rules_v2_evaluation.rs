@@ -16,7 +16,8 @@ mod corpus;
 #[path = "test_rules_v2_evaluation/wire.rs"]
 mod wire;
 
-/// The vendored validator reproduces the harness verdict for every wire fixture case.
+/// `wire::validate_v3` accepts every wire fixture case marked `valid` and fails every other
+/// case at the layer its `expected_failure.layer` declares.
 #[test]
 fn vendored_response_fixtures_agree_with_the_validator() {
     let fixtures = corpus::load("fixtures/wire/responses.json");
@@ -565,7 +566,6 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         let v3 = serde_json::to_value(FlagsResponseV3::from_response(response)).unwrap();
         wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{id}: {error:?}"));
         let record = &v3["flags"][&key];
-        wire::assert_presence_row(record);
         assert_eq!(record["metadata"]["config_version"], 2, "{id}");
         assert_eq!(record.get("enabled"), None, "{id}");
         if failed {

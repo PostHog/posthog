@@ -46,6 +46,47 @@ pub enum Evaluation {
     },
 }
 
+impl RuleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TargetedRelease => "targeted_release",
+            Self::PercentageRollout => "percentage_rollout",
+        }
+    }
+}
+
+impl Evaluation {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TargetingMatch { .. } => "targeting_match",
+            Self::RolloutMiss { .. } => "rollout_miss",
+            Self::NoRuleMatch { .. } => "no_rule_match",
+        }
+    }
+
+    pub fn value(self) -> Option<bool> {
+        match self {
+            Self::TargetingMatch { value, .. } => Some(value),
+            Self::RolloutMiss { value, .. } | Self::NoRuleMatch { value } => value,
+        }
+    }
+
+    pub fn rule(self) -> Option<MatchedRule> {
+        match self {
+            Self::TargetingMatch { rule, .. } | Self::RolloutMiss { rule, .. } => Some(rule),
+            Self::NoRuleMatch { .. } => None,
+        }
+    }
+
+    pub fn description(self) -> String {
+        match self {
+            Self::TargetingMatch { rule, .. } => format!("Matched rule {}", rule.index + 1),
+            Self::RolloutMiss { rule, .. } => format!("Rule {} rollout miss", rule.index + 1),
+            Self::NoRuleMatch { .. } => "No rule matched".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvaluationError {
     MissingContext,

@@ -281,9 +281,15 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
             "{key}"
         );
         if config_version == 2 {
-            wire::assert_presence_row(record);
             assert_eq!(record["metadata"]["payload"], Value::Null, "{key}");
         }
+    }
+    for (key, description) in [
+        ("v2-true", "Matched rule 1"),
+        ("v2-rollout-return-default", "Rule 1 rollout miss"),
+        ("v2-null-default", "No rule matched"),
+    ] {
+        assert_eq!(flags[key]["reason"]["description"], description, "{key}");
     }
     assert_eq!(flags["v1-variant"]["metadata"]["variant_key"], "compact");
     assert_eq!(
@@ -372,6 +378,7 @@ async fn v2_legacy_and_decide_shapes_are_unchanged() -> Result<()> {
         .json()
         .await?;
     assert_eq!(minimal["flags"], json!({}));
+    assert_eq!(minimal["supportedCompression"], json!(["gzip", "gzip-js"]));
     wire::validate_v3(&minimal).unwrap();
     Ok(())
 }

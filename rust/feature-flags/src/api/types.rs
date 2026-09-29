@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::flags::evaluate_v2::{Evaluation, RuleKind};
+use crate::flags::evaluate_v2::Evaluation;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
@@ -218,10 +218,10 @@ pub struct FlagsResponse {
     /// Set to `true` when the team is gated into slim `$feature_flag_called` events
     /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
     /// that see no field at all fall back to full events, same as legacy teams.
-    /// Only reaches the wire on this v2 shape: `LegacyFlagsResponse`, `DecideV1Response`,
-    /// and `DecideV2Response` intentionally never carry it over. SDKs old enough to hit
-    /// those response shapes predate this field and have no code path that reads it, so
-    /// there's nothing gained by sending it to them.
+    /// Only reaches the wire on this v2 shape and on `FlagsResponseV3`: `LegacyFlagsResponse`,
+    /// `DecideV1Response`, and `DecideV2Response` intentionally never carry it over. SDKs old
+    /// enough to hit those response shapes predate this field and have no code path that reads
+    /// it, so there's nothing gained by sending it to them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimal_flag_called_events: Option<bool>,
 
@@ -541,34 +541,22 @@ impl From<FlagDetails> for FlagDetailsV3 {
                 };
                 (value, flag.reason, None, 1, flag.variant)
             }
-            ConfigOutcome::V2(evaluation) => {
-                let (value, code, rule, description) = match evaluation {
-                    Some(Evaluation::TargetingMatch { value, rule }) => (
-                        Value::from(value),
-                        "targeting_match",
-                        Some(rule),
-                        Some(format!("Matched rule {}", rule.index + 1)),
-                    ),
-                    Some(Evaluation::RolloutMiss { value, rule }) => (
-                        Value::from(value),
-                        "rollout_miss",
-                        Some(rule),
-                        Some(format!("Rule {} rollout miss", rule.index + 1)),
-                    ),
-                    Some(Evaluation::NoRuleMatch { value }) => (
-                        Value::from(value),
-                        "no_rule_match",
-                        None,
-                        Some("No rule matched".to_string()),
-                    ),
-                    None => (Value::Null, "error", None, flag.reason.description),
-                };
+            ConfigOutcome::V2(Some(evaluation)) => {
+                let rule = evaluation.rule();
                 let reason = FlagEvaluationReason {
-                    code: code.to_string(),
+                    code: evaluation.code().to_string(),
                     condition_index: rule.map(|rule| rule.index as i32),
-                    description,
+                    description: Some(evaluation.description()),
                 };
-                (value, reason, rule, 2, None)
+                (Value::from(evaluation.value()), reason, rule, 2, None)
+            }
+            ConfigOutcome::V2(None) => {
+                let reason = FlagEvaluationReason {
+                    code: "error".to_string(),
+                    condition_index: None,
+                    description: flag.reason.description,
+                };
+                (Value::Null, reason, None, 2, None)
             }
         };
         Self {
@@ -583,13 +571,7 @@ impl From<FlagDetails> for FlagDetailsV3 {
                 description: flag.metadata.description,
                 payload: flag.metadata.payload,
                 has_experiment: flag.metadata.has_experiment,
-                rule_type: rule.map(|rule| {
-                    match rule.kind {
-                        RuleKind::TargetedRelease => "targeted_release",
-                        RuleKind::PercentageRollout => "percentage_rollout",
-                    }
-                    .to_string()
-                }),
+                rule_type: rule.map(|rule| rule.kind.as_str().to_string()),
                 rule_id: rule.map(|rule| rule.id),
                 variant_key,
             },
@@ -1281,7 +1263,7 @@ mod tests {
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(0),
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Matched condition set 1".to_string())
     )]
@@ -1292,7 +1274,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::ConditionMatch,
             condition_index: Some(2),
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Matched condition set 3".to_string())
     )]
@@ -1303,7 +1285,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::NoConditionMatch,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("No matching condition set".to_string())
     )]
@@ -1314,7 +1296,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::OutOfRolloutBound,
             condition_index: Some(2),
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Out of rollout bound".to_string())
     )]
@@ -1325,7 +1307,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::NoGroupType,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("No group type".to_string())
     )]
@@ -1336,7 +1318,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::SuperConditionValue,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Super condition value".to_string())
     )]
@@ -1347,7 +1329,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::HoldoutConditionValue,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Holdout condition value".to_string())
     )]
@@ -1358,7 +1340,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::FlagDisabled,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Feature flag is disabled".to_string())
     )]
@@ -1369,7 +1351,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("Flag cannot be evaluated due to missing dependency".to_string())
     )]
@@ -1380,7 +1362,7 @@ evaluation_v2: None,
             reason: FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
             condition_index: Some(0),
             payload: None,
-evaluation_v2: None,
+            evaluation_v2: None,
         },
         Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
     )]
@@ -2273,5 +2255,36 @@ evaluation_v2: None,
         assert!(analysis[2].matched);
 
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
+    }
+
+    #[test]
+    fn test_v3_record_of_a_failed_v1_flag_has_a_null_value() {
+        let flag = FlagDetails {
+            key: "v1-failed".to_string(),
+            enabled: false,
+            variant: None,
+            failed: true,
+            reason: FlagEvaluationReason {
+                code: "database_error".to_string(),
+                condition_index: None,
+                description: None,
+            },
+            metadata: FlagDetailsMetadata {
+                id: 1,
+                version: 1,
+                description: None,
+                payload: None,
+                has_experiment: false,
+            },
+            conditions: None,
+            config_outcome: ConfigOutcome::V1,
+        };
+
+        let record = FlagDetailsV3::from(flag);
+
+        assert_eq!(record.value, Value::Null);
+        assert!(record.failed);
+        assert_eq!(record.reason.code, "database_error");
+        assert_eq!(record.metadata.config_version, 1);
     }
 }

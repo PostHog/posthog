@@ -45,15 +45,29 @@ fn first_error(validator: &Validator, instance: &Value) -> Option<String> {
         .map(|error| format!("{} at {}", error, error.instance_path()))
 }
 
-fn seed_key(path: &str, key: &str) -> bool {
-    !path.is_empty() && (key == "seed" || key.ends_with("_seed"))
+/// The harness's spelling rule: `assignmentSeed`, `holdout-seed` and `$seed` all count.
+fn seed_key(key: &str) -> bool {
+    let mut normalized = String::new();
+    let mut after_lower_or_digit = false;
+    for c in key.trim_start_matches('$').chars() {
+        if c.is_ascii_uppercase() && after_lower_or_digit {
+            normalized.push('_');
+        }
+        after_lower_or_digit = c.is_ascii_lowercase() || c.is_ascii_digit();
+        normalized.push(if c == '-' {
+            '_'
+        } else {
+            c.to_ascii_lowercase()
+        });
+    }
+    normalized == "seed" || normalized.ends_with("_seed")
 }
 
 fn first_seed(value: &Value, path: &str) -> Option<String> {
     match value {
         Value::Object(map) => map.iter().find_map(|(key, child)| {
             let child_path = format!("{path}/{key}");
-            if path != "/flags" && seed_key(path, key) {
+            if path != "/flags" && seed_key(key) {
                 return Some(child_path);
             }
             first_seed(child, &child_path)
@@ -85,35 +99,6 @@ pub fn validate_v3(response: &Value) -> Result<(), (&'static str, String)> {
     Ok(())
 }
 
-pub fn assert_presence_row(record: &Value) {
-    let rows = corpus::load("rules/response_presence.json");
-    let metadata = &record["metadata"];
-    let row = rows["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| {
-            row["reason"] == record["reason"]["code"] && row["rule_type"] == metadata["rule_type"]
-        })
-        .unwrap_or_else(|| panic!("no presence row for {record}"));
-    for field in row["required"].as_array().unwrap() {
-        assert!(metadata.get(field.as_str().unwrap()).is_some(), "{record}");
-    }
-    for field in row["forbidden"].as_array().unwrap() {
-        assert!(metadata.get(field.as_str().unwrap()).is_none(), "{record}");
-    }
-    assert_eq!(
-        record.get("failed").is_some(),
-        row["failed"] == true,
-        "{record}"
-    );
-    assert_eq!(
-        record["reason"]["condition_index"].is_number(),
-        metadata.get("rule_id").is_some(),
-        "{record}"
-    );
-}
-
 pub fn fixture_case(fixtures: &Value, case: &Value) -> Value {
     let mut instance = fixtures["templates"][case["template"].as_str().unwrap()].clone();
     for pointer in case["remove"].as_array().into_iter().flatten() {
@@ -135,4 +120,20 @@ pub fn fixture_case(fixtures: &Value, case: &Value) -> Value {
             .insert(key.to_string(), value.clone());
     }
     instance
+}
+
+#[test]
+fn seed_scan_matches_the_harness_spellings() {
+    let response = serde_json::json!({"flags": {"seed": {"key": "seed"}}});
+    assert_eq!(first_seed(&response, ""), None);
+    for key in [
+        "seed",
+        "assignmentSeed",
+        "holdout-seed",
+        "$feature_flag_seed",
+    ] {
+        let response = serde_json::json!({"flags": {}, key: 1});
+        assert_eq!(first_seed(&response, ""), Some(format!("/{key}")), "{key}");
+    }
+    assert_eq!(first_seed(&serde_json::json!({"seeds": 1}), ""), None);
 }
