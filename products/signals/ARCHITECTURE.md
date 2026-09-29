@@ -1354,7 +1354,7 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. GitHub's other field, the requested reviewer, is never written by this code — a separate app requests the owning team for review, which is why both appear on these pull requests.
+"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request. The worker does not send a duplicate request to an existing assignee or requested reviewer. A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 

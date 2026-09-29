@@ -62,6 +62,8 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
+# GitHub's request-reviewers endpoint caps a single call at 15 users.
+MAX_PR_REVIEWERS = 15
 
 # GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
 # label its team configured, so a longer list is a caller mistake rather than a use we support.
@@ -1190,6 +1192,11 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("assignees") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_reviewers": [
+                entry["login"]
+                for entry in (pr.get("requested_reviewers") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1347,6 +1354,37 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: Iterable[str]) -> dict[str, Any]:
+        """Request reviews from GitHub users on a pull request."""
+        wanted = list(dict.fromkeys(login for login in reviewers if login))[:MAX_PR_REVIEWERS]
+        if not wanted:
+            return {"success": True, "requested_reviewers": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json_body={"reviewers": wanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error requesting pull request reviews"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to request pull request reviews: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            pull_request = response.json()
+        except Exception:
+            pull_request = {}
+        requested_reviewers = [
+            entry["login"]
+            for entry in (pull_request.get("requested_reviewers") or [])
+            if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "requested_reviewers": requested_reviewers}
 
     def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
         """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.

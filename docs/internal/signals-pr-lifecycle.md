@@ -43,6 +43,8 @@ Slack notifications for a ready report include only reviewers who have access to
 The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 
+When an implementation pull request reaches the report, each suggested reviewer with a connected GitHub account receives a GitHub review request. The worker skips existing assignees and existing requested reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.
