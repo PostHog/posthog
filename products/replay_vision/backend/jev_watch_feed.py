@@ -39,6 +39,7 @@ from posthog.redis import get_client
 from products.ml_inference.backend.facade import api as decision_api
 from products.ml_inference.backend.facade.contracts import (
     MAX_QUESTIONS_PER_REQUEST,
+    DecisionGatewayError,
     DecisionQuestion,
     DecisionRequest,
     JsonValue,
@@ -154,8 +155,13 @@ class WindowJudgment:
     probabilities: dict[str, float]
     # Rows with no prose to judge. The sweep records these as judged, so they settle into the
     # filler tier once instead of being refetched every sweep; a failed chunk's rows are absent
-    # from both fields and retry next sweep.
+    # from `probabilities` and retry next sweep.
     skipped_no_prose: tuple[str, ...]
+    # Rows from chunks that failed for a reason the batch itself caused (an invalid answer, or a
+    # gateway refusal that is not a rate limit), so a retry will fail the same way. The sweep
+    # charges its retry budget only against these: an outage or a misconfigured gateway fails every
+    # chunk alike and must not park rows as judged-with-no-score.
+    batch_failed_ids: tuple[str, ...]
     model: str | None
     chunks: int
     failed_chunks: int
@@ -223,6 +229,9 @@ def _judge_chunk(
             model=JEV_MODEL,
             ai_product="replay_vision",
             trace_id=trace_id,
+            # The state holds recording-derived scan prose, which must stay out of the internal
+            # AI observability project — the same rule every other Replay Vision LLM call follows.
+            privacy_mode=True,
         ),
         timeout_seconds=JEV_TIMEOUT_SECONDS,
     )
@@ -258,6 +267,7 @@ def judge_scanner_window(
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
+    batch_failed_ids: list[str] = []
     model: str | None = None
     failed_chunks = 0
     input_tokens = 0
@@ -273,6 +283,13 @@ def judge_scanner_window(
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(type(error).__name__).inc()
             failed_chunks += 1
+            # An invalid answer or a non-rate-limit gateway refusal is the batch's own fault; an
+            # unreachable, disabled, misconfigured, rate-limited, or erroring gateway is not, and
+            # its rows must retry free.
+            if isinstance(error, ValueError) or (
+                isinstance(error, DecisionGatewayError) and 400 <= error.status_code < 500 and error.status_code != 429
+            ):
+                batch_failed_ids.extend(entry_id for entry_id, _ in chunk)
             # The gateway error body can echo the state, which holds recording-derived prose, so
             # only the error type leaves here.
             logger.warning(
@@ -294,6 +311,7 @@ def judge_scanner_window(
     return WindowJudgment(
         probabilities=probabilities,
         skipped_no_prose=skipped_no_prose,
+        batch_failed_ids=tuple(batch_failed_ids),
         model=model,
         chunks=len(chunks),
         failed_chunks=failed_chunks,

@@ -17,9 +17,11 @@ WINDOW_SCAN_CAP = 1000
 # Jev spend, not the coverage: a backlog drains at this rate across later sweeps, newest first.
 MAX_JUDGED_PER_SCANNER = 100
 # The newest-first pick would retry a deterministically failing batch every hour and starve older
-# rows for the whole window. After this many failed judgments a row is recorded as judged with no
-# score, so it settles into the recency filler tier like a prose-less row; the cache TTL makes it
-# eligible again if the cache ever rebuilds.
+# rows for the whole window. After this many batch-attributable failures (an invalid answer, a
+# gateway refusal that is not a rate limit) a row is recorded as judged with no score, so it
+# settles into the recency filler tier like a prose-less row — for the life of the cache entry,
+# since every sweep over an active scanner refreshes the TTL. Environmental failures (an outage,
+# a rate limit, a misconfigured gateway) charge no attempt, so a bad hour parks nothing.
 MAX_JUDGE_ATTEMPTS = 3
 # TODO: Team 2 is PostHog's own team, pinned first while the jev ranker runs as an internal shadow
 # test, so it can never fall past the team cap. When the experiment opens to other teams: remove the

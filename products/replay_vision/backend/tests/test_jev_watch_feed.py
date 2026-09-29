@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.redis import get_client
 
 from products.ml_inference.backend.facade.contracts import (
+    DecisionGatewayError,
     DecisionRequest,
     DecisionResult,
     DecisionsDisabledError,
@@ -101,6 +102,8 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert len(first_request.state["observations"]) == WINDOW_CHUNK_SIZE
         assert len(first_request.questions) == WINDOW_CHUNK_SIZE
         assert "0" in first_request.questions["watch_0"].instructions
+        # The state carries recording-derived prose, which must stay out of the internal project.
+        assert first_request.privacy_mode is True
 
     def test_a_failed_chunk_loses_only_its_own_rows(self) -> None:
         rows = [_prose_row(uuid4(), f"summary {index}") for index in range(WINDOW_CHUNK_SIZE + 6)]
@@ -118,6 +121,8 @@ class TestJudgeScannerWindow(SimpleTestCase):
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.failed_chunks == 1
         assert len(judgment.probabilities) == 6
+        # An unavailable decision service is not the batch's fault, so no retry budget is charged.
+        assert judgment.batch_failed_ids == ()
 
     def test_an_invalid_probability_fails_the_whole_chunk(self) -> None:
         rows = [_prose_row(uuid4(), "summary")]
@@ -126,6 +131,25 @@ class TestJudgeScannerWindow(SimpleTestCase):
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.probabilities == {}
         assert judgment.failed_chunks == 1
+        # An invalid answer is the batch's own fault, so its rows are charged a retry attempt.
+        assert judgment.batch_failed_ids == (str(rows[0]["id"]),)
+
+    @parameterized.expand(
+        [
+            ("refusal", 422, True),
+            ("rate_limit", 429, False),
+            ("server_error", 503, False),
+        ]
+    )
+    def test_only_a_batch_attributable_gateway_refusal_charges_the_retry_budget(
+        self, _name: str, status_code: int, charged: bool
+    ) -> None:
+        rows = [_prose_row(uuid4(), "summary")]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = DecisionGatewayError(status_code, "detail")
+            judgment = judge_scanner_window(1, uuid4(), rows)
+        assert judgment.failed_chunks == 1
+        assert judgment.batch_failed_ids == ((str(rows[0]["id"]),) if charged else ())
 
     def test_rows_without_prose_are_reported_instead_of_sent(self) -> None:
         no_output, no_result = uuid4(), uuid4()
@@ -471,8 +495,9 @@ class TestJevWatchRankSweep(BaseTest):
 
     def test_a_batch_that_keeps_failing_is_abandoned_after_max_attempts(self) -> None:
         # A deterministically failing batch must not stay newest-unjudged forever, re-bought every
-        # hour while older rows starve. After MAX_JUDGE_ATTEMPTS it joins the judged set with no
-        # score and the sweep moves on.
+        # hour while older rows starve. After MAX_JUDGE_ATTEMPTS batch-attributable failures it
+        # joins the judged set with no score and the sweep moves on. An outage sweep charges no
+        # attempt, so a bad hour cannot park the rows.
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         scanner = ReplayScanner.objects.create(
@@ -485,6 +510,19 @@ class TestJevWatchRankSweep(BaseTest):
         self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
 
         activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        # One outage sweep first: it fails the chunk but burns none of the batch's retry budget,
+        # so the batch still takes the full MAX_JUDGE_ATTEMPTS failing sweeps below to give up.
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = DecisionsDisabledError(self.team.id)
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert result.failed_chunks == 1
+        assert result.observations_given_up == 0
+
         for attempt in range(1, MAX_JUDGE_ATTEMPTS + 1):
             with (
                 patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
@@ -492,7 +530,7 @@ class TestJevWatchRankSweep(BaseTest):
                 patch(_API) as api,
                 patch("posthoganalytics.capture"),
             ):
-                api.decide_when_available.side_effect = DecisionsDisabledError(self.team.id)
+                api.decide_when_available.side_effect = _answer_every_question(7.0)
                 result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
             assert result.failed_chunks == 1, attempt
             assert result.observations_given_up == (1 if attempt == MAX_JUDGE_ATTEMPTS else 0), attempt
