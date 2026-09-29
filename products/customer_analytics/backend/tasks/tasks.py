@@ -14,6 +14,7 @@ from products.customer_analytics.backend.facade.email_matching import (
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
+from products.customer_analytics.backend.logic.customer_task_agent import sweep_agent_tasks
 from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
 
 logger = structlog.get_logger(__name__)
@@ -188,3 +189,8 @@ def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids:
 @with_team_scope()
 def send_announcement(announcement_id: str, team_id: int) -> None:
     send_pending_deliveries(announcement_id, team_id)
+
+
+@shared_task(name="customer_analytics.sweep_agent_customer_tasks", ignore_result=True)
+def sweep_agent_customer_tasks() -> None:
+    sweep_agent_tasks()

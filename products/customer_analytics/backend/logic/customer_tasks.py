@@ -204,8 +204,12 @@ def _assign_agent(task: CustomerTask, actor: User | None) -> None:
 
 
 def _unassign_agent(task: CustomerTask) -> None:
+    # The loop record stays, so the sweep can archive a loop the task no longer waits on.
     task.assigned_to_agent = False
-    task.properties = {key: value for key, value in task.properties.items() if key != "agent"}
+    task.properties = {
+        **task.properties,
+        "agent": {**(task.properties.get("agent") or {}), "unassigned_at": _timestamp(timezone.now())},
+    }
 
 
 def _emit_agent_assigned_after_commit(task: CustomerTask, actor: User | None) -> None:
@@ -687,6 +691,62 @@ def report_agent_result(
             )
         )
     _record_activity(task=task, activity_type=CustomerTaskActivityType.AGENT_REPORT, actor=None, changes=changes)
+
+
+def record_agent_loop(*, task: CustomerTask, hog_flow_id: str, schedule_id: str, scheduled_for: datetime) -> None:
+    """Remember the loop that will work the task, so its report can be matched and the loop retired."""
+    loop = {"hog_flow_id": hog_flow_id, "schedule_id": schedule_id, "scheduled_for": _timestamp(scheduled_for)}
+    task.properties = {**task.properties, "agent": {**(task.properties.get("agent") or {}), **loop}}
+    task.save(update_fields=["properties", "updated_at"])
+    _record_activity(
+        task=task,
+        activity_type=CustomerTaskActivityType.AGENT_SCHEDULED,
+        actor=None,
+        changes=[{"field": "agent_loop", "before": None, "after": loop}],
+    )
+
+
+def mark_agent_loop_archived(*, task: CustomerTask) -> None:
+    task.properties = {
+        **task.properties,
+        "agent": {**(task.properties.get("agent") or {}), "loop_archived_at": _timestamp(timezone.now())},
+    }
+    task.save(update_fields=["properties", "updated_at"])
+
+
+def fail_agent_task(*, team: Team, task: CustomerTask, reason: str) -> None:
+    """Hand a task PostHog could not finish back to the person who assigned it, with the reason in the log."""
+    assignee = _hand_back_assignee(team, task)
+    task.assigned_to = assignee
+    task.assigned_to_agent = False
+    task.properties = {
+        **task.properties,
+        "agent": {**(task.properties.get("agent") or {}), "failed_at": _timestamp(timezone.now()), "failure": reason},
+    }
+    task.save()
+    _set_customer_task_assignee_access(
+        task=task, organization_id=team.organization_id, before_assignee=None, after_assignee=assignee, actor=None
+    )
+    changes: list[dict[str, object | None]] = [{"field": "agent_failure", "before": None, "after": reason}]
+    changes.extend(
+        _changes(
+            before_account=task.account,
+            after_account=task.account,
+            before_name=task.name,
+            after_name=task.name,
+            before_description=task.description,
+            after_description=task.description,
+            before_status=task.status,
+            after_status=task.status,
+            before_assignee=None,
+            after_assignee=assignee,
+            before_agent=True,
+            after_agent=False,
+            before_due_at=task.due_at,
+            after_due_at=task.due_at,
+        )
+    )
+    _record_activity(task=task, activity_type=CustomerTaskActivityType.AGENT_FAILED, actor=None, changes=changes)
 
 
 def _list_visible_historical_account_ids(

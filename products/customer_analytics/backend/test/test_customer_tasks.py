@@ -155,7 +155,7 @@ class CustomerTaskAPI(APIBaseTest):
         assert handed_back.status_code == status.HTTP_200_OK
         assert handed_back.json()["assigned_to_agent"] is False
         assert handed_back.json()["assigned_to"]["id"] == colleague.id
-        assert "agent" not in CustomerTask.objects.unscoped().get(id=task.id).properties
+        assert CustomerTask.objects.unscoped().get(id=task.id).properties["agent"]["unassigned_at"]
         capture.assert_not_called()
 
         with (
