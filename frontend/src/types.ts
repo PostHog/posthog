@@ -2435,6 +2435,7 @@ export interface BillingProductV2AddonType {
     legacy_product?: boolean | null
 }
 export enum BillingProvider {
+    PostHog = 'posthog',
     Vercel = 'vercel',
 }
 export interface BillingType {
@@ -6171,6 +6172,7 @@ export type PromptFlag = {
 export enum ActivityScope {
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
+    ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',

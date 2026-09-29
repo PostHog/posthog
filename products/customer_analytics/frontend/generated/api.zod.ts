@@ -9,6 +9,57 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * @summary Create an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountCreateBodyExternalIdMax = 400
+
+export const customerAnalyticsExternalAccountCreateBodyNameMax = 400
+
+export const CustomerAnalyticsExternalAccountCreateBody = /* @__PURE__ */ zod.object({
+    external_id: zod
+        .string()
+        .max(customerAnalyticsExternalAccountCreateBodyExternalIdMax)
+        .describe(
+            "External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID."
+        ),
+    name: zod
+        .string()
+        .max(customerAnalyticsExternalAccountCreateBodyNameMax)
+        .nullish()
+        .describe('Name for a new account. Ignored when the account already exists. Blank means no name.'),
+    properties: zod
+        .object({
+            website_domain: zod
+                .string()
+                .nullish()
+                .describe('Primary company website hostname used for account identity and logo lookup.'),
+            email_domains: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                ),
+            known_emails: zod
+                .array(zod.string())
+                .optional()
+                .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
+            slack_channel_id: zod.string().nullish(),
+            usage_dashboard_link: zod.string().nullish(),
+            metabase_link: zod.string().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.'
+        ),
+})
+
 export const accountRelationshipDefinitionsCreateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
@@ -180,6 +231,99 @@ export const AccountTrackRulesPreviewCreateBody = /* @__PURE__ */ zod.object({
 export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
     idempotency_key: zod.uuid(),
     confirmed: zod.boolean(),
+})
+
+/**
+ * @summary Create a private account view
+ */
+export const accountViewsCreateBodyNameMax = 400
+
+export const accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsCreateBodyContentOneContentMax = 1
+
+export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountViewsCreateBodyNameMax).describe('View name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsCreateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .describe('Initial account view components.'),
+})
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
+export const accountViewsPartialUpdateBodyContentOneContentMax = 1
+
+export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(accountViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New view name. Omit to keep the current name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .max(accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax)
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .min(1)
+                .max(accountViewsPartialUpdateBodyContentOneContentMax)
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .optional()
+        .describe('Replacement account view components. Omit to keep current content.'),
+    visibility: zod
+        .enum(['private'])
+        .describe('\* `private` - Personal')
+        .optional()
+        .describe('Views can only be private.\n\n\* `private` - Personal'),
+    version: zod.number().min(1).describe('Version returned by the last read.'),
 })
 
 export const accountsCreateBodyNameMax = 400
@@ -773,7 +917,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column."
             ),
         key_column: zod
             .string()
@@ -808,13 +952,25 @@ export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
             .max(customPropertySourcesUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
@@ -833,13 +989,25 @@ export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
             .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const customerJourneysCreateBodyNameMax = 400
