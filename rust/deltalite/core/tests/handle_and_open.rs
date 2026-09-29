@@ -844,12 +844,10 @@ async fn files_carry_partition_values() {
     assert_eq!(partitions, [Some("x".to_string()), Some("y".to_string())]);
 }
 
-/// A file the probe found a match in is rewritten with the footer the probe parsed, and
-/// that footer arrives in one GET: one footer round trip per hit file for the whole
-/// upsert, not two (probe and rewrite each opening the file) times two (trailer, then
-/// metadata).
+/// Footer reuse is limited to one reader wave so metadata retained between the probe
+/// and rewrite phases cannot grow with the partition's file count.
 #[tokio::test]
-async fn hit_files_are_opened_once_across_probe_and_rewrite() {
+async fn hit_file_footer_reuse_is_bounded_by_reader_concurrency() {
     register_counting_scheme();
     let dir = tempfile::tempdir().expect("tempdir");
     let table_dir = dir.path().join("t9");
@@ -861,6 +859,8 @@ async fn hit_files_are_opened_once_across_probe_and_rewrite() {
             &["a0", "a1", "a2", "a3"],
             &["b0", "b1", "b2", "b3"],
             &["c0", "c1", "c2", "c3"],
+            &["d0", "d1", "d2", "d3"],
+            &["e0", "e1", "e2", "e3"],
         ],
     )
     .await;
@@ -874,35 +874,35 @@ async fn hit_files_are_opened_once_across_probe_and_rewrite() {
         .into_iter()
         .map(|f| format!("{root}/{}", f.path))
         .collect();
-    assert_eq!(hit_files.len(), 3);
+    assert_eq!(hit_files.len(), 5);
 
-    // One key from every file: each is probed, hit, and rewritten.
     let start = ops_len();
     let stats = handle
         .upsert(
             vec![batch(
                 &s,
-                &["a2", "b2", "c2"],
-                vec![Some(7), Some(7), Some(7)],
+                &["a2", "b2", "c2", "d2", "e2"],
+                vec![Some(7), Some(7), Some(7), Some(7), Some(7)],
             )],
             s.clone(),
-            opts(),
+            UpsertOptions {
+                max_parallel_files: 2,
+                ..opts()
+            },
             MultipartConfig::default(),
         )
         .await
         .expect("upsert");
-    assert_eq!(stats.files_probed, 3);
-    assert_eq!(stats.files_removed, 3);
+    assert_eq!(stats.files_probed, 5);
+    assert_eq!(stats.files_removed, 5);
 
     let footer_gets = data_file_footer_gets(&ops_since(start, &root), &root);
-    for path in &hit_files {
-        assert_eq!(
-            footer_gets.get(path).copied().unwrap_or(0),
-            1,
-            "{path}: expected the probe's one footer GET, reused by the rewrite \
-             (footer GETs per file: {footer_gets:?})"
-        );
-    }
+    let counts: Vec<usize> = hit_files
+        .iter()
+        .map(|path| footer_gets.get(path).copied().unwrap_or(0))
+        .collect();
+    assert_eq!(counts.iter().filter(|&&count| count == 1).count(), 2);
+    assert_eq!(counts.iter().filter(|&&count| count == 2).count(), 3);
 }
 
 /// After the commit the handle adopts the state delta-rs derived for it instead of

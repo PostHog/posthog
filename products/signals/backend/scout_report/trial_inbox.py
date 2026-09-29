@@ -28,6 +28,7 @@ class TrialInboxReads:
             "search",
             "status",
             "include_all_statuses",
+            "include_source_metadata",
             "source_product",
             "source_id",
             "scout",
@@ -46,8 +47,13 @@ class TrialInboxReads:
         self.view = view
         self.store = store
 
-    def _decorate(self, report: TrialReport, document: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if report.evidence:
+    def _decorate(
+        self, report: TrialReport, document: dict[str, JsonValue], *, include_source_metadata: bool = True
+    ) -> dict[str, JsonValue]:
+        if not include_source_metadata:
+            document["source_products"] = []
+            document["scout_name"] = None
+        elif report.evidence:
             products = document.get("source_products")
             source_products = (
                 {"signals_scout", *(str(item) for item in products)}
@@ -155,7 +161,9 @@ class TrialInboxReads:
                     return False
         return True
 
-    def _private_documents(self, reports: Sequence[TrialReport]) -> list[dict[str, JsonValue]]:
+    def _private_documents(
+        self, reports: Sequence[TrialReport], *, include_source_metadata: bool = True
+    ) -> list[dict[str, JsonValue]]:
         source_ids = [report.source_report_id for report in reports if report.source_report_id is not None]
         originals = self.view._scope_signal_report_queryset(
             SignalReport.objects.filter(team_id=self.store.run.team_id, id__in=source_ids)
@@ -164,14 +172,23 @@ class TrialInboxReads:
         originals = self.view._annotate_channel_id(originals)
         originals = self.view._prefetch_signal_report_priority_artefacts(originals)
         originals = self.view._annotate_is_suggested_reviewer(originals)
-        live = {str(row["id"]): row for row in self.view._serialize_report_list(list(originals))}
+        live = {
+            str(row["id"]): row
+            for row in self.view._serialize_report_list(
+                list(originals), include_source_metadata=include_source_metadata
+            )
+        }
         statuses = self.view._visible_statuses()
         search = (self.view.request.query_params.get("search") or "").casefold()
         result = []
         for report in reports:
             if report.source_report_id is not None and report.source_report_id not in live:
                 continue
-            document = self._decorate(report, self.overlay(report, live.get(report.source_report_id or "")))
+            document = self._decorate(
+                report,
+                self.overlay(report, live.get(report.source_report_id or "")),
+                include_source_metadata=include_source_metadata,
+            )
             if document.get("status") not in statuses:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
@@ -214,12 +231,11 @@ class TrialInboxReads:
             return value if isinstance(value, (int, float)) else 0
         return str(value or "")
 
-    def list(self) -> Response:
+    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
         self._validate_parameters()
-        count_only = self.view._count_only_requested()
         queryset = self.view.filter_queryset(self.view.get_queryset())
         private = self.store.reports()
-        documents = self._private_documents(private)
+        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
         queryset = queryset.exclude(id__in=[report.id for report in private])
         count = queryset.count() + len(documents)
         if count_only:
@@ -235,7 +251,10 @@ class TrialInboxReads:
         # At most this run's private reports can shift a production row across the requested offset.
         start = max(0, paginator.offset - len(documents))
         production = list(queryset[start : paginator.offset + limit])
-        merged: list[Mapping[str, object]] = [*self.view._serialize_report_list(production), *documents]
+        merged: list[Mapping[str, object]] = [
+            *self.view._serialize_report_list(production, include_source_metadata=include_source_metadata),
+            *documents,
+        ]
         clauses = self.view._parse_signal_report_ordering()
         if not any(clause.lstrip("-") == "id" for clause in clauses):
             clauses.append("id")

@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
     parse_requested_sandbox_template,
+    pinned_agent_version,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -831,7 +832,13 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
-def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase) -> None:
+def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig, *, used_snapshot: bool) -> bool:
+    if ctx.sandbox_backend == "hogland" or config.custom_image_name:
+        return False
+    return not used_snapshot or config.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+
+
+def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
     version: str | None = None
     try:
         result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
@@ -843,11 +850,27 @@ def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase) -> None:
     except Exception:
         logger.warning("Failed to read sandbox agent version", extra={"run_id": run_id}, exc_info=True)
 
-    try:
-        if version is None:
-            TaskRun.update_state_atomic(run_id, remove_keys=["agent_version"])
+    expected = pinned_agent_version() if compare_with_pin else None
+    if version is not None and expected is not None and version != expected:
+        logger.warning(
+            "Sandbox agent version differs from the pinned version",
+            extra={
+                "run_id": run_id,
+                "sandbox_id": sandbox.id,
+                "agent_version": version,
+                "agent_version_expected": expected,
+            },
+        )
+
+    updates: dict[str, str] = {}
+    remove_keys: list[str] = []
+    for key, value in (("agent_version", version), ("agent_version_expected", expected)):
+        if value is None:
+            remove_keys.append(key)
         else:
-            TaskRun.update_state_atomic(run_id, updates={"agent_version": version})
+            updates[key] = value
+    try:
+        TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
     except Exception:
         logger.warning("Failed to persist sandbox agent version", extra={"run_id": run_id}, exc_info=True)
 
@@ -974,7 +997,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        _persist_sandbox_agent_version(ctx.run_id, sandbox)
+        _persist_sandbox_agent_version(
+            ctx.run_id,
+            sandbox,
+            compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
+        )
         try:
             if config.outbound_domain_allowlist is not None:
                 emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")

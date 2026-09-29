@@ -456,7 +456,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         base = f"/api/projects/{self.team.id}/signals/reports/"
         with (
             patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
-            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}) as fetch_sources,
             patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
         ):
             results = []
@@ -472,6 +472,14 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert detail.json()["title"] == "A synthetic checkout revision"
             count = self.client.get(base, {"search": "checkout", "count_only": "true"})
             assert count.json()["count"] == 2
+            fetch_sources.reset_mock()
+            without_metadata = self.client.get(base, {"include_source_metadata": "false", "sort": "oldest"})
+            assert without_metadata.status_code == 200
+            rows = without_metadata.json()["results"]
+            assert [row["id"] for row in rows] == [str(first.id), str(second.id), private_id]
+            assert all(row["source_products"] == [] and row["scout_name"] is None for row in rows)
+            fetch_sources.assert_not_called()
+            assert self.store.invalid_reason() is None
         first.refresh_from_db()
         assert first.title == "Earlier report"
 

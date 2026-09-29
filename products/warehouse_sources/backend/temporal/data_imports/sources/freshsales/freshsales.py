@@ -82,6 +82,9 @@ def _build_page_url(
     else:
         path = f"{root}/{config.resource}"
 
+    if config.is_selector:
+        return f"{path}?{urlencode(config.params)}" if config.params else path
+
     params: dict[str, Any] = {"page": page, "per_page": per_page, **config.params}
     if config.sort:
         params["sort"] = config.sort
@@ -111,6 +114,37 @@ def _fetch_page(session: Any, url: str, logger: FilteringBoundLogger) -> dict:
         response.raise_for_status()
 
     return response.json()
+
+
+def _extract_items(data: dict, object_key: str, allow_fallback: bool = False) -> list[dict]:
+    items = data.get(object_key)
+    if isinstance(items, list):
+        return items
+    if allow_fallback:
+        return next((v for v in data.values() if isinstance(v, list)), [])
+    return []
+
+
+def _get_selector_fanout_rows(
+    session: Any, root: str, config: FreshsalesEndpointConfig, logger: FilteringBoundLogger
+) -> Iterator[list[dict]]:
+    fanout = config.selector_fanout
+    assert fanout is not None
+
+    parents_response = _fetch_page(session, f"{root}/{fanout.parent_resource}", logger)
+    parents = _extract_items(parents_response, fanout.parent_object_key, allow_fallback=True)
+    if not parents:
+        logger.warning(f"Freshsales: no parents found at '{fanout.parent_resource}' for '{config.name}'")
+        return
+
+    for parent in parents:
+        parent_id = parent.get("id")
+        if parent_id is None:
+            continue
+        data = _fetch_page(session, f"{root}/{fanout.child_path.format(parent_id=parent_id)}", logger)
+        items = _extract_items(data, config.object_key, allow_fallback=True)
+        if items:
+            yield items
 
 
 def _resolve_view_id(session: Any, root: str, resource: str, logger: FilteringBoundLogger) -> Optional[int]:
@@ -165,17 +199,24 @@ def get_rows(
                     return
                 raise ValueError(f"Freshsales: could not resolve a view for '{endpoint}'")
 
+    if config.selector_fanout is not None:
+        yield from _get_selector_fanout_rows(session, root, config, logger)
+        return
+
     page = resume.next_page if resume is not None else 1
 
     while page <= MAX_PAGES:
         url = _build_page_url(root, config, view_id, page)
         data = _fetch_page(session, url, logger)
 
-        items = data.get(config.object_key) or []
+        items = _extract_items(data, config.object_key, allow_fallback=config.is_selector)
         if not items:
             break
 
         yield items
+
+        if config.is_selector:
+            break
 
         meta = data.get("meta") or {}
         total_pages = meta.get("total_pages")

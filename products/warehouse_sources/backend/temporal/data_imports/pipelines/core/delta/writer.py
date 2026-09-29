@@ -93,22 +93,30 @@ def _deltalite_write_stats(stats: Any) -> dict[str, int | float | str | bool]:
     return fields
 
 
-def _delta_table_identity(delta_table: deltalake.DeltaTable) -> tuple[str, int] | None:
+def _delta_table_identity(delta_table: deltalake.DeltaTable, table_ref: "DeltaTableRef") -> tuple[str, int] | None:
     """The (table id, version) a delta-rs handle observes, or None when it cannot say.
 
     None makes the deltalite write open a fresh handle instead of trusting a cached one: reuse is
-    only safe when the caller can prove which table the cached snapshot belongs to.
+    only safe when the caller can prove which table the cached snapshot belongs to. The version is
+    the newest `table_ref` knows of, so a handle that a deltalite commit left behind does not make
+    the cached deltalite handle look ahead of the live log.
     """
     try:
         # Typed as object: a test double stands in for the handle here, and its attributes are not
         # the str and int the delta-rs stubs promise.
         table_id: object = delta_table.metadata().id
-        version: object = delta_table.version()
+        version: object = table_ref.latest_known_version(delta_table)
     except Exception:  # noqa: BLE001 - an unreadable identity only costs a fresh open
         return None
     if not isinstance(table_id, str) or not isinstance(version, int):
         return None
     return table_id, version
+
+
+def _committed_version(stats: Any) -> int | None:
+    """The table version a deltalite ``UpsertStats`` reports, or None from a double without one."""
+    version = getattr(stats, "version", None)
+    return version if isinstance(version, int) else None
 
 
 def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
@@ -236,7 +244,7 @@ class DeltaWriter:
             )
             # The delta-rs handle was opened from the live log this batch, so it says which table
             # (and which version of it) a cached deltalite handle must match to be reused.
-            live_identity = _delta_table_identity(existing_delta_table)
+            live_identity = _delta_table_identity(existing_delta_table, self._table)
 
             # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
@@ -276,14 +284,16 @@ class DeltaWriter:
                 pass
             return False
 
-        # Committed — the real table is now deltalite's output. NOTHING past this point may raise into
-        # the caller: an exception here would leave `deltalite_wrote` unset and either fail/retry the
-        # sync or re-run the delta-rs MERGE on top of deltalite's already-committed write. So every
-        # post-commit step (handle refresh, log, metric) is wrapped best-effort and we always return True.
+        # Committed — the real table is now deltalite's output. The delta-rs handle is not refreshed
+        # here: that costs a log listing per batch, and most batches never read the handle's version
+        # or file list again. The ref refreshes it on the next `get_delta_table` call instead.
+        self._table.note_deltalite_commit(_committed_version(stats))
+
+        # NOTHING past this point may raise into the caller: an exception here would leave
+        # `deltalite_wrote` unset and either fail/retry the sync or re-run the delta-rs MERGE on top of
+        # deltalite's already-committed write. So every post-commit step (log, metric) is wrapped
+        # best-effort and we always return True.
         try:
-            # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
-            # write (and any subsequent reads) reflects the real state.
-            await asyncio.to_thread(existing_delta_table.update_incremental)
             # Structured, parseable stats (parity with the old `Delta Merge Stats: {json}` line): every
             # UpsertStats field becomes its own log key, plus the wall-clock duration. `_deltalite_write_stats`
             # enumerates the pyo3 getters, so fields added crate-side later (e.g. per-phase timings) flow
@@ -615,7 +625,13 @@ class DeltaWriter:
                 self._logger,
             )
 
-        delta_table = await self._table.get_delta_table()
+        # After a deltalite write the handle is one commit behind the log. The property check reads
+        # only the table configuration, which deltalite never changes, and the commit it may make
+        # goes through delta-rs's own conflict check, which rejects a commit built on a superseded
+        # metadata and lets `execute_with_conflict_retry` refresh and retry. The returned handle
+        # carries the same lag; a caller that needs the version or the file list must read them
+        # through `get_delta_table()`, which catches the handle up.
+        delta_table = await self._table.get_delta_table(allow_stale=True)
         assert delta_table is not None
 
         await ensure_table_properties(delta_table, self._logger)

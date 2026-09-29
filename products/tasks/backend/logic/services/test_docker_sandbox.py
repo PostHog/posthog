@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import ProcessTaskError, SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.logic.services import sandbox as sandbox_module
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
@@ -29,6 +30,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class,
     parse_sandbox_repo_mount_map,
+    pinned_agent_version,
     redact_sandbox_command,
 )
 
@@ -1030,9 +1032,30 @@ class TestPinnedAgentVersion:
 
         assert version is not None
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+        assert pinned_agent_version.__wrapped__() == version
 
     def test_ignores_lines_that_are_not_the_arg(self, tmp_path: Path) -> None:
         dockerfile = tmp_path / "Dockerfile"
         dockerfile.write_text("FROM scratch\nENV AGENT_VERSION=1.2.3\n# ARG AGENT_VERSION=4.5.6\n")
 
         assert _pinned_agent_version(str(dockerfile)) is None
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (None, None),
+            ("FROM scratch\nARG AGENT_VERSION=9.8.7\nRUN true\n", "9.8.7"),
+        ],
+    )
+    def test_pinned_agent_version_reads_the_configured_dockerfile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str | None, expected: str | None
+    ) -> None:
+        dockerfile = tmp_path / "Dockerfile.sandbox-base"
+        if source is not None:
+            dockerfile.write_text(source)
+        monkeypatch.setattr(sandbox_module, "SANDBOX_BASE_DOCKERFILE_PATH", dockerfile)
+        pinned_agent_version.cache_clear()
+        try:
+            assert pinned_agent_version() == expected
+        finally:
+            pinned_agent_version.cache_clear()

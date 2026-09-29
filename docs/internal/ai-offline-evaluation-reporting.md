@@ -53,6 +53,7 @@ A poll can recover a missing export without replacing an existing result.
 
 Trials cannot create or cancel report follow-up checks, or record their results. Check lists are unavailable for newly emitted private reports; the API returns an explicit capability error without invalidating the trial. Existing checks on live reports remain readable, including when the trial has privately edited that report. The trial prompt directs planned follow-up to private scratchpad entries.
 Private report writes must omit typed report links. Nonempty `links` on either an emit or edit are rejected before target lookup or judging and make the run ineligible for comparison. Ordinary report emissions retain link persistence and autostart gating.
+Private inbox lists support `count_only` and `include_source_metadata` like ordinary inbox lists. Opting out of source metadata applies to live reports, private edits and newly emitted private reports without invalidating the trial.
 
 Individual skill reads and markdown downloads serve the run's pinned candidate.
 Trial sandboxes can use stub skill bundles, which fetch each skill through those reads.
