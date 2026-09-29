@@ -10,6 +10,7 @@ from posthoganalytics.ai.prompts import Prompts
 DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
+PROMPT_CACHE_SECONDS = 5 * 60
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +28,8 @@ class ManagedDecisionModel:
         self.fallback = fallback
         self._model = fallback
         self._lock = threading.Lock()
+        self._prompts_lock = threading.Lock()
+        self._prompts: Prompts | None = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="decision-model-prompt")
         self._refreshed_at = float("-inf")
         self._refreshing = False
@@ -40,16 +43,22 @@ class ManagedDecisionModel:
 
     def fetch(self, *, version: int | None = None) -> str:
         if not posthoganalytics.personal_api_key:
+            if version is not None:
+                raise RuntimeError(f"Managed prompt version {version} requires POSTHOG_PERSONAL_API_KEY")
             return self.fallback
-        result = Prompts(posthoganalytics, capture_errors=True).get(
-            self.prompt_name,
-            with_metadata=True,
-            label=PROMPT_LABEL if version is None else None,
-            version=version,
-            fallback=self.prompt_name,
-        )
+        with self._prompts_lock:
+            if self._prompts is None:
+                self._prompts = Prompts(
+                    posthoganalytics, capture_errors=True, default_cache_ttl_seconds=PROMPT_CACHE_SECONDS
+                )
+            result = self._prompts.get(
+                self.prompt_name,
+                with_metadata=True,
+                label=PROMPT_LABEL if version is None else None,
+                version=version,
+            )
         if result.source == "code_fallback":
-            return self.fallback
+            raise RuntimeError(f"Managed prompt {self.prompt_name} returned a code fallback")
         model = model_from_config(result.config, self.fallback)
         configured = result.config.get("model") if isinstance(result.config, dict) else None
         if configured is not None and model == self.fallback and configured != self.fallback:

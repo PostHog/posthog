@@ -20,6 +20,7 @@ No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_AP
 model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_event_match
 Set EVENT_MATCH_PROMPT_VERSION to score an unpublished prompt version before moving its production label.
+An explicit version requires POSTHOG_PERSONAL_API_KEY; the suite fails if it cannot fetch that version.
 """
 
 from __future__ import annotations
