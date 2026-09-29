@@ -1,5 +1,5 @@
 import type { Task } from "@posthog/shared";
-import { type LayoutState, panes } from "./layout";
+import { focusPane, type LayoutState, openTask, panes } from "./layout";
 
 export type Indicator = "working" | "alive" | "failed" | "asleep";
 
@@ -103,4 +103,45 @@ export function sidebarRows({
   if (work.loadingMore) rows.push({ kind: "loading" });
   else if (work.hasMore) rows.push({ kind: "viewMore" });
   return rows;
+}
+
+const isSelectable = (row: SidebarRow): boolean =>
+  row.kind === "task" || row.kind === "workspace" || row.kind === "viewMore";
+
+export function moveSelection(
+  rows: SidebarRow[],
+  from: number,
+  step: 1 | -1,
+): number {
+  for (
+    let index = from + step;
+    index >= 0 && index < rows.length;
+    index += step
+  ) {
+    if (isSelectable(rows[index])) return index;
+  }
+  return from;
+}
+
+export function firstSelectable(rows: SidebarRow[]): number {
+  return moveSelection(rows, -1, 1);
+}
+
+export function activateRow(
+  layout: LayoutState,
+  row: SidebarRow,
+): LayoutState | "viewMore" {
+  switch (row.kind) {
+    case "task":
+      if (row.paneId) return focusPane(layout, row.paneId);
+      return row.taskId ? openTask(layout, row.taskId) : layout;
+    case "workspace": {
+      const workspace = layout.workspaces.find((w) => w.id === row.workspaceId);
+      return workspace ? focusPane(layout, workspace.focusedPaneId) : layout;
+    }
+    case "viewMore":
+      return "viewMore";
+    default:
+      return layout;
+  }
 }

@@ -1,9 +1,15 @@
 import { renderToString } from "ink";
 import { describe, expect, it } from "vitest";
+import type { WorkList } from "../work";
 import { App } from "./App";
 
 describe("App", () => {
-  it("shows the Work sidebar", () => {
-    expect(renderToString(<App />)).toContain("Work");
+  it("shows the Tasks and Work sidebar", () => {
+    const work = {
+      listRecent: () => new Promise(() => {}),
+    } as unknown as WorkList;
+    const frame = renderToString(<App work={work} />);
+    expect(frame).toContain("Tasks");
+    expect(frame).toContain("Work");
   });
 });

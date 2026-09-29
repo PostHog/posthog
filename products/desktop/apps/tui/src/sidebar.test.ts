@@ -1,7 +1,18 @@
 import type { Task, TaskRun } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { initialLayout, openTask, splitFocused } from "./layout";
-import { indicatorFor, sidebarRows, type WorkPage } from "./sidebar";
+import {
+  activeWorkspace,
+  initialLayout,
+  openTask,
+  splitFocused,
+} from "./layout";
+import {
+  activateRow,
+  indicatorFor,
+  moveSelection,
+  sidebarRows,
+  type WorkPage,
+} from "./sidebar";
 
 const task = (id: string, run?: Partial<TaskRun>): Task =>
   ({
@@ -124,5 +135,40 @@ describe("indicatorFor", () => {
     ["never run", task("a"), false, "asleep"],
   ])("%s", (_, subject, working, expected) => {
     expect(indicatorFor(subject, working)).toBe(expected);
+  });
+});
+
+describe("sidebar selection", () => {
+  const layout = openTask(
+    splitFocused(openTask(initialLayout(), "a"), "row"),
+    "b",
+  );
+  const rows = sidebarRows({
+    layout,
+    work: page({ tasks: [task("a"), task("z")], hasMore: true }),
+    collapsed: new Set(),
+    working: new Set(),
+  });
+  // Tasks, Workspace 1, a, b, Work, a, z, View more
+
+  it.each([
+    ["down past a heading", 3, 1, 5],
+    ["up past a heading", 5, -1, 3],
+    ["down at the end", 7, 1, 7],
+    ["up at the start", 1, -1, 1],
+  ])("moves %s", (_, from, step, to) => {
+    expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
+  });
+
+  it("jumps to an open pane, opens a Work task, and asks for more", () => {
+    const toPane = activateRow(layout, rows[2]);
+    expect(toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId).toBe(
+      rows[2].kind === "task" && rows[2].paneId,
+    );
+
+    const opened = activateRow(layout, rows[6]);
+    expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
+
+    expect(activateRow(layout, rows[7])).toBe("viewMore");
   });
 });
