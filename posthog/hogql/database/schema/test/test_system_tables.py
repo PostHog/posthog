@@ -1061,7 +1061,7 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         assert str(getattr(obj_team1, "pk", obj_team1)) in ids
         assert str(getattr(obj_team2, "pk", obj_team2)) not in ids
 
-    def test_feature_flag_state_columns(self):
+    def test_feature_flag_state_columns(self) -> None:
         called_at = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
         live = FeatureFlag.objects.create(team=self.team, key="live", active=True, last_called_at=called_at)
         disabled = FeatureFlag.objects.create(team=self.team, key="disabled", active=False)
