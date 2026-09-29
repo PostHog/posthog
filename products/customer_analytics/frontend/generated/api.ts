@@ -71,6 +71,7 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountApi,
+    ExternalAccountCreateApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -169,6 +170,26 @@ export const customerAnalyticsExternalAccountRetrieve = async (
     return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCustomerAnalyticsExternalAccountCreateUrl = () => {
+    return `/api/customer_analytics/external/account`
+}
+
+/**
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * @summary Create an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountCreate = async (
+    externalAccountCreateApi: ExternalAccountCreateApi,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalAccountCreateApi),
     })
 }
 
@@ -1420,8 +1441,8 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,
