@@ -3,6 +3,8 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
@@ -232,16 +234,24 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,expected_event",
+        "status,expected_event,agent_version_expected,agent_version_matches_pin",
         [
-            (TaskRun.Status.COMPLETED, "task_run_completed"),
-            (TaskRun.Status.FAILED, "task_run_failed"),
+            (TaskRun.Status.COMPLETED, "task_run_completed", "2.4.213", True),
+            (TaskRun.Status.FAILED, "task_run_failed", "2.4.233", False),
         ],
     )
     @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_terminal_transition_captures_analytics_with_usage(
-        self, mock_capture, mock_record, activity_environment, test_task_run, status, expected_event
+        self,
+        mock_capture,
+        mock_record,
+        activity_environment,
+        test_task_run,
+        status,
+        expected_event,
+        agent_version_expected,
+        agent_version_matches_pin,
     ):
         test_task_run.state = {
             **(test_task_run.state or {}),
@@ -250,6 +260,7 @@ class TestUpdateTaskRunStatusActivity:
             "benjamin_effective": True,
             "benjamin_version": "2026.08.1",
             "agent_version": "2.4.213",
+            "agent_version_expected": agent_version_expected,
             "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
             "budget_guard": {
@@ -279,6 +290,8 @@ class TestUpdateTaskRunStatusActivity:
         assert props["benjamin_enabled"] is True
         assert props["benjamin_version"] == "2026.08.1"
         assert props["agent_version"] == "2.4.213"
+        assert props["agent_version_expected"] == agent_version_expected
+        assert props["agent_version_matches_pin"] is agent_version_matches_pin
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
         assert props["budget_cap_usd"] == 20
@@ -656,28 +669,50 @@ class TestRecordRunTokenUsageMetrics:
 @pytest.mark.requires_secrets
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "origin_product,origin_key,wakes",
+    "origin_product,origin_key,wakes,cost_failure,uses_gateway",
     [
-        (Task.OriginProduct.WORKFLOW, "job:step:1", True),
-        (Task.OriginProduct.USER_CREATED, None, False),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, True, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, False),
+        (Task.OriginProduct.USER_CREATED, None, False, False, True),
     ],
 )
 def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
-    activity_environment, test_task_run, origin_product, origin_key, wakes
-):
+    activity_environment: ActivityEnvironment,
+    test_task_run: TaskRun,
+    origin_product: str,
+    origin_key: str | None,
+    wakes: bool,
+    cost_failure: bool,
+    uses_gateway: bool,
+) -> None:
     task = test_task_run.task
     task.origin_product = origin_product
     task.origin_key = origin_key
     task.save(update_fields=["origin_product", "origin_key"])
     test_task_run.output = {"final_message": "done"}
-    test_task_run.save(update_fields=["output"])
+    test_task_run.state = (
+        {"token_cost": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_cost_incomplete": True}
+    )
+    test_task_run.save(update_fields=["output", "state"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
 
-    with patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume:
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+    with (
+        patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume,
+        patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+        patch(
+            "products.tasks.backend.logic.services.gateway_usage._compute_cost_source",
+            side_effect=OperationalError("unavailable") if cost_failure else None,
+            return_value=None,
+        ),
+    ):
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
 
     assert resume.call_count == (2 if wakes else 0)
+    assert sum(call.kwargs.get("event") == "task_run_completed" for call in capture.call_args_list) == 1
+    test_task_run.refresh_from_db()
+    assert ("compute_cost" in test_task_run.state) is not cost_failure
     if wakes:
         assert resume.call_args.kwargs["origin_key"] == "job:step:1"
         assert resume.call_args.kwargs["status"] == "completed"

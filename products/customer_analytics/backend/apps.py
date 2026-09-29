@@ -16,10 +16,8 @@ class CustomerAnalyticsConfig(AppConfig):
         workflows importing this product (the dependency runs the other way). The query
         impls are imported lazily so HogQL stays off the django.setup() path.
         """
-        from products.workflows.backend.services.account_audience import (
-            AccountAudienceFilters,
-            register_account_audience_provider,
-        )
+        from products.workflows.backend.facade.account_audience import register_account_audience_provider
+        from products.workflows.backend.facade.contracts import AccountAudienceFilters
 
         class _Provider:
             def count_accounts(self, team, filters: AccountAudienceFilters) -> int:

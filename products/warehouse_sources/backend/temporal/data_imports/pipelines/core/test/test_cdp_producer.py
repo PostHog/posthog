@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sta
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import acreate_workflow_for_test
 
 
 def _patch_async_producer_scope(mock_producer):
@@ -221,9 +221,9 @@ async def test_should_run_with_matching_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -244,9 +244,9 @@ async def test_should_not_produce_table_with_draft_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.DRAFT,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="draft",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -267,9 +267,9 @@ async def test_should_not_produce_table_with_non_matching_hog_flow_table(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.some_other_table"},
     )
 
@@ -295,9 +295,9 @@ async def test_should_run_with_both_hog_function_and_flow(team):
         enabled=True,
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -1128,10 +1128,10 @@ async def test_view_should_run_with_matching_hog_function(team):
 @pytest.mark.asyncio
 async def test_view_should_run_with_matching_hog_flow(team):
     view = await _create_view(team)
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
+    await acreate_workflow_for_test(
+        team_id=team.id,
         name="test workflow",
-        status=HogFlow.State.ACTIVE,
+        status="active",
         trigger={"type": "data-warehouse-view", "table_name": "daily_revenue"},
         edges=[],
         actions=[],
