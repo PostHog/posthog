@@ -912,7 +912,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "status": sync_status,
                         "error": schema.latest_error,
                         "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
-                        "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
+                        # The source scene keys on a prefixed id, so a bare UUID renders a
+                        # broken page. Every ExternalDataSource uses the `managed-` prefix,
+                        # direct-connect ones included.
+                        "url": f"/data-warehouse/sources/managed-{schema.source_id}" if schema.source_id else None,
                     }
                 )
 
@@ -929,7 +932,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "status": "failed",
                         "error": None,
                         "failed_at": source.updated_at.isoformat() if source.updated_at else None,
-                        "url": f"/data-warehouse/sources/{source.id}",
+                        "url": f"/data-warehouse/sources/managed-{source.id}",
                     }
                 )
 

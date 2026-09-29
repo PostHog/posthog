@@ -6,8 +6,6 @@ Training measures a model against a holdout slice of history. This package measu
 
 It is the only honest number in the product. A holdout AUC of 0.93 says the model separates history well; the realized AUC says whether it predicted the future.
 
-This package landed ahead of its scheduler. `../temporal/` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 ## What lives here
 
 - `online_validation.py`

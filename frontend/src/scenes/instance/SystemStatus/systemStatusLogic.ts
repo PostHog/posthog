@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -309,7 +309,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
-                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
+                    posthog.capture('instance setting change', { name: key, value: value })
                     actions.increaseUpdatedInstanceConfigCount()
                 })
             )

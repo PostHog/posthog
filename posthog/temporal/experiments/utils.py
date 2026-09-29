@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Union
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric
@@ -16,6 +18,25 @@ logger = structlog.get_logger(__name__)
 
 # Default hour (UTC) for experiment recalculation when team has no specific time set
 DEFAULT_EXPERIMENT_RECALCULATION_HOUR = 2  # 02:00 UTC
+
+
+def recalculation_hour_filter(hour: int) -> Q:
+    """Experiments whose team recalculates at this UTC hour.
+
+    The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse
+    relation. experiment_recalculation_times holds "HH:00:00" strings, so hour membership
+    is a jsonb containment check. A null list or a missing config row means the default
+    hour; the deprecated experiment_recalculation_time column is not consulted, because
+    the API keeps the list in sync with it on every write.
+    """
+    match = Q(team__teamexperimentsconfig__experiment_recalculation_times__contains=[f"{hour:02d}:00:00"])
+    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
+        return (
+            match
+            | Q(team__teamexperimentsconfig__experiment_recalculation_times__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
+        )
+    return match
 
 
 def get_metric(metric_data: dict) -> Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]:

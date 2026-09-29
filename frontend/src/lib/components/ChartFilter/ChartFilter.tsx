@@ -38,9 +38,11 @@ function chartDisplayOptionToSelectOption(option: ChartDisplayOption): LemonSele
 export function ChartFilter({
     fullWidth = false,
     disabledReason,
+    onOpen,
 }: {
     fullWidth?: boolean
     disabledReason?: string
+    onOpen?: () => void
 }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
@@ -71,6 +73,7 @@ export function ChartFilter({
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
+            menu={{ onVisibilityChange: (visible) => visible && onOpen?.() }}
             options={options}
             size="small"
             fullWidth={fullWidth}
