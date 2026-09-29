@@ -18,7 +18,7 @@ from products.growth.backend.facade.api import start_account_audit
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
 from products.skills.backend.facade.api import get_skill_prompt
-from products.workflows.backend.facade.api import is_workflow_active_for_owner
+from products.workflows.backend.facade.api import is_workflow_staff_controlled
 
 COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
@@ -75,7 +75,9 @@ class AccountAuditService:
             skill_name=payload.skill_name,
         )
         if admission_status == "cooldown":
-            return AccountAuditResult(status="cooldown", next_available_at=admission.created_at + COOLDOWN)
+            return AccountAuditResult(
+                status="cooldown", next_available_at=(admission.dispatched_at or admission.created_at) + COOLDOWN
+            )
         if admission_status != "accepted":
             return AccountAuditResult(status="conflict")
         try:
@@ -94,7 +96,34 @@ class AccountAuditService:
         except Exception:
             logger.exception("account_audit_workflow_dispatch_failed", extra={"admission_id": admission.id})
             return AccountAuditResult(status="unavailable")
+        AccountAuditAdmission.objects.for_team(team_id).filter(pk=admission.pk, dispatched_at__isnull=True).update(
+            dispatched_at=timezone.now()
+        )
         return AccountAuditResult(status="accepted", workflow_id=admission.workflow_id, team_id=team_id)
+
+    @classmethod
+    def retry_pending_dispatches(cls) -> None:
+        pending = (
+            AccountAuditAdmission.objects.unscoped()
+            .filter(
+                dispatched_at__isnull=True,
+                credential__is_active=True,
+                created_at__lt=timezone.now() - timedelta(minutes=1),
+            )
+            .select_related("credential")
+            .order_by("created_at")[:100]
+        )
+        for admission in pending:
+            cls.start(
+                AccountAuditRequest(
+                    organization_id=admission.organization_id,
+                    team_id=admission.team_id,
+                    reason=admission.reason,
+                    skill_name=admission.skill_name,
+                ),
+                public_key_id=admission.credential.public_key_id,
+                webhook_id=admission.webhook_id,
+            )
 
     @staticmethod
     def _resolve_team_id(request: AccountAuditRequest, *, credential_id: int, webhook_id: str) -> int | None:
@@ -131,7 +160,7 @@ class AccountAuditService:
             and credential.owner is not None
             and credential.owner.is_active
             and credential.owner.is_staff
-            and is_workflow_active_for_owner(
+            and is_workflow_staff_controlled(
                 workflow_id=credential.workflow_id,
                 team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID,
                 owner_id=credential.owner.id,
@@ -177,7 +206,8 @@ class AccountAuditService:
                 return existing, "conflict"
             recent = (
                 AccountAuditAdmission.objects.unscoped()
-                .filter(organization_id=organization_id, created_at__gt=timezone.now() - COOLDOWN)
+                .filter(organization_id=organization_id)
+                .filter(Q(dispatched_at__gt=timezone.now() - COOLDOWN) | Q(dispatched_at__isnull=True))
                 .order_by("-created_at")
                 .first()
             )

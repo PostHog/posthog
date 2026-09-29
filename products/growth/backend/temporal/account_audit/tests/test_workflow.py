@@ -3,8 +3,10 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -25,6 +27,40 @@ from products.growth.backend.temporal.account_audit.activities import (
     start_account_audit_activity,
 )
 from products.growth.backend.temporal.account_audit.workflow import AccountAuditWorkflow, AccountAuditWorkflowInput
+
+
+class TestAccountAuditCreationRollback(BaseTest):
+    def test_failed_run_creation_discards_dispatch_before_retry(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        dispatch = MagicMock()
+        created = SimpleNamespace(latest_run=None)
+
+        def create_task(**_kwargs: object) -> SimpleNamespace:
+            transaction.on_commit(dispatch)
+            return created
+
+        module = "products.growth.backend.temporal.account_audit.activities"
+        with (
+            patch(f"{module}.skills_facade.get_skill_prompt", return_value=SimpleNamespace(body="Audit.", version=1)),
+            patch(f"{module}.notebooks_facade.get_notebook", return_value=MagicMock()),
+            patch(f"{module}.tasks_facade.create_and_run_task", side_effect=create_task),
+        ):
+            input = AccountAuditStartInput(
+                organization_id=str(self.organization.id),
+                team_id=self.team.id,
+                user_id=self.user.id,
+                origin_key="audit-rollback",
+                reason="testing",
+            )
+            with self.captureOnCommitCallbacks(execute=True):
+                with self.assertRaisesRegex(RuntimeError, "without a run"):
+                    start_account_audit_activity(input)
+            dispatch.assert_not_called()
+            created.latest_run = SimpleNamespace(id=uuid4())
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(start_account_audit_activity(input), str(created.latest_run.id))
+            dispatch.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -143,6 +179,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
                 "products.growth.backend.temporal.account_audit.activities.notebooks_facade.aupsert_notebook",
                 new_callable=AsyncMock,
             ) as create_notebook,
+            patch("products.growth.backend.temporal.account_audit.activities.transaction.atomic"),
         ):
             team_objects.select_related.return_value.filter.return_value.first.return_value = team
             user_objects.filter.return_value.first.return_value = user
@@ -161,7 +198,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
 
         assert run_id == str(created.latest_run.id)
         get_skill.assert_called_once_with(team_id=2, skill_name="custom-audit")
-        assert "Audit reason: testing" in create_task.call_args.kwargs["description"]
+        assert "testing" not in create_task.call_args.kwargs["description"]
         assert create_task.call_args.kwargs["repository"] is None
         assert create_task.call_args.kwargs["create_pr"] is False
         assert "The audited project ID is 4." in create_task.call_args.kwargs["description"]

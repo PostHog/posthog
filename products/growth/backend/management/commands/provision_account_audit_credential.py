@@ -10,7 +10,7 @@ from django.db import transaction
 from posthog.models.user import User
 
 from products.growth.backend.models import AccountAuditCredential
-from products.workflows.backend.facade.api import is_workflow_active_for_owner
+from products.workflows.backend.facade.api import is_workflow_staff_controlled
 
 
 class Command(BaseCommand):
@@ -27,11 +27,11 @@ class Command(BaseCommand):
             workflow_id = UUID(options["workflow_id"])
         except ValueError as error:
             raise CommandError("workflow-id must be a UUID.") from error
-        if not is_workflow_active_for_owner(
+        if not is_workflow_staff_controlled(
             team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, workflow_id=workflow_id, owner_id=owner.id
         ):
             raise CommandError(
-                "The workflow must be active in the configured Growth project and owned by the staff user."
+                "The workflow must be active in the configured Growth project and owned by the staff user, with no non-staff editors."
             )
 
         rotated_credential = None

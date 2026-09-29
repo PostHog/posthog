@@ -210,6 +210,33 @@ class TestAccountAuditStartAPI(APIBaseTest):
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
 
+    @parameterized.expand([(False,), (True,)])
+    def test_reconciler_recovers_uncertain_dispatch_without_another_audit(self, already_started: bool) -> None:
+        payload = {"organization_id": str(self.organization.id)}
+        with self._request_patches() as (_, _, _, dispatch):
+            dispatch.return_value.side_effect = TimeoutError("Temporal unavailable")
+            self.assertEqual(self._post(payload).status_code, 503)
+            admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
+            self.assertIsNone(admission.dispatched_at)
+            other_team = Team.objects.create(organization=self.organization, name="Newly active")
+            FileSystemViewLog.objects.create(team=other_team, user=self.user, type="dashboard", ref="1")
+            dispatch.return_value.side_effect = (
+                WorkflowAlreadyStartedError(str(admission.workflow_id), "growth-account-audit")
+                if already_started
+                else None
+            )
+            AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).update(
+                created_at=timezone.now() - timedelta(minutes=2)
+            )
+            AccountAuditService.retry_pending_dispatches()
+            response = self._post(payload)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"workflow_id": str(admission.workflow_id), "team_id": self.team.id})
+        self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
+        admission.refresh_from_db()
+        self.assertIsNotNone(admission.dispatched_at)
+
     def test_rejects_a_temporal_conflict_for_another_workflow(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         with self._request_patches() as (_, _, _, dispatch):
@@ -359,7 +386,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             team_id=self.team.id,
         )
         AccountAuditAdmission.objects.unscoped().filter(webhook_id="earlier-delivery").update(
-            created_at=timezone.now() - COOLDOWN
+            created_at=timezone.now() - COOLDOWN, dispatched_at=timezone.now() - COOLDOWN
         )
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         with self._request_patches():
@@ -387,7 +414,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
     @override_settings(GROWTH_ENRICHMENT_INTERNAL_TEAM_ID=37)
     def test_credential_requires_an_active_staff_owner_and_matching_source_workflow(self) -> None:
         credential = AccountAuditCredential.objects.select_related("owner").get(pk=self.credential.pk)
-        with patch("products.growth.backend.account_audits.is_workflow_active_for_owner", return_value=True) as active:
+        with patch("products.growth.backend.account_audits.is_workflow_staff_controlled", return_value=True) as active:
             self.assertTrue(AccountAuditService._credential_is_eligible(credential))
             active.assert_called_once_with(team_id=37, workflow_id=credential.workflow_id, owner_id=self.user.id)
             for field in ("is_staff", "is_active"):
@@ -424,7 +451,7 @@ class TestProvisionAccountAuditCredential(APIBaseTest):
         self.user.save(update_fields=["is_staff"])
         self.workflow_id = uuid4()
         self.active_workflow = patch(
-            "products.growth.backend.management.commands.provision_account_audit_credential.is_workflow_active_for_owner",
+            "products.growth.backend.management.commands.provision_account_audit_credential.is_workflow_staff_controlled",
             return_value=True,
         )
         self.active_workflow.start()

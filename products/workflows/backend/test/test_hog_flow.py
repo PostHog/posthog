@@ -4,9 +4,12 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
+from posthog.constants import AvailableFeature
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.workflows.backend.facade.api import is_workflow_staff_controlled
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -17,6 +20,30 @@ class TestHogFlow(TestCase):
         self.team = team
         self.user = user
         self.org = org
+
+    def test_staff_controlled_workflow_rechecks_non_staff_editor_access(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.org.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.org.save(update_fields=["available_product_features"])
+        flow = HogFlow.objects.create(team=self.team, created_by=self.user, status=HogFlow.State.ACTIVE)
+        kwargs = {"team_id": self.team.id, "workflow_id": flow.id, "owner_id": self.user.id}
+        self.assertTrue(is_workflow_staff_controlled(**kwargs))
+        member = User.objects.create_and_join(self.org, "workflow-editor@example.com", None)
+        self.assertFalse(is_workflow_staff_controlled(**kwargs))
+        restriction = AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            organization_member=member.organization_memberships.get(organization=self.org),
+            access_level="viewer",
+        )
+        self.assertTrue(is_workflow_staff_controlled(**kwargs))
+        restriction.access_level = "editor"
+        restriction.save(update_fields=["access_level"])
+        self.assertFalse(is_workflow_staff_controlled(**kwargs))
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_hog_flow_saved_receiver(self, mock_reload):

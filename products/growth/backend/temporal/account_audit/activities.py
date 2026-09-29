@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 
 from asgiref.sync import async_to_sync
 from pydantic import BaseModel, Field
@@ -121,34 +122,35 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
             creation_source="server",
         )
 
-    created = tasks_facade.create_and_run_task(
-        team=team,
-        title="Account audit",
-        description=(
-            f"{skill.body}\n\nAudit reason: {input.reason}\n\nThe audited project ID is {team.id}. "
-            f"Use this project for every query. Save the audit to the existing notebook {notebook_short_id} "
-            "with PostHog MCP, even if the skill asks you to create a notebook. "
-            "Read the saved notebook before you return its short ID as notebook_short_id."
-        ),
-        origin_product=tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT,
-        user_id=input.user_id,
-        repository=None,
-        create_pr=False,
-        internal=True,
-        origin_key=origin_key,
-        posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
-        model="claude-sonnet-5",
-        output_schema=AccountAuditOutput,
-        extra_run_state={
-            "audit_notebook_short_id": notebook_short_id,
-            "audit_reason": input.reason,
-            "audit_skill_name": input.skill_name,
-            "audit_skill_version": skill.version,
-        },
-    )
-    if created.latest_run is None:
-        raise RuntimeError("Account audit task was created without a run")
-    return str(created.latest_run.id)
+    with transaction.atomic():
+        created = tasks_facade.create_and_run_task(
+            team=team,
+            title="Account audit",
+            description=(
+                f"{skill.body}\n\nThe audited project ID is {team.id}. "
+                f"Use this project for every query. Save the audit to the existing notebook {notebook_short_id} "
+                "with PostHog MCP, even if the skill asks you to create a notebook. "
+                "Read the saved notebook before you return its short ID as notebook_short_id."
+            ),
+            origin_product=tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT,
+            user_id=input.user_id,
+            repository=None,
+            create_pr=False,
+            internal=True,
+            origin_key=origin_key,
+            posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
+            model="claude-sonnet-5",
+            output_schema=AccountAuditOutput,
+            extra_run_state={
+                "audit_notebook_short_id": notebook_short_id,
+                "audit_reason": input.reason,
+                "audit_skill_name": input.skill_name,
+                "audit_skill_version": skill.version,
+            },
+        )
+        if created.latest_run is None:
+            raise RuntimeError("Account audit task was created without a run")
+        return str(created.latest_run.id)
 
 
 @activity.defn
