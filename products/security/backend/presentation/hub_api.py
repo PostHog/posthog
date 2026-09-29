@@ -27,6 +27,7 @@ from ..facade.hub import (
     count_accounts,
     count_org_members,
     posthog_account_exists,
+    radar_bypasses,
     record_call,
     resolve,
     token_allows,
@@ -39,6 +40,7 @@ from .serializers import (
     OrgMemberCountResponseSerializer,
     PosthogMembershipRequestSerializer,
     PosthogMembershipResponseSerializer,
+    RadarBypassExportResponseSerializer,
     ResolveRequestSerializer,
     ResolveResponseSerializer,
 )
@@ -141,6 +143,14 @@ class PosthogMembershipView(_HubView):
         return Response(PosthogMembershipResponseSerializer({"has_posthog_account": found}).data)
 
 
+class RadarBypassExportView(_HubView):
+    op = "radar_bypass:export"
+
+    @extend_schema(exclude=True)
+    def post(self, request: Request) -> Response:
+        return Response(RadarBypassExportResponseSerializer({"emails": radar_bypasses()}).data)
+
+
 class SyncNowView(_HubView):
     op = "rules:sync_now"
 
@@ -160,5 +170,6 @@ urlpatterns = [
     path("count-accounts/", csrf_exempt(CountAccountsView.as_view())),
     path("org-member-count/", csrf_exempt(OrgMemberCountView.as_view())),
     path("posthog-membership/", csrf_exempt(PosthogMembershipView.as_view())),
+    path("radar-bypass-export/", csrf_exempt(RadarBypassExportView.as_view())),
     path("sync-now/", csrf_exempt(SyncNowView.as_view())),
 ]

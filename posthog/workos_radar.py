@@ -5,7 +5,8 @@ This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup attempts for potential fraud or bot activity. When Radar returns a
 BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
 exception unless the email is on the Redis bypass list managed via the
-admin tool.
+admin tool, or a security access rule exempts it from the signup risk
+check.
 """
 
 import time
@@ -24,6 +25,8 @@ from rest_framework.exceptions import APIException
 from posthog.redis import get_client
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
+
+from products.security.backend.facade.api import is_signup_risk_exempt
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +110,7 @@ def evaluate_auth_attempt(
 
     Raises:
         SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
-            not in the Redis bypass list.
+            not in the Redis bypass list and not exempted by an access rule.
         ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
             token was provided.
     """
@@ -203,7 +206,9 @@ def _decide_outcome(
         token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
         return "completed" if token_valid else "block"
 
-    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_radar_bypass_email(email):
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and (
+        is_radar_bypass_email(email) or is_signup_risk_exempt(email)
+    ):
         return "bypass"
 
     if verdict == RadarVerdict.BLOCK:
