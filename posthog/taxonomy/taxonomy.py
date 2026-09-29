@@ -131,6 +131,30 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
+# The issue properties every `$error_tracking_issue_*` notification carries. These internal CDP
+# events never reach ClickHouse, so no property definition is ever discovered from data and the
+# event descriptions below are the only payload description the editor and PostHog AI can read.
+# `products/error_tracking/backend/tests/api/test_error_tracking_api.py` pins this against the producer.
+ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES: tuple[str, ...] = (
+    "name",
+    "description",
+    "issue_description",
+    "severity",
+    "first_seen",
+    "fingerprint",
+)
+_ERROR_TRACKING_PROPERTIES_SENTENCE = (
+    "Carries these issue properties: "
+    + ", ".join(f"`{name}`" for name in ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES)
+    + "."
+)
+_ERROR_TRACKING_OVERSIZED_SENTENCE = (
+    "If the event is too large for Kafka, `exception_props` is dropped and `message_was_too_large` is set instead."
+)
+_ERROR_TRACKING_ASSIGNEE_SENTENCE = (
+    '`assignee` is set only while the issue has an assignee, and is a JSON string such as `{"type":"user","id":123}`.'
+)
+
 # IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
@@ -478,39 +502,39 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$error_tracking_issue_created": {
             "label": "Error tracking issue created",
-            "description": "Fires when a new error tracking issue is created from an incoming exception.",
+            "description": f"Fires when a new error tracking issue is created from an incoming exception. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, `exception_timestamp` and `exception_props` from the triggering exception. {_ERROR_TRACKING_OVERSIZED_SENTENCE} `status` holds the raw value (`active`) on this event, while the other lifecycle events send the display label (`Active`). {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_reopened": {
             "label": "Error tracking issue reopened",
-            "description": "Fires when a previously resolved error tracking issue is seen again and reopened.",
+            "description": f"Fires when a previously resolved error tracking issue is seen again and reopened, either by an incoming exception or by a manual status change. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, plus `previous_status` on a manual reopen and `exception_timestamp` and `exception_props` on an ingestion-driven reopen. {_ERROR_TRACKING_OVERSIZED_SENTENCE} {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_spiking": {
             "label": "Error tracking issue spiking",
-            "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
+            "description": f"Fires when an error tracking issue's volume spikes above its expected rate. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `computed_baseline`, `current_bucket_value`, `exception_timestamp` and `exception_props`. {_ERROR_TRACKING_OVERSIZED_SENTENCE} It sends no `status`. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_resolved": {
             "label": "Error tracking issue resolved",
-            "description": "Fires when an error tracking issue is marked as resolved.",
+            "description": f"Fires when an error tracking issue is marked as resolved. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status` and `previous_status`. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_suppressed": {
             "label": "Error tracking issue suppressed",
-            "description": "Fires when an error tracking issue is marked as suppressed.",
+            "description": f"Fires when an error tracking issue is marked as suppressed. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status` and `previous_status`. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_assigned": {
             "label": "Error tracking issue assigned",
-            "description": "Fires when an error tracking issue is assigned to a user or role.",
+            "description": f'Fires when an error tracking issue is assigned to a user or role. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`. `assignee` holds the new assignee as a JSON string, `{{"type":"user","id":123}}` for a user and `{{"type":"role","id":"<uuid>"}}` for a role.',
         },
         "$error_tracking_issue_unassigned": {
             "label": "Error tracking issue unassigned",
-            "description": "Fires when an error tracking issue's assignee is removed.",
+            "description": f"Fires when an error tracking issue's assignee is removed. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`. `assignee` is absent, because the issue no longer has one.",
         },
         "$error_tracking_issue_merged": {
             "label": "Error tracking issue merged",
-            "description": "Fires when error tracking issues are merged into another issue.",
+            "description": f"Fires when error tracking issues are merged into another issue. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status` and `merged_issue_ids`, the ids of the issues merged in. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_split": {
             "label": "Error tracking issue split",
-            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
+            "description": f"Fires when fingerprints are split out of an error tracking issue into new issues. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status` and `split_issue_ids`, the ids of the issues created by the split. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$conversation_message_sent": {
             "label": "Conversation message sent",

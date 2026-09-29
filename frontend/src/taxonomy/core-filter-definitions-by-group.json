@@ -4184,39 +4184,39 @@
             "label": "Element viewed"
         },
         "$error_tracking_issue_assigned": {
-            "description": "Fires when an error tracking issue is assigned to a user or role.",
+            "description": "Fires when an error tracking issue is assigned to a user or role. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status`. `assignee` holds the new assignee as a JSON string, `{\"type\":\"user\",\"id\":123}` for a user and `{\"type\":\"role\",\"id\":\"<uuid>\"}` for a role.",
             "label": "Error tracking issue assigned"
         },
         "$error_tracking_issue_created": {
-            "description": "Fires when a new error tracking issue is created from an incoming exception.",
+            "description": "Fires when a new error tracking issue is created from an incoming exception. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status`, `exception_timestamp` and `exception_props` from the triggering exception. If the event is too large for Kafka, `exception_props` is dropped and `message_was_too_large` is set instead. `status` holds the raw value (`active`) on this event, while the other lifecycle events send the display label (`Active`). `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue created"
         },
         "$error_tracking_issue_merged": {
-            "description": "Fires when error tracking issues are merged into another issue.",
+            "description": "Fires when error tracking issues are merged into another issue. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status` and `merged_issue_ids`, the ids of the issues merged in. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue merged"
         },
         "$error_tracking_issue_reopened": {
-            "description": "Fires when a previously resolved error tracking issue is seen again and reopened.",
+            "description": "Fires when a previously resolved error tracking issue is seen again and reopened, either by an incoming exception or by a manual status change. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status`, plus `previous_status` on a manual reopen and `exception_timestamp` and `exception_props` on an ingestion-driven reopen. If the event is too large for Kafka, `exception_props` is dropped and `message_was_too_large` is set instead. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue reopened"
         },
         "$error_tracking_issue_resolved": {
-            "description": "Fires when an error tracking issue is marked as resolved.",
+            "description": "Fires when an error tracking issue is marked as resolved. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status` and `previous_status`. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue resolved"
         },
         "$error_tracking_issue_spiking": {
-            "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
+            "description": "Fires when an error tracking issue's volume spikes above its expected rate. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `computed_baseline`, `current_bucket_value`, `exception_timestamp` and `exception_props`. If the event is too large for Kafka, `exception_props` is dropped and `message_was_too_large` is set instead. It sends no `status`. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue spiking"
         },
         "$error_tracking_issue_split": {
-            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status` and `split_issue_ids`, the ids of the issues created by the split. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue split"
         },
         "$error_tracking_issue_suppressed": {
-            "description": "Fires when an error tracking issue is marked as suppressed.",
+            "description": "Fires when an error tracking issue is marked as suppressed. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status` and `previous_status`. `assignee` is set only while the issue has an assignee, and is a JSON string such as `{\"type\":\"user\",\"id\":123}`.",
             "label": "Error tracking issue suppressed"
         },
         "$error_tracking_issue_unassigned": {
-            "description": "Fires when an error tracking issue's assignee is removed.",
+            "description": "Fires when an error tracking issue's assignee is removed. Carries these issue properties: `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`. It also carries `status`. `assignee` is absent, because the issue no longer has one.",
             "label": "Error tracking issue unassigned"
         },
         "$exception": {

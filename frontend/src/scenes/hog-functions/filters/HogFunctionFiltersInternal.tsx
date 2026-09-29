@@ -98,6 +98,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                             placeholder="Select a filter"
                         />
                         {contextId === 'logs-alerting' ? <LogsAlertBindingHint filters={value} /> : null}
+                        {contextId === 'error-tracking' ? <ErrorTrackingIssuePropertyHint /> : null}
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
@@ -118,6 +119,15 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                     </>
                 )}
             </LemonField>
+        </div>
+    )
+}
+
+function ErrorTrackingIssuePropertyHint(): JSX.Element {
+    return (
+        <div className="text-xs text-secondary">
+            Every issue notification carries the assignee, name, description, severity and first seen time of the issue.
+            Filter on these under Issues, and on the triggering exception under Exception properties.
         </div>
     )
 }
