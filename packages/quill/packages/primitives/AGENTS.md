@@ -121,6 +121,7 @@ For a run of questions asked one at a time — an agent needing a few decisions 
 | Heading   | Section/page titles — sizes 2xl/xl/lg/base/sm, semantic level via `render={<h1 />}` decoupled from size |
 | Text      | Body copy — sizes lg/base/sm/xs/xxs, variants default/muted/destructive, weights normal/medium/semibold |
 | Label     | `<label>` bound to a control; inside forms prefer FieldLabel                                            |
+| Highlight | A marker-pen tint on a few words of a heading or sentence, for emphasis; `animate` draws it in          |
 
 Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size="xs" variant="muted">` exists.
 
@@ -947,6 +948,26 @@ Skipped items don't appear at all.
 - `shortcuts="letters"` / `"numbers"` puts a key on each answer. Picking by key doesn't advance; typing in a text field pauses them.
 - **Tabs across the top are the same controlled navigation**, for a short run the user should see whole before committing: hold the active question's name in state, pass it as both the root's `item` and the `Tabs` `value`, and take `onItemChange` and `onValueChange` back into it. Read each item's `onStatusChange` to show a check in its tab — keep the icon mounted and `invisible` until the answer lands, tinted `text-success-foreground`, so the label doesn't shift. Keep the tabs outside the form — inside it they are one more stop between a question and its answers, and their buttons take part in the form. In a `Card` that means the card wraps the questionnaire: tabs in `CardHeader`, then the root with `className="contents"` around `CardContent` and `CardFooter`.
 - Inside a `Dialog`, put `className="contents"` on the root so the header, body, and footer stay in the dialog's own grid (and keep their padding and dividers) while the form still wraps the submit button. Cancel and dismiss remain the dialog's. Drop `QuestionnaireActions` there and put the navigation buttons straight into `DialogFooter` next to the `DialogClose`, the way every other dialog does — the footer is already the button row, and nesting the actions grid inside it doubles the gap.
+
+### Highlight
+
+A marker-pen tint over inline text — a pale background with the text in the same hue.
+The colors (`orange` default, `red`, `yellow`, `green`, `blue`, `purple`) are decorative, with no meaning; use `Badge` for status.
+It renders a `<mark>` and never changes layout: the tint bleeds a little past the text through padding that a matching negative margin cancels, so wrapping lines break exactly where they would without it.
+
+`animate` draws it like a marker stroke the first time it scrolls into view.
+The stroke covers one line before it starts the next, and the text takes the highlight color as the stroke passes it.
+The stroke length scales with the text length; override it with `duration`, and stagger several with `delay` (both in ms).
+Reduced motion shows the finished highlight at once.
+
+```tsx
+<Heading size="2xl">
+  Make your product{' '}
+  <Highlight color="blue" animate>
+    self-driving
+  </Highlight>
+</Heading>
+```
 
 ### Keyboard Shortcuts
 
