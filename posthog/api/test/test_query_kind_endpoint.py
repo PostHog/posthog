@@ -58,7 +58,12 @@ class TestQueryKindEndpoint(APIBaseTest):
     @parameterized.expand(
         [
             ("query_scope_allows_plain_kind", ["query:read"], {"kind": "HogQLQuery", "query": "select 1"}, 200),
-            ("kind_scope_still_required", ["query:read"], {"kind": "ErrorTrackingReleasesQuery"}, 403),
+            (
+                "kind_scope_still_required",
+                ["query:read"],
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}},
+                403,
+            ),
         ]
     )
     def test_query_kind_endpoint_with_personal_api_key(
