@@ -9,6 +9,7 @@ import {
   stripTerminalSequences,
   type TUI,
 } from "@earendil-works/pi-tui";
+import type { RunCommand } from "./models";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
 const APP_KEYS: KeyId[] = [
@@ -68,14 +69,26 @@ export class Composer {
       borderColor: DIM,
       selectList: getSelectListTheme(),
     });
-    this.editor.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(SLASH_COMMANDS, process.cwd()),
-    );
+    this.setCommands([]);
     this.editor.onSubmit = (text) => {
       if (!text.trim()) return;
       this.editor.addToHistory(text);
       submit(text);
     };
+  }
+
+  // The run's own slash commands join the built-in ones; the built-ins win on a name clash.
+  setCommands(commands: RunCommand[]): void {
+    const builtIn = new Set(SLASH_COMMANDS.map((command) => command.name));
+    this.editor.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(
+        [
+          ...SLASH_COMMANDS,
+          ...commands.filter((command) => !builtIn.has(command.name)),
+        ],
+        process.cwd(),
+      ),
+    );
   }
 
   isEmpty(): boolean {
