@@ -101,6 +101,7 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
+    Library = 'Library',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
