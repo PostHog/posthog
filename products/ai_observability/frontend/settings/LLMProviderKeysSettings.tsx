@@ -701,7 +701,7 @@ function EditKeyModal({
                                 ? 'The saved key will not be sent to the new endpoint. Enter its bearer token, or leave empty for no authentication.'
                                 : baseUrlChanged
                                   ? 'Enter the API key again to change the base URL'
-                                : 'Leave empty to keep the current key'}
+                                  : 'Leave empty to keep the current key'}
                         </p>
                     )}
                 </div>
