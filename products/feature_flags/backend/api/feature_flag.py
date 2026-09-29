@@ -4082,9 +4082,10 @@ class FeatureFlagViewSet(
                 description=(
                     "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
                     "selects enabled flags that the stale filter matches, so a disabled flag is never "
-                    f"STALE. A flag matches when it has not been called in {STALE_FLAG_THRESHOLD_DAYS} "
-                    f"days, or when it has never been called, is at least {STALE_FLAG_THRESHOLD_DAYS} "
-                    "days old and is rolled out to everyone."
+                    "STALE. A flag matches when its last recorded `$feature_flag_called` event is more "
+                    f"than {STALE_FLAG_THRESHOLD_DAYS} days old, or when it has no recorded event, is at "
+                    f"least {STALE_FLAG_THRESHOLD_DAYS} days old and is rolled out to everyone. An SDK "
+                    "that sends no such event leaves no record, so a STALE flag can still be in use."
                 ),
             ),
             OpenApiParameter(
