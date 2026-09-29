@@ -5,10 +5,11 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AppContext } from '~/types'
+import { AppContext, PreflightStatus, Region } from '~/types'
 
 import { resetEventMatchAvailabilityForTests, taxonomicEventMatchLogic } from './taxonomicEventMatchLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -33,7 +34,7 @@ describe('taxonomicEventMatchLogic', () => {
     let status: number
     let matches: Record<string, any>[]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         matchRequests = []
         status = 200
         matches = [AUTOCAPTURE]
@@ -50,6 +51,7 @@ describe('taxonomicEventMatchLogic', () => {
             },
         })
         initKeaTests()
+        await expectLogic(preflightLogic).toFinishAllListeners()
         filterLogic = taxonomicFilterLogic(PROPS)
         filterLogic.mount()
         logic = taxonomicEventMatchLogic(PROPS)
@@ -73,6 +75,16 @@ describe('taxonomicEventMatchLogic', () => {
 
     it('does not ask the model for a person outside the flag', async () => {
         enroll(false)
+
+        await search('browser capture')
+
+        expect(matchRequests).toHaveLength(0)
+        expect(logic.values.suggestedEvents).toEqual([])
+    })
+
+    it('does not ask the model outside the US cloud', async () => {
+        enroll(true)
+        preflightLogic.actions.loadPreflightSuccess({ region: Region.EU, is_debug: false } as PreflightStatus)
 
         await search('browser capture')
 
