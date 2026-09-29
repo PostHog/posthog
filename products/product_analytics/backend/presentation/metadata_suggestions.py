@@ -50,11 +50,11 @@ SUGGESTION_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 # A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_BYTES.
 MAX_TAG_NAME_CHARS = 60
 MAX_SUMMARY_LINE_CHARS = 200
-# Each question is one row of the model's 8,192-token window, and the row repeats the state, so the
-# state stays near 4,000 tokens to leave room for the instructions. Measured in UTF-8 bytes rather
-# than characters: non-Latin scripts and emoji can cost several bytes, and several tokens, per
-# character, so a character count lets that text pass here while still overflowing the model's window.
-MAX_STATE_BYTES = 16_000
+JEV_WINDOW_TOKENS = 8_192
+# Each question is one row of the model's window, and the row repeats the state. A token holds at least
+# one UTF-8 byte, so a state of this many bytes can never overflow the window, whatever the script.
+# The rest of the window holds the question text and the model's own prompt format.
+MAX_STATE_BYTES = 7_000
 
 
 class InsightTooLargeForSuggestions(ValueError):

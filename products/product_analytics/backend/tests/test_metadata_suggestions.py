@@ -14,12 +14,14 @@ from posthog.models import Team
 
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     JEV_MODEL,
+    JEV_WINDOW_TOKENS,
     MAX_STATE_BYTES,
     MAX_TAG_NAME_CHARS,
     MAX_TAGS,
     SUGGESTION_TIMEOUT_SECONDS,
     InsightContext,
     InsightTooLargeForSuggestions,
+    _tag_question,
     build_insight_context,
     suggest_tags,
 )
@@ -104,6 +106,16 @@ class TestMetadataSuggestions(SimpleTestCase):
             for call in decide.call_args_list
         )
         assert set(suggestion.tags) == set(long_tags)
+
+    def test_largest_state_and_question_fit_the_model_window(self) -> None:
+        # A token holds at least one UTF-8 byte, so bytes are an upper bound on tokens.
+        prompt_format_headroom_tokens = 512
+        question = _tag_question(f"t{MAX_TAGS - 1}")
+        question_bytes = sum(
+            len(text.encode("utf-8"))
+            for text in (question.instructions, question.criteria_true, question.criteria_false)
+        )
+        assert MAX_STATE_BYTES + question_bytes <= JEV_WINDOW_TOKENS - prompt_format_headroom_tokens
 
     @parameterized.expand(
         [
