@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     _check_experiment_exposures_sync,
     _start_scheduled_recalculation_sync,
@@ -29,13 +30,13 @@ _check_exposures_raw = _check_experiment_exposures_sync.func  # type: ignore[att
 _start_recalculation_raw = _start_scheduled_recalculation_sync.func  # type: ignore[attr-defined]
 
 
-def _check_exposures(experiment_id: int, hour: int):
+def _check_exposures(experiment_id: int, hour: int) -> bool:
     # close_old_connections() would drop the connection this test's transaction runs on.
     with patch(f"{MODULE}.close_old_connections"):
         return _check_exposures_raw(experiment_id, hour)
 
 
-def _start_recalculation(experiment_id: int, hour: int):
+def _start_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
     with patch(f"{MODULE}.close_old_connections"):
         return _start_recalculation_raw(experiment_id, hour)
 
