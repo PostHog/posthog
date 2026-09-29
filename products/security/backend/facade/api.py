@@ -22,7 +22,7 @@ from .enums import Outcome, Surface
 
 logger = structlog.get_logger(__name__)
 
-_OUTCOME_FOR_MATCH = {Surface.EMAIL_CODE: Outcome.EXEMPT}
+_OUTCOME_FOR_MATCH = {Surface.EMAIL_CODE: Outcome.EXEMPT, Surface.SIGNUP_RISK: Outcome.EXEMPT}
 
 
 def decide(subject: contracts.SubjectInput, surface: Surface) -> contracts.Decision:
@@ -52,6 +52,16 @@ def is_email_code_exempt(email: str) -> bool:
     except Exception:
         logger.exception("security_email_code_exemption_check_failed")
         DECISION_ERRORS_COUNTER.labels(call_site="email_code").inc()
+        return False
+
+
+def is_signup_risk_exempt(email: str) -> bool:
+    """Whether a rule lets this address skip the Radar verdict. Any failure keeps the verdict."""
+    try:
+        return decide(contracts.SubjectInput(email=email), Surface.SIGNUP_RISK).outcome == Outcome.EXEMPT
+    except Exception:
+        logger.exception("security_signup_risk_exemption_check_failed")
+        DECISION_ERRORS_COUNTER.labels(call_site="signup_risk").inc()
         return False
 
 

@@ -571,8 +571,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/fleetio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/flexmail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/float_app.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/flowlu/flowlu.py
@@ -591,7 +589,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/freshdesk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/freshsales.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshservice/freshservice.py

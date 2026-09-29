@@ -125,10 +125,12 @@ def _fetch_page(
 ) -> dict[str, Any]:
     response = session.get(url, headers=headers, timeout=60)
 
-    # Vercel rate limits per-endpoint and returns 429 with a reset window; treat 429 and any 5xx
-    # as transient and let tenacity back off. A bad/insufficient token (401/403) is raised below
-    # via raise_for_status() and matched by get_non_retryable_errors() so the sync stops.
-    if response.status_code == 429 or response.status_code >= 500:
+    # Vercel rate limits per-endpoint and returns 429 with a reset window; treat 408, 429 and any
+    # 5xx as transient and let tenacity back off. 408 is a transient request timeout on Vercel's
+    # side, not a bad request — retrying it like 429/5xx avoids raise_for_status() turning it into
+    # a fatal, non-retried HTTPError. A bad/insufficient token (401/403) is raised below via
+    # raise_for_status() and matched by get_non_retryable_errors() so the sync stops.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise VercelRetryableError(f"Vercel API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
@@ -181,10 +183,13 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (400, 401):
+    if response.status_code in (400, 401, 404):
         # The probe carries no query string and no body, so a 400 is Vercel rejecting the token
         # itself rather than anything we sent — a token pasted with stray characters reads as
-        # malformed at the gateway before it is ever looked up.
+        # malformed at the gateway before it is ever looked up. A 404 here isn't documented for
+        # this endpoint, but is observed when the token doesn't resolve to a Vercel user at all
+        # (e.g. a team-scoped token used where an account access token is expected); the fix is
+        # the same as an invalid token, so it shares the message.
         return False, _VERCEL_INVALID_TOKEN_ERROR
     if response.status_code == 403:
         return (
@@ -422,7 +427,7 @@ def _open_billing_stream(
 ) -> requests.Response:
     response = session.get(url, headers=headers, timeout=120, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code in (408, 429) or response.status_code >= 500:
         response.close()
         raise VercelRetryableError(f"Vercel API error (retryable): status={response.status_code}, url={url}")
 

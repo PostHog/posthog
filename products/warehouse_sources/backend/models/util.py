@@ -786,6 +786,8 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "OBJECT_STORAGE_BUCKET",
     "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
     "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    # Holds decrypted recordings from many teams and may share a bucket the node role reads, so it is denied.
+    "REPLAY_VISION_BENCHMARK_BUCKET",
     "SESSION_RECORDING_V2_S3_BUCKET",
 )
 

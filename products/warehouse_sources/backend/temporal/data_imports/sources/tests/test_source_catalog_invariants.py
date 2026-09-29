@@ -48,6 +48,7 @@ CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password
 # ending in `_id`/`_ids` is exempt for the same reason without needing an entry here.
 PUBLIC_CREDENTIAL_HALVES = {
     "Adjust.app_tokens",
+    "Cloudinary.api_key",
     "ConfluentCloud.api_key",
     "Fleetio.account_token",
     "Gong.access_key",
