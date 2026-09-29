@@ -238,6 +238,15 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 False,
             ),
             (
+                "a tag and its two attributes on different elements",
+                "button[type='button'][data-x='a']",
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attributes={"attr__data-x": "a", "attr__type": "button"}),
+                ],
+                False,
+            ),
+            (
                 "an attribute value with nested quotes and an equals sign",
                 "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
                 [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],

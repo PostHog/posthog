@@ -145,9 +145,9 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.data.get("attr_class__contains"):
             regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
         if tag.ch_attributes:
-            regex += r".*?"
             # Attributes parsed from [a="1"][b="2"] must all be on one element.
             separator = _WITHIN_ELEMENT if tag.confine_attributes else r".*?"
+            regex += separator
             for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
                 regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}"' + separator
         # The rest of the element can carry characters an allowlist cannot
