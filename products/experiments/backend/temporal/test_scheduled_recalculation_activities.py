@@ -123,3 +123,12 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert _check_exposures(missing_id, 2) is False
         result = _start_recalculation(missing_id, 2)
         assert result.started is False
+
+    def test_start_skips_an_experiment_stopped_since_discovery(self):
+        # Discovery runs before the exposure query, so the experiment can stop in between.
+        self.experiment.end_date = timezone.now()
+        self.experiment.save()
+        with patch(f"{MODULE}.start_metrics_recalculation_workflow") as dispatch:
+            result = _start_recalculation(self.experiment.id, 2)
+        assert result.started is False
+        dispatch.assert_not_called()
