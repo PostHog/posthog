@@ -361,13 +361,12 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 failed += 1
 
         summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        workflow.deprecate_patch("icp-sweep-run-summary-2026-08")
         # Keep analytics I/O in an activity so workflow replay remains deterministic.
-        # Patched so an execution recorded before this activity existed still replays.
-        if workflow.patched("icp-sweep-run-summary-2026-08"):
-            await workflow.execute_activity(
-                report_sweep_run_activity,
-                summary,
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+        await workflow.execute_activity(
+            report_sweep_run_activity,
+            summary,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
         return dataclasses.asdict(summary)
