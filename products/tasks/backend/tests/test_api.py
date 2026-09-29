@@ -465,12 +465,14 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
             == status.HTTP_403_FORBIDDEN
         )
-        response = client.patch(
-            base,
-            {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
-            format="json",
-        )
+        with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
+            response = client.patch(
+                base,
+                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                format="json",
+            )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
@@ -7247,6 +7249,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "task_management_ci_idle_skips": 1,
+                "task_management_ci_wait_checks": 10,
+                "pending_external_followups_checkpoint": {"generation": 8},
                 "sandbox_gone": False,
                 "ai_stage": "research",
                 "ai_agent_name": "signals-scout-errors",
@@ -7329,6 +7334,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "task_management_ci_idle_skips": 0,
+                    "task_management_ci_wait_checks": 0,
+                    "pending_external_followups_checkpoint": {"generation": 99},
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
@@ -7401,6 +7409,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
@@ -7462,6 +7473,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "task_management_ci_idle_skips",
+                    "task_management_ci_wait_checks",
+                    "pending_external_followups_checkpoint",
                     "sandbox_gone",
                     "runtime_adapter",
                     "provider",
@@ -7512,6 +7526,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
@@ -7544,9 +7561,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state_append": {
                     "systemPrompt": "Caller-controlled instructions",
-                    "scratch": "ok",
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
+                    "task_management_ci_idle_skips": 0,
+                    "task_management_ci_wait_checks": 0,
+                    "pending_external_followups_checkpoint": {"generation": 99},
+                    "scratch": "ok",
                 }
             },
             format="json",
@@ -7557,6 +7577,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["scout_trial"] == trial_context
         assert run.state["scout_trial_private"] == trial_private
         assert run.state["scratch"] == ["ok"]
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

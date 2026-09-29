@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPlus, IconSparkles } from '@posthog/icons'
 import {
@@ -28,10 +29,12 @@ export function ScoutRubricsModal({
     onClose: () => void
 }): JSX.Element {
     const logic = scoutRubricsLogic({ teamId, configId })
+    const [expandedSuggestionIds, setExpandedSuggestionIds] = useState<string[]>([])
     const {
         rubricDocument,
         rubricDocumentLoading,
         draftCriteria,
+        sortedCriteria,
         draftRevision,
         draftAdoptGenerationId,
         expandedCriterionId,
@@ -42,6 +45,7 @@ export function ScoutRubricsModal({
         availableSuggestions,
         selectedSuggestionIds,
         selectedSuggestions,
+        newCriteriaCount,
         hasUnsavedChanges,
         saving,
         saveError,
@@ -132,7 +136,7 @@ export function ScoutRubricsModal({
                             }
                             data-attr="scout-rubrics-save"
                         >
-                            Save rubrics
+                            {newCriteriaCount > 0 ? `Save rubrics (${newCriteriaCount} new)` : 'Save rubrics'}
                         </LemonButton>
                     </div>
                 </div>
@@ -153,28 +157,32 @@ export function ScoutRubricsModal({
                     <>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                             <p className="mb-0 max-w-md text-sm text-secondary">
-                                Shared defaults start enabled. Adjust them for this scout and add your own criteria.
-                                Generate suggestions from its instructions and recent runs when you need a starting
-                                point.
+                                Changes to shared defaults apply only to this scout. Generate suggestions from its
+                                instructions and recent runs, or add your own criteria.
                             </p>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconSparkles />}
-                                onClick={confirmReplaceSuggestions}
-                                loading={generationSubmitting || generationActive}
-                                disabledReason={
-                                    generationActive
-                                        ? 'Suggestions are being generated'
-                                        : saving
-                                          ? 'Saving rubrics'
-                                          : hasUnsavedChanges
-                                            ? 'Save rubric changes before generating suggestions'
-                                            : undefined
-                                }
-                                data-attr="scout-rubrics-generate"
-                            >
-                                {generationActive ? 'Generating suggestions' : 'Generate suggestions'}
-                            </LemonButton>
+                            <div className="flex flex-col items-center gap-1">
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconSparkles />}
+                                    onClick={confirmReplaceSuggestions}
+                                    loading={generationSubmitting || generationActive}
+                                    disabledReason={
+                                        generationActive
+                                            ? 'Suggestions are being generated'
+                                            : saving
+                                              ? 'Saving rubrics'
+                                              : hasUnsavedChanges
+                                                ? 'Save rubric changes before generating suggestions'
+                                                : undefined
+                                    }
+                                    data-attr="scout-rubrics-generate"
+                                >
+                                    {generationActive ? 'Generating suggestions' : 'Generate suggestions'}
+                                </LemonButton>
+                                {!generationActive && !generationSubmitting && (
+                                    <span className="text-xs text-secondary">Takes a few minutes</span>
+                                )}
+                            </div>
                         </div>
 
                         <LemonBanner
@@ -262,7 +270,8 @@ export function ScoutRubricsModal({
                                 {availableSuggestions.length ? (
                                     <>
                                         <p className="text-sm text-secondary">
-                                            Select the suggestions you want to add. You can edit them before saving.
+                                            Save rubrics adds and saves your selected suggestions. Add selected moves
+                                            them into the list for editing. It does not save.
                                         </p>
                                         <div className="flex flex-col gap-4">
                                             {availableSuggestions.map((suggestion) => (
@@ -279,14 +288,49 @@ export function ScoutRubricsModal({
                                                     <p className="mb-0 break-words text-sm text-secondary">
                                                         {suggestion.description}
                                                     </p>
-                                                    <p className="mb-0 break-words text-sm">
-                                                        <strong>Passes when: </strong>
-                                                        <span>{suggestion.pass_condition}</span>
-                                                    </p>
-                                                    <p className="mb-0 break-words text-xs text-secondary">
-                                                        <strong>Applies: </strong>
-                                                        <span>{suggestion.applicability}</span>
-                                                    </p>
+                                                    <LemonCollapse
+                                                        embedded
+                                                        size="xsmall"
+                                                        activeKey={
+                                                            expandedSuggestionIds.includes(suggestion.id)
+                                                                ? 'details'
+                                                                : null
+                                                        }
+                                                        onChange={(key) =>
+                                                            setExpandedSuggestionIds((ids) =>
+                                                                key
+                                                                    ? [...ids, suggestion.id]
+                                                                    : ids.filter((id) => id !== suggestion.id)
+                                                            )
+                                                        }
+                                                        panels={[
+                                                            {
+                                                                key: 'details',
+                                                                dataAttr: 'scout-rubric-suggestion-details',
+                                                                header: {
+                                                                    children: expandedSuggestionIds.includes(
+                                                                        suggestion.id
+                                                                    )
+                                                                        ? 'Hide details'
+                                                                        : 'Show details',
+                                                                    'aria-label': `${expandedSuggestionIds.includes(suggestion.id) ? 'Hide details' : 'Show details'} for ${suggestion.title}`,
+                                                                },
+                                                                className: '!p-2',
+                                                                content: (
+                                                                    <div className="flex flex-col gap-3">
+                                                                        <p className="mb-0 break-words text-sm">
+                                                                            <strong>Passes when: </strong>
+                                                                            <span>{suggestion.pass_condition}</span>
+                                                                        </p>
+                                                                        <p className="mb-0 break-words text-sm">
+                                                                            <strong>Applies: </strong>
+                                                                            <span>{suggestion.applicability}</span>
+                                                                        </p>
+                                                                    </div>
+                                                                ),
+                                                            },
+                                                        ]}
+                                                    />
                                                 </div>
                                             ))}
                                         </div>
@@ -314,7 +358,7 @@ export function ScoutRubricsModal({
                                 ) : (
                                     <p className="mb-0 text-sm text-secondary">
                                         {generation.suggestions.length
-                                            ? 'All suggestions are in your rubric. Review them below and save your changes.'
+                                            ? 'All suggestions are in your rubric.'
                                             : 'No additional criteria were suggested. You can add criteria manually below.'}
                                     </p>
                                 )}
@@ -346,7 +390,7 @@ export function ScoutRubricsModal({
                             </p>
                         )}
                         <div className="flex flex-col gap-2">
-                            {draftCriteria.map((criterion) => (
+                            {sortedCriteria.map((criterion) => (
                                 <ScoutRubricCriterionEditor
                                     key={criterion.id}
                                     criterion={criterion}

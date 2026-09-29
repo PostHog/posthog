@@ -671,8 +671,7 @@ class TestCompanionJob:
                 lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue."
-                "jobs_db.BatchQueue.fail_batches_for_job_sync"
+                "products.warehouse_sources_queue.backend.core.jobs_db.BatchQueue.fail_batches_for_job_sync"
             ) as swept,
         ):
             async_to_sync(pipeline._fail_companion_jobs)()

@@ -1357,7 +1357,36 @@ class TestCheckResultTool(APIBaseTest):
         with self.assertRaises(InvalidCheckResultError):
             self._record(other_check)
 
-    @parameterized.expand([("blank_explanation", {"explanation": "  "}), ("unknown_outcome", {"outcome": "maybe"})])
+    @parameterized.expand(
+        [
+            ("awaiting_data_looks_again", "awaiting_data", SignalReportCheck.Status.ACTIVE),
+            ("unmeasurable_ends_the_check", "unmeasurable", SignalReportCheck.Status.INCONCLUSIVE),
+        ]
+    )
+    def test_an_inconclusive_verdict_records_its_reason(self, _name: str, reason: str, expected_status: str) -> None:
+        check = self._check()
+
+        result = self._record(check, outcome="inconclusive", reason=reason, explanation="No traffic since the fix.")
+
+        assert result.check_status == expected_status
+        check.refresh_from_db()
+        assert check.last_outcome == SignalReportCheck.Outcome.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+        artefact = SignalReportArtefact.objects.get(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        )
+        assert f'"reason":"{reason}"' in artefact.content
+
+    @parameterized.expand(
+        [
+            ("blank_explanation", {"explanation": "  "}),
+            ("unknown_outcome", {"outcome": "maybe"}),
+            ("inconclusive_without_a_reason", {"outcome": "inconclusive"}),
+            ("inconclusive_with_an_unknown_reason", {"outcome": "inconclusive", "reason": "tired"}),
+            ("a_reason_on_another_outcome", {"outcome": "errored", "reason": "awaiting_data"}),
+        ]
+    )
     def test_a_malformed_verdict_is_refused(self, _name, overrides) -> None:
         check = self._check()
 

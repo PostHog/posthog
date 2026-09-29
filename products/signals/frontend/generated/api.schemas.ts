@@ -5874,17 +5874,19 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
- * * `passed` - Passed
- * * `failed` - Failed
- * * `errored` - Errored
+ * * `awaiting_data` - Awaiting Data
+ * * `unmeasurable` - Unmeasurable
+ * * `needs_manual_verification` - Needs Manual Verification
+ * * `no_fix_to_measure` - No Fix To Measure
  */
-export type RecordCheckResultRequestOutcomeEnumApi =
-    (typeof RecordCheckResultRequestOutcomeEnumApi)[keyof typeof RecordCheckResultRequestOutcomeEnumApi]
+export type SignalReportCheckInconclusiveReasonEnumApi =
+    (typeof SignalReportCheckInconclusiveReasonEnumApi)[keyof typeof SignalReportCheckInconclusiveReasonEnumApi]
 
-export const RecordCheckResultRequestOutcomeEnumApi = {
-    Passed: 'passed',
-    Failed: 'failed',
-    Errored: 'errored',
+export const SignalReportCheckInconclusiveReasonEnumApi = {
+    AwaitingData: 'awaiting_data',
+    Unmeasurable: 'unmeasurable',
+    NeedsManualVerification: 'needs_manual_verification',
+    NoFixToMeasure: 'no_fix_to_measure',
 } as const
 
 /**
@@ -5893,12 +5895,20 @@ export const RecordCheckResultRequestOutcomeEnumApi = {
 export interface RecordCheckResultRequestApi {
     /** The check this run was dispatched to answer, as given in the run note. */
     check_id: string
-    /** `passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.
+    /** `passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion.
      *
      * * `passed` - Passed
      * * `failed` - Failed
-     * * `errored` - Errored */
-    outcome: RecordCheckResultRequestOutcomeEnumApi
+     * * `errored` - Errored
+     * * `inconclusive` - Inconclusive */
+    outcome: SignalReportCheckOutcomeEnumApi
+    /** Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved. Every reason except `awaiting_data` ends the check.
+     *
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure */
+    reason?: SignalReportCheckInconclusiveReasonEnumApi | null
     /**
      * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
      * @maxLength 1000

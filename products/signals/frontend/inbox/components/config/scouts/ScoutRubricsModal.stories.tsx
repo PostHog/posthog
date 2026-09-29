@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -136,6 +138,15 @@ export const SavedReference: Story = {
             },
         }),
     ],
+}
+
+export const DetailsExpanded: Story = {
+    ...SuggestionsReady,
+    play: async ({ canvasElement }) => {
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Show details for Compare equivalent time windows'))
+        await userEvent.click(await modal.findByLabelText('Show details for Evidence supports the finding'))
+    },
 }
 
 export const Generating: Story = {
