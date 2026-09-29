@@ -12,6 +12,9 @@ describe('todaySpacesLogic', () => {
                 '/api/projects/:team_id/task_channels/': [],
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const channel = new URL(request.url).searchParams.get('channel')
+                    if (channel === 'space-broken') {
+                        return [500, { detail: 'Server error' }]
+                    }
                     return [200, { results: [{ id: `task-${channel}`, title: `Session in ${channel}` }], count: 1 }]
                 },
             },
@@ -30,5 +33,16 @@ describe('todaySpacesLogic', () => {
         expect(Object.keys(logic.values.spaceTasks).sort()).toEqual(['space-a', 'space-b'])
         expect(logic.values.spaceTasks['space-a'][0].id).toBe('task-space-a')
         expect(logic.values.loadingSpaceIds).toEqual([])
+    })
+
+    it('marks a space whose sessions fail to load, so the sidebar can offer a retry', async () => {
+        const logic = todaySpacesLogic()
+        logic.mount()
+
+        logic.actions.toggleSpace('space-broken')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.failedSpaceIds).toEqual(['space-broken'])
+        expect(logic.values.spaceTasks['space-broken']).toBeUndefined()
     })
 })

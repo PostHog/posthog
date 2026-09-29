@@ -29,6 +29,7 @@ export interface todaySpacesLogicValues {
     conversationHistoryLoading: boolean // maxGlobalLogic
     currentTeamId: number | null // teamLogic
     expandedSpaceIds: string[]
+    failedSpaceIds: string[]
     loadingSpaceIds: string[]
     recentChats: ConversationDetail[]
     sortedSpaces: ChannelDTOApi[]
@@ -135,6 +136,13 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 loadSpaceTasks: (state, { spaceId }) => (state.includes(spaceId) ? state : [...state, spaceId]),
                 setSpaceTasks: (state, { spaceId }) => state.filter((id) => id !== spaceId),
                 loadSpaceTasksFailure: (state, { spaceId }) => state.filter((id) => id !== spaceId),
+            },
+        ],
+        failedSpaceIds: [
+            [] as string[],
+            {
+                loadSpaceTasks: (state, { spaceId }) => state.filter((id) => id !== spaceId),
+                loadSpaceTasksFailure: (state, { spaceId }) => (state.includes(spaceId) ? state : [...state, spaceId]),
             },
         ],
     }),

@@ -115,11 +115,13 @@ function LibraryContent(): JSX.Element {
                     loading={objectsLoading}
                     rowKey="id"
                     emptyState={
-                        search
-                            ? 'Nothing matches that search.'
-                            : selectedType
-                              ? `No ${selectedType.pluralLabel.toLowerCase()} yet. Create one to see it here.`
-                              : 'Insights, dashboards, flags and everything else you save show up here.'
+                        hasMore
+                            ? 'Nothing to show on the pages loaded so far. Select Show more to keep looking.'
+                            : search
+                              ? 'Nothing matches that search.'
+                              : selectedType
+                                ? `No ${selectedType.pluralLabel.toLowerCase()} yet. Create one to see it here.`
+                                : 'Insights, dashboards, flags and everything else you save show up here.'
                     }
                 />
             )}

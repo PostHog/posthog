@@ -19,10 +19,11 @@ export function TodaySpacesSidebar(): JSX.Element {
         expandedSpaceIds,
         spaceTasks,
         loadingSpaceIds,
+        failedSpaceIds,
         recentChats,
         conversationHistoryLoading,
     } = useValues(todaySpacesLogic)
-    const { toggleSpace, loadSpaces } = useActions(todaySpacesLogic)
+    const { toggleSpace, loadSpaces, loadSpaceTasks } = useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
     const onAi = location.pathname.endsWith('/ai')
 
@@ -76,6 +77,18 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         loadingSpaceIds.includes(space.id) ? (
                                             <div className="TodayPane__state TodayPane__state--nested">
                                                 <Spinner />
+                                            </div>
+                                        ) : failedSpaceIds.includes(space.id) ? (
+                                            <div className="TodayPane__state TodayPane__state--nested">
+                                                <span>Couldn’t load this space’s sessions.</span>
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => loadSpaceTasks(space.id)}
+                                                    data-attr="today-space-tasks-retry"
+                                                >
+                                                    Try again
+                                                </LemonButton>
                                             </div>
                                         ) : null
                                     ) : tasks.length === 0 ? (
