@@ -105,7 +105,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                     />
                 )
             case 'tests':
-                return dataQualitySubject ? <NodeDetailTests id={id} {...dataQualitySubject} /> : <></>
+                return <NodeDetailTests id={id} />
         }
     }
 

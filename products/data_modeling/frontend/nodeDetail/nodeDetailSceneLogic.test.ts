@@ -16,6 +16,7 @@ import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailTests } from './NodeDetailTests'
 
 const NODE_ID = 'node-1'
 const SAVED_QUERY_ID = 'saved-query-1'
@@ -156,15 +157,149 @@ describe('nodeDetailSceneLogic', () => {
         })
     })
 
-    it('does not load details or data quality for a PostHog table', async () => {
-        node = buildNode('table', { origin: 'posthog' })
+    it.each(['events', 'persons', 'groups'])(
+        'loads the matching %s subject for data quality without loading warehouse details',
+        async (tableName) => {
+            node = buildNode('table', { name: tableName, origin: 'posthog' })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/projects/:team_id/data_quality_checks/subjects/': () => [
+                        200,
+                        [
+                            {
+                                subject_type: 'posthog_table',
+                                id: `${tableName}-subject`,
+                                name: tableName,
+                                display_name: '',
+                                time_column: 'timestamp',
+                                columns: { id: 'String', timestamp: 'DateTime' },
+                                editable: true,
+                            },
+                        ],
+                    ],
+                },
+            })
+
+            await mountScene(urls.nodeDetail(NODE_ID))
+
+            expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+            expect(logic.values.dataQualitySubject).toEqual({
+                subjectType: 'posthog_table',
+                subjectId: `${tableName}-subject`,
+                columns: [
+                    { name: 'id', hogql_value: 'id', type: 'String', schema_valid: true },
+                    { name: 'timestamp', hogql_value: 'timestamp', type: 'DateTime', schema_valid: true },
+                ],
+                editable: true,
+            })
+            expect(logic.values.tableDetails).toBeNull()
+            expect(logic.values.tableDetailsError).toBe(false)
+        }
+    )
+
+    it('loads the PostHog subject when the data quality flag arrives after the node', async () => {
+        node = buildNode('table', { name: 'events', origin: 'posthog' })
+        flagsLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: false })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/projects/:team_id/data_quality_checks/subjects/': () => [
+                    200,
+                    [
+                        {
+                            subject_type: 'posthog_table',
+                            id: 'events-subject',
+                            name: 'events',
+                            display_name: '',
+                            time_column: 'timestamp',
+                            columns: {},
+                            editable: true,
+                        },
+                    ],
+                ],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+        expect(logic.values.availableTabs).toEqual(['lineage'])
+
+        await expectLogic(logic, () => {
+            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
+                [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.dataQualitySubject).toMatchObject({
+            subjectType: 'posthog_table',
+            subjectId: 'events-subject',
+        })
+    })
+
+    it('keeps the data quality tab for an unsupported PostHog table', async () => {
+        node = buildNode('table', { name: 'unsupported_table', origin: 'posthog' })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/projects/:team_id/data_quality_checks/subjects/': () => [200, []],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+
+        expect(logic.values.effectiveTab).toEqual('tests')
+        expect(logic.values.dataQualitySubject).toBeNull()
+
+        render(createElement(NodeDetailTests, { id: NODE_ID }))
+
+        expect(screen.getByText('Data quality is not available for this table.')).toBeTruthy()
+    })
+
+    it('keeps Lineage available while the PostHog subject request fails', async () => {
+        node = buildNode('table', { name: 'events', origin: 'posthog' })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/projects/:team_id/data_quality_checks/subjects/': () => [500, {}],
+            },
+        })
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage'])
-        expect(logic.values.dataQualitySubject).toBeNull()
-        expect(logic.values.tableDetails).toBeNull()
-        expect(logic.values.tableDetailsError).toBe(false)
+        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.lineageGraph).toEqual({ currentNodeId: NODE_ID, nodes: [], edges: [] })
+        expect(logic.values.postHogSubjectError).toBe(true)
+
+        render(createElement(NodeDetailTests, { id: NODE_ID }))
+
+        expect(screen.getByText("Couldn't load data quality for this table. Try again.")).toBeTruthy()
+    })
+
+    it('records PostHog subject access denials', async () => {
+        node = buildNode('table', { name: 'events', origin: 'posthog' })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/projects/:team_id/data_quality_checks/subjects/': () => [403, {}],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.postHogSubjectAccessDenied).toBe(true)
+        expect(logic.values.postHogSubjectError).toBe(true)
+
+        render(createElement(NodeDetailTests, { id: NODE_ID }))
+
+        expect(
+            screen.getByText("You don't have access to data quality for this table. Ask a project admin for access.")
+        ).toBeTruthy()
     })
 
     it('records table detail access denials', async () => {

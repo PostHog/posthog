@@ -72,7 +72,11 @@ A project that has no models and no saved views gets the first-view text instead
 
 ## Model detail
 
-A model in the lineage graph opens a detail page with a Data quality tab. The tab reads the checks of the model's own subject: a saved view answers as a view, and an imported warehouse table answers as a table. The node carries the table's identifier, which the dependency sync refreshes whenever it resolves a saved query, so a table that was deleted and imported again is followed to its new row. A node with no table identifier, such as a PostHog table or a node written before the identifier existed, has no subject to audit and gets no Data quality tab.
+Every table node keeps its Lineage tab. Loading the Data quality subject does not wait for the lineage graph.
+
+A model in the lineage graph can also open a Data quality tab. The tab reads the checks of the model's own subject. A saved view answers as a view. An imported warehouse table answers as a table. The node carries the table identifier. The dependency sync refreshes this identifier when it resolves a saved query. A table that is deleted and imported again then uses its new row.
+
+PostHog tables use the subject catalog API. The frontend matches the node name to a `posthog_table` subject from that API. It passes the returned subject id, subject type, and columns to the checks panel. It does not calculate the subject id. The Data quality panel shows a loading, request-error, access-denied, or unsupported-table state when the catalog cannot provide a supported subject.
 
 ## Subject schedules
 

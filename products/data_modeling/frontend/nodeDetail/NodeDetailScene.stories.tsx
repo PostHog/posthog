@@ -159,6 +159,12 @@ const warehouseSchema = {
     sync_frequency: '1hour',
 }
 
+const emptyDataQualityMocks = {
+    '/api/projects/:team_id/data_quality_checks/': () => [200, { count: 0, next: null, previous: null, results: [] }],
+    '/api/projects/:team_id/data_quality_checks/health/': () => [200, []],
+    '/api/projects/:team_id/data_quality_runs/': () => [200, { count: 0, next: null, previous: null, results: [] }],
+}
+
 const meta: Meta<typeof NodeDetailScene> = {
     title: 'Products/Data modeling/Node detail scene',
     component: NodeDetailScene,
@@ -205,18 +211,7 @@ export const WarehouseTable: Story = {
                     '/api/environments/:team_id/warehouse_tables/:id/': () => [200, warehouseTable],
                     '/api/environments/:team_id/external_data_sources/:id/': () => [200, warehouseSource],
                     '/api/environments/:team_id/external_data_schemas/:id/': () => [200, warehouseSchema],
-                    '/api/projects/:team_id/warehouse_tables/:table_id/checks/': () => [
-                        200,
-                        { count: 0, next: null, previous: null, results: [] },
-                    ],
-                    '/api/projects/:team_id/warehouse_tables/:table_id/checks/health/': () => [
-                        200,
-                        { health: 'passing', checks_failing: 0 },
-                    ],
-                    '/api/projects/:team_id/warehouse_tables/:table_id/check_suite_runs/': () => [
-                        200,
-                        { count: 0, next: null, previous: null, results: [] },
-                    ],
+                    ...emptyDataQualityMocks,
                 },
             },
         },
@@ -226,6 +221,7 @@ export const WarehouseTable: Story = {
 export const PostHogTable: Story = {
     args: { id: 'events-table-node' },
     parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         pageUrl: urls.nodeDetail('events-table-node', 'lineage'),
         msw: {
             mocks: {
@@ -234,6 +230,21 @@ export const PostHogTable: Story = {
                         request.url.includes('/lineage')
                             ? [200, tableLineage(postHogTableNode)]
                             : [200, postHogTableNode],
+                    '/api/projects/:team_id/data_quality_checks/subjects/': () => [
+                        200,
+                        [
+                            {
+                                subject_type: 'posthog_table',
+                                id: 'd4fb61da-50ae-59dc-a94f-f2036dfcfe49',
+                                name: 'events',
+                                display_name: '',
+                                time_column: 'timestamp',
+                                columns: { distinct_id: 'String', timestamp: 'DateTime' },
+                                editable: true,
+                            },
+                        ],
+                    ],
+                    ...emptyDataQualityMocks,
                 },
             },
         },
