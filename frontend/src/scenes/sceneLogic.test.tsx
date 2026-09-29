@@ -25,6 +25,7 @@ import {
     type TeamType,
 } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
 
@@ -689,6 +690,44 @@ describe('sceneLogic', () => {
                 expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
             }
         )
+
+        it.each([
+            [
+                'sends a member to the block page when a refresh finds the organization deactivated',
+                {},
+                urls.eventDefinitions(),
+                { is_active: false },
+                urls.organizationDeactivated(),
+            ],
+            [
+                'lets a member off the block page when a refresh finds the organization open',
+                { is_active: false },
+                urls.organizationDeactivated(),
+                { is_active: true },
+                urls.projectHomepage(),
+            ],
+        ])('%s', async (_name, loaded, start, refreshed, expectedRoute) => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                ...loaded,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            router.actions.push(start)
+            await expectLogic(logic).delay(1)
+
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...organizationLogic.values.currentOrganization!,
+                ...refreshed,
+            })
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+        })
 
         it("loads the page for a deactivated member's link into another organization's project", async () => {
             logic.unmount()

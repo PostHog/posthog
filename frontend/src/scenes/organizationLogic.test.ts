@@ -118,6 +118,44 @@ describe('organizationLogic', () => {
         })
     })
 
+    describe('refreshing an open tab', () => {
+        const LOADED = { ...MOCK_DEFAULT_ORGANIZATION, id: 'WXYZ', name: 'Loaded', is_active: true } as OrganizationType
+
+        const mount = (): void => {
+            window.POSTHOG_APP_CONTEXT = { current_user: { organization: LOADED } } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        }
+
+        afterEach(() => {
+            delete (document as { hidden?: boolean }).hidden
+        })
+
+        test.each([
+            ['adopts a block that landed after the load', { is_active: false }, { is_active: false, name: 'Loaded' }],
+            ['ignores a change that leaves the block alone', { name: 'Renamed' }, { is_active: true, name: 'Loaded' }],
+        ])('%s', async (_name, change, expected) => {
+            mount()
+            useMocks({ get: { '/api/organizations/@current': () => [200, { ...LOADED, ...change }] } })
+
+            await expectLogic(logic, () => logic.actions.refreshCurrentOrganization()).toFinishAllListeners()
+
+            expect(logic.values.currentOrganization).toMatchObject(expected)
+        })
+
+        it('refreshes on the first show of a tab that mounted hidden', async () => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+            mount()
+            await expectLogic(logic).toNotHaveDispatchedActions(['refreshCurrentOrganization'])
+
+            await expectLogic(logic, () => {
+                Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['refreshCurrentOrganization'])
+        })
+    })
+
     describe('redirecting away from a blocked organization', () => {
         const mountWith = (organization: Partial<OrganizationType>): void => {
             window.POSTHOG_APP_CONTEXT = {

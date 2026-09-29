@@ -41,6 +41,14 @@ function pathLeavesCurrentOrganization(organization: OrganizationType | null, pa
     return projectId !== undefined && !teams.some((team) => String(team.id) === projectId)
 }
 
+// Bounds how long an open tab keeps working after its organization is blocked.
+const ORGANIZATION_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+
+function fetchCurrentOrganization(): Promise<OrganizationType> {
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
+    return api.get('api/organizations/@current')
+}
+
 function organizationBlockPage(organization: OrganizationType | null): string | null {
     if (organization?.is_pending_deletion) {
         return '/organization-pending-deletion'
@@ -164,6 +172,9 @@ export interface organizationLogicActions {
         currentOrganization: OrganizationType | null
         payload?: any
     }
+    refreshCurrentOrganization: () => {
+        value: true
+    }
     updateOrganization: (payload: OrganizationUpdatePayload) => OrganizationUpdatePayload
     updateOrganizationFailure: (
         error: string,
@@ -218,6 +229,7 @@ export const organizationLogic = kea<organizationLogicType>([
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: (error: string) => ({ error }),
+        refreshCurrentOrganization: true,
     }),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
@@ -251,8 +263,7 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
-                        return await api.get('api/organizations/@current')
+                        return await fetchCurrentOrganization()
                     } catch (error) {
                         if (error instanceof ApiError && error.status && error.status < 500) {
                             // The organization is gone or out of reach, so let the
@@ -384,10 +395,31 @@ export const organizationLogic = kea<organizationLogicType>([
                     pathLeavesCurrentOrganization(currentOrganization, pathname),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
+            }
+        },
+        refreshCurrentOrganization: async () => {
+            if (!values.currentOrganization || !isUserLoggedIn()) {
+                return
+            }
+            let organization: OrganizationType
+            try {
+                organization = await fetchCurrentOrganization()
+            } catch {
+                return
+            }
+            // Only a change to the block is adopted. The loader would flip `currentOrganizationLoading`,
+            // which drives the settings forms, and a new object would re-render every reader of it.
+            const current = values.currentOrganization
+            if (
+                current?.id === organization.id &&
+                (organizationBlockPage(organization) !== organizationBlockPage(current) ||
+                    organization.is_not_active_reason !== current.is_not_active_reason)
+            ) {
+                actions.loadCurrentOrganizationSuccess(organization)
             }
         },
         createOrganizationSuccess: () => {
@@ -432,7 +464,23 @@ export const organizationLogic = kea<organizationLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        // The disposables plugin runs this setup again each time the tab becomes visible, so a member who
+        // returns to the tab also sees a block that landed while it was hidden. Only a run inside this
+        // mount skips the refresh, because the mount already has a fresh organization. A tab that mounts
+        // hidden runs the setup first on its first show, and that run must refresh.
+        let mounting = true
+        cache.disposables.add(() => {
+            if (!mounting) {
+                actions.refreshCurrentOrganization()
+            }
+            const intervalId = window.setInterval(
+                () => actions.refreshCurrentOrganization(),
+                ORGANIZATION_REFRESH_INTERVAL_MS
+            )
+            return () => window.clearInterval(intervalId)
+        }, 'organizationRefresh')
+        mounting = false
         const appContext = getAppContext()
         const contextualOrganization = appContext?.current_user?.organization
         if (contextualOrganization) {

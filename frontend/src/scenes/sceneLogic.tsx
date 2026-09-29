@@ -89,6 +89,10 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
 /**
  * Moves a member of a blocked organization off a path the block closes. Returns true when it navigated.
  */
+function isOrganizationBlockScene(sceneId: string | null): boolean {
+    return sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion
+}
+
 function leaveBlockedOrganizationPath(): boolean {
     const { currentOrganizationBlockPage, isPathInAnotherOrganization, isPathOpenWhileBlocked } =
         organizationLogic.values
@@ -724,6 +728,15 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        // An open tab learns about a block or a reactivation from a refresh, not from a navigation, so
+        // apply the same decision `openScene` makes to the page the member is on.
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
+            if (organizationLogic.values.currentOrganizationBlockPage) {
+                leaveBlockedOrganizationPath()
+            } else if (isOrganizationBlockScene(values.sceneId)) {
+                router.actions.replace(urls.projectRoot())
+            }
+        },
         // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
         // and the picker that would change it sits behind that screen. Drop the setting instead.
         resetUnavailableHomepage: ({ pathname }) => {
@@ -907,7 +920,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
+                if (isOrganizationBlockScene(sceneId)) {
                     // The organization is open again, so let the member back in, as the server does. The server
                     // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
                     router.actions.replace(urls.projectRoot())
