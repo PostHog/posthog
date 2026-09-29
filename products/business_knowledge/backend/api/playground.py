@@ -7,6 +7,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,6 +34,11 @@ from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer,
 from .settings import CanonicalTeamTokenPermission
 
 
+class PlaygroundChatPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+
 class BusinessKnowledgePlaygroundChatViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -42,6 +48,7 @@ class BusinessKnowledgePlaygroundChatViewSet(
     requires_resource_level_access = True
     queryset = PlaygroundChat.objects.unscoped()
     serializer_class = PlaygroundChatSerializer
+    pagination_class = PlaygroundChatPagination
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,

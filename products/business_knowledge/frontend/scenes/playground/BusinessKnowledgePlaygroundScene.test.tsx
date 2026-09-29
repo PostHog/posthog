@@ -49,6 +49,7 @@ const playgroundValues = {
     chatId: 'chat-1',
     chatSearch: '',
     chatsLoading: false,
+    chatsError: null,
     nextChatsOffset: null,
     loadingMoreChats: false,
     moreChatsError: null,
@@ -136,5 +137,22 @@ describe('BusinessKnowledgePlaygroundScene', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Load more chats' }))
         expect(loadMoreChats).toHaveBeenCalledTimes(1)
+    })
+
+    it('offers a retry when the first chat list request fails', () => {
+        const loadChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({
+            ...playgroundValues,
+            chats: [],
+            chatGroups: [],
+            chatsError: "Couldn't load chats. Try again.",
+        })
+        jest.mocked(useActions).mockReturnValue({ loadChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load chats. Try again.")
+        expect(screen.queryByText('No chats yet')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+        expect(loadChats).toHaveBeenCalledTimes(1)
     })
 })

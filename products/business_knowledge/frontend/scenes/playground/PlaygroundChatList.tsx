@@ -16,6 +16,7 @@ import { formatChatAge } from './playgroundDisplay'
 export function PlaygroundChatList(): JSX.Element {
     const {
         chats,
+        chatsError,
         chatsLoading,
         chatGroups,
         chatSearch,
@@ -26,7 +27,9 @@ export function PlaygroundChatList(): JSX.Element {
         loadingMoreChats,
         moreChatsError,
     } = useValues(businessKnowledgePlaygroundLogic)
-    const { newChat, deleteChat, setChatSearch, loadMoreChats } = useActions(businessKnowledgePlaygroundLogic)
+    const { newChat, deleteChat, setChatSearch, loadChats, loadMoreChats } = useActions(
+        businessKnowledgePlaygroundLogic
+    )
 
     const confirmDelete = (id: string): void => {
         LemonDialog.open({
@@ -73,6 +76,13 @@ export function PlaygroundChatList(): JSX.Element {
                         <LemonSkeleton className="h-8" />
                         <LemonSkeleton className="h-8 opacity-60" />
                         <LemonSkeleton className="h-8 opacity-30" />
+                    </div>
+                ) : chatsError && chats.length === 0 ? (
+                    <div role="alert" className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+                        <p className="mb-0 text-xs text-danger">{chatsError}</p>
+                        <LemonButton size="small" loading={chatsLoading} onClick={() => loadChats()}>
+                            Retry
+                        </LemonButton>
                     </div>
                 ) : chatGroups.length === 0 ? (
                     <div className="m-1 rounded-md border border-dashed py-8 text-center text-muted">
