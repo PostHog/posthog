@@ -102,6 +102,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         pipelinesLoadFailed: [
             false,
             {
+                loadPipelines: () => false,
                 loadPipelinesSuccess: () => false,
                 loadPipelinesFailure: () => true,
             },

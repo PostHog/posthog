@@ -47,6 +47,10 @@ describe('autoresearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(statusLogicValues()).toBe('unknown')
         expect(logic.values.pipelinesLoadFailed).toBe(true)
+
+        mockList.mockReturnValue(new Promise(() => {}))
+        logic.actions.loadPipelines()
+        expect(logic.values.pipelinesLoadFailed).toBe(false)
     })
 
     it('follows every page of the list', async () => {
