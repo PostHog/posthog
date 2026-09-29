@@ -78242,6 +78242,8 @@ export namespace Schemas {
       review_labeled_prs?: boolean;
       /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
       resolve_comments?: boolean;
+      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
+      celebrate_clean_reviews?: boolean;
       /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
       review_authored_prs?: boolean;
       /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
@@ -89723,6 +89725,8 @@ export namespace Schemas {
       review_labeled_prs?: boolean;
       /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
       resolve_comments?: boolean;
+      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
+      celebrate_clean_reviews?: boolean;
       /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
       review_authored_prs?: boolean;
       /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
@@ -98069,6 +98073,63 @@ export namespace Schemas {
       skipped: StaffCohortSkipped[];
       /** Requested cohort ids that do not exist. */
       not_found_cohort_ids: number[];
+    }
+
+    export interface StaffFlagEvaluationsModeMutation {
+      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /**
+         * Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.
+         * @minItems 1
+         * @maxItems 50
+         */
+      team_ids: number[];
+      /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+      allow_downgrade?: boolean;
+      /** Report what the write would change, and write nothing. */
+      dry_run?: boolean;
+    }
+
+    export interface StaffOrganizationModeChange {
+      /** The organization's mode before the write.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      current_mode: FlagEvaluationsModeEnum;
+      /** The target mode.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      target_mode: FlagEvaluationsModeEnum;
+      /** Organization id. */
+      organization_id: string;
+      /** Organization name. */
+      organization_name: string;
+      /** Teams of the organization. They all read the organization's mode. */
+      team_count: number;
+      /** True when the write moved the organization to the target mode, or would on a dry run. */
+      changed: boolean;
+      /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
+      left_above_mode: boolean;
+    }
+
+    export interface StaffFlagEvaluationsModeResponse {
+      /** The target mode of the request.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** True when the request wrote nothing. */
+      dry_run: boolean;
+      /** One entry per organization the request covers, oldest organization first. */
+      organizations: StaffOrganizationModeChange[];
     }
 
     export interface StaffStuckCohortsResponse {
@@ -107960,7 +108021,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * Search string matched against team id (exact), api_token (exact), team name (partial), organization name (partial), or organization id (exact). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
      * @minLength 1
      */
     search: string;
