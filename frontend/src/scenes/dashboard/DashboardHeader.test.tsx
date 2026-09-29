@@ -138,7 +138,7 @@ describe('DashboardHeader', () => {
                 <button type="button">Dialog action</button>
             </LemonModal>
         )
-        const dialogButton = screen.getByRole('button', { name: 'Dialog action' })
+        const dialogButton = screen.getByText('Dialog action')
         dialogButton.focus()
         fireEvent.keyDown(dialogButton, { key: 'Escape', code: 'Escape' })
 
