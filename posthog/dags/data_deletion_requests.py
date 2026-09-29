@@ -49,6 +49,7 @@ from posthog.models.data_deletion_request import (
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     FLAG_EVALUATIONS,
+    PERSONAL_DATA_TARGETS,
     DeletionTarget,
     TargetPlacement,
     UnsweepableRowsError,
@@ -651,9 +652,10 @@ def _event_removal_placements(
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [
-        p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events) and p.target not in skip_targets
-    ]
+    # Skipped targets are dropped before resolve_placements, which raises for an unreachable target
+    # that still holds rows.
+    targets = [t for t in PERSONAL_DATA_TARGETS if t not in skip_targets]
+    placements = [p for p in resolve_placements(cluster, targets) if p.target.may_hold_any_of(events)]
     if not deletion_request.hogql_predicate:
         return placements
 
