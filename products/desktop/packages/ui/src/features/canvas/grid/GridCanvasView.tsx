@@ -4,6 +4,7 @@ import type {
   LayoutOperation,
 } from "@posthog/core/canvas/gridLayoutSchemas";
 import { Button, Text } from "@posthog/quill";
+import { CANVAS_COMMENTS_FLAG } from "@posthog/shared";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -73,6 +75,7 @@ export function GridCanvasView({
 
   // The layout version the grid is on, in the freeform toolbar's vocabulary.
   const { versions } = useCanvasVersions(canvasId);
+  const canvasCommentsFlag = useFeatureFlag(CANVAS_COMMENTS_FLAG);
   const versionText = useMemo(() => {
     if (!currentVersionId || versions.length === 0) return null;
     const index = versions.findIndex(
@@ -205,6 +208,10 @@ export function GridCanvasView({
   if (isLoading || !layout || !placements || !dashboard) {
     return <LoadingState />;
   }
+  const commentTaskId = canvasCommentTaskId(
+    dashboard.generationTaskId ?? startedCanvasTaskId,
+    versions,
+  );
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -254,10 +261,8 @@ export function GridCanvasView({
           <GridChatPanel
             target={widgetTarget}
             canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
-            commentTaskId={canvasCommentTaskId(
-              dashboard.generationTaskId ?? startedCanvasTaskId,
-              versions,
-            )}
+            commentTaskId={commentTaskId}
+            commentsEnabled={canvasCommentsFlag || !!commentTaskId}
             canvasVersionId={currentVersionId ?? null}
             commentVersionLabel={commentVersionLabel}
             canvasId={canvasId}

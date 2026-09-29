@@ -10,6 +10,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
   useSelectedCanvasId: () => useSelectedCanvasId(),
 }));

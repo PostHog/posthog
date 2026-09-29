@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CANVAS_COMMENTS_FLAG } from "@posthog/shared";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -44,6 +45,7 @@ import {
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
@@ -294,8 +296,10 @@ function CanvasBreadcrumb({
     dashboard?.generationTaskId,
     versions,
   );
+  const commentsEnabled =
+    useFeatureFlag(CANVAS_COMMENTS_FLAG) || !!commentTaskId;
   const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
+    commentsEnabled ? commentTarget : null,
     commentTaskId ?? "",
     { live: true },
   );
@@ -321,7 +325,7 @@ function CanvasBreadcrumb({
       }
       trailing={
         <>
-          {commentTaskId && (
+          {commentsEnabled && (
             <Button size="sm" variant="outline" onClick={openComments}>
               <ChatCircleIcon />
               Comments

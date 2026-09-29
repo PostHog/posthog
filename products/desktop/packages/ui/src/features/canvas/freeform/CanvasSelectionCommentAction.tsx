@@ -6,7 +6,10 @@ import {
   commentAgentContext,
   withScreenshot,
 } from "@posthog/ui/features/sessions/commentAgentContext";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCreateComment } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import type { HostCanvasTextSelection } from "./canvasSelection";
@@ -14,6 +17,7 @@ import type { HostCanvasTextSelection } from "./canvasSelection";
 export function CanvasSelectionCommentAction({
   selection,
   taskId,
+  enabled,
   dashboardId,
   canvasName,
   versionId,
@@ -21,6 +25,7 @@ export function CanvasSelectionCommentAction({
 }: {
   selection: HostCanvasTextSelection | null;
   taskId: string | null;
+  enabled: boolean;
   dashboardId: string;
   canvasName: string;
   versionId: string | null;
@@ -59,7 +64,7 @@ export function CanvasSelectionCommentAction({
             }
           : null
       }
-      open={!!selection && !!taskId}
+      open={!!selection && enabled}
       filePath={canvasName}
       actionLabel="Add comment"
       placeholder="Add a comment about this selection"
@@ -84,7 +89,7 @@ export function CanvasSelectionCommentAction({
           : undefined
       }
       onSubmit={async (_start, _end, content, mentions) => {
-        if (!anchor || !taskId) return;
+        if (!anchor || !enabled) return;
         openComments();
         const comment = await createComment.mutateAsync({
           content,
@@ -96,9 +101,14 @@ export function CanvasSelectionCommentAction({
         });
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id, {
-            intent: "focus-only",
-          });
+          .requestCommentFocus(
+            canvasCommentFocusKey(dashboardId),
+            target,
+            comment.id,
+            {
+              intent: "focus-only",
+            },
+          );
       }}
     />
   );

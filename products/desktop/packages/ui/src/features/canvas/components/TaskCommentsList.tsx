@@ -165,7 +165,7 @@ function ResourceThreadRow({
   thread: TaskCommentThread;
   source: CommentSource;
   root: ResourceComment;
-  taskId: string;
+  taskId: string | null;
   members: UserBasic[];
   selected: boolean;
   pulsing: boolean;
@@ -173,7 +173,7 @@ function ResourceThreadRow({
   onOpen: () => void;
   commentVersionLabel?: (versionId: string) => string | null;
 }) {
-  const createComment = useCreateComment(source.target, taskId);
+  const createComment = useCreateComment(source.target, taskId ?? undefined);
   const setResolved = useSetCommentResolved(source.target);
   const rootPending = isOptimisticComment(root);
 
@@ -296,7 +296,7 @@ export function TaskCommentsList({
   commentVersionLabel,
   onCanvasCommentOpen,
 }: {
-  taskId: string;
+  taskId: string | null;
   task?: Task;
   timeline?: ThreadTimelineRow<TaskThreadMessage>[];
   /** Restricts the pane to one resource known by its host, without relying on
@@ -306,14 +306,19 @@ export function TaskCommentsList({
   commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
-  const { runs } = useTaskRuns(onlySource ? undefined : taskId);
+  const focusKey = onlySource
+    ? commentTargetKey(onlySource.target)
+    : (taskId ?? "");
+  const { runs } = useTaskRuns(onlySource ? undefined : (taskId ?? undefined));
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const activeArtifactId = useActiveArtifactId(taskId);
+  const activeArtifactId = useActiveArtifactId(focusKey);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
-  const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
+  const focus = useCommentNavigationStore(
+    (state) => state.focusByTask[focusKey],
+  );
   const resolutionsByTarget = useCommentNavigationStore(
     (state) => state.resolutionsByTarget,
   );
@@ -323,23 +328,23 @@ export function TaskCommentsList({
   const [draft, setDraft] = useState("");
   const threadListRef = useRef<HTMLDivElement>(null);
   const sourceFilterTouched = useRef(false);
-  const previousTaskId = useRef(taskId);
+  const previousFocusKey = useRef(focusKey);
 
   useEffect(() => {
-    if (previousTaskId.current === taskId) return;
-    previousTaskId.current = taskId;
+    if (previousFocusKey.current === focusKey) return;
+    previousFocusKey.current = focusKey;
     sourceFilterTouched.current = false;
     setSourceFilter(ALL_SOURCES);
     setDraft("");
-  }, [taskId]);
+  }, [focusKey]);
 
   const rows = useMemo(
     () => (task ? buildRows(task, timeline ?? [], runs) : []),
     [task, timeline, runs],
   );
   const sources = useMemo(
-    () => (onlySource ? [onlySource] : commentSources(taskId, rows)),
-    [taskId, rows, onlySource],
+    () => (onlySource ? [onlySource] : commentSources(focusKey, rows)),
+    [focusKey, rows, onlySource],
   );
   const targets = useMemo(
     () =>
@@ -353,11 +358,11 @@ export function TaskCommentsList({
   );
   const singleSourceComments = useCommentsQuery(
     onlySource?.target ?? null,
-    taskId,
+    taskId ?? "",
   );
   const taskComments = useCommentsForTargetsQuery(
     onlySource ? [] : targets,
-    taskId,
+    focusKey,
     {
       live: true,
       intervalMs: POLL_INTERVAL_MS,
@@ -409,9 +414,9 @@ export function TaskCommentsList({
     prUrls.length,
   ]);
 
-  const taskTarget = useMemo(() => taskCommentTarget(taskId), [taskId]);
+  const taskTarget = useMemo(() => taskCommentTarget(focusKey), [focusKey]);
   const composerTarget = onlySource?.target ?? taskTarget;
-  const createComment = useCreateComment(composerTarget, taskId);
+  const createComment = useCreateComment(composerTarget, taskId ?? undefined);
 
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
@@ -505,20 +510,20 @@ export function TaskCommentsList({
     (thread: TaskCommentThread, requestThreadFocus = true) => {
       const origin = thread.origin;
       if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
-        openPrInReview(taskId, origin.prUrl);
+        openPrInReview(focusKey, origin.prUrl);
         if (origin.kind === "pr-review") {
           // The review pane scrolls by file; a specific comment is as close as it
           // gets until it grows a per-thread target.
           useReviewNavigationStore
             .getState()
-            .requestScrollToFile(taskId, origin.filePath);
+            .requestScrollToFile(focusKey, origin.filePath);
         }
         return;
       }
       const { source, root } = origin;
       if (source.kind === "canvas") {
         if (requestThreadFocus) {
-          requestCommentFocus(taskId, source.target, root.id);
+          requestCommentFocus(focusKey, source.target, root.id);
         }
         if (onCanvasCommentOpen) {
           onCanvasCommentOpen(
@@ -531,16 +536,16 @@ export function TaskCommentsList({
       }
       // A thread on the task itself has nowhere else to open because it lives here.
       if (source.kind === "task" || !source.runId) return;
-      openArtifactTab(taskId, {
+      openArtifactTab(focusKey, {
         runId: source.runId,
         artifactId: source.target.itemId,
         name: source.name,
       });
       if (requestThreadFocus) {
-        requestCommentFocus(taskId, source.target, root.id);
+        requestCommentFocus(focusKey, source.target, root.id);
       }
     },
-    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, taskId],
+    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, focusKey],
   );
 
   // A thread picked on the artifact itself has to surface here, even when a
@@ -549,12 +554,12 @@ export function TaskCommentsList({
   const focusedThreadId = focus?.threadId ?? null;
   const handledFocusRef = useRef<string | null>(null);
   useEffect(() => {
-    const focusKey = focus ? `${taskId}:${focus.nonce}` : null;
-    if (!focus || handledFocusRef.current === focusKey) return;
+    const handledKey = focus ? `${focusKey}:${focus.nonce}` : null;
+    if (!focus || handledFocusRef.current === handledKey) return;
     const focused = threads.find((thread) => thread.id === focus.threadId);
     // The thread may still be loading, so wait rather than guess its filters.
     if (!focused) return;
-    handledFocusRef.current = focusKey;
+    handledFocusRef.current = handledKey;
     setStateFilter(focused.resolved ? "resolved" : "open");
     setSourceFilter((current) =>
       current === ALL_SOURCES || current === focused.sourceKey
@@ -571,7 +576,7 @@ export function TaskCommentsList({
       );
       if (pane && thread) scrollThreadInPane(pane, thread);
     });
-  }, [focus, openThread, threads, taskId]);
+  }, [focus, openThread, threads, focusKey]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -690,7 +695,7 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            requestCommentFocus(taskId, composerTarget, created.id, {
+            requestCommentFocus(focusKey, composerTarget, created.id, {
               intent: "focus-only",
             });
           }}
