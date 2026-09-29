@@ -2,8 +2,8 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import type { AppContext } from '~/types'
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
 import { areClientFeatureFlagsHonored, featureFlagLogic, getPersistedFeatureFlags } from './featureFlagLogic'
 
