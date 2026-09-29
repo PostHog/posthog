@@ -279,7 +279,21 @@
             ],
             "description": "Enables the customer conversations / live chat product for this project."
         },
-        "conversations_settings": {},
+        "conversations_settings": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Settings for Conversations. Must be a JSON object or null."
+        },
         "cookieless_server_hash_mode": {
             "anyOf": [
                 {
