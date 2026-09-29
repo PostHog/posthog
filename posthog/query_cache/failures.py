@@ -87,23 +87,11 @@ class QueryFailureCache:
         self.key = f"query_failure:{cache_key}"
 
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
-        """Return the caller's retry deadline without changing stored failure history.
-
-        A future deadline makes get_open() serve the cached failure. None or a deadline
-        at or before now allows a retry. Neither clears the consecutive failure count.
-        Overrides can extend the caller's cooldown without delaying foreground retries.
-        """
+        """Return the retry deadline; None or a past deadline allows a retry."""
         return record.open_until
 
     def get_open(self) -> Optional[QueryFailureRecord]:
-        """Return a failure whose retry deadline is still in the future, or None.
-
-        A returned record tells the caller to skip calculation and serve the saved
-        error if the failure covers its execution budget (see record.forbids()).
-        None means this cache does not block a retry, not that the query will succeed
-        or must run. The caller can still serve a fresh result or apply other checks.
-        Reading does not clear failure history, extend its TTL, or save the deadline.
-        """
+        """Return a failure still in cooldown, or None. Callers must also check record.forbids(budget)."""
         record = self._load()
         if record is not None:
             record = replace(record, open_until=self.retry_after(record))
