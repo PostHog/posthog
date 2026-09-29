@@ -7987,25 +7987,25 @@ snapshots:
     scenes-app-businessknowledge-knowledgesourcenamecell--user-text--light:
         hash: v1.k794b7964.fba04716b8f344e21fa3bb2ec69e627bd9836ff2161986538ac2b562973b0edc.Xl-YJ8Poqz1nofU4nIyAfnM4GbZZ1YYtbM37mIzZ4w4
     scenes-app-customer-analytics-account-detail--default--dark:
-        hash: v1.k794b7964.32d5329bf4ce6055010743914ec226973cc4d455a70581692f97d8cae13c04f1.4Zd5MpCXYXWDIegWaghLkfmgRx11JTVSpbyCab_3_YU
+        hash: v1.k794b7964.b722c6c92866329d952050c1b454d323b3cc753cf2da0966309dedc9ce1277ae.t2xO0wIJkkKdoiJrSN79BB9HEDAk_ibLhBDWI6lammU
     scenes-app-customer-analytics-account-detail--default--light:
-        hash: v1.k794b7964.3a6ffd58e88bdd30817bc9c6b1c2c9f9bae8825975c121157efb3bd6fbba9f39.81lpbCyMf0S_9mRYZFcT97ecch6YY1--yoxMK2hI-xU
+        hash: v1.k794b7964.d4a4366994ca6bc7a66a61717a30d03be4d912efa40ed71031a100c38d99fc91.90Kqh9qtggxPpuTU6hTnVnIOxQfm8xJvVPx5glfp6xk
     scenes-app-customer-analytics-account-detail--external-id--dark:
-        hash: v1.k794b7964.3b9ede70a7ed63499ad3d0af05d3ef48768a4b3f739188c18ea92359c4e79ca5.891Bbj7hbUzalM62rLwAJPVPqnQjC1IqugNpYLjfS8E
+        hash: v1.k794b7964.f8ae0455e63cce9ec11e141a98d495fc721386d77ff809ba170c83eef841a528.B4RO1BEXmx8eB3Jpkdm_TccVpfGovN-lvZBa8OxxTY4
     scenes-app-customer-analytics-account-detail--external-id--light:
-        hash: v1.k794b7964.f33b988a1b58fed2225acb0bdaf75a28c0ef8b094d8a874e4ecfea1704710f95.I_nTZzangmXWh1QhKFugn7GJYhnsMLcMwolRQ9fO7Yg
+        hash: v1.k794b7964.09a01fcd9830239f684e589179ecd6fe4265196d60554307df84dbe86d6f2f1d.bFV4kcj3vJfQqSVmMbAVLXyw5xV4PzafDhtpKO1tHUo
     scenes-app-customer-analytics-account-detail--narrow--dark:
-        hash: v1.k794b7964.31ffca7eb6c59cf545dd8f16e7a532149448b95c65444aa14d5e776a0875dafd.lULK4-DoenY3SeZK1Sfr50doCkqdIbyl9U35M4ah00g
+        hash: v1.k794b7964.168b51fc7bb530e2f0cf319c2f40bec95c13ce0ef5b7a1e64d9e161e178ad541.N2Hoo63uX3J2ppmOTs_ZAzcX_JaKpu8646UHPvMsaa8
     scenes-app-customer-analytics-account-detail--narrow--light:
-        hash: v1.k794b7964.5a6763d49a273274f686f1517da9d2ba4af64b5be6897a9886addc04f429c209.JZ6O0iGKO-5AKZyg0XnVZ8JoOZ2-Jg4i9E746aSUm2I
+        hash: v1.k794b7964.d268860af68579ee5a269b8b20f22d1643a6791bf677851ae760569635b22d27.6D3Xn7IFqBI9s8rz5SeHqMQNJieJm07ToJRX8yvpa64
     scenes-app-customer-analytics-account-detail--pinned-properties--dark:
-        hash: v1.k794b7964.c9bf124e1b6ac61c97cc341788244e25f32b5288b5cf45664b8759d0d0c384d9.5IUvjb3RB5_uobh_9zOjsFbiPbaCNeMwKTof3CDb2FI
+        hash: v1.k794b7964.e8c6dfd9b14aaebdef6509e0b1c9cb79104edcb601540b3281389f970994a42f.ZCIo29eW7hUVoJSQM5domMOzZJxQ7xTLHbyglkVTwZQ
     scenes-app-customer-analytics-account-detail--pinned-properties--light:
-        hash: v1.k794b7964.60d428d3b31111585e14a43eda01fa1bc1c598c04fb0ba12e895204ccf0421d2.Y2AJGXAEGUlItnKmh9gv5j2I_Epcl4ehUF_fCKC1ewc
+        hash: v1.k794b7964.26baa4906be5a0a6e80ee162f3caada163d5606ed6fbd0d322c1b63495f208e9.1vU97twfzIg__VzQeKQxh1b7Qmks9-7ugaL8Zf2bXJY
     scenes-app-customer-analytics-account-detail--pinned-properties-narrow--dark:
-        hash: v1.k794b7964.ff9da4647c64580046ded4d93bfd5d1f5b9ddeb91afa106e89b290b1294caba3.v7FVsOduvBV8A7I35N0H0rNRbTs70559gvkezl-TZJs
+        hash: v1.k794b7964.de33855f1c17a82c55e0faec33846783e220077115f4b517f8d020ae9a3db08c.dw3swEPrHa8inmBHh5AfcyVobSGqctlmpctsHlqkWpg
     scenes-app-customer-analytics-account-detail--pinned-properties-narrow--light:
-        hash: v1.k794b7964.2abb48fdc076ac41b8fc614e2917b8eb5075b0f88d3d0fc904eaab2c97a2eca0.UrfORDRAfYTngPUcDgRb8nS6pT4ExcEp0HmF9kD7zf0
+        hash: v1.k794b7964.c6566c518481be0dc38e0199184d0dfc5704e1b630f08a490bc7c97a7af1d2c7.VLxVjB9T-b8DvQRA28t9c1C1douss-KH4MnkbuuhqaQ
     scenes-app-customer-analytics-account-detail-property-sidebar--custom-property-editors--dark:
         hash: v1.k794b7964.caefec23d66985f72f6eb40a23370ec4bf1701b9b6cfccd2a4b2b09cc9c1606f.lJ1UWZ6LkZI-k4XJw5UtuIJx1m5tWlMyvgoPlQH2L-g
     scenes-app-customer-analytics-account-detail-property-sidebar--custom-property-editors--light:
