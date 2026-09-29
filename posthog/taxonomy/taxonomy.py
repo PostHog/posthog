@@ -131,7 +131,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `hogli build:projections` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string

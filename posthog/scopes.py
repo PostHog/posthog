@@ -6,9 +6,9 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# WARNING: A new scope object also needs a row in `API_SCOPES` in frontend/src/lib/scopes.tsx,
-# or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`. frontend/src/lib/scopes.test.ts
-# fails until one of them exists.
+# WARNING: A new scope object also needs a row in `API_SCOPES` and a group in `API_SCOPE_GROUPS`
+# in frontend/src/lib/scopes.tsx, or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`.
+# frontend/src/lib/scopes.test.ts fails until they exist.
 #
 # The frontend's `APIScopeObject` type derives from the `ScopeObjectEnum` that the access control
 # API publishes (`GRANTABLE_API_SCOPE_OBJECTS` below), so `hogli build:openapi` carries a new object
@@ -16,8 +16,8 @@ from typing import Literal, get_args
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
-# `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
-# `hogli build:openapi` to regenerate after editing this file.
+# `get_scope_descriptions()` below via `posthog/scopes_projection.py`. Run
+# `hogli build:projections` to regenerate after editing this file.
 APIScopeObject = Literal[
     "action",
     "access_control",
@@ -341,7 +341,7 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
 # These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
 # endpoint. Duplicating the list as plain tuple (rather than importing from
 # oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
-# the MCP codegen relies on (see `bin/build-mcp-oauth-scopes.py`).
+# the MCP projection relies on (see `posthog/scopes_projection.py`).
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 
 
@@ -624,7 +624,7 @@ def get_oauth_scopes_supported() -> list[str]:
 
     Used by the authorization server's `/.well-known/oauth-authorization-server`
     endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
-    (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
+    (the latter generated at build time via `posthog/scopes_projection.py` so
     the protected resource cannot drift out of subset of the AS).
 
     Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
