@@ -184,9 +184,357 @@ export namespace Schemas {
      */
     export type AccessControlDefaultsResponseResourceAccessLevels = {[key: string]: AccessControlResourceDefault};
 
+    /**
+     * * `action` - action
+     * * `access_control` - access_control
+     * * `account` - account
+     * * `activity_log` - activity_log
+     * * `alert` - alert
+     * * `annotation` - annotation
+     * * `approvals` - approvals
+     * * `autoresearch` - autoresearch
+     * * `batch_export` - batch_export
+     * * `batch_import` - batch_import
+     * * `batch_import_support` - batch_import_support
+     * * `billing` - billing
+     * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `cohort` - cohort
+     * * `comment` - comment
+     * * `conversation` - conversation
+     * * `customer_analytics` - customer_analytics
+     * * `customer_task` - customer_task
+     * * `customer_journey` - customer_journey
+     * * `customer_profile_config` - customer_profile_config
+     * * `data_catalog` - data_catalog
+     * * `data_catalog_approval` - data_catalog_approval
+     * * `data_deletion` - data_deletion
+     * * `dashboard` - dashboard
+     * * `event_filter` - event_filter
+     * * `dashboard_template` - dashboard_template
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `engineering_analytics` - engineering_analytics
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `element` - element
+     * * `event_definition` - event_definition
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_schema` - external_data_schema
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `file_system` - file_system
+     * * `file_system_shortcut` - file_system_shortcut
+     * * `group` - group
+     * * `health_issue` - health_issue
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `hog_function` - hog_function
+     * * `ingestion_warning` - ingestion_warning
+     * * `insight` - insight
+     * * `insight_variable` - insight_variable
+     * * `integration` - integration
+     * * `legal_document` - legal_document
+     * * `link` - link
+     * * `live_debugger` - live_debugger
+     * * `llm_analytics` - llm_analytics
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `llm_gateway` - llm_gateway
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `loop` - loop
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `mcp_registry` - mcp_registry
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
+     * * `organization` - organization
+     * * `organization_integration` - organization_integration
+     * * `organization_member` - organization_member
+     * * `person` - person
+     * * `plugin` - plugin
+     * * `product_enablement` - product_enablement
+     * * `product_tour` - product_tour
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `query` - query
+     * * `query_performance` - query_performance
+     * * `replay_scanner` - replay_scanner
+     * * `review_hog` - review_hog
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `signal_scout` - signal_scout
+     * * `stamphog` - stamphog
+     * * `streamlit_app` - streamlit_app
+     * * `subscription` - subscription
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `task` - task
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `field_note` - field_note
+     * * `uploaded_media` - uploaded_media
+     * * `usage_metric` - usage_metric
+     * * `user` - user
+     * * `user_interview` - user_interview
+     * * `vision_action` - vision_action
+     * * `vision_alert` - vision_alert
+     * * `visual_review` - visual_review
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics
+     * * `webhook` - webhook
+     * * `wizard_session` - wizard_session
+     * * `wizard_run` - wizard_run
+     */
+    export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
+
+
+    export const ScopeObjectEnum = {
+      Action: 'action',
+      AccessControl: 'access_control',
+      Account: 'account',
+      ActivityLog: 'activity_log',
+      Alert: 'alert',
+      Annotation: 'annotation',
+      Approvals: 'approvals',
+      Autoresearch: 'autoresearch',
+      BatchExport: 'batch_export',
+      BatchImport: 'batch_import',
+      BatchImportSupport: 'batch_import_support',
+      Billing: 'billing',
+      BusinessKnowledge: 'business_knowledge',
+      Canvas: 'canvas',
+      Cohort: 'cohort',
+      Comment: 'comment',
+      Conversation: 'conversation',
+      CustomerAnalytics: 'customer_analytics',
+      CustomerTask: 'customer_task',
+      CustomerJourney: 'customer_journey',
+      CustomerProfileConfig: 'customer_profile_config',
+      DataCatalog: 'data_catalog',
+      DataCatalogApproval: 'data_catalog_approval',
+      DataDeletion: 'data_deletion',
+      Dashboard: 'dashboard',
+      EventFilter: 'event_filter',
+      DashboardTemplate: 'dashboard_template',
+      Dataset: 'dataset',
+      EarlyAccessFeature: 'early_access_feature',
+      Endpoint: 'endpoint',
+      EngineeringAnalytics: 'engineering_analytics',
+      ErrorTracking: 'error_tracking',
+      Evaluation: 'evaluation',
+      Element: 'element',
+      EventDefinition: 'event_definition',
+      Experiment: 'experiment',
+      ExperimentHoldout: 'experiment_holdout',
+      ExperimentSavedMetric: 'experiment_saved_metric',
+      Export: 'export',
+      ExternalDataSchema: 'external_data_schema',
+      ExternalDataSource: 'external_data_source',
+      FeatureFlag: 'feature_flag',
+      FileSystem: 'file_system',
+      FileSystemShortcut: 'file_system_shortcut',
+      Group: 'group',
+      HealthIssue: 'health_issue',
+      Heatmap: 'heatmap',
+      HogFlow: 'hog_flow',
+      HogFunction: 'hog_function',
+      IngestionWarning: 'ingestion_warning',
+      Insight: 'insight',
+      InsightVariable: 'insight_variable',
+      Integration: 'integration',
+      LegalDocument: 'legal_document',
+      Link: 'link',
+      LiveDebugger: 'live_debugger',
+      LlmAnalytics: 'llm_analytics',
+      AiObservabilityClusters: 'ai_observability_clusters',
+      LlmGateway: 'llm_gateway',
+      LlmPlayground: 'llm_playground',
+      LlmPrompt: 'llm_prompt',
+      LlmProviderKey: 'llm_provider_key',
+      LlmSkill: 'llm_skill',
+      Logs: 'logs',
+      Loop: 'loop',
+      MarketingAnalytics: 'marketing_analytics',
+      McpAnalytics: 'mcp_analytics',
+      McpRegistry: 'mcp_registry',
+      Metrics: 'metrics',
+      Notebook: 'notebook',
+      OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
+      Organization: 'organization',
+      OrganizationIntegration: 'organization_integration',
+      OrganizationMember: 'organization_member',
+      Person: 'person',
+      Plugin: 'plugin',
+      ProductEnablement: 'product_enablement',
+      ProductTour: 'product_tour',
+      Project: 'project',
+      PropertyDefinition: 'property_definition',
+      Query: 'query',
+      QueryPerformance: 'query_performance',
+      ReplayScanner: 'replay_scanner',
+      ReviewHog: 'review_hog',
+      RevenueAnalytics: 'revenue_analytics',
+      SessionRecording: 'session_recording',
+      SessionRecordingPlaylist: 'session_recording_playlist',
+      SharingConfiguration: 'sharing_configuration',
+      SignalScout: 'signal_scout',
+      Stamphog: 'stamphog',
+      StreamlitApp: 'streamlit_app',
+      Subscription: 'subscription',
+      Survey: 'survey',
+      Tagger: 'tagger',
+      Ticket: 'ticket',
+      Task: 'task',
+      Toolbar: 'toolbar',
+      Tracing: 'tracing',
+      FieldNote: 'field_note',
+      UploadedMedia: 'uploaded_media',
+      UsageMetric: 'usage_metric',
+      User: 'user',
+      UserInterview: 'user_interview',
+      VisionAction: 'vision_action',
+      VisionAlert: 'vision_alert',
+      VisualReview: 'visual_review',
+      WarehouseObjects: 'warehouse_objects',
+      WarehouseTable: 'warehouse_table',
+      WarehouseView: 'warehouse_view',
+      WebAnalytics: 'web_analytics',
+      Webhook: 'webhook',
+      WizardSession: 'wizard_session',
+      WizardRun: 'wizard_run',
+    } as const;
+
     export interface AccessControlObjectRuleResource {
-      /** A resource type that supports rules on single objects. */
-      resource: string;
+      /** A resource type that supports rules on single objects.
+       *
+       * * `action` - action
+       * * `access_control` - access_control
+       * * `account` - account
+       * * `activity_log` - activity_log
+       * * `alert` - alert
+       * * `annotation` - annotation
+       * * `approvals` - approvals
+       * * `autoresearch` - autoresearch
+       * * `batch_export` - batch_export
+       * * `batch_import` - batch_import
+       * * `batch_import_support` - batch_import_support
+       * * `billing` - billing
+       * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
+       * * `cohort` - cohort
+       * * `comment` - comment
+       * * `conversation` - conversation
+       * * `customer_analytics` - customer_analytics
+       * * `customer_task` - customer_task
+       * * `customer_journey` - customer_journey
+       * * `customer_profile_config` - customer_profile_config
+       * * `data_catalog` - data_catalog
+       * * `data_catalog_approval` - data_catalog_approval
+       * * `data_deletion` - data_deletion
+       * * `dashboard` - dashboard
+       * * `event_filter` - event_filter
+       * * `dashboard_template` - dashboard_template
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `engineering_analytics` - engineering_analytics
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `element` - element
+       * * `event_definition` - event_definition
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_schema` - external_data_schema
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `file_system` - file_system
+       * * `file_system_shortcut` - file_system_shortcut
+       * * `group` - group
+       * * `health_issue` - health_issue
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `hog_function` - hog_function
+       * * `ingestion_warning` - ingestion_warning
+       * * `insight` - insight
+       * * `insight_variable` - insight_variable
+       * * `integration` - integration
+       * * `legal_document` - legal_document
+       * * `link` - link
+       * * `live_debugger` - live_debugger
+       * * `llm_analytics` - llm_analytics
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `llm_gateway` - llm_gateway
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `loop` - loop
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `mcp_registry` - mcp_registry
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
+       * * `organization` - organization
+       * * `organization_integration` - organization_integration
+       * * `organization_member` - organization_member
+       * * `person` - person
+       * * `plugin` - plugin
+       * * `product_enablement` - product_enablement
+       * * `product_tour` - product_tour
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `query` - query
+       * * `query_performance` - query_performance
+       * * `replay_scanner` - replay_scanner
+       * * `review_hog` - review_hog
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `signal_scout` - signal_scout
+       * * `stamphog` - stamphog
+       * * `streamlit_app` - streamlit_app
+       * * `subscription` - subscription
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `task` - task
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `field_note` - field_note
+       * * `uploaded_media` - uploaded_media
+       * * `usage_metric` - usage_metric
+       * * `user` - user
+       * * `user_interview` - user_interview
+       * * `vision_action` - vision_action
+       * * `vision_alert` - vision_alert
+       * * `visual_review` - visual_review
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics
+       * * `webhook` - webhook
+       * * `wizard_session` - wizard_session
+       * * `wizard_run` - wizard_run */
+      resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
       /** The lowest level an object rule on this resource can set. */
@@ -293,8 +641,122 @@ export namespace Schemas {
        * * `role` - role
        * * `default` - default */
       source_subject: ResolvedAccessSourceSubjectEnum | null;
-      /** The resource the deciding rule belongs to. */
-      source_resource: string;
+      /** The resource the deciding rule belongs to.
+       *
+       * * `action` - action
+       * * `access_control` - access_control
+       * * `account` - account
+       * * `activity_log` - activity_log
+       * * `alert` - alert
+       * * `annotation` - annotation
+       * * `approvals` - approvals
+       * * `autoresearch` - autoresearch
+       * * `batch_export` - batch_export
+       * * `batch_import` - batch_import
+       * * `batch_import_support` - batch_import_support
+       * * `billing` - billing
+       * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
+       * * `cohort` - cohort
+       * * `comment` - comment
+       * * `conversation` - conversation
+       * * `customer_analytics` - customer_analytics
+       * * `customer_task` - customer_task
+       * * `customer_journey` - customer_journey
+       * * `customer_profile_config` - customer_profile_config
+       * * `data_catalog` - data_catalog
+       * * `data_catalog_approval` - data_catalog_approval
+       * * `data_deletion` - data_deletion
+       * * `dashboard` - dashboard
+       * * `event_filter` - event_filter
+       * * `dashboard_template` - dashboard_template
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `engineering_analytics` - engineering_analytics
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `element` - element
+       * * `event_definition` - event_definition
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_schema` - external_data_schema
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `file_system` - file_system
+       * * `file_system_shortcut` - file_system_shortcut
+       * * `group` - group
+       * * `health_issue` - health_issue
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `hog_function` - hog_function
+       * * `ingestion_warning` - ingestion_warning
+       * * `insight` - insight
+       * * `insight_variable` - insight_variable
+       * * `integration` - integration
+       * * `legal_document` - legal_document
+       * * `link` - link
+       * * `live_debugger` - live_debugger
+       * * `llm_analytics` - llm_analytics
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `llm_gateway` - llm_gateway
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `loop` - loop
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `mcp_registry` - mcp_registry
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
+       * * `organization` - organization
+       * * `organization_integration` - organization_integration
+       * * `organization_member` - organization_member
+       * * `person` - person
+       * * `plugin` - plugin
+       * * `product_enablement` - product_enablement
+       * * `product_tour` - product_tour
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `query` - query
+       * * `query_performance` - query_performance
+       * * `replay_scanner` - replay_scanner
+       * * `review_hog` - review_hog
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `signal_scout` - signal_scout
+       * * `stamphog` - stamphog
+       * * `streamlit_app` - streamlit_app
+       * * `subscription` - subscription
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `task` - task
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `field_note` - field_note
+       * * `uploaded_media` - uploaded_media
+       * * `usage_metric` - usage_metric
+       * * `user` - user
+       * * `user_interview` - user_interview
+       * * `vision_action` - vision_action
+       * * `vision_alert` - vision_alert
+       * * `visual_review` - visual_review
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics
+       * * `webhook` - webhook
+       * * `wizard_session` - wizard_session
+       * * `wizard_run` - wizard_run */
+      source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
          * @nullable
@@ -580,8 +1042,122 @@ export namespace Schemas {
      * A stored rule on one object, as configured for a subject.
      */
     export interface AccessControlObjectRule {
-      /** The object's resource type, for example `dashboard`. */
-      resource: string;
+      /** The object's resource type, for example `dashboard`.
+       *
+       * * `action` - action
+       * * `access_control` - access_control
+       * * `account` - account
+       * * `activity_log` - activity_log
+       * * `alert` - alert
+       * * `annotation` - annotation
+       * * `approvals` - approvals
+       * * `autoresearch` - autoresearch
+       * * `batch_export` - batch_export
+       * * `batch_import` - batch_import
+       * * `batch_import_support` - batch_import_support
+       * * `billing` - billing
+       * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
+       * * `cohort` - cohort
+       * * `comment` - comment
+       * * `conversation` - conversation
+       * * `customer_analytics` - customer_analytics
+       * * `customer_task` - customer_task
+       * * `customer_journey` - customer_journey
+       * * `customer_profile_config` - customer_profile_config
+       * * `data_catalog` - data_catalog
+       * * `data_catalog_approval` - data_catalog_approval
+       * * `data_deletion` - data_deletion
+       * * `dashboard` - dashboard
+       * * `event_filter` - event_filter
+       * * `dashboard_template` - dashboard_template
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `engineering_analytics` - engineering_analytics
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `element` - element
+       * * `event_definition` - event_definition
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_schema` - external_data_schema
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `file_system` - file_system
+       * * `file_system_shortcut` - file_system_shortcut
+       * * `group` - group
+       * * `health_issue` - health_issue
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `hog_function` - hog_function
+       * * `ingestion_warning` - ingestion_warning
+       * * `insight` - insight
+       * * `insight_variable` - insight_variable
+       * * `integration` - integration
+       * * `legal_document` - legal_document
+       * * `link` - link
+       * * `live_debugger` - live_debugger
+       * * `llm_analytics` - llm_analytics
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `llm_gateway` - llm_gateway
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `loop` - loop
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `mcp_registry` - mcp_registry
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
+       * * `organization` - organization
+       * * `organization_integration` - organization_integration
+       * * `organization_member` - organization_member
+       * * `person` - person
+       * * `plugin` - plugin
+       * * `product_enablement` - product_enablement
+       * * `product_tour` - product_tour
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `query` - query
+       * * `query_performance` - query_performance
+       * * `replay_scanner` - replay_scanner
+       * * `review_hog` - review_hog
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `signal_scout` - signal_scout
+       * * `stamphog` - stamphog
+       * * `streamlit_app` - streamlit_app
+       * * `subscription` - subscription
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `task` - task
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `field_note` - field_note
+       * * `uploaded_media` - uploaded_media
+       * * `usage_metric` - usage_metric
+       * * `user` - user
+       * * `user_interview` - user_interview
+       * * `vision_action` - vision_action
+       * * `vision_alert` - vision_alert
+       * * `visual_review` - visual_review
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics
+       * * `webhook` - webhook
+       * * `wizard_session` - wizard_session
+       * * `wizard_run` - wizard_run */
+      resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
       /** The object's display name. Falls back to the id when it has no name. */
@@ -61008,8 +61584,122 @@ export namespace Schemas {
        * * `role` - role
        * * `default` - default */
       source_subject: ResolvedAccessSourceSubjectEnum | null;
-      /** The resource the deciding rule belongs to. */
-      source_resource: string;
+      /** The resource the deciding rule belongs to.
+       *
+       * * `action` - action
+       * * `access_control` - access_control
+       * * `account` - account
+       * * `activity_log` - activity_log
+       * * `alert` - alert
+       * * `annotation` - annotation
+       * * `approvals` - approvals
+       * * `autoresearch` - autoresearch
+       * * `batch_export` - batch_export
+       * * `batch_import` - batch_import
+       * * `batch_import_support` - batch_import_support
+       * * `billing` - billing
+       * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
+       * * `cohort` - cohort
+       * * `comment` - comment
+       * * `conversation` - conversation
+       * * `customer_analytics` - customer_analytics
+       * * `customer_task` - customer_task
+       * * `customer_journey` - customer_journey
+       * * `customer_profile_config` - customer_profile_config
+       * * `data_catalog` - data_catalog
+       * * `data_catalog_approval` - data_catalog_approval
+       * * `data_deletion` - data_deletion
+       * * `dashboard` - dashboard
+       * * `event_filter` - event_filter
+       * * `dashboard_template` - dashboard_template
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `engineering_analytics` - engineering_analytics
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `element` - element
+       * * `event_definition` - event_definition
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_schema` - external_data_schema
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `file_system` - file_system
+       * * `file_system_shortcut` - file_system_shortcut
+       * * `group` - group
+       * * `health_issue` - health_issue
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `hog_function` - hog_function
+       * * `ingestion_warning` - ingestion_warning
+       * * `insight` - insight
+       * * `insight_variable` - insight_variable
+       * * `integration` - integration
+       * * `legal_document` - legal_document
+       * * `link` - link
+       * * `live_debugger` - live_debugger
+       * * `llm_analytics` - llm_analytics
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `llm_gateway` - llm_gateway
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `loop` - loop
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `mcp_registry` - mcp_registry
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
+       * * `organization` - organization
+       * * `organization_integration` - organization_integration
+       * * `organization_member` - organization_member
+       * * `person` - person
+       * * `plugin` - plugin
+       * * `product_enablement` - product_enablement
+       * * `product_tour` - product_tour
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `query` - query
+       * * `query_performance` - query_performance
+       * * `replay_scanner` - replay_scanner
+       * * `review_hog` - review_hog
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `signal_scout` - signal_scout
+       * * `stamphog` - stamphog
+       * * `streamlit_app` - streamlit_app
+       * * `subscription` - subscription
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `task` - task
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `field_note` - field_note
+       * * `uploaded_media` - uploaded_media
+       * * `usage_metric` - usage_metric
+       * * `user` - user
+       * * `user_interview` - user_interview
+       * * `vision_action` - vision_action
+       * * `vision_alert` - vision_alert
+       * * `visual_review` - visual_review
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics
+       * * `webhook` - webhook
+       * * `wizard_session` - wizard_session
+       * * `wizard_run` - wizard_run */
+      source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
          * @nullable

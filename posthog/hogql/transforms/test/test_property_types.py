@@ -34,6 +34,8 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -1657,6 +1659,129 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         )
         assert inactive.results == [("[]", 1, 1)]
 
+    def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
+        event_uuid = _create_event(
+            team=self.team,
+            distinct_id="moved-properties",
+            event="$identify",
+            properties={
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+        )
+        flush_persons_and_events()
+
+        query = (
+            "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+            "JSONHas(properties, '$set'), JSONHas(properties, '$set', 'plan', 'tier'), "
+            "properties.$set_once.initial_referrer, properties.$set.plan.tier, JSONLength(properties, '$set'), "
+            "JSONType(properties, '$unset'), JSONExtractKeys(properties, '$set'), "
+            "JSONExtractArrayRaw(properties, '$unset'), toFloat(properties.$sdk_debug_replay_flushed_size), "
+            "properties.$sdk_debug_replay_flushed_size, properties.$browser, JSONExtractRaw(properties, '$set'), "
+            "properties.$unset, JSONExtractKeysAndValuesRaw(properties, '$set') "
+            f"FROM events WHERE uuid = '{event_uuid}' AND properties.$set.email = 'user@example.com'"
+        )
+        for use_new_events_schema in (False, True):
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            )
+            assert response.results == [
+                (
+                    "user@example.com",
+                    "user@example.com",
+                    1,
+                    1,
+                    "https://example.com",
+                    "pro",
+                    2,
+                    "Array",
+                    ["email", "plan"],
+                    ['"old_key"'],
+                    42.0,
+                    "42",
+                    "Firefox",
+                    '{"email":"user@example.com","plan":{"tier":"pro"}}',
+                    '["old_key"]',
+                    [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
+                )
+            ], use_new_events_schema
+
+        # One call per registered JSON function, so a newly registered function fails here until native reads the
+        # moved key. isValidJSON and JSONArrayLength take no key path.
+        moved_key_calls = {
+            "JSONHas": "JSONHas(properties, '$set', 'email')",
+            "JSONLength": "JSONLength(properties, '$set')",
+            "JSONType": "JSONType(properties, '$set')",
+            "JSONExtract": "JSONExtract(properties, '$set', 'email', 'String')",
+            "JSONExtractUInt": "JSONExtractUInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractInt": "JSONExtractInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractFloat": "JSONExtractFloat(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractBool": "JSONExtractBool(properties, '$set_once', 'is_beta')",
+            "JSONExtractString": "JSONExtractString(properties, '$set', 'email')",
+            "JSONExtractKeys": "JSONExtractKeys(properties, '$set')",
+            "JSONExtractRaw": "JSONExtractRaw(properties, '$set', 'plan')",
+            "JSONExtractArrayRaw": "JSONExtractArrayRaw(properties, '$unset')",
+            "JSONExtractKeysAndValues": "JSONExtractKeysAndValues(properties, '$set_once', 'String')",
+            "JSONExtractKeysAndValuesRaw": "JSONExtractKeysAndValuesRaw(properties, '$set_once')",
+            "JSON_VALUE": "JSON_VALUE(properties, '$.\"$set\".email')",
+        }
+        assert set(moved_key_calls) | {"isValidJSON", "JSONArrayLength"} == set(JSON_FUNCTIONS)
+        legacy_row, native_row = (
+            execute_hogql_query(
+                f"SELECT {', '.join(moved_key_calls.values())} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            ).results[0]
+            for use_new_events_schema in (False, True)
+        )
+        assert all(legacy_row), legacy_row
+        assert native_row == legacy_row
+
+        with pytest.raises(QueryError, match="requires a constant first key"):
+            execute_hogql_query(
+                f"SELECT JSONLength(properties, concat('$', 'set')) FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+            )
+
+        for restricted_name, restricted_query, expected in (
+            (
+                "$set",
+                "SELECT properties.$set.email, JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set'), "
+                "JSONLength(properties, '$set'), JSONExtractKeys(properties, '$set'), "
+                "properties.$set_once.initial_referrer, JSON_VALUE(properties, '$.\"$set\".email')",
+                (None, "", 0, 0, [], "https://example.com", ""),
+            ),
+            (
+                "$set.plan",
+                "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+                "JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set', 'plan'), "
+                "JSONLength(properties, '$set'), properties.$set.plan.tier",
+                ("user@example.com", "user@example.com", '{"email":"user@example.com"}', 0, 1, None),
+            ),
+        ):
+            restricted_context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True
+            )
+            restricted_context.restricted_properties = {
+                RestrictedProperty(name=restricted_name, property_type=PropertyDefinition.Type.EVENT)
+            }
+            restricted = execute_hogql_query(
+                f"{restricted_query} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=restricted_context,
+            )
+            assert restricted.results == [expected], restricted_name
+
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
 #
@@ -1769,12 +1894,17 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Partition Condition={partition.get('Condition')!r}"
         )
 
-    def test_hogql_compiled_query_has_partition_pruning(self):
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
+            ("date_bounds", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-04-01')"),
+        ]
+    )
+    def test_hogql_compiled_query_has_partition_pruning(self, _name, where):
         """The HogQL pipeline strips toTimeZone from WHERE comparisons to restore pruning."""
-        sql, values = self._compile_hogql(
-            "SELECT count() FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+        sql, values = self._compile_hogql(f"SELECT count() FROM events WHERE {where}", timezone="America/New_York")
         indexes = get_indexes_from_explain(sql, values)
 
         pruning_index = _get_index_by_type(indexes, "Min-Max")
@@ -1786,17 +1916,41 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert primary_key is not None
         self._assert_primary_key_uses_timestamp_range(primary_key)
 
-    def test_toTimeZone_stripped_from_where_but_kept_in_select(self):
-        """toTimeZone should be stripped from top-level WHERE range comparisons
-        but preserved in SELECT expressions and inside function calls."""
-        sql, _ = self._compile_hogql(
-            "SELECT timestamp FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("or_and_call_with_constant", "or(and(timestamp >= '2024-03-01', timestamp < '2024-04-01'), 0)"),
+            ("not_call", "not(timestamp < '2024-03-01') AND timestamp < '2024-04-01'"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
+            (
+                "comparison_calls_in_and_call",
+                "and(greaterOrEquals(timestamp, '2024-03-01'), less(timestamp, '2024-04-01'))",
+            ),
+        ]
+    )
+    def test_toTimeZone_stripped_from_where_but_kept_in_select(self, _name, where):
+        """toTimeZone should be stripped from WHERE range comparisons reached through boolean connectives
+        but preserved in SELECT expressions and inside other function calls."""
+        sql, _ = self._compile_hogql(f"SELECT timestamp FROM events WHERE {where}", timezone="America/New_York")
         where_clause = sql.split("WHERE")[1]
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone in SELECT for display, got:\n{select_clause}"
+
+    @parameterized.expand(
+        [
+            ("assume_not_null_date_bound", "assumeNotNull(toStartOfWeek(toDateTime('2024-03-03 00:00:00')))"),
+            ("computed_non_null_bound", "plus(assumeNotNull(toDateTime('2024-03-03 00:00:00')), toIntervalSecond(0))"),
+        ]
+    )
+    def test_anchored_non_null_bound_keeps_comparison_unwrapped(self, _name, bound):
+        sql, _ = self._compile_hogql(
+            f"SELECT count() FROM posthog.hog_invocation_results WHERE scheduled_at >= {bound}",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
+        assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
 
     def test_toTimeZone_not_stripped_in_join_on(self):
         """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
@@ -1834,6 +1988,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone preserved in SELECT if(), got:\n{select_clause}"
+
+        # A subquery nested in a call still strips its own WHERE
+        sql, _ = self._compile_hogql(
+            "SELECT countIf(distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= '2024-03-01')) FROM events",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\(events\.timestamp, toDateTime64", sql), (
+            f"Expected bare events.timestamp in the WHERE of the subquery inside countIf(), got:\n{sql}"
+        )
 
     def test_subquery_in_where_does_not_inherit_stripping(self):
         """A subquery's SELECT inside a WHERE should NOT inherit stripping from the outer WHERE."""
@@ -1885,6 +2048,46 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         hogql = "SELECT count() FROM events WHERE event = 'dst_test' AND timestamp >= '2024-03-10' AND timestamp < '2024-03-11'"
         self._assert_correct_results(hogql, timezone="America/New_York", expected_count=2)
+
+    @parameterized.expand(
+        [
+            ("to_date", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-03-02')"),
+            (
+                "start_of_month",
+                "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
+            ),
+            (
+                "comparison_calls",
+                "greaterOrEquals(timestamp, toDate('2024-03-01')) AND less(timestamp, toDate('2024-03-02'))",
+            ),
+            ("and_call", "and(timestamp >= toDate('2024-03-01'), timestamp < toDate('2024-03-02'))"),
+        ]
+    )
+    def test_date_bounds_use_project_timezone(self, _name, where):
+        for timestamp in (
+            datetime(2024, 2, 29, 14, 30, 0),
+            datetime(2024, 2, 29, 15, 30, 0),
+            datetime(2024, 3, 1, 14, 0, 0),
+        ):
+            _create_event(team=self.team, distinct_id="tokyo_user", event="tokyo_date_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
+        self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
+
+    @parameterized.expand(
+        [
+            ("constructor", "toDateTime64('2024-03-01 12:00:00.000000500', 9)"),
+            ("computed", "toDateTime64('2024-03-01 11:59:59.000000500', 9) + toIntervalSecond(1)"),
+        ]
+    )
+    def test_nanosecond_bound_keeps_its_precision(self, _name, bound):
+        for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
+            _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= {bound}"
+        self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
         """Asia/Tokyo (UTC+9): midnight Tokyo = 15:00 UTC the previous day."""
@@ -1980,7 +2183,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
         aliased = ast_module.Alias(alias="date_from", expr=assume_call)
 
-        result = PropertySwapper._ensure_constant_has_timezone(aliased, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(aliased, "America/New_York")
 
         assert isinstance(result, ast_module.Alias), f"Expected Alias wrapper preserved, got {type(result).__name__}"
         assert result.alias == "date_from"
@@ -1995,7 +2198,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         inner_call = ast_module.Call(name="toDateTime", args=[ast_module.Constant(value="2024-03-01")])
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
 
-        result = PropertySwapper._ensure_constant_has_timezone(assume_call, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(assume_call, "America/New_York")
 
         assert isinstance(result, ast_module.Call), f"Expected Call, got {type(result).__name__}"
         assert result.name == "assumeNotNull"
