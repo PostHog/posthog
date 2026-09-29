@@ -104,8 +104,12 @@ export interface dashboardsModelActions {
     loadTags: () => {
         value: true
     } // tagsModel
-    addDashboardSuccess: (dashboard: DashboardType) => {
+    addDashboardSuccess: (
+        dashboard: DashboardType,
+        suppressToast?: any
+    ) => {
         dashboard: DashboardType
+        suppressToast: any
     }
     dashboardsFullyLoaded: () => {
         value: true
@@ -368,7 +372,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         patchDashboardFolders: (paths: Record<string, string>) => ({ paths }),
         reparentDashboardFolders: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
-        addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
+        addDashboardSuccess: (dashboard: DashboardType, suppressToast = false) => ({ dashboard, suppressToast }),
         /**
          * this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
          * on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
@@ -711,10 +715,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 actions.dashboardsFullyLoaded()
             }
         },
-        addDashboardSuccess: ({ dashboard }) => {
+        addDashboardSuccess: ({ dashboard, suppressToast }) => {
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstDashboard)
 
-            if (router.values.location.pathname.includes('onboarding')) {
+            if (suppressToast || router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding
                 return
             }
