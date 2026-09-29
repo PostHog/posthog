@@ -224,14 +224,6 @@ def plan_flag_evaluations_backfill(
     context: dagster.OpExecutionContext, config: FlagEvaluationsBackfillConfig
 ) -> BackfillPlan:
     """Resolve the window once, so a shard re-executed from the UI later copies the same days."""
-    if not config.dry_run:
-        # Two runs that copy the same day at once both find the day's rows missing from the anti-join.
-        # Both runs then insert those rows.
-        other_runs = describe_runs(
-            context.instance, (context.job_name,), statuses=EXECUTING_RUN_STATUSES, exclude_run_id=context.run_id
-        )
-        if other_runs:
-            raise dagster.Failure(description="Another backfill is running: " + "; ".join(other_runs))
     days = resolve_backfill_days(config, today=datetime.now(UTC).date())
     context.log.info(f"Backfilling {len(days)} day(s), newest first, from {days[0]} back to {days[-1]}")
     return BackfillPlan(days=days, config=config)
@@ -274,6 +266,8 @@ class ShardBackfill:
     node_role: NodeRole
 
     def run(self, days: Sequence[date]) -> int:
+        if not self.config.dry_run:
+            self.check_no_other_backfill_run()
         copy_query = build_copy_query(
             dry_run=self.config.dry_run,
             filter_team_ids=bool(self.config.team_ids),
@@ -316,6 +310,22 @@ class ShardBackfill:
                 )
             self.log.info(f"Waiting for partition {day:%Y%m} to merge: {active_parts} active parts")
             time.sleep(self.config.parts_check_poll_frequency_seconds)
+
+    def check_no_other_backfill_run(self) -> None:
+        # Each shard op checks, because a shard re-executed from the UI skips the plan op. The check
+        # fails rather than waits, because two waiting runs would wait on each other.
+        others = describe_runs(
+            self.instance,
+            (flag_evaluations_backfill_job.name,),
+            statuses=EXECUTING_RUN_STATUSES,
+            exclude_run_id=self.run_id,
+        )
+        if others:
+            raise dagster.Failure(
+                description=f"Stopping shard {self.shard_num}: {'; '.join(others)} is executing. "
+                "Two backfills that copy the same day at once both insert its rows. "
+                "Wait for that run to finish, then run the backfill again."
+            )
 
     def wait_for_blocking_runs(self) -> BlockingRunCheck:
         while True:

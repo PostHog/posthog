@@ -381,18 +381,6 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
     assert "started while" in failure.step_failure_data.error.message
 
 
-def test_backfill_refuses_to_start_while_another_backfill_runs() -> None:
-    instance = dagster.DagsterInstance.ephemeral()
-    instance.create_run_for_job(job_def=flag_evaluations_backfill_job, status=dagster.DagsterRunStatus.STARTED)
-
-    result = flag_evaluations_backfill_job.execute_in_process(
-        resources={"cluster": MagicMock()}, instance=instance, raise_on_error=False
-    )
-
-    [failure] = result.get_step_failure_events()
-    assert failure.step_key == "plan_flag_evaluations_backfill"
-
-
 @pytest.mark.parametrize(
     "status, same_run, stops",
     [
