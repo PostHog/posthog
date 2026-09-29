@@ -616,21 +616,25 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgePlayground: {
         name: 'Business knowledge playground',
         projectBased: true,
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
-    BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
+    BusinessKnowledgeSettings: {
+        name: 'Business knowledge settings',
+        projectBased: true,
+        iconType: 'business_knowledge',
+    },
     BusinessKnowledgeSource: {
         name: 'Knowledge source',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
     Transformations: {
         projectBased: true,
