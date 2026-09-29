@@ -16,7 +16,8 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
 Several additional Signals workflows also exist but are not part of the main report pipeline:
@@ -1657,7 +1658,8 @@ Signal {index}:
 | `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                                                                   |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                                                                    |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                                                                        |
-| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                                                                 |
+| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows except the ranking sweep                                                                                                        |
+| Ranking sweep task queue                 | `SELF_DRIVING_TASK_QUEUE`     | Temporal task queue for the inbox ranking scoring sweep, polled by the `temporal-worker-self-driving` fleet                                                           |
 | `BUFFER_MAX_SIZE`                        | `20`                          | Max signals buffered in memory before flush to S3                                                                                                                     |
 | `BUFFER_FLUSH_TIMEOUT_SECONDS`           | `5`                           | Max seconds to wait for buffer to fill before flushing                                                                                                                |
 | S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                                                                      |
