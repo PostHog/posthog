@@ -404,7 +404,7 @@ _SECRET_PARAM_NAMES = (
 
 _ERROR_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Password in URL userinfo: postgres://user:secret@host
-    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s@]+@", re.IGNORECASE), rf"\1{REDACTED_VALUE}@"),
+    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@?#]+:)[^\s/?#@]+@", re.IGNORECASE), rf"\1{REDACTED_VALUE}@"),
     # Query string or key=value pairs: ?api_key=secret, password=secret
     (
         re.compile(rf"((?<![a-z0-9_])(?:{_SECRET_PARAM_NAMES})=)[^\s&;,'\"]+", re.IGNORECASE),
