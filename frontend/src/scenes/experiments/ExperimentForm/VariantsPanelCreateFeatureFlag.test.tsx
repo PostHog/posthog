@@ -420,6 +420,33 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             )
         })
 
+        it('picks no answer until someone chooses, in the test arm of the persist question experiment', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            const { container } = renderComponent(defaultExperiment)
+
+            expect(container.querySelector('.LemonSegmentedButton__option--selected')).toBeNull()
+
+            // Other edits leave the persistence choice unset, so the question stays unanswered
+            await userEvent.click(screen.getByText('Add variant'))
+            expect(mockOnChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ ensure_experience_continuity: undefined })
+            )
+        })
+
+        it('shows No once it has been chosen, in the test arm of the persist question experiment', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'test',
+            })
+            const { container } = renderComponent({
+                ...defaultExperiment,
+                feature_flag_config: { ...defaultExperiment.feature_flag_config, ensure_experience_continuity: false },
+            })
+
+            expect(container.querySelector('.LemonSegmentedButton__option--selected')).toHaveTextContent('No')
+        })
+
         it('keeps the checkbox in the control arm of the persist question experiment', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION], {
                 [FEATURE_FLAGS.EXPERIMENT_WIZARD_PERSIST_QUESTION]: 'control',

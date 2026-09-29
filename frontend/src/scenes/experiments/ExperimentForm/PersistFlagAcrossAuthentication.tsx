@@ -11,17 +11,21 @@ const PERSISTENCE_DOCS_URL =
 
 interface PersistFlagAcrossAuthenticationProps {
     checked: boolean
+    /** Whether someone has chosen a value. Until they do, the question shows neither answer, unless `checked` is on. */
+    answered: boolean
     onChange: (checked: boolean) => void
     disabledReason?: string
 }
 
 /**
  * The "Persist flag across authentication steps" setting for an experiment's new flag. The `test` arm of
- * EXPERIMENT_WIZARD_PERSIST_QUESTION asks it as a yes/no question, to see whether more experiments turn it on.
+ * EXPERIMENT_WIZARD_PERSIST_QUESTION asks it as a yes/no question with no answer picked, to see whether more
+ * experiments turn it on. An unanswered question saves the team's default, the same as an untouched checkbox.
  * The flag is read here, so only people who see this control count as exposed.
  */
 export function PersistFlagAcrossAuthentication({
     checked,
+    answered,
     onChange,
     disabledReason,
 }: PersistFlagAcrossAuthenticationProps): JSX.Element {
@@ -41,7 +45,7 @@ export function PersistFlagAcrossAuthentication({
                     </div>
                     <LemonSegmentedButton
                         size="small"
-                        value={checked ? 'yes' : 'no'}
+                        value={checked ? 'yes' : answered ? 'no' : undefined}
                         onChange={(value) => onChange(value === 'yes')}
                         disabledReason={disabledReason}
                         options={[

@@ -95,8 +95,11 @@ export const VariantsPanelCreateFeatureFlag = ({
         { key: 'test', rollout_percentage: 50 },
     ]
 
+    // Unset until someone chooses. Other edits pass it through unset, so the persist question can tell. An unset
+    // value saves the team's default, which is what's shown here.
+    const ensureExperienceContinuityChoice = experiment.feature_flag_config?.ensure_experience_continuity
     const ensureExperienceContinuity =
-        experiment.feature_flag_config?.ensure_experience_continuity ?? currentTeam?.flags_persistence_default ?? false
+        ensureExperienceContinuityChoice ?? currentTeam?.flags_persistence_default ?? false
 
     const rolloutPercentage =
         filters?.groups?.[0]?.rollout_percentage ??
@@ -106,7 +109,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     const updateRolloutPercentage = (value: number): void => {
         onChange({
             variants,
-            ensure_experience_continuity: ensureExperienceContinuity,
+            ensure_experience_continuity: ensureExperienceContinuityChoice,
             rollout_percentage: value,
         })
     }
@@ -134,7 +137,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     const updateVariants = (newVariants: MultivariateFlagVariant[]): void => {
         onChange({
             variants: newVariants,
-            ensure_experience_continuity: ensureExperienceContinuity,
+            ensure_experience_continuity: ensureExperienceContinuityChoice,
             rollout_percentage: rolloutPercentage,
         })
     }
@@ -320,6 +323,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
             <PersistFlagAcrossAuthentication
                 checked={ensureExperienceContinuity}
+                answered={ensureExperienceContinuityChoice !== undefined}
                 onChange={(checked) => {
                     onChange({
                         variants,
