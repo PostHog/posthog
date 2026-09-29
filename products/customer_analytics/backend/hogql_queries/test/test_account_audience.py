@@ -17,10 +17,7 @@ from products.customer_analytics.backend.facade.api import (
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
-from products.workflows.backend.services.account_audience import (
-    AccountAudienceCustomPropertyFilter,
-    AccountAudienceFilters,
-)
+from products.workflows.backend.facade.contracts import AccountAudienceCustomPropertyFilter, AccountAudienceFilters
 
 
 @override_settings(IN_UNIT_TESTING=True)

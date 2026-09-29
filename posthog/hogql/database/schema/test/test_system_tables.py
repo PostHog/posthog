@@ -107,7 +107,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -523,8 +523,8 @@ def _create_error_tracking_symbol_set(team: Team, label: str) -> uuid.UUID:
     return create_symbol_set(team_id=team.pk, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}")
 
 
-def _create_hog_flow(team: Team, label: str) -> HogFlow:
-    return HogFlow.objects.create(team=team, name=f"flow_{label}")
+def _create_hog_flow(team: Team, label: str) -> str:
+    return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
 def _create_message_category(team: Team, label: str):

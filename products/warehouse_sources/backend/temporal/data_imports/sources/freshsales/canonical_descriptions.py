@@ -150,4 +150,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.freshworks.com/crm/api/#appointments",
         "columns": _APPOINTMENT_COLUMNS,
     },
+    "owners": {
+        "description": "A user in the Freshsales portal. Resolves the owner_id carried on contacts, accounts, deals, tasks and sales activities.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "display_name": "Display name of the user.",
+            "email": "Email address of the user.",
+        },
+    },
+    "deal_stages": {
+        "description": "A stage in a deal pipeline. Resolves the deal_stage_id carried on deals.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the deal stage.",
+            "name": "Name of the deal stage.",
+            "deal_pipeline_id": "ID of the pipeline the stage belongs to.",
+        },
+    },
+    "deal_pipelines": {
+        "description": "A deal pipeline configured in the portal. Resolves the deal_pipeline_id carried on deals.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the deal pipeline.",
+            "name": "Name of the deal pipeline.",
+        },
+    },
+    "lifecycle_stages": {
+        "description": "A lifecycle stage configured in the portal. Resolves the lifecycle_stage_id carried on contacts and accounts.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the lifecycle stage.",
+            "name": "Name of the lifecycle stage.",
+            "contact_statuses": "Contact statuses that belong to the lifecycle stage.",
+        },
+    },
 }
