@@ -103,6 +103,57 @@ class TestHogQLThresholdTruncation(APIBaseTest):
             HogQLExtractor().extract(alert, insight, insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
 
+class TestHogQLUnionQuery(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("any_row", "", {"first": 0.0, "2": 2.0, "3": 3.0}),
+            ("any_row", " LIMIT 1", {"first": 0.0, "2": 2.0}),
+        ]
+    )
+    def test_union_query_evaluates_every_branch(self, evaluation, last_branch_limit, expected):
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 'first' AS label, 0 AS value UNION ALL "
+                    "SELECT toString(v) AS label, v AS value FROM (SELECT arrayJoin([2, 3]) AS v) "
+                    f"ORDER BY v{last_branch_limit}",
+                },
+            },
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="union alert",
+            condition={"type": "absolute_value"},
+            config={"type": "HogQLAlertConfig", "evaluation": evaluation, "column": "value", "label_column": "label"},
+            calculation_interval="daily",
+        )
+        result = HogQLExtractor().extract(alert, insight, insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert {series.label: series.points[series.current_index].value for series in result.series} == expected
+
+    def test_union_query_over_its_limit_fails_loud(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT arrayJoin(range(60)) AS value UNION ALL SELECT arrayJoin(range(60)) AS value",
+            },
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="union truncation",
+            condition={"type": "absolute_value"},
+            config={"type": "HogQLAlertConfig", "evaluation": "any_row", "column": "value"},
+            calculation_interval="daily",
+        )
+        with self.assertRaisesRegex(AlertExtractionError, "a breach could go unnoticed"):
+            HogQLExtractor().extract(alert, insight, insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+
 class TestHogQLDetectorPagination(APIBaseTest):
     @parameterized.expand(
         [
