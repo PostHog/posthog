@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import threading
+from contextlib import nullcontext
 from datetime import timedelta
 
 import pytest
@@ -108,12 +109,24 @@ def accounting_session(test_task_run):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "environment,uses_gateway",
-    [(TaskRun.Environment.CLOUD, True), (TaskRun.Environment.CLOUD, False), (TaskRun.Environment.LOCAL, False)],
+    "environment,uses_gateway,lookup_fails,strict",
+    [
+        (TaskRun.Environment.CLOUD, True, False, True),
+        (TaskRun.Environment.CLOUD, False, False, True),
+        (TaskRun.Environment.LOCAL, False, False, True),
+        (TaskRun.Environment.CLOUD, True, True, True),
+        (TaskRun.Environment.CLOUD, True, False, False),
+    ],
 )
-def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
-    mocker, test_task_run, accounting_session, environment, uses_gateway
-):
+def test_cleanup_sandbox_closes_session_after_cleanup_error(
+    mocker: MockerFixture,
+    test_task_run: TaskRun,
+    accounting_session: SandboxSession,
+    environment: TaskRun.Environment,
+    uses_gateway: bool,
+    lookup_fails: bool,
+    strict: bool,
+) -> None:
     if not uses_gateway:
         test_task_run.state = {}
         test_task_run.environment = environment
@@ -121,25 +134,39 @@ def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
     sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
-    sandbox.destroy.side_effect = RuntimeError("destroy failed")
-    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    sandbox.destroy.side_effect = RuntimeError("cleanup failed")
+    mocker.patch.object(
+        Sandbox,
+        "get_by_id",
+        side_effect=RuntimeError("cleanup failed") if lookup_fails else None,
+        return_value=sandbox,
+    )
     publish_complete = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
     )
+    closed_at = timezone.now()
 
-    with pytest.raises(RuntimeError, match="destroy failed"):
-        cleanup_sandbox_now(
-            CleanupSandboxInput(
-                sandbox_id="sandbox-123",
-                run_id=str(test_task_run.id),
-                complete_stream_on_cleanup=True,
-            ),
-        )
+    for attempt in range(2):
+        with patch("django.utils.timezone.now", return_value=closed_at + timedelta(minutes=attempt)):
+            with pytest.raises(RuntimeError, match="cleanup failed") if strict else nullcontext():
+                cleanup_sandbox_now(
+                    CleanupSandboxInput(
+                        sandbox_id="sandbox-123",
+                        run_id=str(test_task_run.id),
+                        complete_stream_on_cleanup=strict,
+                    ),
+                )
+            accounting_session.refresh_from_db()
+            assert accounting_session.ended_at == closed_at
+            if environment == TaskRun.Environment.CLOUD:
+                test_task_run.refresh_from_db()
+                assert (
+                    test_task_run.state["compute_cost"]
+                    == get_task_run_cost(run_id=test_task_run.id, team_id=test_task_run.team_id).compute_cost
+                )
 
-    sandbox.destroy.assert_called_once_with()
-    accounting_session.refresh_from_db()
-    assert (accounting_session.ended_at is None) is (environment == TaskRun.Environment.CLOUD)
-    if environment == TaskRun.Environment.LOCAL:
+    assert sandbox.destroy.call_count == (0 if lookup_fails else 2)
+    if not lookup_fails:
         assert accounting_session.provider_cpu_usage_usec == 12_345_678
         assert accounting_session.provider_billed_cpu_usage_usec == 15_000_000
     publish_complete.assert_not_called()

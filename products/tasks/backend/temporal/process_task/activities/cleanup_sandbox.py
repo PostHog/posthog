@@ -49,7 +49,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
     run_id: UUID | None = None
-    destroy_error: Exception | None = None
+    cleanup_error: Exception | None = None
     if input.run_id:
         try:
             run_id = UUID(input.run_id)
@@ -62,10 +62,9 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     except SandboxNotFoundError:
         stream_completion_safe = True
         sandbox = None
-    except Exception:
+    except Exception as error:
         logger.warning("cleanup_sandbox_get_by_id_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
-        if strict_cleanup:
-            raise
+        cleanup_error = error
         sandbox = None
 
     if sandbox is not None:
@@ -92,32 +91,27 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
             stream_completion_safe = True
         except Exception as error:
             logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
-            destroy_error = error
+            cleanup_error = error
+
+    # Costs after failed cleanup are platform overhead, not task costs.
+    close_sandbox_session(
+        input.sandbox_id,
+        reason=SandboxSession.EndedReason.CLEANUP,
+        cpu_usage_usec=cpu_usage_usec,
+        billed_cpu_usage_usec=billed_cpu_usage_usec,
+        cpu_usage_measured_at=cpu_usage_measured_at,
+    )
 
     accounting_run: TaskRun | None = None
-    accounting_lookup_failed = False
     if run_id is not None:
         try:
             run = TaskRun.objects.filter(id=run_id).only("id", "team_id", "environment").first()
             if run is not None and run.environment == TaskRun.Environment.CLOUD:
                 accounting_run = run
         except Exception:
-            accounting_lookup_failed = True
             logger.warning(
                 "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
             )
-
-    if stream_completion_safe or (accounting_run is None and not accounting_lookup_failed):
-        close_sandbox_session(
-            input.sandbox_id,
-            reason=SandboxSession.EndedReason.CLEANUP,
-            cpu_usage_usec=cpu_usage_usec,
-            billed_cpu_usage_usec=billed_cpu_usage_usec,
-            cpu_usage_measured_at=cpu_usage_measured_at,
-        )
-
-    if destroy_error is not None and strict_cleanup:
-        raise destroy_error
 
     if accounting_run is not None:
         try:
@@ -128,6 +122,9 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                 extra={"run_id": str(accounting_run.id)},
                 exc_info=True,
             )
+
+    if cleanup_error is not None and strict_cleanup:
+        raise cleanup_error
 
     if run_id is not None and stream_completion_safe:
         try:
