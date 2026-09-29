@@ -66,6 +66,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/llm_events")
         self.redis_client.delete(f"@posthog/quota-limits/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
+        self.redis_client.delete(f"@posthog/quota-limits/mobile_recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
@@ -76,6 +77,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/mobile_recordings")
         materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
@@ -339,6 +341,29 @@ class TestQuotaLimiting(BaseTest):
         org_id = str(self.organization.id)
         assert result.quota_limited_orgs["recordings"] == {org_id: 1612137599}
         assert result.quota_limited_orgs["mobile_recordings"] == {}
+
+    @parameterized.expand([("dry_run_keeps_limits", True), ("real_run_clears_limits", False)])
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_quota_limiting_mobile_enforcement_off(self, _name, dry_run, _patch_flag) -> None:
+        expiry = int(timezone.now().timestamp()) + 10_000
+        for cache_key in (
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+        ):
+            replace_limited_team_tokens(QuotaResource.MOBILE_RECORDINGS, {self.team.api_token: expiry}, cache_key)
+        self.organization.usage = {
+            "recordings": {"usage": 1, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_all_orgs_billing_quotas(dry_run=dry_run)
+
+        expected = [self.team.api_token.encode("UTF-8")] if dry_run else []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/mobile_recordings", 0, -1) == expected
+        assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/mobile_recordings", 0, -1) == expected
 
     @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
     def test_quota_limiting_mobile_recordings_reuses_the_recordings_trust_score(self) -> None:

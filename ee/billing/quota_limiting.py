@@ -1461,12 +1461,15 @@ def update_all_orgs_billing_quotas(
                             team_id = team_ids_by_token.get(token)
                             if team_id is not None:
                                 recordings_transitioned_team_ids.add(team_id)
-                        remove_limited_team_tokens(
-                            resource, teams_by_org.get(org_id, []), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-                        )
-                        remove_limited_team_tokens(
-                            resource, teams_by_org.get(org_id, []), QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
-                        )
+                        if not dry_run:
+                            remove_limited_team_tokens(
+                                resource, teams_by_org.get(org_id, []), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                            )
+                            remove_limited_team_tokens(
+                                resource,
+                                teams_by_org.get(org_id, []),
+                                QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+                            )
                         continue
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
