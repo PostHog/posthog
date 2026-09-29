@@ -1638,13 +1638,13 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   instrumentation_scope
 FROM posthog.metrics2
 WHERE
-  time_bucket > toDateTime('2026-08-25 00:00:00')
+  (time_bucket > toDateTime('2026-08-25 00:00:00'))
 AND
-  time_bucket < toDateTime('2026-09-14 00:00:00')
+  (time_bucket < toDateTime('2026-09-14 00:00:00'))
 AND
-  timestamp > toDateTime('2026-08-25 00:00:00')
+  (timestamp > toDateTime('2026-08-25 00:00:00'))
 AND
-  timestamp < toDateTime('2026-09-14 00:00:00')
+  (timestamp < toDateTime('2026-09-14 00:00:00'))
 UNION ALL
 SELECT
   team_id,
