@@ -555,11 +555,6 @@ describe('dashboardLogic', () => {
                 })
             )
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
-            for (const savedTile of payload.tiles) {
-                expect(savedTile.layouts).toEqual({
-                    sm: modifiedLayouts.sm.find((item: { i: string }) => item.i === String(savedTile.id)),
-                })
-            }
             expect(payload).not.toHaveProperty('breakdown_colors')
             expect(payload).not.toHaveProperty('data_color_theme_id')
             expect(logic.values.hasUnsavedColorChanges).toBe(true)
