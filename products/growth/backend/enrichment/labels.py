@@ -9,10 +9,12 @@ import re
 import json
 import math
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Literal, TypeIs, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
@@ -723,10 +725,15 @@ def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
     )
 
 
-def recent_latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
+def recent_latest_fetches_qs(lookback_days: int | None = None) -> QuerySet[OrganizationEnrichmentFetch]:
     """latest_fetches_qs, but orderable and sliceable: DISTINCT ON pins the inner
     ORDER BY to organization_id, so callers wanting `-fetched_at` need this subquery wrapper."""
-    return OrganizationEnrichmentFetch.objects.filter(id__in=latest_fetches_qs().values("id")).order_by("-fetched_at")
+    fetches = OrganizationEnrichmentFetch.objects.filter(id__in=latest_fetches_qs().values("id")).order_by(
+        "-fetched_at"
+    )
+    if lookback_days is None:
+        return fetches
+    return fetches.filter(fetched_at__gte=timezone.now() - timedelta(days=lookback_days))
 
 
 def get_active_config(label: str) -> EnrichmentPromptConfig | None:
