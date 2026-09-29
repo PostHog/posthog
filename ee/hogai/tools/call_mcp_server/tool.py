@@ -151,12 +151,13 @@ class CallMCPServerTool(MaxTool):
         states = await self._get_approval_states(server_url)
         if tool_name in states:
             return states[tool_name]
-        gateway_server_id = self._get_installation(server_url).get("gateway_server_id")
+        inst = self._get_installation(server_url)
+        gateway_server_id = inst.get("gateway_server_id")
         if gateway_server_id is None:
             return _APPROVAL_DEFAULT
         # An org rule can match a tool the installation has no row for yet.
         state = await database_sync_to_async(_get_unlisted_tool_state)(
-            self._team.id, gateway_server_id, self._user, tool_name
+            str(inst["id"]), self._team.id, gateway_server_id, self._user, tool_name
         )
         states[tool_name] = state
         return state
