@@ -4,8 +4,9 @@ import pytest
 
 import psycopg2
 import psycopg2.extras
+from prometheus_client import CollectorRegistry
 
-from posthog.dags.personhog_shadow_drift import compute_shadow_drift
+from posthog.dags.personhog_shadow_drift import DriftCategoryReport, compute_shadow_drift, record_drift_gauges
 from posthog.persons_db import persons_db_url
 
 TEAM_ID = 990000123
@@ -101,3 +102,57 @@ def test_compute_shadow_drift_counts_each_category() -> None:
     assert (hash_keys.legacy_total, hash_keys.personhog_total) == (2, 2)
     assert (hash_keys.missing_in_personhog, hash_keys.missing_in_legacy, hash_keys.mismatched_rows) == (0, 0, 1)
     assert hash_keys.samples == [f"team={TEAM_ID} person={matched} flag=flag-2 hash_key_mismatch"]
+
+
+def test_drift_gauges_keep_each_count_under_its_own_name_and_category() -> None:
+    reports = [
+        DriftCategoryReport(
+            category="persons",
+            legacy_total=90,
+            personhog_total=95,
+            missing_in_personhog=5,
+            missing_in_legacy=10,
+            mismatched_rows=10,
+            field_mismatches={"properties": 7, "version": 40},
+            samples=[],
+        ),
+        DriftCategoryReport(
+            category="distinct_ids",
+            legacy_total=3,
+            personhog_total=3,
+            missing_in_personhog=0,
+            missing_in_legacy=0,
+            mismatched_rows=0,
+            field_mismatches={"version": 0},
+            samples=[],
+        ),
+    ]
+    registry = CollectorRegistry()
+
+    record_drift_gauges(registry, reports, completed_at=1_700_000_000.0)
+
+    def sample(name: str, **labels: str) -> float | None:
+        return registry.get_sample_value(f"posthog_personhog_shadow_lane_drift_{name}", labels)
+
+    assert {
+        name: sample(name, category="persons")
+        for name in (
+            "legacy_rows",
+            "personhog_rows",
+            "missing_in_personhog_rows",
+            "missing_in_legacy_rows",
+            "mismatched_rows",
+            "ratio",
+        )
+    } == {
+        "legacy_rows": 90,
+        "personhog_rows": 95,
+        "missing_in_personhog_rows": 5,
+        "missing_in_legacy_rows": 10,
+        "mismatched_rows": 10,
+        "ratio": 0.25,
+    }
+    assert sample("field_mismatched_rows", category="persons", field="version") == 40
+    assert sample("field_mismatched_rows", category="persons", field="properties") == 7
+    assert sample("ratio", category="distinct_ids") == 0
+    assert sample("last_success_timestamp_seconds") == 1_700_000_000.0

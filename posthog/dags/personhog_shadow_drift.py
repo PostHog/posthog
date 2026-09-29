@@ -16,6 +16,7 @@ from contextlib import closing
 
 import dagster
 import psycopg2
+from prometheus_client import CollectorRegistry, Gauge
 
 from posthog.dags.common import JobOwners
 from posthog.dags.personhog_shadow_lane import (
@@ -32,6 +33,12 @@ from posthog.dags.personhog_shadow_lane import (
     wait_for_quiescence,
 )
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
+
+# A push replaces every metric of its Pushgateway job. The settle and drift ops run as separate
+# steps, so each has its own job name and a failed drift step leaves the settle gauges in place.
+SETTLE_METRICS_JOB = "personhog_shadow_lane_settle"
+DRIFT_METRICS_JOB = "personhog_shadow_lane_drift"
 
 
 @frozen
@@ -280,6 +287,53 @@ def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size
         ]
 
 
+def record_settle_gauges(registry: CollectorRegistry, settle_seconds: float, completed_at: float) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_seconds",
+        "Time the shadow persons database took to stop receiving writes after the lane stopped",
+        registry=registry,
+    ).set(settle_seconds)
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_last_success_timestamp_seconds",
+        "Unix time when the shadow persons database last settled after a stop",
+        registry=registry,
+    ).set(completed_at)
+
+
+def record_drift_gauges(registry: CollectorRegistry, reports: list[DriftCategoryReport], completed_at: float) -> None:
+    def per_category(name: str, help_text: str) -> Gauge:
+        return Gauge(f"posthog_personhog_shadow_lane_drift_{name}", help_text, ["category"], registry=registry)
+
+    legacy_rows = per_category("legacy_rows", "Live rows the legacy path holds")
+    personhog_rows = per_category("personhog_rows", "Live rows the personhog path holds")
+    missing_in_personhog = per_category("missing_in_personhog_rows", "Keys only the legacy path holds")
+    missing_in_legacy = per_category("missing_in_legacy_rows", "Keys only the personhog path holds")
+    mismatched = per_category("mismatched_rows", "Keys both paths hold with different content; excludes version")
+    ratio = per_category("ratio", "Drifted keys over all compared keys, from 0 to 1")
+    field_mismatched = Gauge(
+        "posthog_personhog_shadow_lane_drift_field_mismatched_rows",
+        "Keys both paths hold where one field differs. A key with two different fields counts in both",
+        ["category", "field"],
+        registry=registry,
+    )
+
+    for report in reports:
+        legacy_rows.labels(category=report.category).set(report.legacy_total)
+        personhog_rows.labels(category=report.category).set(report.personhog_total)
+        missing_in_personhog.labels(category=report.category).set(report.missing_in_personhog)
+        missing_in_legacy.labels(category=report.category).set(report.missing_in_legacy)
+        mismatched.labels(category=report.category).set(report.mismatched_rows)
+        ratio.labels(category=report.category).set(report.drift_pct / 100)
+        for field_name, count in report.field_mismatches.items():
+            field_mismatched.labels(category=report.category, field=field_name).set(count)
+
+    Gauge(
+        "posthog_personhog_shadow_lane_drift_last_success_timestamp_seconds",
+        "Unix time when the last drift report finished",
+        registry=registry,
+    ).set(completed_at)
+
+
 class ShadowLaneStopConfig(dagster.Config):
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
@@ -356,6 +410,8 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 
     waited = time.monotonic() - started
     context.log.info(f"Shadow persons database settled after {waited:.0f}s ({polls} polls)")
+    with pushed_metrics_registry(SETTLE_METRICS_JOB) as registry:
+        record_settle_gauges(registry, waited, time.time())
     context.add_output_metadata({"settle_seconds": dagster.MetadataValue.float(round(waited, 1))})
 
 
@@ -363,6 +419,9 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDriftConfig) -> None:
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
         reports = compute_shadow_drift(connection, config.sample_size)
+
+    with pushed_metrics_registry(DRIFT_METRICS_JOB) as registry:
+        record_drift_gauges(registry, reports, time.time())
 
     header = "| category | legacy | personhog | missing in personhog | missing in legacy | mismatched | drift % |"
     separator = "|---|---|---|---|---|---|---|"
