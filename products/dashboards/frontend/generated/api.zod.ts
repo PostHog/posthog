@@ -9,146 +9,6 @@
  */
 import * as zod from 'zod'
 
-export const dashboardSavedViewsCreateBodyNameMax = 200
-
-export const dashboardSavedViewsCreateBodyFiltersOneSearchMax = 200
-
-export const dashboardSavedViewsCreateBodyFiltersOneCreatedByOneMax = 100
-
-export const dashboardSavedViewsCreateBodyFiltersOneTagsItemMax = 100
-
-export const dashboardSavedViewsCreateBodyFiltersOneTagsMax = 50
-
-export const dashboardSavedViewsCreateBodyFiltersOneFolderMax = 4000
-
-export const dashboardSavedViewsCreateBodyScopeDefault = `private`
-
-export const DashboardSavedViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(dashboardSavedViewsCreateBodyNameMax)
-        .describe('Name shown in the dashboard list view picker.'),
-    filters: zod
-        .object({
-            search: zod.string().max(dashboardSavedViewsCreateBodyFiltersOneSearchMax).optional(),
-            createdBy: zod
-                .union([
-                    zod.array(zod.number()).max(dashboardSavedViewsCreateBodyFiltersOneCreatedByOneMax),
-                    zod.enum(['All users']),
-                ])
-                .optional(),
-            pinned: zod.boolean().optional(),
-            shared: zod.boolean().optional(),
-            tags: zod
-                .array(zod.string().max(dashboardSavedViewsCreateBodyFiltersOneTagsItemMax))
-                .max(dashboardSavedViewsCreateBodyFiltersOneTagsMax)
-                .optional(),
-            folder: zod.string().max(dashboardSavedViewsCreateBodyFiltersOneFolderMax).nullish(),
-        })
-        .describe('Dashboard list filters stored by this view.'),
-    scope: zod
-        .enum(['private', 'team'])
-        .describe('\* `private` - Private\n\* `team` - Team')
-        .default(dashboardSavedViewsCreateBodyScopeDefault)
-        .describe(
-            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
-        ),
-})
-
-export const dashboardSavedViewsUpdateBodyNameMax = 200
-
-export const dashboardSavedViewsUpdateBodyFiltersOneSearchMax = 200
-
-export const dashboardSavedViewsUpdateBodyFiltersOneCreatedByOneMax = 100
-
-export const dashboardSavedViewsUpdateBodyFiltersOneTagsItemMax = 100
-
-export const dashboardSavedViewsUpdateBodyFiltersOneTagsMax = 50
-
-export const dashboardSavedViewsUpdateBodyFiltersOneFolderMax = 4000
-
-export const dashboardSavedViewsUpdateBodyScopeDefault = `private`
-
-export const DashboardSavedViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(dashboardSavedViewsUpdateBodyNameMax)
-        .describe('Name shown in the dashboard list view picker.'),
-    filters: zod
-        .object({
-            search: zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneSearchMax).optional(),
-            createdBy: zod
-                .union([
-                    zod.array(zod.number()).max(dashboardSavedViewsUpdateBodyFiltersOneCreatedByOneMax),
-                    zod.enum(['All users']),
-                ])
-                .optional(),
-            pinned: zod.boolean().optional(),
-            shared: zod.boolean().optional(),
-            tags: zod
-                .array(zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneTagsItemMax))
-                .max(dashboardSavedViewsUpdateBodyFiltersOneTagsMax)
-                .optional(),
-            folder: zod.string().max(dashboardSavedViewsUpdateBodyFiltersOneFolderMax).nullish(),
-        })
-        .describe('Dashboard list filters stored by this view.'),
-    scope: zod
-        .enum(['private', 'team'])
-        .describe('\* `private` - Private\n\* `team` - Team')
-        .default(dashboardSavedViewsUpdateBodyScopeDefault)
-        .describe(
-            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
-        ),
-})
-
-export const dashboardSavedViewsPartialUpdateBodyNameMax = 200
-
-export const dashboardSavedViewsPartialUpdateBodyFiltersOneSearchMax = 200
-
-export const dashboardSavedViewsPartialUpdateBodyFiltersOneCreatedByOneMax = 100
-
-export const dashboardSavedViewsPartialUpdateBodyFiltersOneTagsItemMax = 100
-
-export const dashboardSavedViewsPartialUpdateBodyFiltersOneTagsMax = 50
-
-export const dashboardSavedViewsPartialUpdateBodyFiltersOneFolderMax = 4000
-
-export const dashboardSavedViewsPartialUpdateBodyScopeDefault = `private`
-
-export const DashboardSavedViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(dashboardSavedViewsPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Name shown in the dashboard list view picker.'),
-    filters: zod
-        .object({
-            search: zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneSearchMax).optional(),
-            createdBy: zod
-                .union([
-                    zod.array(zod.number()).max(dashboardSavedViewsPartialUpdateBodyFiltersOneCreatedByOneMax),
-                    zod.enum(['All users']),
-                ])
-                .optional(),
-            pinned: zod.boolean().optional(),
-            shared: zod.boolean().optional(),
-            tags: zod
-                .array(zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneTagsItemMax))
-                .max(dashboardSavedViewsPartialUpdateBodyFiltersOneTagsMax)
-                .optional(),
-            folder: zod.string().max(dashboardSavedViewsPartialUpdateBodyFiltersOneFolderMax).nullish(),
-        })
-        .optional()
-        .describe('Dashboard list filters stored by this view.'),
-    scope: zod
-        .enum(['private', 'team'])
-        .describe('\* `private` - Private\n\* `team` - Team')
-        .default(dashboardSavedViewsPartialUpdateBodyScopeDefault)
-        .describe(
-            'Whether only the creator or all team members can use this view.\n\n\* `private` - Private\n\* `team` - Team'
-        ),
-})
-
 export const dashboardTemplatesCreateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
@@ -1460,6 +1320,8 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
 export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsCreateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
@@ -1476,6 +1338,13 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
             'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
+        ),
+    agent_context: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
         ),
     layouts: zod
         .object({
@@ -1562,6 +1431,8 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsUpdateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
 export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
@@ -1572,6 +1443,13 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardsUpdateTextTileCreateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    agent_context: zod
+        .string()
+        .max(dashboardsUpdateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters."
+        ),
     layouts: zod
         .object({
             sm: zod

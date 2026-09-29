@@ -28,6 +28,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -762,6 +763,42 @@ class ReportLink(BaseModel):
             raise ValueError("must be a UUID")
 
 
+MAX_AUTOSTART_SKIP_DETAIL_LENGTH = 500
+
+
+class AutostartSkip(BaseModel):
+    """Content schema for an `autostart_skip` artefact: automatic implementation was held back by a
+    typed link to another report.
+
+    Only the link gates write this. The other auto-start skips are properties of the report itself
+    (not actionable, no priority, over quota), and a reader inspecting the report sees those
+    already. A link gate is the one case where the reason lives on a *different* report, so without
+    a row on the log the inbox can only show that nothing started.
+    """
+
+    skip_reason: Literal["duplicate_of", "blocked_by_dependency", "plan_parent"] = Field(
+        description="Which link gate held the report back."
+    )
+    linked_report_id: str | None = Field(
+        default=None,
+        description="UUID of the report the gate acted on, when one report decided it.",
+    )
+    detail: str = Field(
+        max_length=MAX_AUTOSTART_SKIP_DETAIL_LENGTH,
+        description="One line a reader can act on, naming what has to happen before work starts.",
+    )
+
+    @field_validator("linked_report_id")
+    @classmethod
+    def linked_report_id_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            return str(UUID(v.strip()))
+        except ValueError:
+            raise ValueError("must be a UUID")
+
+
 class ImplementationTarget(BaseModel):
     task_id: UUID
     run_id: UUID
@@ -898,12 +935,20 @@ class CheckResult(BaseModel):
     check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
     kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
     title: str = Field(description="The check's title, copied so the log entry reads on its own.")
-    outcome: Literal["passed", "failed", "errored"] = Field(
+    outcome: CheckOutcome = Field(
         description=(
-            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+            "`passed` (the expectation held), `failed` (it did not), `errored` (the check could not be measured), "
+            "or `inconclusive` (the run worked but could not settle the claim)."
         )
     )
     explanation: str = Field(description="One line saying what was measured and how it compared.")
+    reason: CheckInconclusiveReason | None = Field(
+        default=None,
+        description=(
+            "Why an `inconclusive` run could not settle the claim. Required on `inconclusive`, absent on any other "
+            "outcome."
+        ),
+    )
     observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
     baseline_value: float | None = Field(
         default=None, description="The value recorded when the check was written, when the author gave one."
@@ -920,6 +965,12 @@ class CheckResult(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @model_validator(mode="after")
+    def reason_must_match_outcome(self) -> CheckResult:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("`reason` is required on an `inconclusive` result and refused on any other")
+        return self
 
 
 class CheckLifecycleEntry(BaseModel):
@@ -981,9 +1032,60 @@ class CheckCancelled(CheckLifecycleEntry):
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
+
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
+class ImpactMeasurementPlan(BaseModel):
+    """One version of a proposed impact measurement, keyed by metric_id within a report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str = Field(max_length=100)
+    title: str = Field(max_length=200)
+    kind: str
+    query: dict[str, Any]
+    value_format: str = "number"
+    unit: str | None = None
+    goal_value: float
+    goal_direction: Literal["at_most", "at_least"]
+    goal_grain: Literal["whole_window", "per_interval"] = "whole_window"
+    decision_window_days: int | None = Field(default=None, ge=1, le=30)
+    minimum_data_points: int | None = Field(default=None, ge=1, le=1000)
+    eligibility_query: dict[str, Any] | None = None
+    activated: bool = Field(default=False, strict=True)
+    retired: bool = Field(default=False, strict=True)
+
+    @field_validator("goal_value", "decision_window_days", "minimum_data_points", mode="before")
+    @classmethod
+    def reject_coerced_flags_and_counts(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("provide a number, not a boolean")
+        return value
+
+    @model_validator(mode="after")
+    def validate_measurement(self) -> ImpactMeasurementPlan:
+        from products.signals.backend.report_metrics import ReportMetric
+
+        validated_metric = ReportMetric.model_validate(
+            self.model_dump(exclude={"activated", "retired", "goal_grain", "eligibility_query"})
+        )
+        self.metric_id = validated_metric.metric_id
+        if self.minimum_data_points is not None and self.eligibility_query is None:
+            raise ValueError("minimum_data_points requires an eligibility_query for qualifying opportunities")
+        if self.eligibility_query is not None:
+            ReportMetric.model_validate(
+                {
+                    "metric_id": "eligible",
+                    "title": "Qualifying opportunities",
+                    "kind": "occurrences",
+                    "value_format": "count",
+                    "query": self.eligibility_query,
+                }
+            )
+        return self
+
+
 StatusArtefactContent = (
     SafetyJudgment
     | ActionabilityAssessment
@@ -1005,6 +1107,7 @@ LogArtefactContent = (
     | CodeReview
     | RelatedTo
     | ReportLink
+    | AutostartSkip
     | WorkClaim
     | WorkRelease
     | PullRequestLink
@@ -1014,6 +1117,7 @@ LogArtefactContent = (
     | CheckCancelled
     | ImplementationReplacement
     | ImplementationHandover
+    | ImpactMeasurementPlan
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -1039,6 +1143,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "code_review": CodeReview,
     "related_to": RelatedTo,
     "report_link": ReportLink,
+    "autostart_skip": AutostartSkip,
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
@@ -1050,6 +1155,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
+    "impact_measurement_plan": ImpactMeasurementPlan,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -1069,6 +1175,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # still running.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# `autostart_skip` records a decision only auto-start can make. Accepting it through the API would
+# let a caller claim work was held back by a gate that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
 # may write them; API writes would let callers fabricate automation provenance or completion.
 # `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through
@@ -1088,6 +1196,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_expired",
         "check_cancelled",
         "report_link",
+        "autostart_skip",
         "implementation_decision",
         "implementation_dispatch",
         "implementation_replacement",

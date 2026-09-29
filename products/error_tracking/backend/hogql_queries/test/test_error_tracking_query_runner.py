@@ -503,6 +503,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[1]["aggregations"]["users"], 1)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_search_query_matches_current_issue_id_and_event_text(self) -> None:
+        current_issue_id = str(uuid7())
+        self.create_issue(current_issue_id, "new_issue_fingerprint")
+        self.override_fingerprint(self.issue_three_fingerprint, current_issue_id)
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_issue_id": self.issue_id_two,
+                "$exception_fingerprint": self.issue_two_fingerprint,
+                "$exception_values": f"An error mentions {current_issue_id}",
+            },
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery=f" {current_issue_id.upper()} ", withAggregations=True)["results"]
+
+        self.assertEqual({result["id"] for result in results}, {current_issue_id, self.issue_id_two})
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]

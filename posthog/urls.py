@@ -25,10 +25,7 @@ from posthog.api import (
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
-from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
-from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
-from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
@@ -75,9 +72,10 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path
 from .views import (
@@ -220,6 +218,10 @@ urlpatterns = [
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
         csrf_exempt(agent_proxy_callback),
     ),
+    path(
+        "internal/teams/<int:team_id>/task_runs/<str:run_id>/generation_requests/<str:request_id>/",
+        csrf_exempt(gateway_generation_request),
+    ),
     # Internal SQLV2 run result callback (auth: signed callback token)
     path(
         "internal/notebooks/runs/<str:run_id>/result/",
@@ -282,21 +284,6 @@ urlpatterns = [
     path(
         "api/oauth/connected-apps/<uuid:pk>/revoke/",
         ConnectedAppsViewSet.as_view({"post": "revoke"}),
-    ),
-    path(
-        WIZARD_METADATA_PATH,
-        WizardClientMetadataView.as_view(),
-        name="wizard-client-metadata",
-    ),
-    path(
-        RAYCAST_METADATA_PATH,
-        RaycastClientMetadataView.as_view(),
-        name="raycast-client-metadata",
-    ),
-    path(
-        HOGLI_METADATA_PATH,
-        HogliClientMetadataView.as_view(),
-        name="hogli-client-metadata",
     ),
     # The one slot for root routes products declare themselves, after every core api/ route and
     # before the API fallback and the frontend catch-all. See docs/internal/url-routing.md.

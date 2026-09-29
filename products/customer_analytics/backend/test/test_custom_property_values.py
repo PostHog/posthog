@@ -39,7 +39,7 @@ from products.customer_analytics.backend.models import (
 )
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 LOGIC_MODULE = "products.customer_analytics.backend.logic.custom_property_values"
 
@@ -709,8 +709,8 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         return uac
 
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
-        return HogFlow.objects.create(
-            team=self.team,
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name=name,
             status=status,
             actions=[

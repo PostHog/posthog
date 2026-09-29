@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -262,7 +263,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -1748,6 +1749,38 @@ class SchemaSyncResult:
     deleted: list[str]
 
 
+def _pause_schedule_then_disable_schema(schema: "ExternalDataSchema") -> None:
+    """Pause a discovery-removed table's schedule, and only then persist the table as off.
+
+    The sync workflow does not read `should_sync`, so the schedule is what actually stops the
+    billable runs. Writing the row off first would strand the table whenever the pause fails: the
+    schedule keeps starting runs, and the next discovery run sees a row that is already off, so it
+    never retries the pause. Keeping the row on until the pause lands makes a failed pause
+    self-healing, because the table is still on and still unlisted when discovery next runs.
+
+    Nothing here raises: Django drops the remaining `on_commit` callbacks once one of them raises,
+    so an error would also strand every other table removed in the same commit, and on the API
+    paths it would fail a request whose reconcile already committed. A pause that lands without its
+    write (or without its teardown dispatch) heals the same way, on the next discovery run. The
+    write is scoped to its own columns because the row was read before the commit, so a full save
+    would push back whatever a concurrent writer changed in the meantime.
+    """
+    # Call-time import for the reason given in update_should_sync above.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+    try:
+        pause_external_data_schedule(str(schema.id))
+        schema.should_sync = False
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.save(update_fields=["should_sync", "status", "updated_at"])
+    except Exception:
+        logger.exception(
+            "discovery_removed_schema_disable_failed",
+            external_data_schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -1846,8 +1879,12 @@ def sync_old_schemas_with_new_schemas(
             if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
+            elif s.should_sync:
+                # After the commit because callers can hold the source row lock, and the Temporal
+                # call must not run inside it. A row already off needs no pause, and pausing it
+                # again every run would open a Temporal connection per table per run.
+                transaction.on_commit(partial(_pause_schedule_then_disable_schema, s))
             else:
-                s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 

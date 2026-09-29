@@ -32,15 +32,16 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    cancel_running_sync,
+    stage_handed_over_reset,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
 
 
 def _make_event(
@@ -2830,9 +2831,14 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.parse_cdc_config.return_value = cdc_config
         mock_adapter.get_lag_bytes.return_value = lag_mb * 1024 * 1024
         mock_adapter.get_retention_cap_mb.return_value = cap_mb
+        mock_adapter.slot_exists.return_value = False
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
+        return_value=False,
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -2840,7 +2846,14 @@ class TestCleanupOrphanSlotsRetentionCap:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_retention_cap_lowers_critical_threshold(
-        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self,
+        mock_mark_broken,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_adapter,
+        mock_activity,
+        mock_heartbeater,
+        _billing,
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
@@ -2852,6 +2865,10 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.drop_resources.assert_called_once()
         mock_mark_broken.assert_called_once()
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
+        return_value=False,
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -2859,7 +2876,14 @@ class TestCleanupOrphanSlotsRetentionCap:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_unlimited_retention_keeps_configured_threshold(
-        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self,
+        mock_mark_broken,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_adapter,
+        mock_activity,
+        mock_heartbeater,
+        _billing,
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
@@ -4003,18 +4027,19 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", "users-snapshot", True),
-            ("sync_stopped", None, False),
+            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, True),
+            ("sync_stopped", None, {"clear_deferred_runs": False}, False),
+            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
-        self, _name, stopping_workflow_id, waits, MockBufferWriter, mock_purge
+        self, _name, stopping_workflow_id, pending, waits, MockBufferWriter, mock_purge
     ):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        schema.sync_type_config["cdc_reset_pending"] = pending
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -4023,15 +4048,95 @@ class TestBufferedIngressCapture:
                 return_value=stopping_workflow_id,
             ),
             patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow") as trigger,
         ):
             reader, _s3, _producer = self._run(MockBufferWriter, events, [schema], source)
 
         assert mock_purge.called is not waits
         assert unpause.called is not waits
+        assert trigger.called is (not waits and bool(pending.get("trigger")))
         assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
         assert MockBufferWriter.return_value.write_batch.called is not waits
         reader.confirm_position.assert_called_once_with("0/100")
+
+    @parameterized.expand(
+        [
+            ("schedule_recreated", None, False),
+            ("recovery_failed", RuntimeError("temporal down"), True),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_handed_over_reset_recreates_a_schedule_that_is_gone(
+        self, _name, create_error, stays_pending, MockBufferWriter, _mock_purge
+    ):
+        # Unpausing a schedule that is gone succeeds silently, so the trigger is the first call to
+        # see it missing. Left there, the table would carry a reset with nothing to run it, while
+        # the request that handed the reset over would have recreated the schedule itself.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule"),
+            patch(
+                "products.data_warehouse.backend.facade.api.trigger_external_data_workflow",
+                side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b""),
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.sync_external_data_job_workflow",
+                side_effect=create_error,
+            ) as create_schedule,
+        ):
+            self._run(MockBufferWriter, events, [schema], source)
+
+        create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+        # A snapshot that never started keeps the key, so a later run repeats the reset and its start.
+        assert ("cdc_reset_pending" in schema.sync_type_config) is stays_pending
+
+    @parameterized.expand(
+        [
+            ("a_different_reset", {"clear_deferred_runs": False}),
+            ("the_same_reset_again", {"clear_deferred_runs": True, "trigger": True}),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_reset_staged_while_the_snapshot_was_starting_is_left_pending(
+        self, _name, pending, MockBufferWriter, _mock_purge
+    ):
+        # The unpause lets a sync start, so a request can hand its own reset over before this run
+        # has dropped the key. Dropping it wholesale would lose that reset with nothing to redo it.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = pending
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        staged: dict = {}
+
+        def hand_another_reset_over(_schedule_id):
+            stage_handed_over_reset(schema.sync_type_config)
+            staged.update(schema.sync_type_config["cdc_reset_pending"])
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.unpause_external_data_schedule",
+                side_effect=hand_another_reset_over,
+            ),
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow"),
+        ):
+            self._run(MockBufferWriter, events, [schema], source)
+
+        assert schema.sync_type_config["cdc_reset_pending"] == staged
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")

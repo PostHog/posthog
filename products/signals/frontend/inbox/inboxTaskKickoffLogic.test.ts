@@ -190,6 +190,36 @@ describe('inboxTaskKickoffLogic', () => {
             }
         )
 
+        it('sends app-built instructions to the agent but only the reader text as the question', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Fewer failed checkouts',
+                    "Propose a goal. The user's idea: Fewer failed checkouts"
+                )
+            ).toFinishAllListeners()
+
+            expect(createdTasks[0]).toMatchObject({
+                description: expect.stringContaining("Propose a goal. The user's idea: Fewer failed checkouts"),
+                signal_report_discussion_question: 'Fewer failed checkouts',
+            })
+        })
+
+        it('shows the prompt it sent, so the message pairs with the agent echo', async () => {
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+            ).toFinishAllListeners()
+
+            const { streamKey } = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation ?? {}
+            const { threadItems } = runStreamLogic({ streamKey: String(streamKey) }).values
+            expect(threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)).toEqual([
+                createdTasks[0].description,
+            ])
+        })
+
         it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
 
@@ -509,6 +539,19 @@ describe('inboxTaskKickoffLogic', () => {
 
     describe('buildDiscussReportPrompt', () => {
         const url = 'https://app.posthog.com/project/1/inbox/report-1'
+
+        it('keeps measurement edits separate from state changes on a resolved report', () => {
+            const prompt = buildDiscussReportPrompt(
+                makeReport({ status: SignalReportStatus.RESOLVED }),
+                url,
+                'Fewer failed checkouts',
+                'measurement_plan'
+            )
+            expect(prompt).toContain('Fewer failed checkouts')
+            expect(prompt).toContain('inbox-report-artefacts-create')
+            expect(prompt).toContain('Do not create a check, start monitoring, change the report state')
+            expect(prompt).not.toContain('inbox-reports-set-state')
+        })
 
         it.each([SignalReportStatus.READY, SignalReportStatus.PENDING_INPUT])(
             'tells the agent to carry out actions for a %s report',

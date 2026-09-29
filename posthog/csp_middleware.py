@@ -274,8 +274,11 @@ class CSPMiddleware:
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            js_url = urlsplit(settings.JS_URL)
+            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
-                resource_url = "http://localhost:8234"
+                # A devbox serves Vite from its Coder host, not localhost, so JS_URL names it.
+                resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
                 # The posthog.com dev server frames the dev app.
@@ -283,8 +286,6 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
-            js_url = urlsplit(settings.JS_URL)
-            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -379,6 +380,12 @@ class CSPMiddleware:
                 # without this origin a staff logout is cancelled with nothing shown to the user.
                 "form-action 'self' https://accounts.google.com",
             ]
+            if is_embeddable_document(request.path):
+                # Customers frame these documents on their own sites, and no list of ancestors can
+                # name every such site. In a report-only policy the directive only sends a report for
+                # each embed. Chrome cuts the document URL of that report to the origin, so it looks
+                # the same as a report from an app page that the browser blocks in a frame.
+                csp_parts.remove(frame_ancestors)
 
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
