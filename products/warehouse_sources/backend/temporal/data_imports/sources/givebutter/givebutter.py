@@ -18,7 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.givebutter.settings import BASE_URL, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.givebutter.settings import (
+    BASE_URL,
+    ENDPOINTS,
+    REQUEST_TIMEOUT_SECONDS,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -62,6 +66,7 @@ def validate_credentials(api_key: str, schema_name: str | None) -> tuple[bool, s
         headers={"Accept": "application/json"},
         allowed_hosts=["api.givebutter.com"],
         allow_redirects=False,
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
     try:
         path = endpoint.path
@@ -121,6 +126,7 @@ def givebutter_source(
             "headers": {"Accept": "application/json"},
             "allowed_hosts": ["api.givebutter.com"],
             "allow_redirects": False,
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
             "paginator": {"type": "json_response", "next_url_path": "links.next"},
         },
         "resource_defaults": {"write_disposition": "replace"},

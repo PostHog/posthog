@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -52,8 +52,8 @@ def manager(inputs: SourceInputs) -> Iterator[ResumableSourceManager[GivebutterR
         yield ResumableSourceManager(inputs, GivebutterResumeConfig)
 
 
-def pages(response: SourceResponse) -> Iterator[list[dict[str, Any]]]:
-    return iter(cast(Iterator[list[dict[str, Any]]], response.items()))
+def pages(response: SourceResponse) -> Generator[list[dict[str, Any]]]:
+    return cast(Generator[list[dict[str, Any]]], response.items())
 
 
 def test_pagination_and_resume_after_yield(
@@ -164,6 +164,7 @@ def test_child_rows_have_unique_parent_keys_and_resume_within_parent(
         {"id": "shared-id", parent_column: "parent-one"},
         {"id": "shared-id", parent_column: "parent-two"},
     ]
+    assert response.primary_keys is not None
     assert len({tuple(row[key] for key in response.primary_keys) for row in rows}) == 2
     assert next(iterator) == [{"id": "last-id", parent_column: "parent-two"}]
     manager.commit()
@@ -187,7 +188,7 @@ def test_transient_errors_retry_the_same_page(
             {"json": {"data": [{"id": "txn-one"}], "links": {"next": None}}},
         ],
     )
-    with patch.object(RESTClient._send_request.retry, "sleep"):
+    with patch.object(cast(Any, RESTClient._send_request).retry, "sleep"):
         assert list(pages(givebutter_source("test-api-key", inputs, manager))) == [[{"id": "txn-one"}]]
     assert len(requests_mock.request_history) == 2
     assert requests_mock.request_history[0].url == requests_mock.request_history[1].url

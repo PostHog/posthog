@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 BASE_URL = "https://api.givebutter.com/v1/"
 PAGE_SIZE = 100
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
 
 @frozen

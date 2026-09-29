@@ -44,6 +44,7 @@ def test_credential_status_maps_to_connection_result(
     result = GivebutterSource().validate_credentials(GivebutterSourceConfig(api_key="test-api-key"), 1, schema_name)
     assert result == (valid, message)
     assert len(requests_mock.request_history) == 1
+    assert requests_mock.last_request is not None
     assert requests_mock.last_request.qs == ({"page": ["1"]} if schema_name == "households" else {"per_page": ["1"]})
     assert requests_mock.last_request.headers["Authorization"] == "Bearer test-api-key"
 
