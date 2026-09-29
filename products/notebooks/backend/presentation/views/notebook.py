@@ -93,7 +93,10 @@ from products.notebooks.backend.facade.sql_v2 import (
     NodeRunRequest,
     build_ref_specs,
     dispatch_cell_run,
+    is_browser_run,
     kernel_sandbox_is_live,
+    plan_browser_run,
+    record_browser_run,
 )
 from products.notebooks.backend.facade.widget_snapshots import WidgetSnapshots
 from products.notebooks.backend.facade.widgets import (
@@ -164,6 +167,9 @@ from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_dir
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
+    NotebookBrowserRunPlanResponseSerializer,
+    NotebookBrowserRunRecordRequestSerializer,
+    NotebookBrowserRunRecordResponseSerializer,
     NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
@@ -2000,6 +2006,84 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             ).data
         )
 
+    def _browser_run_request(self, data: dict[str, Any]) -> NodeRunRequest:
+        node_type = data["node_type"]
+        connection_id = data["connection_id"] if node_type != "python" else None
+        return NodeRunRequest(
+            node_id=data["node_id"],
+            node_type=node_type,
+            code=data["code"],
+            output_name=data["output_name"],
+            refs=build_ref_specs(data.get("refs") or {}),
+            variables=build_notebook_variables(data.get("variables") or []),
+            connection_id=connection_id,
+            send_raw_query=bool(data["send_raw_query"]) and connection_id is not None,
+        )
+
+    @extend_schema(
+        request=NotebookSQLV2RunRequestSerializer,
+        responses={
+            200: NotebookBrowserRunPlanResponseSerializer,
+            400: OpenApiResponse(description="The cell can't run as written, for example an upstream cell never ran."),
+        },
+        description=(
+            "Resolve how a cell would run without starting it, for a notebook that runs Python in the browser. "
+            "A 'hogql' plan goes through the regular run endpoint. A 'python' or 'duckdb' plan lists the "
+            "upstream frames to load and the variables to bind, and the browser runs it. Flag-gated "
+            "(revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["POST"], url_path="sql_v2/browser_plan", detail=True, required_scopes=["notebook:read", "query:read"]
+    )
+    def sql_v2_browser_plan(self, request: Request, **kwargs) -> Response:
+        self._require_notebook_runs_enabled(self._current_user())
+        serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+        try:
+            plan = plan_browser_run(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                request=self._browser_run_request(serializer.validated_data),
+            )
+        except NodeRunInvalid as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response(NotebookBrowserRunPlanResponseSerializer(plan).data)
+
+    @extend_schema(
+        request=NotebookBrowserRunRecordRequestSerializer,
+        responses={200: NotebookBrowserRunRecordResponseSerializer},
+        description=(
+            "Record a cell run the browser kernel finished, so the notebook's widgets, references and "
+            "reloads read its result like any other run. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["POST"], url_path="sql_v2/browser_runs", detail=True, required_scopes=["notebook:write", "query:read"]
+    )
+    def sql_v2_browser_runs(self, request: Request, **kwargs) -> Response:
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+        serializer = NotebookBrowserRunRecordRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+        try:
+            run = record_browser_run(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user_id=user.id if user else None,
+                node_id=serializer.validated_data["node_id"],
+                node_type=serializer.validated_data["node_type"],
+                code=serializer.validated_data["code"],
+                envelope=serializer.validated_data["envelope"],
+            )
+        except NodeRunInvalid as e:
+            return Response({"detail": str(e)}, status=400)
+        return Response(NotebookBrowserRunRecordResponseSerializer({"run_id": run.id}).data)
+
     def _require_notebook_runs_enabled(self, user: User | None) -> None:
         # Server-side gate is permissive in local dev (the frontend still gates the UI);
         # prod is flag-gated, the same as every other SQL v2 endpoint.
@@ -2316,6 +2400,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
         # A kernel run (python/duckdb) pages by slicing its result frame in the sandbox, so it
         # needs the result_id its envelope advertised — no frame written means nothing to page.
+        if is_browser_run(run):
+            return Response(
+                {"detail": "This result was computed in a browser tab. Run the cell again to page through it."},
+                status=400,
+            )
         if not run.result_id:
             return Response({"detail": "This result has no pageable frame — re-run the node."}, status=400)
 

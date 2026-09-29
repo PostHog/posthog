@@ -69,6 +69,10 @@ def object_storage_upload_source() -> str:
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
 # prefix match would also hand the app document this policy and stop it from starting.
+# The notebook browser kernel loads Pyodide and its package wheels from this one pinned release.
+# Keep it in step with PYODIDE_VERSION in the frontend's browserKernelProtocol.ts.
+PYODIDE_SOURCE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/"
+
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
 # The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
@@ -329,7 +333,11 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                #
+                # Pyodide runs a notebook's Python in a worker, and it has to load its loader and
+                # runtime scripts from the same release as its wheels, which we do not mirror. The
+                # source is pinned to one version's directory, so no other file on that CDN can load.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js {PYODIDE_SOURCE}",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -378,7 +386,7 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {PYODIDE_SOURCE} {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

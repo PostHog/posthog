@@ -1119,17 +1119,55 @@ export interface NotebookSQLV2RunRequestApi {
     send_raw_query?: boolean
 }
 
-export interface NotebookSQLV2RunResponseApi {
-    /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
-    run_id: string
-    /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
-    starts_sandbox: boolean
+/**
+ * Python: globals to bind before the run. DuckDB: values for the `$name` parameters.
+ */
+export type NotebookBrowserRunPlanResponseApiVariables = { [key: string]: unknown }
+
+export interface NotebookBrowserRunInputApi {
+    /** Dataframe name the cell reads. */
+    name: string
+    /** 'hogql' is an upstream SQL result the browser fetches with `query`; 'local' is a frame the browser kernel must already hold. */
+    kind: string
     /**
-     * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+     * Upstream cell that produced a 'hogql' input.
      * @nullable
      */
-    sandbox_hourly_price?: number | null
+    node_id?: string | null
+    /**
+     * Upstream run id. The browser reuses rows it already loaded for the same key.
+     * @nullable
+     */
+    key?: string | null
+    /**
+     * HogQL that returns the upstream rows, bounded to the query API's row limit.
+     * @nullable
+     */
+    query?: string | null
 }
+
+export interface NotebookBrowserRunPlanResponseApi {
+    /** Where the cell runs: 'hogql' pushes to ClickHouse through the regular run endpoint; 'python' and 'duckdb' run in the browser kernel. */
+    node_type: string
+    /** Code to execute. DuckDB code carries `$name` parameters in place of `{name}` variables. */
+    code: string
+    /** Frames the run reads, in dependency order. */
+    inputs: NotebookBrowserRunInputApi[]
+    /** Python: globals to bind before the run. DuckDB: values for the `$name` parameters. */
+    variables: NotebookBrowserRunPlanResponseApiVariables
+}
+
+/**
+ * * `python` - python
+ * * `duckdb` - duckdb
+ */
+export type NotebookBrowserRunNodeTypeEnumApi =
+    (typeof NotebookBrowserRunNodeTypeEnumApi)[keyof typeof NotebookBrowserRunNodeTypeEnumApi]
+
+export const NotebookBrowserRunNodeTypeEnumApi = {
+    Python: 'python',
+    Duckdb: 'duckdb',
+} as const
 
 export interface NotebookSQLV2MediaApi {
     /** MIME type of the media, e.g. 'image/png' for a matplotlib figure. */
@@ -1176,6 +1214,40 @@ export interface NotebookSQLV2EnvelopeApi {
     error?: string | null
     /** Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics. */
     timings?: NotebookSQLV2EnvelopeApiTimings
+}
+
+export interface NotebookBrowserRunRecordRequestApi {
+    /**
+     * Node id of the cell the browser ran.
+     * @maxLength 128
+     */
+    node_id: string
+    /** 'python' for a Python cell, 'duckdb' for a SQL cell that read a browser dataframe.
+     *
+     * * `python` - python
+     * * `duckdb` - duckdb */
+    node_type: NotebookBrowserRunNodeTypeEnumApi
+    /** The code the browser executed. */
+    code: string
+    /** The result envelope the browser kernel produced. */
+    envelope: NotebookSQLV2EnvelopeApi
+}
+
+export interface NotebookBrowserRunRecordResponseApi {
+    /** Id of the recorded run, readable through the run result endpoint. */
+    run_id: string
+}
+
+export interface NotebookSQLV2RunResponseApi {
+    /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
+    run_id: string
+    /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+    starts_sandbox: boolean
+    /**
+     * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+     * @nullable
+     */
+    sandbox_hourly_price?: number | null
 }
 
 export interface NotebookSQLV2RunStatusResponseApi {

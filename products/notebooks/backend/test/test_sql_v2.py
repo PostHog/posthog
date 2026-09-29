@@ -978,6 +978,109 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
 
+class TestSQLV2BrowserKernel(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        for target, kwargs in (
+            ("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", {"return_value": True}),
+            ("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow", {}),
+            ("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            setattr(self, target.rsplit(".", 1)[1], patcher.start())
+            self.addCleanup(patcher.stop)
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbbrowser")
+        self.base_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2"
+
+    def _done_sql_run(self, node_id: str, code: str) -> NotebookNodeRun:
+        return NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            node_id=node_id,
+            code=code,
+            node_type=NotebookNodeRun.NodeType.HOGQL,
+            status=NotebookNodeRun.Status.DONE,
+            envelope={"status": "ok", "columns": ["event"], "row_count": 1, "first_page": [["$pageview"]]},
+        )
+
+    def test_python_plan_resolves_upstream_rows_without_starting_a_run(self):
+        upstream = self._done_sql_run("sql1", "select event from events")
+        response = self.client.post(
+            f"{self.base_url}/browser_plan/",
+            data={
+                "node_id": "py1",
+                "node_type": "python",
+                "code": "sql_df.head()",
+                "refs": {"sql_df": {"node_id": "sql1", "kind": "hogql"}, "unused": {"node_id": "sql1"}},
+                "variables": [{"name": "country", "type": "string", "value": "EE"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        plan = response.json()
+        assert plan["node_type"] == "python"
+        assert plan["variables"] == {"country": "EE"}
+        assert [(i["name"], i["kind"], i["key"]) for i in plan["inputs"]] == [("sql_df", "hogql", str(upstream.id))]
+        assert plan["inputs"][0]["query"] == "select event from events\nlimit 50000"
+        assert NotebookNodeRun.objects.for_team(self.team.id).count() == 1
+        self.enqueue_direct_run.assert_not_called()
+        self.start_sql_v2_run_workflow.assert_not_called()
+
+    def test_plan_refuses_an_upstream_cell_that_never_ran(self):
+        response = self.client.post(
+            f"{self.base_url}/browser_plan/",
+            data={
+                "node_id": "py1",
+                "node_type": "python",
+                "code": "print(sql_df)",
+                "refs": {"sql_df": {"node_id": "sql1", "kind": "hogql"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "has not been run yet" in response.json()["detail"]
+
+    def test_recorded_duckdb_run_is_read_locally_downstream_and_is_not_pageable(self):
+        recorded = self.client.post(
+            f"{self.base_url}/browser_runs/",
+            data={
+                "node_id": "sql2",
+                "node_type": "duckdb",
+                "code": "select * from py_df",
+                "envelope": {
+                    "status": "ok",
+                    "columns": ["n"],
+                    "types": [["n", "Int64"]],
+                    "row_count": 120,
+                    "first_page": [[1]],
+                    "has_more": True,
+                    "result_id": "00000000-0000-0000-0000-000000000001",
+                    "frames": [{"name": "py_df", "kind": "frame"}],
+                },
+            },
+            format="json",
+        )
+        assert recorded.status_code == 200, recorded.json()
+        run_id = recorded.json()["run_id"]
+
+        plan = self.client.post(
+            f"{self.base_url}/browser_plan/",
+            data={"node_id": "sql3", "code": "select n from sql2_df", "refs": {"sql2_df": {"node_id": "sql2"}}},
+            format="json",
+        ).json()
+        assert plan["node_type"] == "duckdb"
+        assert plan["inputs"] == [{"name": "sql2_df", "kind": "local", "node_id": None, "key": None, "query": None}]
+
+        result = self.client.get(f"{self.base_url}/runs/{run_id}/").json()
+        assert result["status"] == "done"
+        assert result["result"]["row_count"] == 120
+        page = self.client.get(f"{self.base_url}/runs/{run_id}/page/", {"offset": 50, "limit": 50})
+        assert page.status_code == 400
+        assert "browser" in page.json()["detail"]
+
+
 @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
 class TestSQLV2RunOnAConnection(APIBaseTest):
     def setUp(self):

@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookBrowserRunPlanResponseApi,
+    NotebookBrowserRunRecordRequestApi,
+    NotebookBrowserRunRecordResponseApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookComputeOptionsResponseApi,
@@ -719,6 +722,48 @@ export const notebooksRunsInterruptCreate = async (
     return apiMutator<NotebookRunInterruptResponseApi>(getNotebooksRunsInterruptCreateUrl(projectId, shortId, runId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getNotebooksSqlV2BrowserPlanCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/browser_plan/`
+}
+
+/**
+ * Resolve how a cell would run without starting it, for a notebook that runs Python in the browser. A 'hogql' plan goes through the regular run endpoint. A 'python' or 'duckdb' plan lists the upstream frames to load and the variables to bind, and the browser runs it. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2BrowserPlanCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookSQLV2RunRequestApi: NotebookSQLV2RunRequestApi,
+    options?: RequestInit
+): Promise<NotebookBrowserRunPlanResponseApi> => {
+    return apiMutator<NotebookBrowserRunPlanResponseApi>(getNotebooksSqlV2BrowserPlanCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookSQLV2RunRequestApi),
+    })
+}
+
+export const getNotebooksSqlV2BrowserRunsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/browser_runs/`
+}
+
+/**
+ * Record a cell run the browser kernel finished, so the notebook's widgets, references and reloads read its result like any other run. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2BrowserRunsCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookBrowserRunRecordRequestApi: NotebookBrowserRunRecordRequestApi,
+    options?: RequestInit
+): Promise<NotebookBrowserRunRecordResponseApi> => {
+    return apiMutator<NotebookBrowserRunRecordResponseApi>(getNotebooksSqlV2BrowserRunsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookBrowserRunRecordRequestApi),
     })
 }
 

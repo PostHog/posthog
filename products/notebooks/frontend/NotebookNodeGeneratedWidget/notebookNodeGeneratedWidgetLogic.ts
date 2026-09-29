@@ -27,6 +27,10 @@ import {
     collectDependencyNodeIds,
     collectNotebookFrameNodes,
 } from 'scenes/notebooks/Nodes/notebookNodeContent'
+import {
+    notebookBrowserKernelLogic,
+    runningBrowserKernel,
+} from 'scenes/notebooks/Notebook/browserKernel/notebookBrowserKernelLogic'
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -429,6 +433,50 @@ export async function loadWidgetFrame(
         },
         { signal }
     )
+}
+
+// The same page bounds the widget frame endpoint applies, so a widget reads identically from either kernel.
+const MAX_BROWSER_FRAME_PAGE_ROWS = 500
+const MAX_BROWSER_FRAME_TOTAL_ROWS = 5_000
+
+/**
+ * A widget's page of a dataframe the notebook's browser kernel holds, or null when the frame is not
+ * in the browser and the widget frame endpoint should answer instead.
+ */
+export async function loadBrowserWidgetFrame(
+    notebookShortId: string,
+    slot: string,
+    sourceName: string,
+    offset: number,
+    limit: number,
+    runId: string | undefined
+): Promise<WidgetFrameApi | null> {
+    const kernelLogic = notebookBrowserKernelLogic.findMounted({ shortId: notebookShortId })
+    const kernel = runningBrowserKernel(notebookShortId)
+    if (!kernel || !kernelLogic?.values.outputFrameNames.has(sourceName)) {
+        return null
+    }
+    if (offset >= MAX_BROWSER_FRAME_TOTAL_ROWS) {
+        throw new Error(
+            `Widget data is limited to ${MAX_BROWSER_FRAME_TOTAL_ROWS.toLocaleString()} rows per dataframe.`
+        )
+    }
+    const pageLimit = Math.min(Math.max(limit, 1), MAX_BROWSER_FRAME_PAGE_ROWS, MAX_BROWSER_FRAME_TOTAL_ROWS - offset)
+    const page = await kernel.readFrame(sourceName, offset, pageLimit)
+    if ('missing' in page) {
+        return null
+    }
+    const endOffset = offset + page.includedRowCount
+    return {
+        ...page,
+        name: slot,
+        runId: runId ?? 'browser',
+        nextOffset:
+            endOffset < Math.min(page.totalRowCount, MAX_BROWSER_FRAME_TOTAL_ROWS) && page.includedRowCount
+                ? endOffset
+                : null,
+        truncated: endOffset < page.totalRowCount,
+    }
 }
 
 export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGeneratedWidgetLogicType> =

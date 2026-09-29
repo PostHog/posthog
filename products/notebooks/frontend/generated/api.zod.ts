@@ -676,6 +676,204 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Resolve how a cell would run without starting it, for a notebook that runs Python in the browser. A 'hogql' plan goes through the regular run endpoint. A 'python' or 'duckdb' plan lists the upstream frames to load and the variables to bind, and the browser runs it. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2BrowserPlanCreateBodyReuseResultsDefault = false
+export const notebooksSqlV2BrowserPlanCreateBodyNodeTypeDefault = `hogql`
+export const notebooksSqlV2BrowserPlanCreateBodyOutputNameDefault = ``
+export const notebooksSqlV2BrowserPlanCreateBodyRefsKindDefault = `hogql`
+export const notebooksSqlV2BrowserPlanCreateBodyVariablesItemNameMax = 200
+
+export const notebooksSqlV2BrowserPlanCreateBodySendRawQueryDefault = false
+
+export const NotebooksSqlV2BrowserPlanCreateBody = /* @__PURE__ */ zod.object({
+    reuse_results: zod
+        .boolean()
+        .default(notebooksSqlV2BrowserPlanCreateBodyReuseResultsDefault)
+        .describe(
+            "Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs."
+        ),
+    node_id: zod.string().describe('ProseMirror node id of the SQLV2 node being run.'),
+    node_type: zod
+        .enum(['hogql', 'python'])
+        .describe('\* `hogql` - hogql\n\* `python` - python')
+        .default(notebooksSqlV2BrowserPlanCreateBodyNodeTypeDefault)
+        .describe(
+            "Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.\n\n\* `hogql` - hogql\n\* `python` - python"
+        ),
+    code: zod
+        .string()
+        .describe("The node's source — SQL for a hogql node, Python for a python node. Must not be blank."),
+    output_name: zod
+        .string()
+        .default(notebooksSqlV2BrowserPlanCreateBodyOutputNameDefault)
+        .describe(
+            'Kernel nodes only: the dataframe variable to bind the result to in the kernel namespace (a python node falls back to the last expression for its preview).'
+        ),
+    refs: zod
+        .record(
+            zod.string(),
+            zod.object({
+                node_id: zod.string().describe('ProseMirror node id of the upstream node this name points at.'),
+                kind: zod
+                    .enum(['hogql', 'local'])
+                    .describe('\* `hogql` - hogql\n\* `local` - local')
+                    .default(notebooksSqlV2BrowserPlanCreateBodyRefsKindDefault)
+                    .describe(
+                        "What the name resolves to: 'hogql' is a SQL node's query definition (resolved to its last-run HogQL); 'local' is a dataframe a Python node bound in the kernel namespace.\n\n\* `hogql` - hogql\n\* `local` - local"
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
+        ),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksSqlV2BrowserPlanCreateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch.'
+        ),
+    connection_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog."
+        ),
+    send_raw_query: zod
+        .boolean()
+        .default(notebooksSqlV2BrowserPlanCreateBodySendRawQueryDefault)
+        .describe(
+            'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
+        ),
+})
+
+/**
+ * Record a cell run the browser kernel finished, so the notebook's widgets, references and reloads read its result like any other run. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2BrowserRunsCreateBodyNodeIdMax = 128
+
+export const notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneFramesItemRowCountIsEstimateDefault = false
+export const notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneStdoutDefault = ``
+export const notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneStderrDefault = ``
+export const notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneRowCountDefault = 0
+export const notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneHasMoreDefault = false
+
+export const NotebooksSqlV2BrowserRunsCreateBody = /* @__PURE__ */ zod.object({
+    node_id: zod
+        .string()
+        .max(notebooksSqlV2BrowserRunsCreateBodyNodeIdMax)
+        .describe('Node id of the cell the browser ran.'),
+    node_type: zod
+        .enum(['python', 'duckdb'])
+        .describe('\* `python` - python\n\* `duckdb` - duckdb')
+        .describe(
+            "'python' for a Python cell, 'duckdb' for a SQL cell that read a browser dataframe.\n\n\* `python` - python\n\* `duckdb` - duckdb"
+        ),
+    code: zod.string().describe('The code the browser executed.'),
+    envelope: zod
+        .object({
+            status: zod.string().describe("Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop)."),
+            frames: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name a SQL node can SELECT from.'),
+                        kind: zod
+                            .string()
+                            .describe(
+                                "Where the object came from: 'frame' (a dataframe a node produced), or 'table'\/'view' (created by SQL DDL in a DuckDB node)."
+                            ),
+                        columns: zod
+                            .array(zod.array(zod.string()).describe('A [column name, DuckDB type] pair.'))
+                            .optional()
+                            .describe('DuckDB type per column, as [name, type] pairs.'),
+                        row_count: zod
+                            .number()
+                            .nullish()
+                            .describe('Rows available, or null when counting would require a table scan (a DDL view).'),
+                        row_count_is_estimate: zod
+                            .boolean()
+                            .default(notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneFramesItemRowCountIsEstimateDefault)
+                            .describe(
+                                "True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact."
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    'DuckDB objects a SQL node can SELECT from as of this run, for the schema browser. Only kernel runs (python\/duckdb) report these; a hogql run never enters the kernel.'
+                ),
+            stdout: zod
+                .string()
+                .default(notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneStdoutDefault)
+                .describe('Captured stdout from a Python node run.'),
+            stderr: zod
+                .string()
+                .default(notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneStderrDefault)
+                .describe('Captured stderr (including tracebacks) from a Python node run.'),
+            media: zod
+                .array(
+                    zod.object({
+                        mime_type: zod
+                            .string()
+                            .describe("MIME type of the media, e.g. 'image\/png' for a matplotlib figure."),
+                        data: zod.string().describe('Base64-encoded media bytes.'),
+                    })
+                )
+                .optional()
+                .describe('Rich outputs from a Python node run, e.g. matplotlib figures as PNGs.'),
+            columns: zod.array(zod.string()).optional().describe('Result column names.'),
+            types: zod
+                .array(zod.array(zod.string()).describe('A [column name, ClickHouse type] pair.'))
+                .optional()
+                .describe('ClickHouse type per column, as [name, type] pairs; used by the visualization tab.'),
+            row_count: zod
+                .number()
+                .default(notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneRowCountDefault)
+                .describe('Number of rows in the result.'),
+            has_more: zod
+                .boolean()
+                .default(notebooksSqlV2BrowserRunsCreateBodyEnvelopeOneHasMoreDefault)
+                .describe('Whether ClickHouse has more rows beyond first_page (detected by fetching limit+1).'),
+            first_page: zod
+                .array(zod.array(zod.unknown()).describe('A single result row as a list of cell values.'))
+                .optional()
+                .describe('First page of result rows for display; each row is a list of cell values.'),
+            result_id: zod.uuid().nullish().describe('Identifier of the materialized result, used as the paging key.'),
+            error: zod.string().nullish().describe("Error message when status is 'error'."),
+            timings: zod
+                .record(zod.string(), zod.number())
+                .optional()
+                .describe(
+                    'Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.'
+                ),
+        })
+        .describe('The result envelope the browser kernel produced.'),
+})
+
+/**
  * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
  */
 export const notebooksSqlV2RunCreateBodyReuseResultsDefault = false

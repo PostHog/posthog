@@ -12,6 +12,12 @@ contracts and resolve the models inside the product, so no caller holds a Django
 never handles them.
 """
 
+from ..sql_v2_browser import (
+    BrowserRunPlan as BrowserRunPlan,
+    is_browser_run as is_browser_run,
+    plan_browser_run as plan_browser_run,
+    record_browser_run as record_browser_run,
+)
 from ..sql_v2_callback import notebook_sql_v2_callback as notebook_sql_v2_callback
 from ..sql_v2_data_plane import (
     notebook_sql_v2_data_plane as notebook_sql_v2_data_plane,

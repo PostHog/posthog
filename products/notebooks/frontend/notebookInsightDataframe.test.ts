@@ -6,6 +6,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { collectNotebookFrameNodes } from 'scenes/notebooks/Nodes/notebookNodeContent'
 import { collectSqlV2Refs } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
+import { notebookKernelProviderLogic } from 'scenes/notebooks/Notebook/browserKernel/notebookKernelProviderLogic'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
@@ -31,6 +32,9 @@ describe('insight dataframes', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // These cover the sandbox kernel; the browser kernel runs through its own endpoints.
+        notebookKernelProviderLogic({ shortId: 'insight-dataframes' }).mount()
+        notebookKernelProviderLogic({ shortId: 'insight-dataframes' }).actions.setProvider('sandbox')
         jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'insight-run', starts_sandbox: false })
         jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({
             status: 'done',

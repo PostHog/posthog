@@ -61721,6 +61721,141 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookBrowserRunInput {
+      /** Dataframe name the cell reads. */
+      name: string;
+      /** 'hogql' is an upstream SQL result the browser fetches with `query`; 'local' is a frame the browser kernel must already hold. */
+      kind: string;
+      /**
+         * Upstream cell that produced a 'hogql' input.
+         * @nullable
+         */
+      node_id?: string | null;
+      /**
+         * Upstream run id. The browser reuses rows it already loaded for the same key.
+         * @nullable
+         */
+      key?: string | null;
+      /**
+         * HogQL that returns the upstream rows, bounded to the query API's row limit.
+         * @nullable
+         */
+      query?: string | null;
+    }
+
+    /**
+     * * `python` - python
+     * * `duckdb` - duckdb
+     */
+    export type NotebookBrowserRunNodeTypeEnum = typeof NotebookBrowserRunNodeTypeEnum[keyof typeof NotebookBrowserRunNodeTypeEnum];
+
+
+    export const NotebookBrowserRunNodeTypeEnum = {
+      Python: 'python',
+      Duckdb: 'duckdb',
+    } as const;
+
+    /**
+     * Python: globals to bind before the run. DuckDB: values for the `$name` parameters.
+     */
+    export type NotebookBrowserRunPlanResponseVariables = {[key: string]: unknown};
+
+    export interface NotebookBrowserRunPlanResponse {
+      /** Where the cell runs: 'hogql' pushes to ClickHouse through the regular run endpoint; 'python' and 'duckdb' run in the browser kernel. */
+      node_type: string;
+      /** Code to execute. DuckDB code carries `$name` parameters in place of `{name}` variables. */
+      code: string;
+      /** Frames the run reads, in dependency order. */
+      inputs: NotebookBrowserRunInput[];
+      /** Python: globals to bind before the run. DuckDB: values for the `$name` parameters. */
+      variables: NotebookBrowserRunPlanResponseVariables;
+    }
+
+    export interface NotebookSQLV2Frame {
+      /** Name a SQL node can SELECT from. */
+      name: string;
+      /** Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node). */
+      kind: string;
+      /** DuckDB type per column, as [name, type] pairs. */
+      columns?: string[][];
+      /**
+         * Rows available, or null when counting would require a table scan (a DDL view).
+         * @nullable
+         */
+      row_count?: number | null;
+      /** True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact. */
+      row_count_is_estimate?: boolean;
+    }
+
+    export interface NotebookSQLV2Media {
+      /** MIME type of the media, e.g. 'image/png' for a matplotlib figure. */
+      mime_type: string;
+      /** Base64-encoded media bytes. */
+      data: string;
+    }
+
+    /**
+     * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
+     */
+    export type NotebookSQLV2EnvelopeTimings = {[key: string]: number};
+
+    export interface NotebookSQLV2Envelope {
+      /** Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop). */
+      status: string;
+      /** DuckDB objects a SQL node can SELECT from as of this run, for the schema browser. Only kernel runs (python/duckdb) report these; a hogql run never enters the kernel. */
+      frames?: NotebookSQLV2Frame[];
+      /** Captured stdout from a Python node run. */
+      stdout?: string;
+      /** Captured stderr (including tracebacks) from a Python node run. */
+      stderr?: string;
+      /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
+      media?: NotebookSQLV2Media[];
+      /** Result column names. */
+      columns?: string[];
+      /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */
+      types?: string[][];
+      /** Number of rows in the result. */
+      row_count?: number;
+      /** Whether ClickHouse has more rows beyond first_page (detected by fetching limit+1). */
+      has_more?: boolean;
+      /** First page of result rows for display; each row is a list of cell values. */
+      first_page?: unknown[][];
+      /**
+         * Identifier of the materialized result, used as the paging key.
+         * @nullable
+         */
+      result_id?: string | null;
+      /**
+         * Error message when status is 'error'.
+         * @nullable
+         */
+      error?: string | null;
+      /** Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics. */
+      timings?: NotebookSQLV2EnvelopeTimings;
+    }
+
+    export interface NotebookBrowserRunRecordRequest {
+      /**
+         * Node id of the cell the browser ran.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** 'python' for a Python cell, 'duckdb' for a SQL cell that read a browser dataframe.
+       *
+       * * `python` - python
+       * * `duckdb` - duckdb */
+      node_type: NotebookBrowserRunNodeTypeEnum;
+      /** The code the browser executed. */
+      code: string;
+      /** The result envelope the browser kernel produced. */
+      envelope: NotebookSQLV2Envelope;
+    }
+
+    export interface NotebookBrowserRunRecordResponse {
+      /** Id of the recorded run, readable through the run result endpoint. */
+      run_id: string;
+    }
+
     export interface NotebookCellLastRun {
       /** Identifier of the cell's most recent run. */
       run_id: string;
@@ -61918,22 +62053,6 @@ export namespace Schemas {
       idle_timeout_seconds?: number | null;
     }
 
-    export interface NotebookSQLV2Frame {
-      /** Name a SQL node can SELECT from. */
-      name: string;
-      /** Where the object came from: 'frame' (a dataframe a node produced), or 'table'/'view' (created by SQL DDL in a DuckDB node). */
-      kind: string;
-      /** DuckDB type per column, as [name, type] pairs. */
-      columns?: string[][];
-      /**
-         * Rows available, or null when counting would require a table scan (a DDL view).
-         * @nullable
-         */
-      row_count?: number | null;
-      /** True when row_count is DuckDB's optimizer estimate rather than a count. The estimate does not track deletes, so it must never be presented as exact. */
-      row_count_is_estimate?: boolean;
-    }
-
     export interface NotebookKernelStatusResponse {
       /**
          * Sandbox backend the kernel runs on: 'modal' or 'docker'.
@@ -62125,53 +62244,6 @@ export namespace Schemas {
          * @nullable
          */
       finished_at?: string | null;
-    }
-
-    /**
-     * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
-     */
-    export type NotebookSQLV2EnvelopeTimings = {[key: string]: number};
-
-    export interface NotebookSQLV2Media {
-      /** MIME type of the media, e.g. 'image/png' for a matplotlib figure. */
-      mime_type: string;
-      /** Base64-encoded media bytes. */
-      data: string;
-    }
-
-    export interface NotebookSQLV2Envelope {
-      /** Run outcome: 'ok', 'error', or 'interrupted' (user-requested stop). */
-      status: string;
-      /** DuckDB objects a SQL node can SELECT from as of this run, for the schema browser. Only kernel runs (python/duckdb) report these; a hogql run never enters the kernel. */
-      frames?: NotebookSQLV2Frame[];
-      /** Captured stdout from a Python node run. */
-      stdout?: string;
-      /** Captured stderr (including tracebacks) from a Python node run. */
-      stderr?: string;
-      /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
-      media?: NotebookSQLV2Media[];
-      /** Result column names. */
-      columns?: string[];
-      /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */
-      types?: string[][];
-      /** Number of rows in the result. */
-      row_count?: number;
-      /** Whether ClickHouse has more rows beyond first_page (detected by fetching limit+1). */
-      has_more?: boolean;
-      /** First page of result rows for display; each row is a list of cell values. */
-      first_page?: unknown[][];
-      /**
-         * Identifier of the materialized result, used as the paging key.
-         * @nullable
-         */
-      result_id?: string | null;
-      /**
-         * Error message when status is 'error'.
-         * @nullable
-         */
-      error?: string | null;
-      /** Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics. */
-      timings?: NotebookSQLV2EnvelopeTimings;
     }
 
     export interface NotebookSQLV2InterruptResponse {

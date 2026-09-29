@@ -5,12 +5,15 @@ import { uuid } from 'lib/utils/dom'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import { NotebookBrowserKernelInfo } from './browserKernel/NotebookBrowserKernelInfo'
+import { notebookKernelProviderLogic } from './browserKernel/notebookKernelProviderLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo } = useValues(notebookLogic)
+    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo, shortId } = useValues(notebookLogic)
+    const { provider } = useValues(notebookKernelProviderLogic({ shortId }))
     const shouldShowMarkdownKernelInfo = isMarkdownNotebookContent(content) && showKernelInfo
     const isShowing = (nodeLogicsWithChildren.length > 0 || shouldShowMarkdownKernelInfo) && !isShowingLeftColumn
 
@@ -24,7 +27,13 @@ export const NotebookColumnRight = (): JSX.Element | null => {
             <div className="NotebookColumn__content">
                 {isShowing ? (
                     <>
-                        {shouldShowMarkdownKernelInfo ? <NotebookKernelInfo /> : null}
+                        {shouldShowMarkdownKernelInfo ? (
+                            provider === 'browser' ? (
+                                <NotebookBrowserKernelInfo />
+                            ) : (
+                                <NotebookKernelInfo />
+                            )
+                        ) : null}
                         {nodeLogicsWithChildren.map((x, i) => (
                             <Widgets key={i} nodeLogic={x} />
                         ))}

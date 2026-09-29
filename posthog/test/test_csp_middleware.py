@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.csp_middleware import (
     CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
+    PYODIDE_SOURCE,
     CSPMiddleware,
     app_csp_header_name,
     narrowed_app_policy,
@@ -314,6 +315,8 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://webhooks.{region}.posthog.com" in connect_src
         assert f"https://{region}.i.posthog.com/decide/" in connect_src
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
+        # The notebook browser kernel fetches Pyodide's runtime and wheels from one pinned release.
+        assert PYODIDE_SOURCE in script_src and PYODIDE_SOURCE in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 

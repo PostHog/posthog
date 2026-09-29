@@ -13,6 +13,8 @@ import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } 
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { notebookBrowserKernelLogic } from '../../Notebook/browserKernel/notebookBrowserKernelLogic'
+import { notebookKernelProviderLogic } from '../../Notebook/browserKernel/notebookKernelProviderLogic'
 import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -33,7 +35,7 @@ export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suf
  * The "Dataframes" section this node contributes to the shared database tree (Journey 7).
  *
  * Reads only logics notebookLogic already mounts — the document for the names its cells bind,
- * and notebookKernelInfoLogic for the kernel's catalog — so it adds no requests. It deliberately
+ * and the kernel logics for the catalog of whichever kernel the notebook uses — so it adds no requests. It deliberately
  * does not read queryDatabaseLogic for the search term: reading a logic mounts it, and that one's
  * afterMount fans out to the warehouse loaders (drafts, joins, tab state), which every notebook
  * with a SQL cell would then pay on open even with the browser closed. QueryDatabase already
@@ -49,7 +51,13 @@ function useNotebookDataframeTreeSections(): TreeDataItem[] {
             isShared: !!notebookLogic.props.cachedNotebook,
         })
     )
-    return useMemo(() => buildDataframeTreeSection(frameNodeSummaries, localFrames), [frameNodeSummaries, localFrames])
+    const { provider } = useValues(notebookKernelProviderLogic({ shortId: notebookLogic.props.shortId }))
+    const { frames: browserFrames } = useValues(notebookBrowserKernelLogic({ shortId: notebookLogic.props.shortId }))
+    const kernelFrames = provider === 'browser' ? browserFrames : localFrames
+    return useMemo(
+        () => buildDataframeTreeSection(frameNodeSummaries, kernelFrames),
+        [frameNodeSummaries, kernelFrames]
+    )
 }
 
 const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({

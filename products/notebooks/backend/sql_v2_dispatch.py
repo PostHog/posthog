@@ -258,6 +258,11 @@ def _build_plan(request: NodeRunRequest, refs: dict[str, SQLV2Ref]) -> SQLV2RunP
         raise NodeRunInvalid(str(e)) from e
 
 
+def resolve_node_run_plan(notebook: Notebook, request: NodeRunRequest) -> SQLV2RunPlan:
+    """The plan a run of this cell would execute, without dispatching it."""
+    return _build_plan(request, resolve_refs(notebook.team_id, notebook, request))
+
+
 def _reusable_runs(
     notebook: Notebook, user: User | None, team_id: int, request: NodeRunRequest, plan: SQLV2RunPlan
 ) -> QuerySet | None:

@@ -10,6 +10,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import * as notebooksApi from 'products/notebooks/frontend/generated/api'
+
+import * as browserKernelLogicModule from '../Notebook/browserKernel/notebookBrowserKernelLogic'
+import { notebookKernelProviderLogic } from '../Notebook/browserKernel/notebookKernelProviderLogic'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
@@ -36,6 +40,9 @@ describe('notebookNodeSQLV2Logic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // These cover the sandbox kernel; the browser kernel runs through its own endpoints.
+        notebookKernelProviderLogic({ shortId: 'nb1' }).mount()
+        notebookKernelProviderLogic({ shortId: 'nb1' }).actions.setProvider('sandbox')
         updateAttributes = jest.fn()
         runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
         // Default: the run is still executing, so polling continues without resolving.
@@ -328,6 +335,63 @@ describe('notebookNodeSQLV2Logic', () => {
             node_type: 'python',
             output_name: 'df',
         })
+    })
+
+    it('runs a python cell in the browser kernel and records it, without dispatching a sandbox run', async () => {
+        notebookKernelProviderLogic({ shortId: 'nb1' }).actions.setProvider('browser')
+        const planSpy = jest.spyOn(notebooksApi, 'notebooksSqlV2BrowserPlanCreate').mockResolvedValue({
+            node_type: 'python',
+            code: 'sql_df.head()',
+            inputs: [{ name: 'sql_df', kind: 'hogql', node_id: 'other', key: 'run-0', query: 'select 1' }],
+            variables: {},
+        })
+        const recordSpy = jest
+            .spyOn(notebooksApi, 'notebooksSqlV2BrowserRunsCreate')
+            .mockResolvedValue({ run_id: 'recorded-run' })
+        const kernelRun = jest.fn().mockResolvedValue({
+            status: 'ok',
+            columns: ['a'],
+            types: [['a', 'Int64']],
+            row_count: 1,
+            first_page: [[1]],
+            has_more: false,
+            stdout: 'hi\n',
+            stderr: '',
+            media: [],
+            result_id: 'kernel-result',
+            frames: [],
+        })
+        jest.spyOn(browserKernelLogicModule, 'ensureBrowserKernel').mockResolvedValue({
+            hasInput: jest.fn().mockResolvedValue(true),
+            run: kernelRun,
+        } as any)
+        mount()
+
+        logic.actions.runQuery(
+            'sql_df.head()',
+            { sql_df: { node_id: 'other', kind: 'hogql' } },
+            { nodeType: 'python', outputName: 'df' }
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runSpy).not.toHaveBeenCalled()
+        expect(planSpy).toHaveBeenCalledTimes(1)
+        expect(kernelRun).toHaveBeenCalledWith(
+            expect.objectContaining({
+                node_type: 'python',
+                output_name: 'df',
+                inputs: [{ name: 'sql_df', kind: 'hogql', node_id: 'other', key: 'run-0' }],
+            }),
+            []
+        )
+        expect(recordSpy.mock.calls[0][2]).toEqual(
+            expect.objectContaining({ node_id: 'n1', node_type: 'python', code: 'sql_df.head()' })
+        )
+        expect(updateAttributes).toHaveBeenLastCalledWith(
+            expect.objectContaining({ runId: 'recorded-run', runStatus: 'done' })
+        )
+        expect(logic.values.result?.stdout).toBe('hi\n')
+        expect(logic.values.isRunning).toBe(false)
     })
 
     it.each([false, true])('loads a completed result (restoring metadata: %s)', async (hasResultMetadata) => {
