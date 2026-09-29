@@ -116,15 +116,30 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
+    @parameterized.expand(["role", "member", "former_member"])
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_ticket_assigned_stamps_role_name(self, mock_capture):
-        role = Role.objects.create(name="Data Warehouse", organization=self.organization)
-        capture_ticket_assigned(self.ticket, "role", str(role.id), actor=self.user, actor_type="user")
+    def test_capture_ticket_assigned_stamps_readable_assignee(self, assignee_kind, mock_capture):
+        if assignee_kind == "role":
+            role = Role.objects.create(name="Data Warehouse", organization=self.organization)
+            assignee_type, assignee_id = "role", str(role.id)
+            expected = {"assignee_role_name": "Data Warehouse", "assignee_email": None, "assignee_name": None}
+        elif assignee_kind == "member":
+            teammate = User.objects.create_and_join(self.organization, "sam@example.com", None, first_name="Sam")
+            assignee_type, assignee_id = "user", str(teammate.id)
+            expected = {"assignee_role_name": None, "assignee_email": "sam@example.com", "assignee_name": "Sam"}
+        else:
+            outsider = User.objects.create_and_join(
+                Organization.objects.create(name="Other Org"), "outsider@example.com", None
+            )
+            assignee_type, assignee_id = "user", str(outsider.id)
+            expected = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
+
+        capture_ticket_assigned(self.ticket, assignee_type, assignee_id, actor=self.user, actor_type="user")
 
         properties = mock_capture.call_args.kwargs["properties"]
-        assert properties["assignee_type"] == "role"
-        assert properties["assignee_id"] == str(role.id)
-        assert properties["assignee_role_name"] == "Data Warehouse"
+        assert properties["assignee_type"] == assignee_type
+        assert properties["assignee_id"] == assignee_id
+        assert {key: properties[key] for key in expected} == expected
 
     @parameterized.expand(
         [
@@ -137,9 +152,12 @@ class TestConversationEvents(BaseTest):
     def test_message_events_stamp_current_assignment(
         self, _name, assignment_kind, role_name, expected_role_name, mock_capture
     ):
+        expected_email, expected_name = None, None
         if assignment_kind == "user":
             TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
             expected_type, expected_id = "user", str(self.user.id)
+            # The user has no first or last name, so the display name falls back to the email.
+            expected_email, expected_name = self.user.email, self.user.email
         elif assignment_kind == "role":
             role = Role.objects.create(name=role_name, organization=self.organization)
             TicketAssignment.objects.create(ticket=self.ticket, role=role)
@@ -156,6 +174,8 @@ class TestConversationEvents(BaseTest):
             assert properties["assignee_type"] == expected_type
             assert properties["assignee_id"] == expected_id
             assert properties["assignee_role_name"] == expected_role_name
+            assert properties["assignee_email"] == expected_email
+            assert properties["assignee_name"] == expected_name
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_sent_uses_team_token(self, mock_capture):

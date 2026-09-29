@@ -399,35 +399,64 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_assignee_user_properties(ticket: Ticket, user_id: int | str) -> dict:
+    """Email and display name for a user assignee.
+
+    Both stay None once the assignee leaves the organization: removing a member does not clear
+    their assignments, and these events reach the organization's own workflows and destinations.
+    """
+    membership = (
+        OrganizationMembership.objects.filter(organization_id=ticket.team.organization_id, user_id=user_id)
+        .select_related("user")
+        .first()
+    )
+    if membership is None:
+        return {"assignee_email": None, "assignee_name": None}
+    return {
+        "assignee_email": membership.user.email,
+        "assignee_name": membership.user.get_full_name() or membership.user.email,
+    }
+
+
+def _get_assignee_display_properties(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> dict:
+    """Readable assignee fields, so a workflow filter can name a teammate or a team.
+
+    `assignee_role_name` is set only for role assignments, `assignee_email` and `assignee_name`
+    only for user assignments. A filter on the raw `assignee_id` needs a numeric user id or a role
+    UUID, which nobody building a workflow has to hand.
+    """
+    unset = {"assignee_role_name": None, "assignee_email": None, "assignee_name": None}
+    if not assignee_id:
+        return unset
+    if assignee_type == "user":
+        return {**unset, **_get_assignee_user_properties(ticket, assignee_id)}
+    if assignee_type == "role":
+        role_name = (
+            Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
+            .values_list("name", flat=True)
+            .first()
+        )
+        return {**unset, "assignee_role_name": role_name}
+    return unset
+
+
 def _get_assignment_properties(ticket: Ticket) -> dict:
     """Current assignment on the ticket, so workflows can route a single team's tickets.
 
-    `assignee_type` is "user", "role", or None (unassigned). `assignee_role_name` is set only for
-    role assignments, letting filters target a team by name instead of its UUID.
+    `assignee_type` is "user", "role", or None (unassigned).
     """
-    assignment = TicketAssignment.objects.select_related("role").filter(ticket_id=ticket.id).first()
-    if assignment is None:
-        return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
-    if assignment.user_id is not None:
-        return {"assignee_type": "user", "assignee_id": str(assignment.user_id), "assignee_role_name": None}
-    if assignment.role_id is not None:
-        return {
-            "assignee_type": "role",
-            "assignee_id": str(assignment.role_id),
-            "assignee_role_name": assignment.role.name if assignment.role else None,
-        }
-    return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
-
-
-def _role_name_for_assignee(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> str | None:
-    """Look up a role's name for the assignment event; None for user or empty assignees."""
-    if assignee_type != "role" or not assignee_id:
-        return None
-    return (
-        Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
-        .values_list("name", flat=True)
-        .first()
-    )
+    assignment = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
+    assignee_type: str | None = None
+    assignee_id: str | None = None
+    if assignment is not None and assignment.user_id is not None:
+        assignee_type, assignee_id = "user", str(assignment.user_id)
+    elif assignment is not None and assignment.role_id is not None:
+        assignee_type, assignee_id = "role", str(assignment.role_id)
+    return {
+        "assignee_type": assignee_type,
+        "assignee_id": assignee_id,
+        **_get_assignee_display_properties(ticket, assignee_type, assignee_id),
+    }
 
 
 def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
@@ -534,7 +563,7 @@ def capture_ticket_assigned(
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
-    properties["assignee_role_name"] = _role_name_for_assignee(ticket, assignee_type, assignee_id)
+    properties.update(_get_assignee_display_properties(ticket, assignee_type, assignee_id))
     properties.update(_get_actor_properties(actor, actor_type))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
