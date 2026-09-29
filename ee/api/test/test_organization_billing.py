@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import jwt
+import requests
+from parameterized import parameterized
 from requests import JSONDecodeError
 from rest_framework import status
 
@@ -462,6 +464,14 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         response = self.client.get(self._url("forecast/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_timeseries_timeout_tells_the_person_to_ask_for_less(self, kind, mock_get):
+        mock_get.side_effect = requests.Timeout()
+        response = self.client.get(self._url(f"{kind}/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "usage_query_timeout")
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_timeseries_pages_by_cursor_the_way_the_api_does(self, mock_get):

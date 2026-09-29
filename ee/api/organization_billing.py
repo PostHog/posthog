@@ -38,6 +38,7 @@ from posthog.utils import get_trusted_client_ip
 from ee.api.billing import (
     USAGE_BREAKDOWNS_MESSAGE,
     BillingExportThrottle,
+    BillingQueryTimeout,
     BillingTimeSeriesPointSerializer,
     BillingUsageRequestSerializer,
 )
@@ -732,7 +733,11 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if "cursor" in params:
             params["after"] = params.pop("cursor")
         teams_map = self._scope_projects(request, grants, organization, params)
-        data = self._manager().get_organization_timeseries(organization, grants, kind, params)
+        try:
+            data = self._manager().get_organization_timeseries(organization, grants, kind, params)
+        except requests.Timeout:
+            # As on the root reads: the person is told what to ask for instead, not shown a 500.
+            raise BillingQueryTimeout()
         results = data.get("results", [])
         # Names the folded "all other projects" row and any project deleted since it reported, as the root read does.
         _resolve_team_labels(results, teams_map)
