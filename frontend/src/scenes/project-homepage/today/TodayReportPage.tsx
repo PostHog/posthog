@@ -12,6 +12,8 @@ import { TodayIcon } from './TodayIcon'
 import { TodayReportEvidence } from './TodayReportEvidence'
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportPrompts } from './TodayReportPrompts'
+import { TodaySampleBanner } from './TodaySampleBanner'
+import { isSampleReportId } from './todaySampleReports'
 import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
@@ -19,10 +21,12 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
     const { currentReport, reportFailed, fullReportLoading, chartPlacements, trailingCharts, reportUrl } =
         useValues(logic)
     const { loadFullReport } = useActions(logic)
+    const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
 
     if (!currentReport) {
         return reportFailed ? (
             <div className="TodayReport Today__page">
+                <TodaySampleBanner />
                 <h1 className="TodayReport__heading">Couldn’t open this report.</h1>
                 <div className="TodayReport__body">
                     <p>It may have been deleted, or the request failed. Try again, or go back to today’s briefing.</p>
@@ -56,6 +60,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--report-color': reportSource(currentReport).color } as React.CSSProperties}
         >
+            <TodaySampleBanner />
             <article>
                 <div className="TodayReport__kicker">
                     <span className="TodayTile">
@@ -73,6 +78,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                             to={currentReport.implementation_pr_url}
                             targetBlank
                             sideIcon={<IconExternal />}
+                            disabledReason={sampleDisabledReason}
                             data-attr="today-report-pull-request"
                         >
                             Review the pull request
@@ -82,6 +88,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                         type="secondary"
                         size="small"
                         to={urls.inboxReport('reports', currentReport.id)}
+                        disabledReason={sampleDisabledReason}
                         data-attr="today-report-open-inbox"
                     >
                         Open in Inbox

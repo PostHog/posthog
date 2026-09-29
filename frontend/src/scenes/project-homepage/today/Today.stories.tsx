@@ -144,6 +144,14 @@ type Story = StoryObj<{}>
 
 export const Home: Story = {}
 
+export const HomeWithSampleReports: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
+}
+
+export const SampleReportPage: Story = {
+    parameters: { pageUrl: `${urls.todayReport('sample-signup-validation')}?sample=1` },
+}
+
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({

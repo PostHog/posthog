@@ -16,6 +16,7 @@ import {
 } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
+import { isSampleReportId } from './todaySampleReports'
 import { reportPrompts } from './todaySignalReports'
 
 /** Prompts that fill the composer, which starts a PostHog AI session about the report. */
@@ -28,9 +29,11 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
     const prompts = reportPrompts(report)
     const loading = isDiscussing || isCreatingPr
     const isOverLengthLimit = Array.from(draft.trim()).length > REPORT_DISCUSSION_QUESTION_MAX_LENGTH
-    const disabledReason = isOverLengthLimit
-        ? `Your message is too long. Shorten it to ${REPORT_DISCUSSION_QUESTION_MAX_LENGTH.toLocaleString()} characters or fewer.`
-        : (aiConsentDisabledReason ?? undefined)
+    const disabledReason = isSampleReportId(report.id)
+        ? 'Sample reports can’t start a session. Turn off sample reports to ask about a real one.'
+        : isOverLengthLimit
+          ? `Your message is too long. Shorten it to ${REPORT_DISCUSSION_QUESTION_MAX_LENGTH.toLocaleString()} characters or fewer.`
+          : (aiConsentDisabledReason ?? undefined)
 
     const pickPrompt = (prompt: string): void => {
         setDraft(prompt)

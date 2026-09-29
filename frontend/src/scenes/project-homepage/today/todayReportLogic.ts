@@ -13,6 +13,7 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { ChartPlacements, resolveChartPlacements } from 'products/signals/frontend/inbox/utils/chartPlacement'
 
 import { todayLogic } from './todayLogic'
+import { findSampleReport, isSampleReportId, sampleSignals } from './todaySampleReports'
 
 export interface TodayReportLogicProps {
     reportId: string
@@ -94,13 +95,25 @@ export const todayReportLogic = kea<todayReportLogicType>([
         fullReport: [
             null as SignalReport | null,
             {
-                loadFullReport: async () => await api.signalReports.get(props.reportId),
+                loadFullReport: async () => {
+                    if (isSampleReportId(props.reportId)) {
+                        const report = findSampleReport(props.reportId)
+                        if (!report) {
+                            throw new Error('Sample report not found')
+                        }
+                        return report
+                    }
+                    return await api.signalReports.get(props.reportId)
+                },
             },
         ],
         reportSignals: [
             null as SignalNode[] | null,
             {
                 loadReportSignals: async (): Promise<SignalNode[]> => {
+                    if (isSampleReportId(props.reportId)) {
+                        return sampleSignals(props.reportId)
+                    }
                     const response = await signalsReportsSignalsRetrieve(
                         String(teamLogic.values.currentTeamId),
                         props.reportId

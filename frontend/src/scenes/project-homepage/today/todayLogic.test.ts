@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -7,6 +8,7 @@ import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { isSampleReportId } from './todaySampleReports'
 import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
 
 describe('todayLogic', () => {
@@ -40,6 +42,22 @@ describe('todayLogic', () => {
             ordering: 'priority,-updated_at',
             limit: String(TOP_REPORT_COUNT),
         })
+    })
+
+    it('shows sample reports from ?sample=1 without asking the API, until ?sample=0', async () => {
+        router.actions.push('/project/1/home', { sample: '1' })
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listParams).toBeNull()
+        expect(logic.values.reports.map((report) => isSampleReportId(report.id))).toEqual(
+            Array(TOP_REPORT_COUNT).fill(true)
+        )
+
+        router.actions.push('/project/1/home', { sample: '0' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ useSampleData: false, reports: [] })
+        expect(listParams).not.toBeNull()
     })
 
     it('keeps a failed load apart from an empty list', async () => {

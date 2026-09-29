@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { TodayAskBox } from './TodayAskBox'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { TodaySampleBanner } from './TodaySampleBanner'
 import { TodayBriefingSegment, reportIcon, reportSource } from './todaySignalReports'
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
@@ -120,6 +121,7 @@ export function TodayBriefing(): JSX.Element {
 
     return (
         <div className="TodayHome Today__page">
+            <TodaySampleBanner />
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
                 <div className="TodayHome__greeting">{greeting}</div>
