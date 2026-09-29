@@ -655,10 +655,11 @@ class PropertySwapper(CloningVisitor):
                 inner.value = zoned
                 return expr
 
-        precision = 6 if isinstance(inner, ast.Constant) else 9
+        # Precision 9 only covers 1900-2262. ClickHouse scales the column's part min/max up to the bound's
+        # precision for partition pruning, so a stored timestamp after 2262 overflows the comparison.
         new_call = ast.Call(
             name="toDateTime64",
-            args=[inner, ast.Constant(value=precision), ast.Constant(value=tz)],
+            args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
             type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
         )
         return PropertySwapper._replace_keeping_alias(expr, new_call)
