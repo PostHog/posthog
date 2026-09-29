@@ -13,10 +13,10 @@ with the enum from this module directly.
 from enum import StrEnum
 
 
-def _choices(enum: type[StrEnum]) -> list[tuple[str, str]]:
+def _label(member: StrEnum) -> str:
     # Django derives the same label for a TextChoices member without an explicit one. A
     # different label changes the field choices, and makemigrations then writes an AlterField.
-    return [(member.value, member.name.replace("_", " ").title()) for member in enum]
+    return member.name.replace("_", " ").title()
 
 
 class DestinationType(StrEnum):
@@ -36,7 +36,7 @@ class DestinationType(StrEnum):
     FILE_DOWNLOAD = "FileDownload"
 
 
-DESTINATION_TYPE_CHOICES = _choices(DestinationType)
+DESTINATION_TYPE_CHOICES = [(member.value, _label(member)) for member in DestinationType]
 
 
 class BatchExportModel(StrEnum):
@@ -48,7 +48,7 @@ class BatchExportModel(StrEnum):
     HOGQL = "hogql"
 
 
-BATCH_EXPORT_MODEL_CHOICES = _choices(BatchExportModel)
+BATCH_EXPORT_MODEL_CHOICES = [(member.value, _label(member)) for member in BatchExportModel]
 
 
 class BatchExportRunStatus(StrEnum):
@@ -66,7 +66,7 @@ class BatchExportRunStatus(StrEnum):
     STARTING = "Starting"
 
 
-BATCH_EXPORT_RUN_STATUS_CHOICES = _choices(BatchExportRunStatus)
+BATCH_EXPORT_RUN_STATUS_CHOICES = [(member.value, _label(member)) for member in BatchExportRunStatus]
 
 
 class BatchExportBackfillStatus(StrEnum):
@@ -83,7 +83,7 @@ class BatchExportBackfillStatus(StrEnum):
     STARTING = "Starting"
 
 
-BATCH_EXPORT_BACKFILL_STATUS_CHOICES = _choices(BatchExportBackfillStatus)
+BATCH_EXPORT_BACKFILL_STATUS_CHOICES = [(member.value, _label(member)) for member in BatchExportBackfillStatus]
 
 
 class BatchExportInterval(StrEnum):
@@ -94,5 +94,5 @@ class BatchExportInterval(StrEnum):
     EVERY_15_MINUTES = "every 15 minutes"
 
 
-# The interval labels are the values, not the labels that _choices derives.
+# The interval labels are the values, not the labels that _label derives.
 BATCH_EXPORT_INTERVALS = [(interval.value, interval.value) for interval in BatchExportInterval]
