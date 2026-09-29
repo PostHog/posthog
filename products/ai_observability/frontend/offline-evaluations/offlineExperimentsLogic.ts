@@ -20,6 +20,7 @@ import {
     parseOfflineScorerIds,
     readOfflineScorerPreferences,
     saveOfflineScorerPreferences,
+    withOfflineTrendReadLimit,
     type OfflineExperimentFilters,
     type OfflineOverviewTrendFilters,
 } from './offlineOverviewState'
@@ -138,6 +139,9 @@ export interface offlineExperimentsLogicActions {
         hasExperiments: boolean
     }
     setHoveredTrend: (chartId: string, timestamp: number) => { chartId: string; timestamp: number }
+    setScorerDefinitions: (scorers: ScoreDefinitionApi[]) => {
+        scorers: ScoreDefinitionApi[]
+    }
     setScorerIds: (scorerIds: string[]) => {
         scorerIds: string[]
     }
@@ -186,6 +190,7 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         setScorerSearch: (search: string) => ({ search }),
         setScorerOffset: (offset: number) => ({ offset }),
         setDraftScorerIds: (scorerIds: string[]) => ({ scorerIds }),
+        setScorerDefinitions: (scorers: ScoreDefinitionApi[]) => ({ scorers }),
         saveScorers: true,
         nextPage: (cursor: string) => ({ cursor }),
         previousPage: true,
@@ -364,6 +369,10 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                     ...state,
                     ...Object.fromEntries(scorerOptions.results.map((scorer) => [scorer.id, scorer])),
                 }),
+                setScorerDefinitions: (state, { scorers }) => ({
+                    ...state,
+                    ...Object.fromEntries(scorers.map((scorer) => [scorer.id, scorer])),
+                }),
             },
         ],
         scorerOptionsError: [
@@ -418,9 +427,20 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                 actions.loadOfflineSuggestedScorers()
             }
         },
-        openChooser: () => {
+        openChooser: async (_, breakpoint) => {
             actions.setDraftScorerIds(values.scorerIds || [])
             actions.loadOfflineScorerOptions()
+            // Selected scorers can sit outside the loaded options page or be archived, so fetch their names directly.
+            const missing = (values.scorerIds || []).filter((id) => !values.scorersById[id])
+            const scorers = await Promise.all(
+                missing.map((id) =>
+                    withOfflineTrendReadLimit(() =>
+                        api.llmAnalyticsScoreDefinitionsRetrieve(String(props.teamId), id)
+                    ).catch(() => null)
+                )
+            )
+            breakpoint()
+            actions.setScorerDefinitions(scorers.filter((scorer): scorer is ScoreDefinitionApi => scorer !== null))
         },
         setScorerSearch: () => actions.loadOfflineScorerOptions(),
         setScorerOffset: () => actions.loadOfflineScorerOptions(),

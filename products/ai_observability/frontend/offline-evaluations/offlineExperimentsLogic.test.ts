@@ -14,6 +14,7 @@ jest.mock('../generated/api', () => ({
     aiObservabilityOfflineExperimentsList: jest.fn(),
     aiObservabilityOfflineExperimentsScorerSummariesList: jest.fn(),
     llmAnalyticsScoreDefinitionsList: jest.fn(),
+    llmAnalyticsScoreDefinitionsRetrieve: jest.fn(),
 }))
 
 const page: OfflineExperimentPageApi = { results: overviewExperiments, count: 100, next_cursor: 'cursor-2' }
@@ -37,6 +38,13 @@ describe('offlineExperimentsLogic', () => {
             count: 3,
             next: null,
             previous: null,
+        })
+        jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockImplementation(async (_team, id) => {
+            const scorer = overviewScorers.find((item) => item.id === id)
+            if (!scorer) {
+                throw new Error('Not found')
+            }
+            return scorer
         })
         router.actions.push(urls.aiObservabilityOfflineEvaluations(), { scores: overviewScorers[0].id })
     })
@@ -113,6 +121,35 @@ describe('offlineExperimentsLogic', () => {
         logic.actions.saveScorers()
         expect(readOfflineScorerPreferences(props.userId, props.teamId)).toEqual([])
     })
+
+    it.each([true, false])(
+        'names a selected archived scorer outside the options page when the chooser opens (readable: %s)',
+        async (readable) => {
+            const archived = { ...overviewScorers[0], id: '00000000-0000-4000-8000-0000000000aa', archived: true }
+            const retrieve = jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve)
+            if (readable) {
+                retrieve.mockImplementation(async (_team, id) => {
+                    const scorer = [...overviewScorers, archived].find((item) => item.id === id)
+                    if (!scorer) {
+                        throw new Error('Not found')
+                    }
+                    return scorer
+                })
+            }
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), {
+                scores: [overviewScorers[1].id, archived.id].join(','),
+            })
+            const logic = offlineExperimentsLogic(props)
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(150)
+            logic.actions.openChooser()
+            await jest.advanceTimersByTimeAsync(150)
+
+            expect(retrieve).toHaveBeenCalledWith(String(props.teamId), archived.id)
+            expect(logic.values.scorersById[archived.id]?.name).toBe(readable ? archived.name : undefined)
+            expect(logic.values.draftScorerIds).toEqual([overviewScorers[1].id, archived.id])
+        }
+    )
 
     it('shares the date window, source, and upload state while preserving pagination on Back', async () => {
         const saved = [overviewScorers[0].id]
