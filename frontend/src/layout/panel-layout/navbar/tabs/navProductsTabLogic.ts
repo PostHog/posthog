@@ -30,7 +30,14 @@ import { getDefaultTreeData, getDefaultTreeProducts, withProductShortcutHref } f
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { findProductShortcut, shortcutFromEntry } from '../../ProjectTree/utils'
-import { APP_MATCH_THRESHOLD, AppMatchGroups, buildAppRankingQuestions, readAppRankings } from './appRanking'
+import {
+    APP_CANDIDATES,
+    APP_MATCH_THRESHOLD,
+    AppMatchGroups,
+    buildAppRankingQuestions,
+    readAppRankings,
+    searchApps,
+} from './appRanking'
 import {
     POPULAR_CATEGORY,
     POPULAR_PRODUCT_PATHS,
@@ -387,22 +394,26 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                         pauseOnPageHidden: false,
                     })
                     try {
-                        const result = await withTimeout(
-                            decisionsApi.mlInferenceDecisionsDecideCreate(
-                                String(values.currentTeamId),
-                                {
-                                    state: query.trim(),
-                                    questions: buildAppRankingQuestions(items),
-                                },
-                                { signal: controller.signal }
-                            ),
-                            10000
-                        )
+                        // Jev only chooses among the apps local search finds; with none, there is nothing to ask.
+                        const candidates = searchApps(items, query.trim()).slice(0, APP_CANDIDATES)
+                        const result = candidates.length
+                            ? await withTimeout(
+                                  decisionsApi.mlInferenceDecisionsDecideCreate(
+                                      String(values.currentTeamId),
+                                      {
+                                          state: query.trim(),
+                                          questions: buildAppRankingQuestions(candidates),
+                                      },
+                                      { signal: controller.signal }
+                                  ),
+                                  10000
+                              )
+                            : null
                         breakpoint()
                         if (!values.appRecommendationsEnabled) {
                             return null
                         }
-                        const rankings = readAppRankings(result, items, query)
+                        const rankings = readAppRankings(result, items, candidates, query)
                         rankingCache.set(cacheKey, rankings)
                         if (rankingCache.size > 10) {
                             rankingCache.delete(rankingCache.keys().next().value!)

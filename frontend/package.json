@@ -260,6 +260,7 @@
         "mdast-util-gfm-table": "^2.0.0",
         "mermaid": "^11.15.0",
         "micromark-extension-gfm-table": "^2.1.1",
+        "minisearch": "^7.2.0",
         "monaco-editor": "^0.55.1",
         "monaco-vim": "^0.4.4",
         "motion": "^12.26.1",

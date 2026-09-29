@@ -2,6 +2,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { sidebarProductKeywords } from './sidebarProductKeywords'
+
 const descriptions: Record<string, string> = {
     Home: 'Pick up where you left off with the insights, dashboards, and activity that matter to your project.',
     Activity:
@@ -159,6 +161,7 @@ const examples: Record<string, string> = {
 export interface SidebarProductMeta {
     example?: string
     description?: string
+    keywords?: string[]
     docsHref?: string
 }
 
@@ -175,6 +178,9 @@ export function sidebarProductMeta(product: FileSystemImport): SidebarProductMet
             ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
             : (descriptions[product.path] ?? sceneConfig?.description),
         example: isGroup ? 'Compare activity across customer accounts.' : examples[product.path],
+        keywords: isGroup
+            ? ['accounts', 'companies', 'organizations', 'b2b', 'account analytics', 'group analytics']
+            : sidebarProductKeywords[product.path],
         docsHref: sceneConfig?.docsHref,
     }
 }

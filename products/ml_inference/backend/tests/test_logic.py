@@ -80,20 +80,13 @@ def test_a_request_refuses_non_json_state() -> None:
 
 @pytest.mark.parametrize(
     "criteria",
-    [{str(i): "m" for i in range(129)}, [str(i) for i in range(129)]],
+    [{str(i): "m" for i in range(17)}, [str(i) for i in range(17)]],
     ids=["choice", "score"],
 )
-def test_a_question_refuses_more_options_than_the_cap(criteria: dict[str, str] | list[str]) -> None:
+def test_a_question_refuses_more_options_than_the_model_has_letters(criteria: dict[str, str] | list[str]) -> None:
     question_type = DecisionQuestionType.CHOICE if isinstance(criteria, dict) else DecisionQuestionType.SCORE
-    with pytest.raises(ValueError, match="at most 128 options"):
+    with pytest.raises(ValueError, match="at most 16 options"):
         DecisionQuestion(type=question_type, instructions="?", criteria=criteria)
-
-
-def test_a_question_takes_more_options_than_the_model_has_letters() -> None:
-    question = DecisionQuestion(
-        type=DecisionQuestionType.CHOICE, instructions="?", criteria={str(i): "m" for i in range(128)}
-    )
-    assert question.criteria is not None and len(question.criteria) == 128
 
 
 class TestDecide:

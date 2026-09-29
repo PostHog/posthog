@@ -23,6 +23,8 @@ import { customProductsLogic } from '../../ProjectTree/customProductsLogic'
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { sidebarProductKeywords } from '../../sidebarProductKeywords'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { PRODUCTS_STARRED_TREE_KEY, SUGGESTED_GROUP_LABEL, navProductsTabLogic } from './navProductsTabLogic'
 import { productsItemName, groupProducts } from './productsCatalog'
 
@@ -58,6 +60,18 @@ describe('navProductsTabLogic', () => {
         ].map((item) => item.href)
         expect(new Set(actual)).toEqual(expected)
         expect(actual).toHaveLength(expected.size)
+    })
+
+    it('has search keywords for every configurable app, and none for apps that no longer exist', () => {
+        const registry = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
+        featureFlagLogic.actions.setFeatureFlags(
+            [],
+            Object.fromEntries(registry.flatMap((item) => (item.flag ? [[item.flag, true]] : [])))
+        )
+        const apps = navProductsTabLogic.values.configurableProducts
+        expect(apps.filter((item) => !sidebarProductMeta(item).keywords?.length).map((item) => item.path)).toEqual([])
+        const paths = new Set(apps.map((item) => item.path))
+        expect(Object.keys(sidebarProductKeywords).filter((path) => !paths.has(path))).toEqual([])
     })
 
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
@@ -397,8 +411,21 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.draftStarredPaths.has('Feature flags')).toBe(false)
     })
 
-    it('splits the full ranked catalog at a quarter of the best app and clears the grouping', async () => {
+    it('asks jev among the apps local search finds, splits at a quarter of the best, and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
+        // The first candidate other than web analytics scores just above a quarter of it, the next just below.
+        const rankedKeys = (body: DecideRequestApi): Record<string, number> => {
+            const others = Object.keys(body.questions.app.criteria ?? {}).filter(
+                (key) => key !== 'web_analytics' && key !== 'none'
+            )
+            return {
+                ...Object.fromEntries(others.map((key) => [key, 0])),
+                web_analytics: 0.6,
+                [others[0]]: 0.15,
+                [others[1]]: 0.149,
+                none: 0.05,
+            }
+        }
         const decide = jest.fn(async ({ request }) => {
             const body: DecideRequestApi = await request.json()
             requests.push(body)
@@ -412,15 +439,7 @@ describe('navProductsTabLogic', () => {
                         app: {
                             type: 'choice',
                             choice: 'web_analytics',
-                            probabilities: {
-                                ...Object.fromEntries(
-                                    Object.keys(body.questions.app.criteria ?? {}).map((k) => [k, 0])
-                                ),
-                                web_analytics: 0.6,
-                                sql_editor: 0.15,
-                                feature_flags: 0.149,
-                                none: 0.05,
-                            },
+                            probabilities: rankedKeys(body),
                         },
                     },
                 },
@@ -442,18 +461,29 @@ describe('navProductsTabLogic', () => {
         expect(new Set(navProductsTabLogic.values.rankedConfigurableApps)).toEqual(new Set(allApps))
         expect(decide.mock.calls.length).toBe(1)
         const criteria = requests[0].questions.app.criteria as Record<string, string>
-        expect(Object.keys(criteria)).toHaveLength(allApps.length + 1)
+        expect(Object.keys(criteria).length).toBeLessThanOrEqual(16)
         expect(criteria.web_analytics).toContain('Find which referral sources bring visitors who sign up.')
         expect(criteria.none).toEqual(expect.any(String))
+        const [second, third] = Object.keys(criteria)
+            .filter((key) => key !== 'web_analytics' && key !== 'none')
+            .map(
+                (key) =>
+                    allApps.find(
+                        (item) =>
+                            productsItemName(item)
+                                .toLowerCase()
+                                .replace(/[^a-z0-9]+/g, '_') === key
+                    )!.path
+            )
         expect(navProductsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
             'Web analytics',
-            'SQL editor',
+            second,
         ])
-        expect(navProductsTabLogic.values.appMatchGroups?.other.map((item) => item.path)).toContain('Feature flags')
+        expect(navProductsTabLogic.values.appMatchGroups?.other.map((item) => item.path)).toContain(third)
         expect(navProductsTabLogic.values.customizeProductGroups[0]).toMatchObject({ label: SUGGESTED_GROUP_LABEL })
         expect(navProductsTabLogic.values.customizeProductGroups[0].items.map((item) => item.path)).toEqual([
             'Web analytics',
-            'SQL editor',
+            second,
         ])
         navProductsTabLogic.actions.openStarredSetup()
         expect(navProductsTabLogic.values.customizeProductGroups.map((group) => group.label)).not.toContain(
@@ -476,7 +506,7 @@ describe('navProductsTabLogic', () => {
         expect(decide.mock.calls.length).toBe(1)
         expect(navProductsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
             'Web analytics',
-            'SQL editor',
+            second,
         ])
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
@@ -562,6 +592,18 @@ describe('navProductsTabLogic', () => {
                 ? expect.arrayContaining([SUGGESTED_GROUP_LABEL])
                 : expect.not.arrayContaining([SUGGESTED_GROUP_LABEL])
         )
+    })
+
+    it('does not ask jev when local search finds no app', async () => {
+        const decide = jest.fn(() => [503, { detail: 'Unavailable' }])
+        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        await expectLogic(navProductsTabLogic, () =>
+            navProductsTabLogic.actions.setAppRecommendationQuery('qwzxv')
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(decide).not.toHaveBeenCalled()
+        expect(navProductsTabLogic.values.appRankingError).toBeNull()
+        expect(navProductsTabLogic.values.appMatchGroups?.matching).toEqual([])
     })
 
     it('discards ranking responses after the query is cleared', async () => {
