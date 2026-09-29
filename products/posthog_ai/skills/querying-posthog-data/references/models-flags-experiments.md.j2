@@ -6,7 +6,11 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 ### Columns
 
-These are the only columns exposed via HogQL — the full flag model (e.g. `active`, `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
+These are the only columns exposed via HogQL. The rest of the flag model (e.g. `ensure_experience_continuity`, rollback settings) is not queryable here. Fetch the flag via the feature flag API tools instead.
+
+`active`, `archived`, `deleted`, `last_called_at` and `updated_at` carry the flag state. `active = 0` means the flag is switched off and serves nobody, whatever its filters say. The flag list hides archived and deleted flags, so `WHERE archived = 0 AND deleted = 0` counts the same roster the list shows.
+
+`last_called_at` is the last received `$feature_flag_called` event, so it can be null for a flag that SDKs still evaluate. SQL carries these inputs but no staleness verdict. Call `feature-flag-get-all` with `active: "STALE"` for that.
 
 {{ schema_columns('system.feature_flags') }}
 
