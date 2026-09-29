@@ -121,7 +121,7 @@ def resolve_dependency_to_node(
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
         if saved_query is None:
             raise UnknownParentError(dependency_name, "")
-        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).first()
+        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
         if node is not None:
             return node
         reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
@@ -137,7 +137,11 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                node = Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query).first()
+                node = (
+                    Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query)
+                    .order_by("created_at")
+                    .first()
+                )
                 if node is not None:
                     return node
                 reference = _managed_cross_dag_reference(team, dag, dependency_name, matview_saved_query)
