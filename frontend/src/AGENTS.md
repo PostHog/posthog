@@ -11,7 +11,7 @@ Where to look, in order:
 1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
 2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
 
-`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
+`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy. The one sanctioned exception is UI behind the `today-rail-nav` feature flag, which follows the root [`design.md`](../../design.md).
 
 For `@posthog/quill-charts` consumers in the main app and product frontends, use `useChartTheme` from [`lib/charts/hooks`](./lib/charts/hooks.ts).
 Prefer its `useChartConfig` helper for memoized configuration.
