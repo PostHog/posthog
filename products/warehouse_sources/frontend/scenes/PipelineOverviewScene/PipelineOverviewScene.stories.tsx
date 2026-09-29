@@ -16,6 +16,7 @@ const UNHEALTHY = {
             name: 'charges',
             type: 'external_data_sync',
             source_type: 'Stripe',
+            sync_type: 'incremental',
             status: 'failed',
             error: 'Authentication error: expired API key',
             failed_at: '2026-09-21T04:15:00Z',
@@ -132,13 +133,10 @@ const SOURCES = {
 // chart needs the raw HogQL shape rather than the parsed one.
 const DAYS = ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28']
 
+// One request per destination now, each filtered on `instanceId`, so the mock answers a single
+// unnamed series rather than a breakdown.
 const ROWS_QUERY = {
-    results: [
-        [DAYS, 'dest-1', [120000, 98000, 141000, 132000, 87000, 155000, 149000]],
-        [DAYS, 'dest-2', [41000, 38000, 52000, 47000, 12000, 61000, 58000]],
-        // A schema-keyed row. `rows_for` emits one per run and it must not become a series.
-        [DAYS, '019df4a8-f218-0000-3c14-14195257f2fb', [161000, 136000, 193000, 179000, 99000, 216000, 207000]],
-    ],
+    results: [[DAYS, 'rows_synced', [120000, 98000, 141000, 132000, 87000, 155000, 149000]]],
 }
 
 const DESTINATIONS = {
