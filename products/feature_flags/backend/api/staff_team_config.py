@@ -17,13 +17,16 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_limits import (
     get_max_feature_flags_override_for_team,
     resolve_max_feature_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    FlagEvaluationsMode,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
@@ -44,6 +47,7 @@ def _config_row(
     minimal_flag_called_events: bool,
     property_matching_version: int,
     max_feature_flags_override: int | None,
+    flag_evaluations_mode: int,
     feature_flag_count: int,
 ) -> dict[str, Any]:
     """Build the row shape shared by list() and set(), which both feed the same staff tools table."""
@@ -53,6 +57,7 @@ def _config_row(
         "property_matching_version": property_matching_version,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
+        "flag_evaluations_mode": flag_evaluations_mode,
         "feature_flag_count": feature_flag_count,
     }
 
@@ -89,6 +94,15 @@ class StaffTeamConfigSerializer(serializers.Serializer):
             "The flag-count limit actually enforced for this team: the override when one is set, "
             "otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting."
         )
+    )
+    flag_evaluations_mode = serializers.ChoiceField(
+        choices=FlagEvaluationsMode.choices,
+        help_text=(
+            "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
+            "an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for "
+            "ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support "
+            "deploys, so 2 acts as 1 until then."
+        ),
     )
     feature_flag_count = serializers.IntegerField(
         help_text=(
@@ -180,10 +194,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # (get_max_feature_flags_override_for_team) and counts through FeatureFlag.objects, whose
         # RootTeamManager rewrites team_id= to the root. Reading either off the environment team
         # would show a limit the validator does not enforce.
-        root_team_id_by_team_id = {
-            team_id: parent_team_id or team_id
-            for team_id, parent_team_id in Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
-        }
+        team_rows = list(Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id", "organization_id"))
+        root_team_id_by_team_id = {team_id: parent_team_id or team_id for team_id, parent_team_id, _ in team_rows}
+        organization_id_by_team_id = {team_id: organization_id for team_id, _, organization_id in team_rows}
         root_team_ids = set(root_team_id_by_team_id.values())
         # Behavior rollouts stay per-team because evaluation readers key on the literal team, so
         # they come from each team's row. The capacity override comes from the project root.
@@ -192,6 +205,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             TeamFeatureFlagsConfig.objects.filter(team_id__in=root_team_ids).values_list(
                 "team_id", "max_feature_flags_override"
             )
+        )
+        organization_config_by_id = OrganizationFeatureFlagsConfig.objects.in_bulk(
+            set(organization_id_by_team_id.values())
         )
         # FeatureFlag.objects excludes soft-deleted rows, so counting the root team gives the
         # number check_flag_limits_for_team compares against the limit. Staff reading this number
@@ -211,12 +227,16 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             # An unsaved instance stands in for a legacy team whose row predates this extension,
             # so the model's own field defaults answer for it rather than a second copy here.
             config = config_by_team_id.get(team_id) or TeamFeatureFlagsConfig()
+            organization_config = (
+                organization_config_by_id.get(organization_id_by_team_id[team_id]) or OrganizationFeatureFlagsConfig()
+            )
             results.append(
                 _config_row(
                     team_id=team_id,
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
+                    flag_evaluations_mode=organization_config.flag_evaluations_mode,
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
@@ -308,6 +328,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     if team.parent_team_id is None
                     else get_max_feature_flags_override_for_team(team.parent_team_id)
                 ),
+                flag_evaluations_mode=get_organization_flag_evaluations_mode(team.organization_id),
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )
