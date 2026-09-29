@@ -21,7 +21,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerScene } from "@/components/DrawerScene";
 import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
-import { MenuIcon } from "@/components/Icons";
+import { MenuIcon, SteeringIcon } from "@/components/Icons";
+import { ListState } from "@/components/ListState";
 import { PriorityChip } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
 import {
@@ -46,6 +47,8 @@ export default function SelfDrivingScreen() {
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 6000);
@@ -133,6 +136,28 @@ export default function SelfDrivingScreen() {
     });
   };
 
+  const refresh = async (): Promise<void> => {
+    if (reports.isFetching || refreshing) return;
+    setRefreshing(true);
+    try {
+      await reports.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const markLoadedRead = async (): Promise<void> => {
+    if (markingRead) return;
+    setMarkingRead(true);
+    try {
+      await markSeen(unseen.map((report) => report.id));
+    } catch {
+      setNotice("Could not mark reports as read.");
+    } finally {
+      setMarkingRead(false);
+    }
+  };
+
   const showDeck = deck !== null && deckReports.length > 0;
   const headerHeight = insets.top + 58;
 
@@ -171,8 +196,8 @@ export default function SelfDrivingScreen() {
         <Animated.ScrollView
           refreshControl={
             <RefreshControl
-              refreshing={reports.isRefetching}
-              onRefresh={() => void reports.refetch()}
+              refreshing={refreshing}
+              onRefresh={() => void refresh()}
             />
           }
           key="list"
@@ -180,37 +205,55 @@ export default function SelfDrivingScreen() {
           exiting={FadeOut.duration(160)}
           contentContainerStyle={[
             styles.list,
-            { paddingBottom: insets.bottom + 100 },
+            { paddingBottom: insets.bottom + (all.length > 0 ? 100 : 24) },
           ]}
         >
-          <Text style={styles.sectionTitle}>For you</Text>
-          <Text style={styles.muted}>
-            Reports where you are a suggested reviewer, highest priority first.
-          </Text>
+          {all.length > 0 ? (
+            <Text style={styles.sectionTitle}>For you</Text>
+          ) : null}
           {unseen.length > 0 ? (
             <Pressable
               accessibilityRole="button"
-              onPress={() =>
-                markSeen(all.map((report) => report.id)).catch(() =>
-                  setNotice("Could not mark reports as read."),
-                )
-              }
+              disabled={markingRead}
+              onPress={() => void markLoadedRead()}
               style={styles.readAction}
             >
-              <Text style={styles.actionText}>Mark loaded reports as read</Text>
-            </Pressable>
-          ) : null}
-          {reports.isError ? (
-            <Pressable onPress={() => void reports.refetch()}>
               <Text style={styles.actionText}>
-                Could not load reports. Tap to retry.
+                {markingRead ? "Saving" : "Mark as read"}
               </Text>
             </Pressable>
           ) : null}
-          {all.length === 0 && !reports.isLoading && !reports.isError ? (
-            <Text style={styles.muted}>No reports for you.</Text>
+          {reports.isError ? (
+            <ListState
+              title="Could not load your inbox"
+              description="Check your connection and try again."
+              icon={<SteeringIcon />}
+              action={{
+                label: "Retry",
+                onPress: () => void reports.refetch(),
+                disabled: reports.isFetching,
+              }}
+            />
+          ) : all.length === 0 ? (
+            <ListState
+              loading={reports.isLoading}
+              icon={<SteeringIcon />}
+              title={
+                reports.isLoading
+                  ? "Loading your inbox"
+                  : reports.hasNextPage
+                    ? "No reports in this page"
+                    : "No reports to review"
+              }
+              description={
+                reports.isLoading
+                  ? undefined
+                  : reports.hasNextPage
+                    ? "Load more to check the remaining reports."
+                    : "Reports that need your review will appear here."
+              }
+            />
           ) : null}
-          {reports.isLoading ? <Text style={styles.muted}>Loading</Text> : null}
           {all.map((report) => (
             <Pressable
               key={report.id}
@@ -244,10 +287,6 @@ export default function SelfDrivingScreen() {
               </Text>
             </Pressable>
           ) : null}
-          <Text style={styles.muted}>
-            Read status is saved on this device. Dismiss removes a report from
-            the project inbox.
-          </Text>
         </Animated.ScrollView>
       )}
       {notice ? (
@@ -310,7 +349,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginTop: -2,
   },
-  list: { paddingHorizontal: 18, paddingTop: 8, gap: 10 },
+  list: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 8, gap: 10 },
   toast: { position: "absolute", left: 18, right: 18, alignItems: "center" },
   notice: {
     fontFamily: fonts.sansMedium,
@@ -359,7 +398,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginLeft: 4,
   },
-  muted: { fontFamily: fonts.sans, fontSize: 14, color: colors.inkMute },
   row: {
     flexDirection: "row",
     alignItems: "flex-start",

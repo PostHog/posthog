@@ -34,16 +34,18 @@ Cloud sign-in lists only projects included in the OAuth grant.
 ## Tasks and spaces
 
 The drawer starts with the signed-in user's cloud tasks in the selected project, including tasks started from Desktop.
-All tasks includes tasks by other users that the signed-in user can access.
+The drawer shows one task list across all spaces, with each task's space shown as a label when available.
+Tasks with no space stay in the list without an invented space name.
 Task lists use the server's most recent activity order and support loading older pages.
-Search matches task titles, descriptions, and task numbers on the server, across spaces in the selected scope.
+The search button opens a separate screen with its input above the keyboard.
+Search matches task titles, descriptions, and task numbers on the server, across all of the user's spaces in the selected project.
 Local Desktop runs remain on Desktop. Archived tasks stay outside the task list.
 Pull to refresh or return to the app to update tasks and spaces.
 
 New tasks use the selected space and its server context.
 The composer shows the space before sending. Tap it to search and choose an accessible space.
 The default is the user's personal space. The server creates it when needed.
-Space selection lasts for the current app session and clears on account or project changes.
+Space selection for new tasks lasts for the current app session and clears on account or project changes.
 
 ## Inbox and task conversations
 
@@ -51,6 +53,9 @@ Inbox lists actionable reports where the signed-in user is a suggested reviewer,
 Opening a report marks it read on this device. Read actions clear the new-item indicators without dismissing the reports.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
+Read actions appear only when visible items are unread.
+Empty lists have a centered explanation. Loading and request failures have separate states.
+The empty Inbox does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
 Images can be expanded. Saved insights and SQL references render charts or tables; unsupported insight types link to PostHog.
@@ -75,9 +80,11 @@ Before sharing a build:
 - Log out while token refresh or a task command is pending.
   The old session must not return, and the command must not start work under the new account.
 - Start a cloud task in Desktop, then sign in to the same account and project on mobile.
-  Confirm that My tasks shows it. Switch to All tasks and confirm that accessible tasks by other users appear.
-  Load older pages. Search for an older task by title, description text, and task number, then open a result.
-  Clear search and confirm that the normal space groups return. Check loading, empty, and error states.
+  Confirm that Your tasks shows it alongside tasks from other spaces and excludes tasks by other users.
+  Open search with the sidebar button. Find a task from a different space.
+  Search for an older task by title, description text, and task number, then open a result.
+  Confirm that the keyboard leaves the search field and results visible. Close search and confirm that the task list still spans all spaces.
+  Load older pages. Check loading, empty, and error states. Confirm that tasks with no space have no invented space label.
 - Choose a space in the new-task composer and send a message.
   Confirm that Desktop shows the task in that space. Select a private space and confirm that access stays private.
   Switch projects and confirm that the previous space selection clears.
@@ -88,8 +95,11 @@ Before sharing a build:
 - Open Inbox with reports for different suggested reviewers. Only your reports should appear, with P0 first.
   Open a report, mark loaded reports read, and confirm that the drawer indicator clears. Restart and check read state.
   Dismiss a report and confirm it leaves the project inbox. Disconnect the network and check that failed actions permit another attempt.
-- In Activity, mark one item read, then mark shown items read. Confirm the badge updates and older items can be loaded.
-  New activity that arrives during a read action must remain unread.
+- Open Activity with no items, then with only read items. Confirm that no mark-as-read action appears.
+  Mark one unread item read, then mark the remaining visible items read. Confirm that the action disappears and the badge updates.
+  Load older items. New activity that arrives during a read action must remain unread.
+- Open Inbox with no reports. Confirm that the empty state has no read or triage action and no report instructions.
+  Disconnect the network and refresh. Confirm that the screen shows a request error with Retry, rather than a successful empty state.
 - Open a task with an uploaded image, a Markdown image, and a saved insight. Expand the images and read chart values.
   Reopen the task and check that stored attachments still load. Check an unavailable image and insight, then retry.
 - In a long conversation, scroll up while the agent works. Open and close the keyboard, send a reply, and use Latest message.

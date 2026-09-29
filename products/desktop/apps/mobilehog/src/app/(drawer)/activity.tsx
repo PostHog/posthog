@@ -14,7 +14,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Glass, GlassCircleButton } from "@/components/Glass";
-import { MenuIcon } from "@/components/Icons";
+import { BellIcon, MenuIcon } from "@/components/Icons";
+import { ListState } from "@/components/ListState";
 import {
   type ActivityRow,
   groupByDay,
@@ -48,6 +49,8 @@ export default function ActivityScreen() {
   const markRead = useMarkActivityRead();
   const [unreadsOnly, setUnreadsOnly] = useState(true);
   const [query, setQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const hasActivity = (activity.data?.results.length ?? 0) > 0;
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -58,6 +61,19 @@ export default function ActivityScreen() {
     );
     return groupByDay(rows);
   }, [activity.data, email, name, unreadsOnly, query]);
+
+  const unreadItems = groups.flatMap((group) =>
+    group.rows.filter((row) => row.item.isUnread).map((row) => row.item),
+  );
+  const refresh = async (): Promise<void> => {
+    if (activity.isFetching || refreshing) return;
+    setRefreshing(true);
+    try {
+      await activity.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const open = (row: ActivityRow): void => {
     if (row.item.isUnread)
@@ -81,20 +97,22 @@ export default function ActivityScreen() {
           <MenuIcon />
         </GlassCircleButton>
         <Text style={styles.title}>Activity</Text>
-        <View style={styles.unreads}>
-          <Text style={styles.unreadsLabel}>Unread</Text>
-          <Switch
-            value={unreadsOnly}
-            onValueChange={setUnreadsOnly}
-            trackColor={{ true: colors.accent }}
-          />
-        </View>
+        {hasActivity ? (
+          <View style={styles.unreads}>
+            <Text style={styles.unreadsLabel}>Unread</Text>
+            <Switch
+              value={unreadsOnly}
+              onValueChange={setUnreadsOnly}
+              trackColor={{ true: colors.accent }}
+            />
+          </View>
+        ) : null}
       </View>
       <ScrollView
         refreshControl={
           <RefreshControl
-            refreshing={activity.isRefetching}
-            onRefresh={() => void activity.refetch()}
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
           />
         }
         contentContainerStyle={[
@@ -102,58 +120,87 @@ export default function ActivityScreen() {
           { paddingBottom: insets.bottom + 24 },
         ]}
         keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
       >
-        <Glass style={styles.search}>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search activity"
-            placeholderTextColor={colors.inkMute}
-            style={styles.searchInput}
-            autoCorrect={false}
-          />
-        </Glass>
-        <Pressable
-          accessibilityRole="button"
-          disabled={
-            markRead.isPending ||
-            !groups.some((group) => group.rows.some((row) => row.item.isUnread))
-          }
-          onPress={() =>
-            markRead.mutate(
-              groups.flatMap((group) =>
-                group.rows
-                  .filter((row) => row.item.isUnread)
-                  .map((row) => row.item),
-              ),
-            )
-          }
-          style={styles.readAction}
-        >
-          <Text style={styles.actionText}>
-            {markRead.isPending ? "Saving" : "Mark shown activity as read"}
-          </Text>
-        </Pressable>
+        {hasActivity || query ? (
+          <Glass style={styles.search}>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search activity"
+              placeholderTextColor={colors.inkMute}
+              style={styles.searchInput}
+              autoCorrect={false}
+            />
+          </Glass>
+        ) : null}
+        {unreadItems.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={markRead.isPending}
+            onPress={() => markRead.mutate(unreadItems)}
+            style={styles.readAction}
+          >
+            <Text style={styles.actionText}>
+              {markRead.isPending ? "Saving" : "Mark as read"}
+            </Text>
+          </Pressable>
+        ) : null}
         {markRead.isError ? (
           <Text style={styles.empty}>
             Could not mark activity as read. Try again.
           </Text>
         ) : null}
         {activity.isError ? (
-          <Pressable onPress={() => void activity.refetch()}>
-            <Text style={styles.actionText}>
-              Could not load activity. Tap to retry.
-            </Text>
-          </Pressable>
-        ) : null}
-        {groups.length === 0 && !activity.isError ? (
-          <Text style={styles.empty}>
-            {activity.isLoading
-              ? "Loading"
-              : unreadsOnly
-                ? "No unread activity"
-                : "No activity"}
-          </Text>
+          <ListState
+            title="Could not load activity"
+            description="Check your connection and try again."
+            icon={<BellIcon />}
+            action={{
+              label: "Retry",
+              onPress: () => void activity.refetch(),
+              disabled: activity.isFetching,
+            }}
+          />
+        ) : groups.length === 0 ? (
+          <ListState
+            loading={activity.isLoading}
+            icon={<BellIcon />}
+            title={
+              activity.isLoading
+                ? "Loading activity"
+                : query.trim()
+                  ? "No matching activity"
+                  : activity.hasNextPage
+                    ? "No unread activity in this page"
+                    : hasActivity && unreadsOnly
+                      ? "No unread activity"
+                      : "No activity yet"
+            }
+            description={
+              activity.isLoading
+                ? undefined
+                : query.trim()
+                  ? "Try another task title."
+                  : activity.hasNextPage
+                    ? "Load more to check older activity."
+                    : hasActivity && unreadsOnly
+                      ? "You have read all your updates."
+                      : "Task updates and replies will appear here."
+            }
+            action={
+              activity.isLoading
+                ? undefined
+                : query.trim()
+                  ? { label: "Clear search", onPress: () => setQuery("") }
+                  : hasActivity && unreadsOnly
+                    ? {
+                        label: "View all activity",
+                        onPress: () => setUnreadsOnly(false),
+                      }
+                    : undefined
+            }
+          />
         ) : null}
         {groups.map((group) => (
           <View key={group.label} style={styles.group}>
@@ -257,7 +304,7 @@ const styles = StyleSheet.create({
   },
   unreads: { flexDirection: "row", alignItems: "center", gap: 8 },
   unreadsLabel: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkSoft },
-  scroll: { paddingHorizontal: 16, gap: 18, paddingTop: 6 },
+  scroll: { flexGrow: 1, paddingHorizontal: 16, gap: 18, paddingTop: 6 },
   search: {
     borderRadius: radius.pill,
     paddingHorizontal: 16,
