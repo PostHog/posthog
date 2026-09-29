@@ -46,7 +46,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "consecutive_failures": 0,
         }
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
+        # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
+        with self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], now or self.cutoff)
 
     def _alert(self) -> PlatformAlert:
         with team_scope(self.team.id):

@@ -176,6 +176,12 @@ def _event_row(
     )
 
 
+def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    recorded = insert_events(team_id, rows)
+    if recorded < len(rows):
+        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -239,10 +245,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
-
-    recorded = insert_events(team_id, rows)
-    if recorded < len(rows):
-        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+        # `on_commit` rather than a statement after the block, so a caller that wraps this in its
+        # own `atomic()` cannot leave history for state its rollback removed.
+        transaction.on_commit(lambda: _record_history(team_id, rows))
     return len(configurations)
 
 
