@@ -22,7 +22,7 @@ function loadingGraph(
 ): {
     nodes: DataModelingNode[]
     edges: DataModelingEdge[]
-    centerNodeId: string
+    centerNodeId?: string
 } {
     const dag = 'lineage-loading'
     const node = (id: string, name: string, type: DataModelingNode['type']): DataModelingNode => ({
@@ -48,11 +48,18 @@ function loadingGraph(
     const centerNodeId = `${idPrefix}-center`
     const downstreamId = `${idPrefix}-downstream`
 
+    if (!center) {
+        return {
+            nodes: [node(upstreamId, '', 'view'), node(downstreamId, '', 'view')],
+            edges: [edge(`${idPrefix}-edge`, upstreamId, downstreamId)],
+        }
+    }
+
     return {
         centerNodeId,
         nodes: [
             node(upstreamId, 'Loading upstream...', 'table'),
-            node(centerNodeId, center?.name ?? 'Loading lineage...', center?.type ?? 'view'),
+            node(centerNodeId, center.name, center.type),
             node(downstreamId, 'Loading downstream...', 'view'),
         ],
         edges: [
