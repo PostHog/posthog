@@ -15,6 +15,7 @@ from products.signals.backend.temporal.safety_filter import (
     safety_filter,
     safety_filter_activity,
 )
+from products.signals.backend.typesafe_decision import JEV_MODEL, SignalsDecision
 
 MODULE_PATH = "products.signals.backend.temporal.safety_filter"
 
@@ -121,6 +122,41 @@ async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> N
     assert first.safe and second.safe and third.safe
     assert judge.await_count == 2
     assert cache_lookup.call_args_list == [call("miss"), call("hit"), call("miss")]
+
+
+@pytest.mark.asyncio
+async def test_fallback_safe_verdict_is_not_cached_after_typesafe_recovers() -> None:
+    redis = FakeAsyncRedis()
+    typesafe = AsyncMock(
+        side_effect=[
+            RuntimeError("gateway unavailable"),
+            SignalsDecision(
+                probability=0.99,
+                model=JEV_MODEL,
+                input_tokens=10,
+                category="none",
+                category_confidence=0.99,
+            ),
+        ]
+    )
+    traditional = AsyncMock(return_value=SafetyFilterJudgeResponse(safe=True))
+    with (
+        patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
+        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="traditional-shadow")),
+        patch(f"{MODULE_PATH}.call_llm", new=traditional),
+        patch("products.signals.backend.typesafe_decision._query", new=typesafe),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+    ):
+        assert (await safety_filter(7, "A sample finding", source_product="pganalyze")).safe
+        assert await redis.dbsize() == 0
+
+        assert (await safety_filter(7, "A sample finding", source_product="pganalyze")).safe
+        assert await redis.dbsize() == 1
+
+        assert (await safety_filter(7, "A sample finding", source_product="pganalyze")).safe
+
+    assert typesafe.await_count == 2
+    assert traditional.await_count == 2
 
 
 @pytest.mark.asyncio

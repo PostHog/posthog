@@ -240,6 +240,12 @@ async def safety_filter(
                 explanation="LLM returned empty response, potentially due to triggering a safety filter.",
             )
 
+    deciding_provider = None
+
+    def record_deciding_provider(provider: str) -> None:
+        nonlocal deciding_provider
+        deciding_provider = provider
+
     result = await run_model_decision(
         team_id=team_id,
         stage="signal_safety",
@@ -258,9 +264,10 @@ async def safety_filter(
         ),
         traditional_category=lambda result: result.threat_type if not result.safe else "none",
         mode_override=mode,
+        on_deciding_provider=record_deciding_provider,
     )
 
-    if cache_key is not None and result.safe:
+    if cache_key is not None and result.safe and deciding_provider != "traditional_fallback":
         try:
             await get_async_client().setex(cache_key, SAFETY_CACHE_TTL_SECONDS, b"1")
         except (RedisError, ImproperlyConfigured) as error:
