@@ -53,6 +53,7 @@ BK_HIDDEN_TOOLS = [
     "tasks-runs-list",
     "tasks-runs-retrieve",
     "tasks-runs-session-logs-retrieve",
+    "tasks-artifacts-list",
     "tasks-config-list",
     "tasks-me-config-list",
     "tasks-models-retrieve",
