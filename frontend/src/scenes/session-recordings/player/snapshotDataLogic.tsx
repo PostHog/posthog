@@ -35,6 +35,23 @@ import {
 
 import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
 
+const MIN_SOURCE_RETRY_DELAY_MS = 1000
+const MAX_SOURCE_RETRY_DELAY_MS = 30000
+
+/**
+ * How long to wait before re-fetching a source that just failed. A capacity failure (503) or a
+ * throttle (429) carries the server's own back-off in `Retry-After`, so honoring it beats asking
+ * again on a fixed ladder while the server is still refusing. Without the header the delay grows
+ * with the number of failures.
+ */
+export function snapshotRetryDelayMs(errorObject: unknown, failureCount: number): number {
+    const retryAfterSeconds = errorObject instanceof ApiError ? errorObject.retryAfterSeconds : null
+    if (retryAfterSeconds === null) {
+        return failureCount * 2000
+    }
+    return Math.min(Math.max(retryAfterSeconds * 1000, MIN_SOURCE_RETRY_DELAY_MS), MAX_SOURCE_RETRY_DELAY_MS)
+}
+
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
@@ -54,6 +71,7 @@ export interface snapshotDataLogicValues {
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
+    isRetryingSnapshotLoad: boolean
     isSnapshotUnauthorized: boolean
     loadAllMode: boolean
     loadingSources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'>[]
@@ -62,6 +80,7 @@ export interface snapshotDataLogicValues {
     recordingDeletedBy: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
+    snapshotLoadRetryCount: number
     snapshotSources: SessionRecordingSnapshotSource[] | null
     snapshotSourcesLoading: boolean
     snapshotStore: SnapshotStore
@@ -223,6 +242,7 @@ export interface snapshotDataLogicMeta {
         isRecordingDeleted: (snapshotLoadError: Error | null) => boolean
         recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
         recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
+        isRetryingSnapshotLoad: (snapshotLoadRetryCount: number) => boolean
         isSnapshotUnauthorized: (snapshotLoadError: Error | null) => boolean
     }
 }
@@ -313,6 +333,17 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 startPolling: () => true,
                 stopPolling: () => false,
+            },
+        ],
+        // Mirrors the retry budget cache.loadFailureCount holds, so the player can tell the user a
+        // failed fetch is being retried instead of showing a bare buffering state.
+        snapshotLoadRetryCount: [
+            0,
+            {
+                loadSnapshotsForSourceFailure: (state: number) => state + 1,
+                loadSnapshotsForSourceSuccess: () => 0,
+                retrySnapshotLoading: () => 0,
+                snapshotSourceLoadExhausted: () => 0,
             },
         ],
         snapshotLoadError: [
@@ -590,7 +621,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
-        loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+        loadSnapshotsForSourceFailure: async ({ errorObject }, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
                 // Give up loudly: nothing else retries this source, so without a terminal action the
@@ -598,7 +629,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.snapshotSourceLoadExhausted()
                 return
             }
-            await breakpoint(cache.loadFailureCount * 2000)
+            await breakpoint(snapshotRetryDelayMs(errorObject, cache.loadFailureCount))
             actions.loadNextSnapshotSource()
         },
 
@@ -746,6 +777,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         // A missing session doesn't resolve by retrying, so a source failing this way should
         // never be handed a fresh retry budget.
+        isRetryingSnapshotLoad: [
+            (s) => [s.snapshotLoadRetryCount],
+            (snapshotLoadRetryCount: number): boolean => snapshotLoadRetryCount > 0,
+        ],
         isSnapshotUnauthorized: [
             (s) => [s.snapshotLoadError],
             (snapshotLoadError: Error | null): boolean => {

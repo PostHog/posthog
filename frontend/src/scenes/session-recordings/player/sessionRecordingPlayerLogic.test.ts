@@ -351,6 +351,41 @@ describe('sessionRecordingPlayerLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        // The failed range stays a buffer segment, so playback keeps producing buffer passes over it.
+        // A pass that clears the error leaves the player buffering forever with nothing to retry.
+        it('keeps a terminal error through a buffering pass, and reports the stall', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.snapshotSourceLoadExhausted()
+            logic.actions.startBuffer()
+            logic.actions.clearTransientPlayerError()
+
+            expect(logic.values.playerError).toBe('snapshotSourceLoadExhausted')
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            expect(capture).toHaveBeenCalledWith('recording_playback_stalled', expect.anything())
+
+            // Data arriving later must retire the error, or the overlay outlives the failure.
+            await expectLogic(logic, () => {
+                snapshotDataLogic({ sessionRecordingId: '2' }).actions.loadSnapshotsForSourceSuccess({
+                    source: BLOB_SOURCE_V2,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.playerError).toBe(null)
+            expect(capture).toHaveBeenCalledWith('recording_playback_stall_recovered', expect.anything())
+
+            capture.mockRestore()
+            consoleError.mockRestore()
+        })
+
+        it('clears a non-terminal error on a buffering pass', () => {
+            logic.actions.setPlayerError('replayerPlaybackFailure')
+            logic.actions.clearTransientPlayerError()
+
+            expect(logic.values.playerError).toBe(null)
+        })
     })
 
     describe('currentPlayerTime clamping', () => {

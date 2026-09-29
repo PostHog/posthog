@@ -1442,6 +1442,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Verify the error was called multiple times and we get 503
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            # The player retries this fetch and reads its back-off from the header
+            assert response.headers["Retry-After"] == "5"
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

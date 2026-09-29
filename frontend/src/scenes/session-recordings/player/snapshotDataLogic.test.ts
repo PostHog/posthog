@@ -10,7 +10,7 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { snapshotDataLogic, snapshotRetryDelayMs } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
@@ -119,6 +119,35 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
+        })
+    })
+
+    describe('retry delay', () => {
+        // A capacity 503 says when to come back. Ignoring it re-asks while the server still refuses,
+        // and the ladder runs out of attempts before the capacity does.
+        it.each([
+            ['falls back to the ladder without a header', new ApiError('at capacity', 503), 2, 4000],
+            ['falls back to the ladder for a plain error', new Error('network'), 1, 2000],
+            [
+                'honors an integer Retry-After',
+                new ApiError('at capacity', 503, new Headers({ 'Retry-After': '8' })),
+                1,
+                8000,
+            ],
+            [
+                'clamps a Retry-After of 0 up to the floor',
+                new ApiError('at capacity', 503, new Headers({ 'Retry-After': '0' })),
+                1,
+                1000,
+            ],
+            [
+                'clamps a long Retry-After down to the ceiling',
+                new ApiError('throttled', 429, new Headers({ 'Retry-After': '600' })),
+                1,
+                30000,
+            ],
+        ])('%s', (_name, errorObject, failureCount, expected) => {
+            expect(snapshotRetryDelayMs(errorObject, failureCount)).toBe(expected)
         })
     })
 
