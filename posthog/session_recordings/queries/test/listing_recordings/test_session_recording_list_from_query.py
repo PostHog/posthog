@@ -29,9 +29,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, RecordingsQuery
 
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -939,6 +941,66 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             assert evaluate.call_args.args[0] == "replay-combined-event-filters"
         else:
             evaluate.assert_not_called()
+
+    @parameterized.expand([("recording", True), ("session", False)])
+    def test_the_recording_bounds_join_and_its_window_predicates_travel_together(
+        self, scope: str, expects_scope: bool
+    ) -> None:
+        # The join and the window predicates come from different methods, and a subquery carrying the
+        # join without the predicates matches events outside the recording again — silently, since the
+        # join alone still returns plausible results. Every events subquery must hold both or neither.
+        def bounds_join_aliases(query: ast.SelectQuery) -> list[str]:
+            aliases = []
+            join = query.select_from
+            while join is not None:
+                if join.alias:
+                    aliases.append(join.alias)
+                join = join.next_join
+            return aliases
+
+        def bounds_fields(node: ast.AST) -> set[str]:
+            fields: set[str] = set()
+
+            class Collector(TraversingVisitor):
+                def visit_field(self, field: ast.Field) -> None:
+                    if field.chain and field.chain[0] == "recording_bounds":
+                        fields.add(str(field.chain[-1]))
+
+            Collector().visit(node)
+            return fields
+
+        query: dict[str, Any] = {
+            "event_match_scope": scope,
+            "operand": "AND",
+            "events": [
+                # A negated entity, so the plan stays on the separate path and the blocklist exists.
+                {"id": "view_item", "type": "events", "order": 0},
+                {"id": "purchase", "type": "events", "order": 1, "negation": True},
+            ],
+            "properties": [{"type": "event", "key": "source", "operator": "exact", "value": "search"}],
+        }
+        builder = ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery.model_validate(query))
+        subqueries: list[ast.SelectQuery] = [
+            *builder.get_session_id_match_plan(allow_combined_filters=True).queries,
+        ]
+        blocklist = builder.get_negative_blocklist_query()
+        assert blocklist is not None
+        subqueries.append(blocklist)
+        excluded = builder.get_excluded_sessions_query(["a-session-id"])
+        assert excluded is not None
+        subqueries.append(excluded)
+
+        assert len(subqueries) >= 4
+        for subquery in subqueries:
+            joined = "recording_bounds" in bounds_join_aliases(subquery)
+            assert subquery.where is not None
+            referenced = bounds_fields(subquery.where)
+            if expects_scope:
+                assert joined, subquery
+                assert referenced == {"window_start", "window_end"}, subquery
+            else:
+                assert not joined, subquery
+                assert referenced == set(), subquery
 
     @parameterized.expand(
         [
