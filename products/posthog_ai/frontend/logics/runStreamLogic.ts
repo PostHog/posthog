@@ -4429,6 +4429,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     {
                         entry: {
                             type: 'notification',
+                            // The wire echo of this send is deduped against this entry, so the send time can only come from here.
+                            timestamp: new Date().toISOString(),
                             notification: {
                                 method: '_client/human_message',
                                 params: {

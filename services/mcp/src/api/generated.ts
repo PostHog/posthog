@@ -50017,6 +50017,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface HogFlowLastRun {
+      /** The task this run belongs to. */
+      readonly task_id: string;
+      /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+      readonly status: string;
+      /** When the run started, or when the task was created if it has no run yet. */
+      readonly ran_at: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -50103,6 +50112,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -50262,6 +50273,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -50572,6 +50585,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -74713,6 +74728,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at?: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run?: HogFlowLastRun | null;
     }
 
     /**
@@ -107180,49 +107197,6 @@ export namespace Schemas {
     export const OrgOrganizationsAdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
-
-    export type OrgOrganizationsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type OrgOrganizationsBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
 
     export type BillingAlertsListParams = {
     /**
