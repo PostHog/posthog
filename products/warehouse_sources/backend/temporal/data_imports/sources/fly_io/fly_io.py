@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 from urllib.parse import quote
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -8,8 +9,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
@@ -102,11 +108,17 @@ def _sanitize_machine_config(config: dict[str, Any]) -> dict[str, Any]:
     return _strip_headers(safe)
 
 
-def _sanitize_machine(row: dict[str, Any]) -> dict[str, Any]:
-    config = row.get("config")
-    if isinstance(config, dict):
-        return {**row, "config": _sanitize_machine_config(config)}
-    return row
+def _sanitize_config_field(field_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Reduce the machine config a row carries under `field_name` to the safe allowlist. Machines
+    carry it as `config`, machine versions as `user_config`."""
+
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        config = row.get(field_name)
+        if isinstance(config, dict):
+            return {**row, field_name: _sanitize_machine_config(config)}
+        return row
+
+    return _mapper
 
 
 def _endpoint_path(config: FlyIoEndpointConfig, org_slug: str) -> str:
@@ -120,7 +132,7 @@ def _endpoint_path(config: FlyIoEndpointConfig, org_slug: str) -> str:
 
 def _endpoint_params(config: FlyIoEndpointConfig, org_slug: str) -> dict[str, Any]:
     params: dict[str, Any] = {}
-    if "{org_slug}" not in config.path:
+    if config.org_slug_param:
         params["org_slug"] = org_slug
     if config.paginated:
         params["limit"] = _PAGE_SIZE
@@ -146,6 +158,75 @@ def validate_credentials(api_token: str, org_slug: str) -> tuple[bool, str | Non
     return False, f"Fly.io API returned an unexpected status ({status})."
 
 
+def _paginator(config: FlyIoEndpointConfig) -> BasePaginator:
+    return (
+        JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+        if config.paginated
+        else SinglePagePaginator()
+    )
+
+
+def _top_level_endpoint(config: FlyIoEndpointConfig, org_slug: str) -> Endpoint:
+    return {
+        "path": _endpoint_path(config, org_slug),
+        "params": _endpoint_params(config, org_slug),
+        "paginator": _paginator(config),
+        "data_selector": config.response_data_path,
+        # Every top-level endpoint wraps its rows in an object ({"apps": [...]} etc.). A 200 body
+        # that isn't that shape (a bare list, or the wrapper key gone) means the API changed — fail
+        # loud rather than silently syncing zero rows, which would look like a successful-but-empty
+        # sync.
+        "data_selector_required": True,
+    }
+
+
+def _child_row_mapper(config: FlyIoEndpointConfig) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Flatten the parent fields the fan-out injects onto each child row, then drop any secrets the
+    row's own machine config carries."""
+    fanout = config.fanout
+    assert fanout is not None
+    renames = {make_parent_key_name(fanout.parent, src): dst for src, dst in fanout.parent_fields.items()}
+    sanitize = _sanitize_config_field(config.secret_config_field) if config.secret_config_field else None
+
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        for prefixed_key, target_key in renames.items():
+            if prefixed_key in row:
+                row[target_key] = row.pop(prefixed_key)
+        return sanitize(row) if sanitize else row
+
+    return _mapper
+
+
+def _fanout_resources(config: FlyIoEndpointConfig, org_slug: str) -> list[EndpointResource]:
+    """The parent listing plus the child endpoint that resolves its path from each parent row. Only
+    the child is synced; the parent is walked to drive it."""
+    fanout = config.fanout
+    assert fanout is not None
+    parent_config = FLY_IO_ENDPOINTS[fanout.parent]
+
+    parent_resource: EndpointResource = {
+        "name": fanout.parent,
+        "endpoint": _top_level_endpoint(parent_config, org_slug),
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                placeholder: {"type": "resolve", "resource": fanout.parent, "field": parent_field}
+                for placeholder, parent_field in fanout.path_params.items()
+            },
+            "paginator": SinglePagePaginator(),
+            # These endpoints return a bare array, so no data selector applies. It stays unrequired
+            # because a Go API can serialize an empty collection as `null` rather than `[]`, and a
+            # required list body would turn a machine with no events into a failed sync.
+        },
+        "include_from_parent": list(fanout.parent_fields),
+        "data_map": _child_row_mapper(config),
+    }
+    return [parent_resource, child_resource]
+
+
 def fly_io_source(
     api_token: str,
     endpoint: str,
@@ -154,17 +235,13 @@ def fly_io_source(
     job_id: str,
 ) -> SourceResponse:
     """Build the rest_source resource for a Fly.io stream. The org machines/volumes endpoints
-    paginate with an opaque `next_cursor`; the apps endpoint returns everything in one response.
-    Rows are yielded in the shape the API returns them, except the machines stream, whose rows can
-    embed deployment secrets: those are reduced to a safe operational allowlist and the stream opts
-    out of HTTP sample capture, so secrets reach neither the warehouse nor the sample pipeline."""
+    paginate with an opaque `next_cursor`; every other endpoint returns everything in one response.
+    Per-machine and per-volume endpoints only exist under an app, so they fan out over their org-wide
+    parent listing and carry the parent's app name and id onto each row. Rows are yielded in the
+    shape the API returns them, except where they embed a machine config: those are reduced to a safe
+    operational allowlist, and any stream whose traffic can carry secrets opts out of HTTP sample
+    capture, so secrets reach neither the warehouse nor the sample pipeline."""
     config = FLY_IO_ENDPOINTS[endpoint]
-
-    paginator = (
-        JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
-        if config.paginated
-        else SinglePagePaginator()
-    )
 
     client_config: ClientConfig = {
         "base_url": FLY_IO_BASE_URL,
@@ -179,24 +256,18 @@ def fly_io_source(
         # still masked in whatever remains logged.
         client_config["session"] = make_tracked_session(capture=False, redact_values=(api_token,))
 
-    endpoint_config: Endpoint = {
-        "path": _endpoint_path(config, org_slug),
-        "params": _endpoint_params(config, org_slug),
-        "paginator": paginator,
-        "data_selector": config.response_data_path,
-        # Every list endpoint wraps its rows in an object ({"apps": [...]} etc.). A 200 body that
-        # isn't that shape (a bare list, or the wrapper key gone) means the API changed — fail loud
-        # rather than silently syncing zero rows, which would look like a successful-but-empty sync.
-        "data_selector_required": True,
-    }
-
-    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
-    if config.redact_secrets:
-        resource_config["data_map"] = _sanitize_machine
-
-    rest_config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
-
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
+    if config.fanout:
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": cast("list[str | EndpointResource]", _fanout_resources(config, org_slug)),
+        }
+        resource = next(r for r in rest_api_resources(rest_config, team_id, job_id, None) if r.name == endpoint)
+    else:
+        resource_config: EndpointResource = {"name": endpoint, "endpoint": _top_level_endpoint(config, org_slug)}
+        if config.secret_config_field:
+            resource_config["data_map"] = _sanitize_config_field(config.secret_config_field)
+        resource = rest_api_resource({"client": client_config, "resources": [resource_config]}, team_id, job_id, None)
 
     return SourceResponse(
         name=endpoint,
