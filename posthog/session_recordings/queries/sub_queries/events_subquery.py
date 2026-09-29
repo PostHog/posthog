@@ -179,7 +179,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 },
             )
         else:
-            # Include adjacent segments because a recording can cross either date boundary.
+            # Include adjacent segments because a recording can cross either date boundary. One day of
+            # slack covers the SDK's 24-hour session cap; a wider window would grow the GLOBAL-shipped
+            # bounds set for every query to cover only sessions no conforming SDK records.
             scope = parse_expr(
                 "s.min_first_timestamp >= {date_from} AND s.min_first_timestamp <= {date_to}",
                 placeholders={
