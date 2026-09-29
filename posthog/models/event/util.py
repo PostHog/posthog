@@ -173,7 +173,11 @@ def bulk_create_events(
         # Format for ClickHouse
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
         created_at = event.get("created_at")
-        created_at = created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f") if created_at else timestamp
+        created_at = (
+            created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+            if isinstance(created_at, datetime)
+            else timestamp
+        )
 
         elements_chain = ""
         if tentative_elements_chain := event.get("elements_chain"):
