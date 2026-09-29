@@ -2,13 +2,13 @@ import base64
 import secrets
 from uuid import UUID
 
-from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from posthog.models.user import User
 
 from products.growth.backend.models import AccountAuditCredential
+from products.workflows.backend.facade.api import is_workflow_active_for_owner
 
 SOURCE_TEAM_ID = 2
 
@@ -27,16 +27,7 @@ class Command(BaseCommand):
             workflow_id = UUID(options["workflow_id"])
         except ValueError as error:
             raise CommandError("workflow-id must be a UUID.") from error
-        if (
-            not apps.get_model("workflows", "HogFlow")
-            .objects.filter(
-                id=workflow_id,
-                team_id=SOURCE_TEAM_ID,
-                status="active",
-                created_by_id=owner.id,
-            )
-            .exists()
-        ):
+        if not is_workflow_active_for_owner(team_id=SOURCE_TEAM_ID, workflow_id=workflow_id, owner_id=owner.id):
             raise CommandError("The workflow must be active in team 2 and owned by the staff user.")
 
         rotated_credential = None

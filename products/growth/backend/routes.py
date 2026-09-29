@@ -18,8 +18,8 @@ def register_routes(routers: RouterRegistry) -> None:
         "organization_product_push_campaign",
         ["organization_id"],
     )
-    # Staff-only, unscoped: prompt configs are instance-global, not team/org scoped.
     routers.root.register(r"growth_account_audits", AccountAuditStartViewSet, "growth_account_audits")
+    # Staff-only, unscoped: prompt configs are instance-global, not team/org scoped.
     routers.root.register(r"growth_ai_enrichment", AIEnrichmentViewSet, "growth_ai_enrichment")
     routers.root.register(r"growth_enrichment_scoring", ScoringViewSet, "growth_enrichment_scoring")
     # Unauthenticated, unscoped: called by a realtime destination via shared-secret header.

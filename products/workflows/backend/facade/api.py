@@ -73,6 +73,12 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         raise WorkflowNotFound() from None
 
 
+def is_workflow_active_for_owner(*, team_id: int, workflow_id: UUID, owner_id: int) -> bool:
+    return HogFlow.objects.filter(
+        team_id=team_id, id=workflow_id, created_by_id=owner_id, status=HogFlow.State.ACTIVE
+    ).exists()
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.

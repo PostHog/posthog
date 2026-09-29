@@ -25,7 +25,7 @@ A project 2 Workflows event can call the signed HTTP entry point after a credent
 
 Use the existing HTTP Webhook action and its Standard Webhooks signing secret. Growth exposes one purpose-specific POST endpoint. Do **not** change the Workflows product or the shared HTTP Webhook template for this phase.
 
-Put one strong signing secret in the Workflows action's secret input and in server configuration. Reject requests when either side has no secret. The endpoint must compare the HMAC over the **raw body** with constant-time comparison. It must reject missing or malformed headers and timestamps outside a short window. Rotate the secret if it is disclosed. Keep a server kill switch.
+Put one strong signing secret in the Workflows action's secret input and in its encrypted server-side credential record. Reject requests when either side has no secret. The shared ingress signature scheme verifies the HMAC over `{webhook-id}.{webhook-timestamp}.{raw body}` with constant-time comparison. It rejects missing or malformed headers and timestamps outside a short window. Rotate the secret if it is disclosed. Deactivate the credential to stop new admissions.
 
 A signing secret belongs to a workflow step by default, not to a user. Growth binds each issued secret to an active staff owner and a project 2 workflow in an encrypted credential record. The endpoint selects that record with a public key ID. It verifies the signature, checks that the workflow is active in project 2, and rechecks the owner's `is_staff` status on every request. An owner who loses staff status cannot use the credential. The staff owner is accountable for this integration, but the signature does not identify the person who caused an event to fire.
 

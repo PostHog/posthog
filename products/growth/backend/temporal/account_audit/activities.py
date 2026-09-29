@@ -98,7 +98,8 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
         team=team,
         title="Account audit",
         description=(
-            f"{skill.body}\n\nCreate a notebook in this project with PostHog MCP. "
+            f"{skill.body}\n\nThe audited project ID is {team.id}. "
+            "Use this project for every query and notebook. Create a notebook with PostHog MCP. "
             "Read the saved notebook before you return its short ID as notebook_short_id."
         ),
         origin_product=tasks_facade.TaskOriginProduct.ONBOARDING_AUDIT,
@@ -107,7 +108,7 @@ def start_account_audit_activity(input: AccountAuditStartInput) -> str:
         create_pr=False,
         internal=True,
         origin_key=origin_key,
-        posthog_mcp_scopes=["user:read", "query:read", "notebook:read", "notebook:write"],
+        posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
         model="claude-sonnet-5",
         output_schema=AccountAuditOutput,
         extra_run_state={"audit_skill_name": "onboarding-account-audit", "audit_skill_version": skill.version},

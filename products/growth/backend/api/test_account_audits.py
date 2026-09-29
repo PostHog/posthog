@@ -129,13 +129,13 @@ class TestAccountAuditStartAPI(APIBaseTest):
     def test_rejects_invalid_missing_and_stale_signatures(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
         cases = [
-            ("invalid", {"signature": "v1,not-base64"}),
-            ("stale", {"timestamp": str(int(time.time()) - 301)}),
+            ("invalid", "not-base64", None),
+            ("stale", None, str(int(time.time()) - 301)),
         ]
         with self._request_patches():
-            for name, options in cases:
+            for name, signature, timestamp in cases:
                 with self.subTest(name=name):
-                    self.assertEqual(self._post(payload, **options).status_code, 401)
+                    self.assertEqual(self._post(payload, signature=signature, timestamp=timestamp).status_code, 401)
             response = self.client.post(
                 self.url,
                 data=json.dumps(payload).encode(),
@@ -234,8 +234,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(changed_payload)
 
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["detail"], "Wait seven days before starting another account audit.")
-        self.assertIn("next_available_at", response.json())
+        self.assertEqual(response.json()["detail"], "This delivery ID has another target.")
         self.assertEqual(dispatch.return_value.call_count, 1)
         self.assertEqual(AccountAuditAdmission.objects.count(), 1)
 

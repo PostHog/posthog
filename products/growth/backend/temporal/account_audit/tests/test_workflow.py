@@ -131,6 +131,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
         assert run_id == str(created.latest_run.id)
         assert create_task.call_args.kwargs["repository"] is None
         assert create_task.call_args.kwargs["create_pr"] is False
+        assert "The audited project ID is 4." in create_task.call_args.kwargs["description"]
         assert create_task.call_args.kwargs["extra_run_state"] == {
             "audit_skill_name": "onboarding-account-audit",
             "audit_skill_version": 1,
@@ -138,6 +139,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
         assert create_task.call_args.kwargs["posthog_mcp_scopes"] == [
             "user:read",
             "query:read",
+            "insight:read",
             "notebook:read",
             "notebook:write",
         ]

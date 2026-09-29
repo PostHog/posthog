@@ -1,13 +1,10 @@
-import hmac
 import json
 import base64
-import hashlib
 import logging
 import binascii
 from datetime import timedelta
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.utils import timezone
 
@@ -20,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.ingress.verify.schemes import HmacSha256, VerificationOutcome
 from posthog.models import Team
 from posthog.rate_limit import IPThrottle
 
@@ -27,6 +25,7 @@ from products.growth.backend.facade.api import start_account_audit
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
 from products.skills.backend.facade.api import get_skill_prompt
+from products.workflows.backend.facade.api import is_workflow_active_for_owner
 
 MAX_BODY_BYTES = 4 * 1024
 SIGNATURE_TOLERANCE = timedelta(minutes=5)
@@ -91,7 +90,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             credential is None
             or not webhook_id
             or len(webhook_id) > 255
-            or not self._valid_signature(credential, webhook_id, timestamp, signature, raw_body)
+            or not self._valid_signature(credential.signing_secret, webhook_id, timestamp, signature, raw_body)
         ):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
@@ -157,7 +156,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
 
     @staticmethod
     def _valid_signature(
-        credential: AccountAuditCredential,
+        signing_secret: str,
         webhook_id: str,
         timestamp: str | None,
         signature: str | None,
@@ -166,25 +165,38 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         if timestamp is None or signature is None:
             return False
         try:
-            timestamp_value = int(timestamp)
+            int(timestamp)
         except ValueError:
-            return False
-        if abs(timezone.now().timestamp() - timestamp_value) > SIGNATURE_TOLERANCE.total_seconds():
             return False
         version, separator, encoded_signature = signature.partition(",")
         if version != "v1" or not separator or not encoded_signature:
             return False
-        secret = credential.signing_secret.removeprefix("whsec_")
+        secret = signing_secret.removeprefix("whsec_")
         try:
             signing_key = base64.b64decode(secret, validate=True)
-            supplied_signature = base64.b64decode(encoded_signature, validate=True)
+            base64.b64decode(encoded_signature, validate=True)
         except (ValueError, binascii.Error):
             return False
         if len(signing_key) < 24:
             return False
-        signed_payload = webhook_id.encode() + b"." + timestamp.encode() + b"." + raw_body
-        expected_signature = hmac.new(signing_key, signed_payload, hashlib.sha256).digest()
-        return hmac.compare_digest(expected_signature, supplied_signature)
+        scheme = HmacSha256(
+            secret_getter=lambda: signing_key,
+            signature_header="webhook-signature",
+            prefix="v1,",
+            encoding="base64",
+            signed_input="id_timestamp_body",
+            delivery_id_header="webhook-id",
+            timestamp_header="webhook-timestamp",
+            timestamp_max_age_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
+            timestamp_max_future_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
+        )
+        return (
+            scheme.verify(
+                body=raw_body,
+                headers={"webhook-id": webhook_id, "webhook-timestamp": timestamp, "webhook-signature": signature},
+            ).outcome
+            == VerificationOutcome.VERIFIED
+        )
 
     @staticmethod
     def _payload(raw_body: bytes) -> tuple[UUID, int] | None:
@@ -212,14 +224,11 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             and credential.owner is not None
             and credential.owner.is_active
             and credential.owner.is_staff
-            and apps.get_model("workflows", "HogFlow")
-            .objects.filter(
-                id=credential.workflow_id,
+            and is_workflow_active_for_owner(
+                workflow_id=credential.workflow_id,
                 team_id=SOURCE_TEAM_ID,
-                status="active",
-                created_by_id=credential.owner_id,
+                owner_id=credential.owner.id,
             )
-            .exists()
         )
 
     @staticmethod
