@@ -1,4 +1,5 @@
 # ruff: noqa: T201
+import os
 import sys
 import json
 import hashlib
@@ -13,18 +14,12 @@ from statistics import mean
 
 from posthog.dataclasses import frozen
 
-from products.tasks.evals.golden_prs.agents import (
-    DEFAULT_MODELS,
-    Runtime,
-    agent_failure,
-    agent_reply,
-    agent_usage,
-    run_agent,
-)
+from products.tasks.evals.golden_prs.agents import DEFAULT_MODELS, AgentOutcome, Runtime, run_agent
 from products.tasks.evals.golden_prs.scoring import changed_files
 from products.tasks.evals.golden_prs.workspace import candidate_diff
 
 from .claims import ARMS, REPO_ROOT, Arm, Claim, agents_md_for, build_prompt, load_claims, select_claims
+from .cloud import CLOUD_RUNTIME, CloudAgent, CloudRuntime, TasksClient
 from .detectors import DEFAULT_JUDGE_MODEL, Candidate, Detection, TaskAssessment, TaskStatus, assess_task, detect
 from .workspace import agents_md_at, checkout_with_agents_md, resolve_ref
 
@@ -87,7 +82,7 @@ class Evaluation:
 
 @frozen
 class ModelJob:
-    runtime: Runtime
+    runtime: Runtime | CloudRuntime
     model: str
     job: Job
 
@@ -95,21 +90,31 @@ class ModelJob:
 def evaluate(
     job: Job,
     agents_md: str,
-    runtime: Runtime,
+    runtime: Runtime | CloudRuntime,
     model: str,
     judge_model: str,
     timeout_seconds: int,
     repo: Path,
     ref: str,
     candidate_agents_md: str | None = None,
+    cloud: CloudAgent | None = None,
 ) -> Evaluation:
     prompt = build_prompt(job.claim)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     variant = agents_md_for(agents_md, job.claim, job.arm, candidate_agents_md)
     with checkout_with_agents_md(repo, ref, variant) as workdir:
-        run = run_agent(runtime, model, prompt, workdir, timeout_seconds, disable_hooks=True)
-        candidate = Candidate.from_diff(candidate_diff(workdir), workdir, reply=agent_reply(run))
-        failure = agent_failure(run)
+        if runtime == CLOUD_RUNTIME:
+            if cloud is None:
+                raise ValueError(f"The {CLOUD_RUNTIME} runtime needs a cloud agent.")
+            outcome = cloud.run(
+                model=model, prompt=prompt, agents_md=variant, workdir=workdir, timeout_seconds=timeout_seconds
+            )
+        else:
+            outcome = AgentOutcome.from_run(
+                run_agent(runtime, model, prompt, workdir, timeout_seconds, disable_hooks=True)
+            )
+        candidate = Candidate.from_diff(candidate_diff(workdir), workdir, reply=outcome.reply)
+        failure = outcome.failure
         environment_changes = candidate.changed_files(".flox/*")
         if environment_changes:
             failure = f"Environment setup files changed: {', '.join(environment_changes)}"
@@ -127,17 +132,17 @@ def evaluate(
         repeat=job.repeat,
         runtime=runtime,
         model=model,
-        agent_version=run.agent_version,
+        agent_version=outcome.agent_version,
         judge_model=judge_model,
         ref=ref,
         started_at=started_at,
-        duration_seconds=run.duration_seconds,
-        exit_code=run.exit_code,
-        timed_out=run.timed_out,
+        duration_seconds=outcome.duration_seconds,
+        exit_code=outcome.exit_code,
+        timed_out=outcome.timed_out,
         failure=failure,
         violations=detection.violations,
         details=list(detection.details),
-        usage=agent_usage(run),
+        usage=outcome.usage,
         changed_files=sorted(changed_files(candidate.diff)),
         comparison="file" if candidate_agents_md is not None else "rule",
         instructions_sha256=hashlib.sha256(variant.encode()).hexdigest(),
@@ -145,7 +150,7 @@ def evaluate(
         task_assessment_detail=assessment.reasoning,
         hooks_disabled=runtime == "claude",
     )
-    return Evaluation(result=result, diff=candidate.diff, agent_log=run.stdout + run.stderr)
+    return Evaluation(result=result, diff=candidate.diff, agent_log=outcome.log)
 
 
 def write_result(results_dir: Path, name: str, result: JobResult, candidate: str, agent_log: str) -> None:
@@ -296,8 +301,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--arm", action="append", choices=ARMS, help="Arm to run. Repeatable. Default: both.")
     run.add_argument("--repeats", type=int, default=1, help="Runs per claim and arm.")
     run.add_argument("--workers", type=int, default=2, help="Agents to run at the same time.")
-    run.add_argument("--runtime", choices=("claude", "codex"), default="claude")
-    run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}")
+    run.add_argument(
+        "--runtime",
+        choices=("claude", "codex", CLOUD_RUNTIME),
+        default="claude",
+        help=f"{CLOUD_RUNTIME} runs each job as a PostHog Code cloud task and needs POSTHOG_PERSONAL_API_KEY.",
+    )
+    run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}. {CLOUD_RUNTIME} has no default.")
     run.add_argument("--matrix", action="store_true", help="Run the standard five-model comparison set.")
     run.add_argument("--dry-run", action="store_true", help="List jobs without calling agents or judges.")
     run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
@@ -305,6 +315,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--ref", default="HEAD", help="The commit whose tree and AGENTS.md the agent works on.")
     run.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     run.add_argument("--repo", type=Path, default=REPO_ROOT)
+    run.add_argument("--posthog-host", default="https://us.posthog.com", help=f"Where {CLOUD_RUNTIME} starts tasks.")
+    run.add_argument("--project-id", type=int, default=2, help=f"The project {CLOUD_RUNTIME} starts tasks in.")
+    run.add_argument(
+        "--repository", default="PostHog/posthog", help=f"The GitHub repository {CLOUD_RUNTIME} tasks clone."
+    )
+    run.add_argument(
+        "--git-remote", default="origin", help=f"The remote in --repo that {CLOUD_RUNTIME} pushes branches to."
+    )
     run.add_argument(
         "--candidate-agents-md",
         type=Path,
@@ -316,7 +334,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def jobs_for(
-    claims: list[Claim], models: tuple[tuple[Runtime, str], ...], arms: list[Arm] | None, repeats: int
+    claims: list[Claim], models: tuple[tuple[Runtime | CloudRuntime, str], ...], arms: list[Arm] | None, repeats: int
 ) -> list[ModelJob]:
     return [
         ModelJob(runtime=runtime, model=agent_model, job=Job(claim=claim, arm=arm, repeat=repeat))
@@ -327,10 +345,20 @@ def jobs_for(
     ]
 
 
+def cloud_agent(args: argparse.Namespace, ref: str) -> CloudAgent:
+    api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+    if not api_key:
+        raise SystemExit(f"The {CLOUD_RUNTIME} runtime needs POSTHOG_PERSONAL_API_KEY with the task:write scope.")
+    tasks = TasksClient(args.posthog_host, args.project_id, api_key)
+    return CloudAgent(tasks, args.repo, ref, repository=args.repository, remote=args.git_remote)
+
+
 def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
-    model = args.model or DEFAULT_MODELS[args.runtime]
     if args.matrix and args.model:
         raise SystemExit("Use --matrix or --model, not both.")
+    if args.runtime == CLOUD_RUNTIME and not args.model:
+        raise SystemExit(f"The {CLOUD_RUNTIME} runtime needs --model.")
+    model = args.model or DEFAULT_MODELS[args.runtime]
     models = DEFAULT_MODEL_MATRIX if args.matrix else ((args.runtime, model),)
     jobs = jobs_for(selected, models, args.arm, args.repeats)
     if args.dry_run:
@@ -347,6 +375,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
     if candidate_agents_md is not None:
         (results_dir / "candidate-agents.md").write_text(candidate_agents_md)
     print(f"{len(jobs)} runs at {ref[:12]}, {args.workers} at a time", flush=True)
+    cloud = cloud_agent(args, ref) if args.runtime == CLOUD_RUNTIME else None
 
     def run_job(item: ModelJob) -> bool:
         name = f"{item.runtime}-{item.model}/{item.job.name}"
@@ -362,6 +391,7 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
                 args.repo,
                 ref,
                 candidate_agents_md,
+                cloud,
             )
         except Exception:
             print(f"{name}: crashed\n{traceback.format_exc()}", flush=True)
@@ -379,8 +409,12 @@ def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
         return result.exit_code == 0 and not result.timed_out and result.failure is None
 
     # The pool would otherwise hold a crash until iteration, after every other job has run.
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        completed = list(pool.map(run_job, jobs))
+    try:
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            completed = list(pool.map(run_job, jobs))
+    finally:
+        if cloud:
+            cloud.close()
     print(f"\nResults in {results_dir}\n")
     print(report(load_results(results_dir)))
     return 0 if all(completed) else 1

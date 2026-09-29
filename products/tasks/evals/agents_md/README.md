@@ -75,6 +75,24 @@ The report labels the two files explicitly. Both file snapshots and each run's i
 Report whole-file comparisons separately from individual-rule removal runs.
 Review task correctness separately; this runner instructs agents not to run the test suite.
 
+### PostHog Code cloud tasks
+
+The open models in PostHog Code (GLM, DeepSeek, Kimi) are served by the LLM gateway only to credentials the product issues.
+The `posthog-code` runtime runs each job as a PostHog Code cloud task, so it reaches them:
+
+```bash
+POSTHOG_PERSONAL_API_KEY=phx_... python -m products.tasks.evals.agents_md run --runtime posthog-code --model zai-org/glm-5.3 --claim frozen-dataclasses
+```
+
+The key needs the `task:write` scope, and the tasks run in `--project-id` (default 2).
+For each AGENTS.md variant, the runner pushes a base branch with no history to `--repository`, so the agent cannot read a removed rule from `git log`.
+The prompt asks the agent to push its work to a second branch.
+The runner fetches that branch, applies the change to a local checkout of the same tree, and scores it there.
+It deletes every branch it pushed, including the base branches when the run ends.
+Branch names are random under `posthog/scratch-`, because the agent sees them.
+The cloud agent gets PostHog Code's own system prompt and sandbox, so compare its results with a cloud run of a Claude model, not with a local run.
+The case timeout includes the time the sandbox takes to start.
+
 Results land in `products/tasks/evals/agents_md/results/<timestamp>-<runtime>-<model>/`, which git ignores.
 Each run writes a `.json` with the violation count and details, the `.diff`, and the agent log.
 

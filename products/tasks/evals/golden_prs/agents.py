@@ -131,6 +131,33 @@ def agent_failure(run: AgentRun) -> str | None:
     return stderr_lines[-1] if stderr_lines else f"The agent exited with code {run.exit_code}."
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class AgentOutcome:
+    """What scoring needs from one attempt, whether the agent ran here or as a cloud task."""
+
+    agent_version: str
+    exit_code: int
+    timed_out: bool
+    duration_seconds: float
+    failure: str | None
+    reply: str
+    usage: dict[str, float | int]
+    log: str
+
+    @classmethod
+    def from_run(cls, run: AgentRun) -> "AgentOutcome":
+        return cls(
+            agent_version=run.agent_version,
+            exit_code=run.exit_code,
+            timed_out=run.timed_out,
+            duration_seconds=run.duration_seconds,
+            failure=agent_failure(run),
+            reply=agent_reply(run),
+            usage=agent_usage(run),
+            log=run.stdout + run.stderr,
+        )
+
+
 def run_agent(
     runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int, *, disable_hooks: bool = False
 ) -> AgentRun:
