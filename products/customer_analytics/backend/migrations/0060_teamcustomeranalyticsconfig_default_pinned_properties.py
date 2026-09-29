@@ -2,12 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        (
-            "customer_analytics",
-            "0058_accountrelationshipdefinition_claim_saved_query_sha256",
-        )
-    ]
+    dependencies = [("customer_analytics", "0059_account_view")]
 
     operations = [
         migrations.AddField(

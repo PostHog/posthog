@@ -14,6 +14,12 @@ ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
 )
 
 
+class AccountViewVisibility(models.TextChoices):
+    PRIVATE = "private", "Personal"
+    TEAM = "team", "Team"
+
+
+
 class TaskDigestCadence(models.TextChoices):
     """How often a user's customer task digest email is sent."""
 
@@ -53,6 +59,7 @@ class OwnershipRoleDiagnostic(models.TextChoices):
 
 __all__ = [
     "AccountPropertyPinKind",
+    "AccountViewVisibility",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",

@@ -1,1 +1,1 @@
-0059_teamcustomeranalyticsconfig_default_pinned_properties
+0060_teamcustomeranalyticsconfig_default_pinned_properties
