@@ -44,6 +44,28 @@ describe('dashboard grid compactors', () => {
         }
     )
 
+    it.each([
+        { dropColumn: 4, imageColumn: 2, leftRow: 6, topRow: 0, bottomRow: 4 },
+        { dropColumn: 5, imageColumn: 6, leftRow: 0, topRow: 6, bottomRow: 10 },
+    ])(
+        'snaps a seam drop beside stacked charts at column $dropColumn',
+        ({ dropColumn, imageColumn, leftRow, topRow, bottomRow }) => {
+            const layout: Layout = [
+                { i: 'left', x: 0, y: 0, w: 6, h: 8 },
+                { i: 'top', x: 6, y: 0, w: 6, h: 4 },
+                { i: 'bottom', x: 6, y: 4, w: 6, h: 4 },
+                { i: 'image', x: dropColumn, y: 2, w: 4, h: 4 },
+            ]
+
+            expect(geometry(resolveFreePlacementCollisions(layout, 12, 'image'))).toEqual([
+                { i: 'left', x: 0, y: leftRow, w: 6, h: 8 },
+                { i: 'top', x: 6, y: topRow, w: 6, h: 4 },
+                { i: 'bottom', x: 6, y: bottomRow, w: 6, h: 4 },
+                { i: 'image', x: imageColumn, y: 2, w: 4, h: 4 },
+            ])
+        }
+    )
+
     it('keeps a resized tile in place when it grows across two charts', () => {
         const layout: Layout = [
             { i: 'left-chart', x: 0, y: 2, w: 6, h: 4 },
@@ -138,6 +160,24 @@ describe('dashboard grid compactors', () => {
             { i: 'two-right', x: 6, y: 5 + shift, w: 6, h: 3 },
             { i: 'heading-three', x: 0, y: 8 + shift, w: 12, h: 1 },
             { i: 'three-left', x: 0, y: 9 + shift, w: 6, h: 3 },
+        ])
+    })
+
+    it('keeps tiles below a displaced heading when the section has a gap', () => {
+        const layout: Layout = [
+            { i: 'upper', x: 0, y: 1, w: 6, h: 4 },
+            { i: 'next-heading', x: 0, y: 5, w: 12, h: 1 },
+            { i: 'section-right', x: 6, y: 7, w: 6, h: 2 },
+            { i: 'distant', x: 6, y: 25, w: 6, h: 2 },
+            { i: 'active', x: 0, y: 2, w: 6, h: 4 },
+        ]
+
+        expect(geometry(resolveFreePlacementCollisions(layout, 12, 'active'))).toEqual([
+            { i: 'upper', x: 0, y: 6, w: 6, h: 4 },
+            { i: 'next-heading', x: 0, y: 10, w: 12, h: 1 },
+            { i: 'section-right', x: 6, y: 12, w: 6, h: 2 },
+            { i: 'distant', x: 6, y: 25, w: 6, h: 2 },
+            { i: 'active', x: 0, y: 2, w: 6, h: 4 },
         ])
     })
 

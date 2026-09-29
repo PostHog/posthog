@@ -75,16 +75,24 @@ function snapBetweenAdjacentTiles(
     overlappingItems: LayoutItem[],
     cols: number
 ): void {
-    if (overlappingItems.length !== 2) {
+    if (overlappingItems.length < 2) {
         return
     }
 
-    const [left, right] = [...overlappingItems].sort((first, second) => first.x - second.x)
-    if (left.x + left.w > right.x) {
+    const [left, ...others] = [...overlappingItems].sort((first, second) => first.x - second.x)
+    const right = others.find((item) => item.x > left.x)
+    if (
+        !right ||
+        left.x + left.w > right.x ||
+        overlappingItems.some(
+            (item) => (item.x !== left.x || item.w !== left.w) && (item.x !== right.x || item.w !== right.w)
+        )
+    ) {
         return
     }
 
     for (let distance = 1; distance <= activeTile.w; distance++) {
+        let bestCandidate: { x: number; collisions: number } | undefined
         for (const candidateX of [activeTile.x + distance, activeTile.x - distance]) {
             if (candidateX < 0 || candidateX + activeTile.w > cols) {
                 continue
@@ -98,10 +106,19 @@ function snapBetweenAdjacentTiles(
                     item.y < activeTile.y + activeTile.h &&
                     item.y + item.h > activeTile.y
             )
-            if (collisions.length === 1 && overlappingItems.includes(collisions[0])) {
-                activeTile.x = candidateX
-                return
+            if (
+                collisions.length > 0 &&
+                collisions.every((collision) => overlappingItems.includes(collision)) &&
+                (collisions.every((collision) => collision.x === left.x) ||
+                    collisions.every((collision) => collision.x === right.x)) &&
+                (!bestCandidate || collisions.length < bestCandidate.collisions)
+            ) {
+                bestCandidate = { x: candidateX, collisions: collisions.length }
             }
+        }
+        if (bestCandidate) {
+            activeTile.x = bestCandidate.x
+            return
         }
     }
 }
@@ -149,6 +166,7 @@ export function resolveFreePlacementCollisions(
             const occupancy: GridOccupancy = new Map()
             const shiftByColumn = Array.from({ length: cols }, () => 0)
             const lastOriginalBottomByColumn = Array.from({ length: cols }, () => 0)
+            const lastPlacedBottomByColumn = Array.from({ length: cols }, () => 0)
             occupy(occupancy, activeTile, cols)
 
             for (const item of items
@@ -159,7 +177,10 @@ export function resolveFreePlacementCollisions(
                 const lastColumn = Math.min(cols, item.x + item.w)
 
                 for (let column = firstColumn; column < lastColumn; column++) {
-                    if (originalY > lastOriginalBottomByColumn[column]) {
+                    if (
+                        originalY > lastOriginalBottomByColumn[column] &&
+                        originalY >= lastPlacedBottomByColumn[column]
+                    ) {
                         shiftByColumn[column] = 0
                     }
                     item.y = Math.max(item.y, originalY + shiftByColumn[column])
@@ -177,6 +198,7 @@ export function resolveFreePlacementCollisions(
                         lastOriginalBottomByColumn[column],
                         originalY + item.h
                     )
+                    lastPlacedBottomByColumn[column] = Math.max(lastPlacedBottomByColumn[column], item.y + item.h)
                 }
                 occupy(occupancy, item, cols)
             }
