@@ -1147,20 +1147,29 @@ def _process_message_reported(
         for index in batch_indexes:
             mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, index)
 
+        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
+        # but listing every file costs O(files in table), which is the very thing it measures. Sample
+        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
+        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
+
+        # The handle `write` returns can be one deltalite commit behind the log. Column names and
+        # types cannot differ across that commit, so the schema below reads it as is; a file list
+        # can, so the readers of one go through the ref, which catches the handle up first.
+        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
+            current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+            if current_delta_table is not None:
+                delta_table = current_delta_table
+
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
-        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
-        # but listing every file costs O(files in table), which is the very thing it measures. Sample
-        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
-        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
         logger.debug(
             "batch_written_to_delta_lake",
             batch_index=export_signal.batch_index,
-            delta_version=delta_table.version(),
+            delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=len(delta_table.file_uris()) if sample_file_count else None,
         )
 

@@ -3108,7 +3108,7 @@ Note: The stable docs page lists ~230 endpoints; PostHog exposes 21. None of the
 
 ## Finnhub — **thin**
 
-Today (15): `basic_financials`, `company_news`, `company_profile`, `country`, `earnings_calendar`, `earnings_surprises`, `financials_reported`, `insider_transactions`, `ipo_calendar`, `market_news`, `quote`, `recommendation_trends`, `sec_filings`, `stock_candles`, `stock_symbols`
+Today (19): `basic_financials`, `company_news`, `company_profile`, `country`, `dividends`, `earnings_calendar`, `earnings_surprises`, `economic_calendar`, `financials_reported`, `index_constituents`, `insider_transactions`, `ipo_calendar`, `market_news`, `peers`, `quote`, `recommendation_trends`, `sec_filings`, `stock_candles`, `stock_symbols`
 
 Diffed against: <https://finnhub.io/static/swagger.json>
 
@@ -3116,14 +3116,14 @@ Diffed against: <https://finnhub.io/static/swagger.json>
 - [x] `/stock/candle` — historical OHLCV bars, the backbone of any price time-series analysis (quote is a point-in-time snapshot only) (high)
 - [x] `/stock/filings` — SEC filing index per symbol, the join key from company to disclosure documents (high)
 - [x] `/stock/insider-transactions` — insider buy/sell transaction rows, a headline alt-data signal (high)
-- [ ] `/stock/dividend` — dividend history transactions; nothing in the current table set carries payouts (high)
-- [ ] `/stock/peers` — lookup table resolving each synced symbol to its comparable set for benchmarking (high)
+- [x] `/stock/dividend` — dividend history transactions; nothing in the current table set carries payouts (high) — added as `dividends`, one row per payout, incremental on the ex-dividend date
+- [x] `/stock/peers` — lookup table resolving each synced symbol to its comparable set for benchmarking (high) — added as `peers`, one row per (symbol, peer)
 - [ ] `/stock/price-target` — analyst price targets, a natural companion to recommendation_trends which is already synced (medium)
 - [ ] `/stock/upgrade-downgrade` — individual analyst rating change events behind the aggregated recommendation trends (medium)
 - [ ] `/stock/eps-estimate (plus revenue-estimate, ebitda-estimate, ebit-estimate)` — forward consensus estimates to pair with the already-synced earnings surprises (medium)
 - [ ] `/stock/split` — split events needed to adjust any price or per-share series (medium)
-- [ ] `/index/constituents` — lookup table mapping indices to member symbols, enabling index-level roll-ups of synced symbols (medium)
-- [ ] `/calendar/economic` — macro event calendar; earnings and IPO calendars are already synced but the economic one is not (medium)
+- [x] `/index/constituents` — lookup table mapping indices to member symbols, enabling index-level roll-ups of synced symbols (medium) — added as `index_constituents`, fanned out over a new indices field
+- [x] `/calendar/economic` — macro event calendar; earnings and IPO calendars are already synced but the economic one is not (medium) — added as `economic_calendar`, full refresh over a rolling past+future window
 
 Note: Finnhub's public swagger exposes ~115 GET resources; PostHog syncs 11. Ownership (/stock/ownership, /stock/fund-ownership, /institutional/ownership), transcripts (/stock/transcripts/list), ETF/mutual-fund holdings, historical market cap and revenue breakdowns are also absent but ranked below the 12 above.
 
@@ -3449,14 +3449,14 @@ Note: Diffed against Front's published OpenAPI 3.0 spec (128 GET operations). Th
 
 ## Fulcrum — gaps
 
-Today (13): `audio`, `changesets`, `choice_lists`, `classification_sets`, `forms`, `memberships`, `photos`, `projects`, `records`, `roles`, `signatures`, `videos`, `webhooks`
+Today (17): `audio`, `audit_logs`, `changesets`, `choice_lists`, `classification_sets`, `form_history`, `forms`, `groups`, `memberships`, `photos`, `projects`, `records`, `records_history`, `roles`, `signatures`, `videos`, `webhooks`
 
 Diffed against: <https://docs.fulcrumapp.com/reference/records-intro>
 
-- [ ] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
-- [ ] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high)
-- [ ] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
-- [ ] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
+- [x] `records/history (records-get-all-history)` — full version history of every record — the only way to analyze edits, corrections and field-level change over time (high)
+- [x] `groups (+ group resources)` — lookup that resolves the group ID carried on the memberships and projects already synced (high). Synced with `associations=true`, which returns each group's member, layer, project and form ids on the group row; the per-resource `groups/{id}/{resource}` endpoint only re-lists rows the `memberships`, `projects` and `forms` tables already hold.
+- [x] `audit_logs` — account-wide activity trail: who did what to which form, record or membership (medium)
+- [x] `forms/{id}/history` — form schema versions, needed to interpret older records collected under a prior form definition (medium)
 - [ ] `sketches` — the one media type not synced alongside photos, audio, video and signatures — leaves media coverage inconsistent (low)
 - [ ] `attachments` — arbitrary file attachments linked to records, with metadata for completeness checks (low)
 - [ ] `layers` — reference data layers that records join against for spatial context (low)
