@@ -366,7 +366,7 @@ export type queryPerformanceLogicType = MakeLogicType<
 >
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
-    path(['scenes', 'experiments', 'staff', 'queryPerformanceLogic']),
+    path(['scenes', 'experiments', 'queryPerformanceLogic']),
     actions({
         setSearch: (search: string) => ({ search }),
         setPrecomputation: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
