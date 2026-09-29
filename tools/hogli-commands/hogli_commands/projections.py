@@ -98,6 +98,7 @@ class Formatter:
     binary: str
     workspace: str
     config: str
+    lockfile: str
     # Arguments that make the formatter read stdin and print to stdout. The output path
     # follows them, so the formatter picks the parser and config rules for that file.
     stdin_args: tuple[str, ...]
@@ -108,6 +109,7 @@ OXFMT = Formatter(
     binary="oxfmt",
     workspace=".",
     config=".oxfmtrc.json",
+    lockfile="pnpm-lock.yaml",
     stdin_args=("--stdin-filepath",),
 )
 BIOME = Formatter(
@@ -115,6 +117,7 @@ BIOME = Formatter(
     binary="biome",
     workspace="products/desktop",
     config="products/desktop/biome.jsonc",
+    lockfile="products/desktop/pnpm-lock.yaml",
     stdin_args=("format", "--stdin-file-path"),
 )
 
@@ -124,12 +127,11 @@ def formatter_for(path: str) -> Formatter:
 
 
 def all_triggers() -> tuple[str, ...]:
-    # The registry and the formatter configs count too: either can change what a
-    # projection writes.
+    # The registry and the formatter configs and lockfiles count too: each can change
+    # what a projection writes.
     return (
         REGISTRY,
-        OXFMT.config,
-        BIOME.config,
+        *(path for formatter in (OXFMT, BIOME) for path in (formatter.config, formatter.lockfile)),
         *(trigger for projection in PROJECTIONS for trigger in projection.triggers),
     )
 
@@ -149,9 +151,8 @@ class OutputFormatter:
         self._npm_prefix = tempfile.TemporaryDirectory()
 
     def _locked_version(self, formatter: Formatter) -> str:
-        lockfile = self.repo_root / formatter.workspace / "pnpm-lock.yaml"
         loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-        lock = yaml.load(lockfile.read_text(), Loader=loader)
+        lock = yaml.load((self.repo_root / formatter.lockfile).read_text(), Loader=loader)
         return lock["importers"]["."]["devDependencies"][formatter.package]["version"]
 
     def _command(self, formatter: Formatter) -> list[str]:
