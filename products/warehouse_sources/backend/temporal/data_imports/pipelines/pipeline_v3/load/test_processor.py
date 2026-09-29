@@ -523,6 +523,54 @@ class TestRedeliveredFinalBatchPostLoad:
         assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
 
 
+class TestPostWriteHandleReads:
+    # `DeltaWriter.write` can return a handle one deltalite commit behind the log. Column names and
+    # types survive that lag, a file list does not: partial data loading must read its file list
+    # through the ref, which catches the handle up, and a plain batch must not pay that read.
+
+    @parameterized.expand([("plain_batch", False, 1), ("partial_data_loading", True, 2)])
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.supports_partial_data_loading", return_value=True)
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_file_list_readers_go_through_the_ref(
+        self,
+        _case: str,
+        is_first_ever_sync: bool,
+        expected_handle_reads: int,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _supports: MagicMock,
+        mock_partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        returned = MagicMock()
+        returned.schema.return_value = pa.schema([_COL_ID])
+        current = MagicMock()
+        current.schema.return_value = pa.schema([_COL_ID])
+        current.file_uris.return_value = []
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=current)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(batch_index=1, is_first_ever_sync=is_first_ever_sync))
+
+        # One read opens the table before the write; only a file-list reader adds a second.
+        assert helper.get_delta_table.await_count == expected_handle_reads
+        assert mock_partial.await_args is not None
+        assert mock_partial.await_args.kwargs["delta_table"] is (current if is_first_ever_sync else returned)
+
+
 class TestFinalDataBatch:
     # The run's last data row is its own final marker, so one delivery writes the batch and runs
     # post-load. The write must be marked as soon as it commits: a post-load failure otherwise
