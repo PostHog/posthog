@@ -64,3 +64,93 @@ For the final evaluation, compare counts and metrics with the matching baked eve
 Check missing-partition metadata and grading runtime; the grader reads at most `max(horizon_days) + 1` scores objects per run.
 Existing baked-only consumers need no filter changes.
 New charts must opt into the daily event and select one revision per cohort as described above.
+
+## Classification metrics
+
+Every fitted head reports classification metrics next to AUC and calibration.
+They answer two questions: of the reports a head flags, how many have the outcome (precision), and of the outcomes, how many the head flags (recall).
+
+### Threshold
+
+A head predicts positive when `score >= classification_threshold`.
+A score equal to the threshold is a positive prediction.
+The threshold is the positive rate of the rows the booster was fit on.
+It means "at least as likely as the average fitting example", not a 50% probability.
+
+- **Holdout:** the threshold is the positive rate of the train-only rows. It is fixed before the holdout outcomes are read.
+- **Unseen:** the threshold is the positive rate of every row the refit was fit on. The candidate saves it per head as `refit_classification_threshold` in `metadata.json`. The scorer copies it onto each saved score as `classification_threshold`, and every daily and mature grade of those scores reads that value.
+- A champion keeps its own threshold. A candidate and a champion graded on the same reports use different cuts.
+
+The threshold is specific to the head, family, version and fitting population.
+A row budget keeps every positive and samples the negatives, so it raises the rate.
+Do not read the threshold as population prevalence, and do not compute it again from evaluation labels.
+
+### Metrics
+
+The metrics use the same eligible rows as the other metrics of the grade.
+
+- Counts: `true_positives`, `false_positives`, `true_negatives`, `false_negatives`.
+- Ratios: `precision`, `recall`, `f1`, `specificity`, `accuracy`, `balanced_accuracy` (the mean of recall and specificity), `predicted_positive_rate`.
+- `inbox_ranking_candidate_trained` carries them with a `holdout_` prefix, plus `refit_classification_threshold`.
+- `inbox_ranking_unseen_head_graded` and `inbox_ranking_unseen_head_evaluated` carry them without a prefix.
+
+Null values have three causes:
+
+- A ratio with a zero denominator is null. For example, a cohort without positives has a null recall.
+- An empty cohort with a known threshold has zero counts and null ratios.
+- A model or scores object saved before thresholds existed has null classification fields. Its other metrics stay.
+
+Readability and maturity rules do not change.
+An unbaked negative can still become a positive, so unbaked precision and recall are provisional.
+These metrics are evaluation-only: they do not change inbox order or champion promotion.
+
+### Pooling
+
+Read families and maturity levels apart.
+To pool cohorts or days, select one revision per cohort as described in [Reading the two versions](#reading-the-two-versions), sum the confusion counts, and then compute the ratios from the sums.
+Never average daily precision, recall or F1.
+A pooled line over several versions uses the frozen threshold of each version, so label it that way.
+
+After deployment and a new training and scoring run, check that the candidate events carry numeric `holdout_` fields and `refit_classification_threshold`, and that the unseen events carry `classification_threshold`.
+Check the mature grades as each head's horizon becomes available.
+
+## Served-model classification metrics
+
+The unseen grades rescore the newborn pool with the day's candidate and champion.
+They are not the scores the inbox served.
+The served grade closes that gap.
+
+### Score events
+
+Each `inbox_ranking_report_scored` event carries the served threshold of its model:
+
+- `threshold_<head>`: the head's `refit_classification_threshold` from the serving copy's metadata. A serving copy is immutable per model key, so this is the threshold that scored the report.
+- `predicted_<head>`: `p_<head> >= threshold_<head>`. A score equal to the threshold is a positive prediction.
+- `readable_heads`: the heads whose holdout was readable.
+
+A head without a saved threshold has no `threshold_` or `predicted_` property.
+Models trained before thresholds existed have none, and no other value stands in for one.
+
+### The served grade
+
+`inbox_ranking_served_scores` writes `inbox_ranking_served_scores/v1/dt=D/` in the unseen scores schema.
+
+- Population: D's newborn pool, the same reports the unseen grade covers.
+- Score: the earliest scored event in D with the `served` role and this deployment's `environment`.
+- `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
+- Asset metadata: `served_pool_coverage`, rows per model version, and the heads without a threshold.
+
+`inbox_ranking_unseen_graded` reads the served object next to the unseen object for each scoring partition.
+Its events then carry `model_role = 'served'`, with no new event type.
+A missing served object is a skip in the asset metadata, not a failure.
+
+Caveats:
+
+- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- A report first scored after D ends, for example when its vector arrived late, is not in D's served rows. `served_pool_coverage` shows this. A later score never fills it in.
+- The sweep scores with the vector current at scoring time. The unseen grade uses the end-of-day vector. Served and candidate grades of one day are two reads, not one paired number.
+- A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
+
+After deployment, check the new properties on a live sweep's events.
+Check the first `model_role = 'served'` early grades the next day, and the mature grades as each head's horizon passes.
+Until a model trained with thresholds is served, the events have no threshold properties and the served grades have null classification fields.

@@ -8,7 +8,6 @@ from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -68,7 +67,7 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
@@ -82,33 +81,13 @@ from products.ai_observability.backend.prompt_references import (
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
+    prompt_partials_enabled,
 )
 
 logger = structlog.get_logger(__name__)
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-
-
-PROMPT_PARTIALS_FLAG = "prompt-partials"
-
-
-def prompt_partials_enabled(team: Team) -> bool:
-    """Kill switch for fetch-time reference resolution. Flag off = tags pass through as plain text."""
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PROMPT_PARTIALS_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        # Flag service unavailable must not take down the SDK fetch path.
-        return False
 
 
 @extend_schema(extensions={"x-product": "llm_analytics"})
