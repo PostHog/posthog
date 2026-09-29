@@ -202,6 +202,8 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
             <sitemap><loc>https://www.example.com/pages.xml</loc></sitemap>
             <sitemap><loc>https://internal.example.com/private.xml</loc></sitemap>
             <sitemap><loc>https://example.com:8080/admin.xml</loc></sitemap>
+            <sitemap><loc>http://example.com:443/odd.xml</loc></sitemap>
+            <sitemap><loc>http://example.com/plain.xml</loc></sitemap>
         </sitemapindex>"""
         pages = b"""<urlset>
             <url><loc>https://www.example.com/docs</loc></url>

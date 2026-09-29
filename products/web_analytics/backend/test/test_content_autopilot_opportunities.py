@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +21,7 @@ from products.web_analytics.backend.models import ContentAutopilotOpportunity, C
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_opportunity,
     create_content_autopilot_profile,
+    create_content_autopilot_run,
 )
 
 SITE_PAGES = [
@@ -77,16 +78,42 @@ class TestOpportunityScoring(SimpleTestCase):
         assert mentioned > consistent
 
 
+@override_settings(AEO_TARGET_DOMAINS=["example.com"])
 class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.profile = create_content_autopilot_profile(self.team)
 
-    def _refresh(self, gaps: list[CitationGap]) -> list[ContentAutopilotOpportunity]:
+    def _refresh(
+        self, gaps: list[CitationGap], *, profile_id: str | None = None, page_urls: list[str] | None = SITE_PAGES
+    ) -> list[ContentAutopilotOpportunity]:
         with patch(
             "products.web_analytics.backend.content_autopilot.opportunities.list_citation_gaps", return_value=gaps
         ):
-            return refresh_opportunities(team=self.team, profile_id=str(self.profile.id), page_urls=SITE_PAGES)
+            return refresh_opportunities(
+                team=self.team, profile_id=profile_id or str(self.profile.id), page_urls=page_urls
+            )
+
+    def test_only_a_site_the_aeo_checks_track_gets_opportunities(self) -> None:
+        other = create_content_autopilot_profile(self.team, domain="https://other.example")
+
+        assert self._refresh([_gap("What is the best CRM?")], profile_id=str(other.id)) == []
+        assert len(self._refresh([_gap("What is the best CRM?")])) == 1
+
+    def test_an_empty_sitemap_still_limits_cited_pages_to_the_site_boundaries(self) -> None:
+        self.profile.content_boundaries = ["/docs"]
+        self.profile.save()
+
+        opportunities = self._refresh(
+            [
+                _gap("Admin question", our_cited_urls=("https://example.com/admin/users",)),
+                _gap("Docs question", our_cited_urls=("https://example.com/docs/replay",)),
+            ],
+            page_urls=[],
+        )
+
+        by_title = {opportunity.title: opportunity.target_url for opportunity in opportunities}
+        assert by_title == {"Admin question": "", "Docs question": "https://example.com/docs/replay"}
 
     def test_recommends_improving_only_a_page_the_engines_cited(self) -> None:
         opportunities = self._refresh(
@@ -114,16 +141,28 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
         )
 
     def test_counts_ai_crawls_on_a_page_with_and_without_a_trailing_slash(self) -> None:
-        for index, path in enumerate(["/pricing", "/pricing/", "/pricing/", "/docs"]):
+        for index, (path, host) in enumerate(
+            [
+                ("/pricing", None),
+                ("/pricing/", "www.example.com"),
+                ("/pricing/", None),
+                ("/docs", None),
+                ("/pricing", "other.example"),
+            ]
+        ):
             _create_event(
                 team=self.team,
                 event="$http_log",
                 distinct_id=f"crawler-{index}",
-                properties={"$pathname": path, "$raw_user_agent": "Mozilla/5.0 (compatible; GPTBot/1.2)"},
+                properties={
+                    "$pathname": path,
+                    "$raw_user_agent": "Mozilla/5.0 (compatible; GPTBot/1.2)",
+                    **({"$host": host} if host else {}),
+                },
             )
         flush_persons_and_events()
 
-        traffic = page_ai_traffic(self.team, ["/pricing"])
+        traffic = page_ai_traffic(self.team, "https://example.com", ["/pricing"])
 
         assert traffic["/pricing"]["ai_crawls"] == 3
         assert "/docs" not in traffic
@@ -154,21 +193,34 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
             "https://example.com/docs/session-replay/privacy-controls",
         ]
 
-    def test_refresh_keeps_dismissed_and_queued_opportunities_in_their_state(self) -> None:
+    def test_refresh_keeps_dismissals_and_active_drafts_and_drops_gaps_that_closed(self) -> None:
         dismissed = create_content_autopilot_opportunity(self.team, self.profile, cluster_key="hash-dismissed")
         dismiss_opportunity(team=self.team, opportunity_id=str(dismissed.id))
         queued = create_content_autopilot_opportunity(
             self.team, self.profile, cluster_key="hash-queued", status=ContentAutopilotOpportunity.Status.QUEUED
         )
+        queued.run = create_content_autopilot_run(self.team, self.profile)
+        queued.save()
+        stuck = create_content_autopilot_opportunity(
+            self.team, self.profile, cluster_key="hash-stuck", status=ContentAutopilotOpportunity.Status.QUEUED
+        )
+        stuck.run = create_content_autopilot_run(
+            self.team, self.profile, run_status=ContentAutopilotRun.RunStatus.CANCELED
+        )
+        stuck.save()
+        closed = create_content_autopilot_opportunity(self.team, self.profile, cluster_key="hash-closed")
 
-        self._refresh([_gap("dismissed"), _gap("queued")])
+        self._refresh([_gap("dismissed"), _gap("queued"), _gap("stuck")])
 
         dismissed.refresh_from_db()
         queued.refresh_from_db()
+        stuck.refresh_from_db()
         assert dismissed.status == ContentAutopilotOpportunity.Status.DISMISSED
         assert dismissed.title == "dismissed"
         assert queued.status == ContentAutopilotOpportunity.Status.QUEUED
         assert queued.title == "What is the best open source session replay tool?"
+        assert (stuck.status, stuck.title) == (ContentAutopilotOpportunity.Status.NEW, "stuck")
+        assert not ContentAutopilotOpportunity.objects.for_team(self.team.id).filter(id=closed.id).exists()
 
 
 class TestDraftOpportunities(BaseTest):
@@ -204,7 +256,7 @@ class TestDraftOpportunities(BaseTest):
                 team=self.team, profile_id=str(self.profile.id), opportunity_ids=ids, triggered_by_id=None
             )
 
-    def test_rejects_opportunities_from_another_site_or_already_queued(self) -> None:
+    def test_rejects_opportunities_from_another_site_already_queued_or_dismissed(self) -> None:
         other_profile = create_content_autopilot_profile(self.team, domain="https://other.example")
         foreign = create_content_autopilot_opportunity(self.team, other_profile)
         with self.assertRaisesRegex(ContentAutopilotLifecycleError, "selected site"):
@@ -215,8 +267,21 @@ class TestDraftOpportunities(BaseTest):
         queued = create_content_autopilot_opportunity(
             self.team, self.profile, cluster_key="queued", status=ContentAutopilotOpportunity.Status.QUEUED
         )
+        queued.run = create_content_autopilot_run(self.team, self.profile)
+        queued.save()
         with self.assertRaisesRegex(ContentAutopilotLifecycleError, "already being drafted"):
             draft_opportunities(
                 team=self.team, profile_id=str(self.profile.id), opportunity_ids=[str(queued.id)], triggered_by_id=None
             )
-        assert not ContentAutopilotRun.objects.for_team(self.team.id).exists()
+
+        dismissed = create_content_autopilot_opportunity(
+            self.team, self.profile, cluster_key="dismissed", status=ContentAutopilotOpportunity.Status.DISMISSED
+        )
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "Dismissed"):
+            draft_opportunities(
+                team=self.team,
+                profile_id=str(self.profile.id),
+                opportunity_ids=[str(dismissed.id)],
+                triggered_by_id=None,
+            )
+        assert ContentAutopilotRun.objects.for_team(self.team.id).count() == 1

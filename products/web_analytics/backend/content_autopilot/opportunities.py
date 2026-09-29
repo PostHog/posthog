@@ -3,6 +3,7 @@ import datetime as dt
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
@@ -18,6 +19,7 @@ from posthog.models.team import Team
 from products.aeo.backend.facade.api import list_citation_gaps
 from products.aeo.backend.facade.contracts import CitationGap
 from products.web_analytics.backend.content_autopilot.lifecycle import (
+    ACTIVE_RUN_STATUSES,
     ContentAutopilotLifecycleError,
     canonical_team_id,
     lock_profile,
@@ -50,7 +52,7 @@ def engine_label(engine: str) -> str:
     return ENGINE_LABELS.get(engine, engine)
 
 
-def canonical_site_url(url: str, *, origin: str, page_urls: list[str]) -> str | None:
+def canonical_site_url(url: str, *, origin: str, page_urls: list[str], boundaries: list[str]) -> str | None:
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -60,7 +62,8 @@ def canonical_site_url(url: str, *, origin: str, page_urls: list[str]) -> str | 
     if not host or host != site_host(origin) or path == "/":
         return None
     if not page_urls:
-        return f"{origin.rstrip('/')}{path}"
+        within = any(path.startswith(boundary.rstrip("/") or "/") for boundary in boundaries or ["/"])
+        return f"{origin.rstrip('/')}{path}" if within else None
     return next((page for page in page_urls if (urlparse(page).path.rstrip("/") or "/") == path), None)
 
 
@@ -87,7 +90,7 @@ def site_page_urls(profile: ContentAutopilotSiteProfile) -> list[str]:
     return urls
 
 
-def page_ai_traffic(team: Team, paths: list[str]) -> dict[str, dict[str, int]]:
+def page_ai_traffic(team: Team, origin: str, paths: list[str]) -> dict[str, dict[str, int]]:
     if not paths:
         return {}
     query = parse_select(
@@ -100,6 +103,7 @@ def page_ai_traffic(team: Team, paths: list[str]) -> dict[str, dict[str, int]]:
         WHERE timestamp >= now() - toIntervalDay({lookback_days})
             AND event IN ('$pageview', '$http_log')
             AND properties.$pathname IN {paths}
+            AND lower(coalesce(properties.$host, '')) IN {hosts}
         GROUP BY path
         """,
         placeholders={
@@ -107,6 +111,7 @@ def page_ai_traffic(team: Team, paths: list[str]) -> dict[str, dict[str, int]]:
             "paths": ast.Tuple(
                 exprs=[ast.Constant(value=variant) for path in paths for variant in {path, f"{path.rstrip('/')}/"}]
             ),
+            "hosts": ast.Tuple(exprs=[ast.Constant(value=host) for host in _site_hosts(origin, include_unknown=True)]),
         },
     )
     with tags_context(
@@ -116,6 +121,23 @@ def page_ai_traffic(team: Team, paths: list[str]) -> dict[str, dict[str, int]]:
     return {
         str(row[0]): {"ai_crawls": int(row[1] or 0), "ai_visitors": int(row[2] or 0)} for row in response.results or []
     }
+
+
+def _site_hosts(origin: str, *, include_unknown: bool = False) -> list[str]:
+    host = site_host(origin)
+    return [host, f"www.{host}", *([""] if include_unknown else [])]
+
+
+def _is_aeo_target(origin: str) -> bool:
+    return site_host(origin) in {site_host(f"https://{domain}") for domain in settings.AEO_TARGET_DOMAINS}
+
+
+def _being_drafted(opportunity: ContentAutopilotOpportunity) -> bool:
+    return (
+        opportunity.status == ContentAutopilotOpportunity.Status.QUEUED
+        and opportunity.run is not None
+        and opportunity.run.run_status in ACTIVE_RUN_STATUSES
+    )
 
 
 def _page_path(url: str) -> str:
@@ -136,9 +158,7 @@ def _most_viewed_paths(team: Team, origin: str, limit: int) -> list[str]:
         """,
         placeholders={
             "lookback_days": ast.Constant(value=SITE_PAGE_VIEWS_LOOKBACK_DAYS),
-            "hosts": ast.Tuple(
-                exprs=[ast.Constant(value=host) for host in (site_host(origin), f"www.{site_host(origin)}")]
-            ),
+            "hosts": ast.Tuple(exprs=[ast.Constant(value=host) for host in _site_hosts(origin)]),
             "limit": ast.Constant(value=limit),
         },
     )
@@ -154,7 +174,7 @@ def top_site_pages(team: Team, *, origin: str, page_urls: list[str], limit: int)
     for url in page_urls:
         by_path.setdefault(_page_path(url), url)
     try:
-        viewed = [by_path[path] for path in _most_viewed_paths(team, origin, limit * 2) if path in by_path]
+        viewed = [by_path[path] for path in _most_viewed_paths(team, origin, limit * 10) if path in by_path]
     except Exception as error:
         capture_exception(error)
         viewed = []
@@ -225,24 +245,33 @@ def refresh_opportunities(
         )
     except ContentAutopilotSiteProfile.DoesNotExist as error:
         raise ContentAutopilotLifecycleError("That site could not be found.") from error
-    gaps = list_citation_gaps(team_id, since=timezone.now() - dt.timedelta(days=OPPORTUNITY_LOOKBACK_DAYS))
+    gaps = (
+        list_citation_gaps(team_id, since=timezone.now() - dt.timedelta(days=OPPORTUNITY_LOOKBACK_DAYS))
+        if _is_aeo_target(profile.domain)
+        else []
+    )
+    boundaries = [str(boundary) for boundary in profile.content_boundaries]
     if page_urls is None:
         page_urls = site_page_urls(profile) if gaps else []
 
     targets: dict[str, str] = {}
     for gap in gaps:
-        cited = (canonical_site_url(url, origin=profile.domain, page_urls=page_urls) for url in gap.our_cited_urls)
+        cited = (
+            canonical_site_url(url, origin=profile.domain, page_urls=page_urls, boundaries=boundaries)
+            for url in gap.our_cited_urls
+        )
         targets[gap.prompt_hash] = next((url for url in cited if url), "")
 
     paths = sorted({_page_path(url) for url in targets.values() if url})
-    traffic_by_path = page_ai_traffic(team, paths)
+    traffic_by_path = page_ai_traffic(team, profile.domain, paths)
 
     now = timezone.now()
     with transaction.atomic():
         existing = {
             opportunity.cluster_key: opportunity
             for opportunity in ContentAutopilotOpportunity.objects.for_team(team_id, canonical=True)
-            .select_for_update()
+            .select_related("run")
+            .select_for_update(of=("self",))
             .filter(profile=profile)
         }
         for gap in gaps:
@@ -268,11 +297,22 @@ def refresh_opportunities(
                     team_id=team_id, profile=profile, cluster_key=gap.prompt_hash, **fields
                 )
                 continue
-            if opportunity.status == ContentAutopilotOpportunity.Status.QUEUED:
+            if _being_drafted(opportunity):
                 continue
+            if opportunity.status == ContentAutopilotOpportunity.Status.QUEUED:
+                fields["status"] = ContentAutopilotOpportunity.Status.NEW
             for name, value in fields.items():
                 setattr(opportunity, name, value)
             opportunity.save(update_fields=[*fields.keys(), "updated_at"])
+
+        current = {gap.prompt_hash for gap in gaps}
+        stale = [
+            opportunity.id
+            for key, opportunity in existing.items()
+            if key not in current and opportunity.status == ContentAutopilotOpportunity.Status.NEW
+        ]
+        if stale:
+            ContentAutopilotOpportunity.objects.for_team(team_id, canonical=True).filter(id__in=stale).delete()
 
     return list_opportunities(team=team, profile_id=profile_id)
 
@@ -288,7 +328,8 @@ def list_opportunities(*, team: Team, profile_id: str) -> list[ContentAutopilotO
 def _lock_opportunities(team_id: int, opportunity_ids: list[str]) -> list[ContentAutopilotOpportunity]:
     opportunities = list(
         ContentAutopilotOpportunity.objects.for_team(team_id, canonical=True)
-        .select_for_update()
+        .select_related("run")
+        .select_for_update(of=("self",))
         .filter(id__in=opportunity_ids, profile__deleted=False)
     )
     if len(opportunities) != len(set(opportunity_ids)):
@@ -299,7 +340,7 @@ def _lock_opportunities(team_id: int, opportunity_ids: list[str]) -> list[Conten
 def dismiss_opportunity(*, team: Team, opportunity_id: str) -> ContentAutopilotOpportunity:
     with transaction.atomic():
         (opportunity,) = _lock_opportunities(canonical_team_id(team), [opportunity_id])
-        if opportunity.status == ContentAutopilotOpportunity.Status.QUEUED:
+        if _being_drafted(opportunity):
             raise ContentAutopilotLifecycleError("This opportunity is being drafted and can't be dismissed.")
         opportunity.status = ContentAutopilotOpportunity.Status.DISMISSED
         opportunity.save(update_fields=["status", "updated_at"])
@@ -319,8 +360,10 @@ def draft_opportunities(
         opportunities = _lock_opportunities(team_id, opportunity_ids)
         if any(str(opportunity.profile_id) != str(profile_id) for opportunity in opportunities):
             raise ContentAutopilotLifecycleError("Every opportunity must belong to the selected site.")
-        if any(opportunity.status == ContentAutopilotOpportunity.Status.QUEUED for opportunity in opportunities):
+        if any(_being_drafted(opportunity) for opportunity in opportunities):
             raise ContentAutopilotLifecycleError("One or more opportunities are already being drafted.")
+        if any(opportunity.status == ContentAutopilotOpportunity.Status.DISMISSED for opportunity in opportunities):
+            raise ContentAutopilotLifecycleError("Dismissed opportunities can't be drafted.")
         run = start_run(team=team, profile_id=profile_id, triggered_by_id=triggered_by_id)
         for opportunity in opportunities:
             opportunity.status = ContentAutopilotOpportunity.Status.QUEUED
