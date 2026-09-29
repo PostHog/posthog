@@ -77,7 +77,7 @@ class TagSuggestion:
 
 
 def suggestions_enabled(team: Team) -> bool:
-    """Whether this team gets suggestions: the instance must be PostHog Cloud, the product flag must be on
+    """Whether this team gets suggestions: the instance must not be self-hosted, the product flag must be on
     and a System One gateway must be configured. Fails closed on a flag-eval blip, because the flag is how
     the rollout stays small."""
     # Jev runs only on PostHog's own inference hosts, so a self-hosted install has nothing to call.
@@ -170,7 +170,11 @@ def _ask_jev(team_id: int, state: JsonValue, questions: Mapping[str, NoulQuestio
 
 def suggest_tags(team_id: int, context: InsightContext, available_tags: Sequence[str]) -> TagSuggestion:
     """Asks one yes/no question per tag. ``available_tags`` comes most used first, so the cap drops the rarest."""
-    tags = list(dict.fromkeys(available_tags))[:MAX_TAGS]
+    # Tags that clip to the same text look identical to Jev, so only the most used of them is asked about.
+    by_clipped_name: dict[str, str] = {}
+    for tag in available_tags:
+        by_clipped_name.setdefault(_clip(tag, MAX_TAG_NAME_CHARS), tag)
+    tags = list(by_clipped_name.values())[:MAX_TAGS]
     batches = [tags[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(tags), GATEWAY_MAX_QUESTIONS)]
     timeout = SUGGESTION_TIMEOUT_SECONDS / max(len(batches), 1)
     scores: dict[str, float] = {}

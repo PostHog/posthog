@@ -1209,7 +1209,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         suggestTagsSuccess: ({ tagSuggestion }) => {
             if (!tagSuggestion) {
-                lemonToast.info('The query changed while tags were being suggested, so none were added. Suggest again.')
+                lemonToast.info(
+                    'The insight changed while tags were being suggested, so none were added. Suggest again.'
+                )
                 return
             }
             const currentTags = values.insight.tags || []

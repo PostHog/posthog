@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import Tag
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+from posthog.rate_limit import MetadataSuggestionBurstRateThrottle, MetadataSuggestionSustainedRateThrottle
 
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     MAX_TAGS,
@@ -43,14 +43,12 @@ class MetadataSuggestionsBusy(APIException):
     default_detail = "Suggestions are busy right now. Try again in a minute."
 
 
-class MetadataSuggestionBurstThrottle(PersonalApiKeyOrUserRateThrottle):
-    scope = "product_analytics_metadata_suggestion_burst"
-    rate = "30/minute"
-
-
-class MetadataSuggestionSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
-    scope = "product_analytics_metadata_suggestion_sustained"
-    rate = "300/hour"
+def _validate_encodable(value: str) -> None:
+    # JSON can carry an unpaired surrogate escape, and UTF-8 cannot encode one.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise serializers.ValidationError("Contains characters that are not valid text.") from error
 
 
 class InsightMetadataSuggestionRequestSerializer(serializers.Serializer):
@@ -65,6 +63,7 @@ class InsightMetadataSuggestionRequestSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         max_length=400,
+        validators=[_validate_encodable],
         help_text="The current name. Given to the model as context.",
     )
     description = serializers.CharField(
@@ -72,6 +71,7 @@ class InsightMetadataSuggestionRequestSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         max_length=2000,
+        validators=[_validate_encodable],
         help_text="The current description. Given to the model as context.",
     )
 
@@ -96,13 +96,16 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions: list[str] = []
 
     def get_throttles(self) -> list[BaseThrottle]:
-        return [MetadataSuggestionBurstThrottle(), MetadataSuggestionSustainedThrottle()]
+        return [MetadataSuggestionBurstRateThrottle(), MetadataSuggestionSustainedRateThrottle()]
 
     @validated_request(
         request_serializer=InsightMetadataSuggestionRequestSerializer,
         responses={
             200: OpenApiResponse(response=InsightTagSuggestionSerializer, description="The tags that apply."),
+            400: OpenApiResponse(description="The query is not an insight query, or the insight is too large."),
             403: OpenApiResponse(description="AI processing is not approved, or the project is not in the rollout."),
+            429: OpenApiResponse(description="The project asked for too many suggestions. Try again later."),
+            503: OpenApiResponse(description="The model is busy. The same request can succeed on a retry."),
         },
         summary="Suggest insight tags",
         description=(

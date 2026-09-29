@@ -31,7 +31,7 @@ describe('SceneTags', () => {
             )
 
             await userEvent.click(screen.getByText('Click to add tags'))
-            expect(screen.getByPlaceholderText('try "official"')).toHaveFocus()
+            expect(screen.getByRole('textbox', { name: 'Tags' })).toHaveFocus()
             await userEvent.keyboard('growth')
             await userEvent.click(screen.getByLabelText('Suggest tags'))
 

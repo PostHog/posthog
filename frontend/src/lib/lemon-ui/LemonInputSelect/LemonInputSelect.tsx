@@ -161,6 +161,7 @@ export type LemonInputSelectProps<T = string> = Pick<
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    'aria-label'?: string
     className?: string
     popoverClassName?: string
     size?: 'xsmall' | 'small' | 'medium' | 'large'
@@ -202,6 +203,7 @@ export function LemonInputSelect<T = string>({
     className,
     popoverClassName,
     'data-attr': dataAttr,
+    'aria-label': ariaLabel,
     size = 'medium',
     transparentBackground,
     autoWidth = true,
@@ -1078,6 +1080,7 @@ export function LemonInputSelect<T = string>({
                 disabled={disabled}
                 disabledReason={disabledReason}
                 autoFocus={autoFocus}
+                aria-label={ariaLabel}
                 transparentBackground={transparentBackground}
                 className={clsx(
                     '!h-auto leading-7 max-w-full w-full', // leading-7 means line height aligned with LemonSnack height

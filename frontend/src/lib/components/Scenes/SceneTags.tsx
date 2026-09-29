@@ -80,6 +80,7 @@ export const SceneTags = ({
                 onBlur={() => setLocalIsEditing(false)}
                 loading={tagsLoading}
                 data-attr={`${dataAttrKey}-new-tag-input`}
+                aria-label="Tags"
                 placeholder='try "official"'
                 size="xsmall"
                 autoFocus

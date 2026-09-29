@@ -106,13 +106,19 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         assert decide_mock.call_args_list
         assert all("other-team-secret" not in json.dumps(call.kwargs["state"]) for call in decide_mock.call_args_list)
 
-    @parameterized.expand([("invalid", {"kind": "Nope"}), ("missing", None)])
+    @parameterized.expand(
+        [
+            ("invalid_query", {"query": {"kind": "Nope"}}),
+            ("missing_query", {"query": None}),
+            ("unpaired_surrogate_in_name", {"query": _QUERY, "name": "growth \ud800"}),
+            ("unpaired_surrogate_in_description", {"query": _QUERY, "description": "\udfff"}),
+        ]
+    )
     @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
-    def test_request_without_a_valid_query_is_a_400(
-        self, _name: str, query: dict | None, _flag: MagicMock, _configured: MagicMock
-    ) -> None:
-        response = self.client.post(f"{self.base_url}/tags/", {"query": query}, format="json")
+    def test_invalid_request_is_a_400(self, _name: str, body: dict, _flag: MagicMock, _configured: MagicMock) -> None:
+        # json.dumps escapes the surrogates, as a browser would send them.
+        response = self.client.post(f"{self.base_url}/tags/", json.dumps(body), content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

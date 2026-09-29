@@ -120,15 +120,22 @@ class TestMetadataSuggestions(SimpleTestCase):
             suggest_tags(1, InsightContext(summary="", description=description), ["growth"])
         decide.assert_not_called()
 
-    def test_long_tag_names_sharing_a_prefix_stay_distinguishable_when_clipped(self) -> None:
-        shared_prefix = "z" * (MAX_TAG_NAME_CHARS + 10)
-        tags = [shared_prefix + "-v1", shared_prefix + "-v2"]
+    @parameterized.expand(
+        [
+            ("differ_at_the_end", ["z" * MAX_TAG_NAME_CHARS + "-v1", "z" * MAX_TAG_NAME_CHARS + "-v2"], 2),
+            ("differ_only_in_the_middle", ["z" * MAX_TAG_NAME_CHARS + m + "z" * MAX_TAG_NAME_CHARS for m in "ab"], 1),
+        ]
+    )
+    def test_long_tag_names_are_sent_once_per_distinct_clipped_name(
+        self, _name: str, tags: list[str], expected_count: int
+    ) -> None:
         decide = _answer_all(0.9)
         with _jev(decide):
-            suggest_tags(1, _CONTEXT, tags)
+            suggestion = suggest_tags(1, _CONTEXT, tags)
 
         sent_names = [value for call in decide.call_args_list for value in call.kwargs["state"]["tags"].values()]
-        assert len(set(sent_names)) == len(tags)
+        assert len(sent_names) == len(set(sent_names)) == expected_count
+        assert tags[0] in suggestion.tags
 
     def test_path_points_never_reach_the_model(self) -> None:
         query = {
