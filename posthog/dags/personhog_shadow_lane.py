@@ -42,8 +42,6 @@ SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
 SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
 SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
 
-# A push replaces every metric of its Pushgateway job, so each op that publishes has its own job
-# name. Two ops that share a name would delete each other's gauges.
 START_METRICS_JOB = "personhog_shadow_lane_start"
 
 # Every table the lane writes, per path. The reset truncates both lists in one

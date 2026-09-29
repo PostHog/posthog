@@ -35,8 +35,6 @@ from posthog.dags.personhog_shadow_lane import (
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 
-# A push replaces every metric of its Pushgateway job. The settle and drift ops run as separate
-# steps, so each has its own job name and a failed drift step leaves the settle gauges in place.
 SETTLE_METRICS_JOB = "personhog_shadow_lane_settle"
 DRIFT_METRICS_JOB = "personhog_shadow_lane_drift"
 
