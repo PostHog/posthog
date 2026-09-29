@@ -95,6 +95,10 @@ class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    # Identifies one firing, from the transition into FIRING to the transition out. A timestamp
+    # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
+    # reader knows whether this firing was ever announced.
+    firing_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

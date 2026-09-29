@@ -4342,7 +4342,6 @@ class TestChunkedRereadAfterRecoveryConflict:
                 db_incremental_field_last_value=0 if should_use_incremental_field else None,
                 team_id=1,
                 is_xmin=is_xmin,
-                xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
                 keyset_full_load_enabled=keyset_full_load_enabled,

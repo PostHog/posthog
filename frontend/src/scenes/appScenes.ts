@@ -77,6 +77,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
+    [Scene.Library]: () => import('./library/Library'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.SqlVariableEdit]: () => import('./data-management/variables/SqlVariableEditScene'),
