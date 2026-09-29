@@ -11,6 +11,7 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 It overrides `deny` and `allow`, and the differences are:
 
 - `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
+- `auth` also exempts `products/growth/backend/temporal/signup_enrichment/`, because `signup` there names the event that starts company enrichment, not a signup flow.
 - `infra_cicd` also matches `.github/pr-deploy`.
 - `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `allow` also lists `.github/CODEOWNERS`.

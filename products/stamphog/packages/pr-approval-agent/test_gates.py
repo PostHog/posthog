@@ -97,6 +97,10 @@ from policy import OwnershipSource
             id="stripe-connector-not-billing",
         ),
         pytest.param(
+            ["products/growth/backend/temporal/signup_enrichment/workflow.py"],
+            id="signup-enrichment-not-auth",
+        ),
+        pytest.param(
             ["frontend/package.json"],
             id="manifest-without-lockfile-not-deps",
         ),
