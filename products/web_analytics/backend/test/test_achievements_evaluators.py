@@ -1,6 +1,8 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -10,6 +12,7 @@ from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
+    PriorProgress,
     evaluate_conversions,
     evaluate_cumulative_pageviews,
     evaluate_data_events,
@@ -69,41 +72,120 @@ class TestAchievementEvaluators(BaseTest):
         self.assertEqual(evaluate_data_events(ctx), 0)
 
 
+EMPTY_PRIOR = PriorProgress(value=0, last_computed_at=None, checkpoint={})
+
+
 class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
     def _ctx(self) -> EvalContext:
         return EvalContext(team=self.team, user=None, today=date.today(), arm=None)
 
+    def _pay_action(self, event: str | None) -> Action:
+        return Action.objects.create(
+            team=self.team,
+            name="Clicked Pay",
+            steps_json=[{"event": event, "tag_name": "button", "text": "Pay $10"}],
+        )
+
+    def _pay_click(self, timestamp: datetime | None = None, created_at: datetime | None = None) -> None:
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="d1",
+            elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+            timestamp=timestamp or timezone.now() - timedelta(hours=2),
+            created_at=created_at,
+        )
+
     def test_cumulative_pageviews_counts_pageviews_across_environments(self) -> None:
         second_env = Team.objects.create(organization=self.organization, project=self.team.project, name="env 2")
+        two_hours_ago = timezone.now() - timedelta(hours=2)
+        _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=two_hours_ago)
+        _create_event(team=self.team, event="$screen", distinct_id="d1", timestamp=two_hours_ago)
+        _create_event(team=self.team, event="custom_event", distinct_id="d1", timestamp=two_hours_ago)
+        _create_event(team=second_env, event="$pageview", distinct_id="d2", timestamp=two_hours_ago)
         _create_event(team=self.team, event="$pageview", distinct_id="d1")
-        _create_event(team=self.team, event="$screen", distinct_id="d1")
-        _create_event(team=self.team, event="custom_event", distinct_id="d1")
-        _create_event(team=second_env, event="$pageview", distinct_id="d2")
         flush_persons_and_events()
 
-        self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 3)
+        self.assertEqual(evaluate_cumulative_pageviews(self._ctx(), EMPTY_PRIOR).value, 3)
 
-    def test_conversions_returns_best_goal_conversion_count(self) -> None:
-        Action.objects.create(
+    @parameterized.expand([("checkpoint",), ("legacy_last_computed_at",)])
+    def test_cumulative_pageviews_adds_only_events_after_the_watermark(self, source: str) -> None:
+        watermark = timezone.now() - timedelta(hours=3)
+        _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark - timedelta(hours=2))
+        _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark - timedelta(hours=2))
+        _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark + timedelta(minutes=30))
+        _create_event(
             team=self.team,
-            name="Clicked Pay",
-            steps_json=[{"event": "$autocapture", "tag_name": "button", "text": "Pay $10"}],
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=watermark - timedelta(hours=2),
+            created_at=watermark + timedelta(minutes=30),
         )
-        for _ in range(2):
-            _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="d1",
-                elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
-            )
+        flush_persons_and_events()
+        prior = (
+            PriorProgress(value=100, last_computed_at=None, checkpoint={"counted_through": watermark.isoformat()})
+            if source == "checkpoint"
+            else PriorProgress(value=100, last_computed_at=watermark, checkpoint={})
+        )
+
+        evaluation = evaluate_cumulative_pageviews(self._ctx(), prior)
+
+        self.assertEqual(evaluation.value, 102)
+        assert evaluation.checkpoint is not None
+        self.assertGreater(datetime.fromisoformat(str(evaluation.checkpoint["counted_through"])), watermark)
+
+    @parameterized.expand([("named_event", "$autocapture"), ("any_event", None)])
+    def test_conversions_returns_best_goal_conversion_count(self, _name: str, event: str | None) -> None:
+        self._pay_action(event)
+        self._pay_click()
+        self._pay_click()
         flush_persons_and_events()
 
-        self.assertEqual(evaluate_conversions(self._ctx()), 2)
+        self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 2)
 
     def test_conversions_falls_back_to_goal_count_without_conversions(self) -> None:
-        Action.objects.create(
-            team=self.team,
-            name="Clicked Pay",
-            steps_json=[{"event": "$autocapture", "tag_name": "button", "text": "Pay $10"}],
+        self._pay_action("$autocapture")
+        self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 1)
+
+    @parameterized.expand(
+        [
+            ("unchanged_actions_add_new_arrivals", "unchanged", 5),
+            ("edited_steps_rebuild", "edited_steps", 3),
+            ("other_actions_rebuild", "other_actions", 3),
+        ]
+    )
+    def test_conversions_keep_a_rolling_ninety_day_window(self, _name: str, change: str, expected: int) -> None:
+        action = self._pay_action("$autocapture")
+        prior_checkpoint = evaluate_conversions(self._ctx(), EMPTY_PRIOR).checkpoint
+        assert prior_checkpoint is not None
+        actions = prior_checkpoint["actions"]
+        if change == "edited_steps":
+            action.steps_json = [{"event": "$autocapture", "text": "Pay $10"}]
+            action.save()
+        elif change == "other_actions":
+            actions = [[action.id + 1, "0"]]
+        now = timezone.now()
+        counted_through = now - timedelta(hours=3)
+        late_day = (now - timedelta(days=2)).date().isoformat()
+        expired_day = (now - timedelta(hours=1) - timedelta(days=90)).date().isoformat()
+        self._pay_click()
+        self._pay_click()
+        self._pay_click(timestamp=now - timedelta(days=2), created_at=now - timedelta(hours=2))
+        flush_persons_and_events()
+        prior = PriorProgress(
+            value=0,
+            last_computed_at=counted_through,
+            checkpoint={
+                "actions": actions,
+                "daily": {expired_day: [50], late_day: [2]},
+                "counted_through": counted_through.isoformat(),
+            },
         )
-        self.assertEqual(evaluate_conversions(self._ctx()), 1)
+
+        evaluation = evaluate_conversions(self._ctx(), prior)
+
+        self.assertEqual(evaluation.value, expected)
+        assert evaluation.checkpoint is not None
+        daily = evaluation.checkpoint["daily"]
+        assert isinstance(daily, dict)
+        self.assertNotIn(expired_day, daily)

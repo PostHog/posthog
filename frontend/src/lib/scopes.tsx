@@ -104,6 +104,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
+    {
+        key: 'offline_evaluation_ingestion',
+        objectName: 'Offline evaluation ingestion',
+        objectPlural: 'offline evaluation uploads',
+        info: 'Create experiments, upload results, and mark experiments as completed or failed.',
+        disabledActions: ['read'],
+    },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
@@ -292,6 +299,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'account:read',
     'loop:write',
     'experiment:read',
+    'offline_evaluation_ingestion:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

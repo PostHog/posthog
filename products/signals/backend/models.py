@@ -22,7 +22,6 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -41,7 +40,12 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import (
+    ReportLinkKind,
+    SignalSourceProduct,
+    SignalSourceType,
+    signal_source_product_choices,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -117,6 +121,13 @@ class SignalSourceConfig(UUIDModel):
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
+            return True
+
+        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
+        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
+        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
+        # already authored is the opt-in.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
@@ -222,9 +233,6 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         if not repository or not isinstance(self.autostart_base_branches, dict):
             return None
         return self.autostart_base_branches.get(repository.lower()) or None
-
-
-register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 
 class SignalUserAutonomyConfig(UUIDModel):
@@ -1222,6 +1230,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
@@ -1233,13 +1242,16 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
+        RANKING_SCORE = "ranking_score"
+        IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
-    #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers, channel assignments). They are appended on each change; the
-    #     report's *current* status is the latest row of that type by `created_at` (the serializer
-    #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
+    #   - status artefacts describe the report's current state (judgments and repo selection among
+    #     them, and the model's current ranking score). They are appended on each change; the
+    #     report's *current* status is the latest row of that type by `created_at`. A member does
+    #     not have to reach the API: the serializer derives priority/actionability/reviewers with
+    #     `order_by("-created_at")[:1]` subqueries, and the rest are read by the pipeline alone.
     #   - log artefacts record discrete work done on a report (code references, commits,
     #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
@@ -1255,8 +1267,13 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.RANKING_SCORE,
         }
     )
+    # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
+    # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
+    # them to staff only.
+    SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1276,6 +1293,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
@@ -1285,6 +1303,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
+            ArtefactType.IMPACT_MEASUREMENT_PLAN,
         }
     )
 
@@ -1360,12 +1379,16 @@ class SignalReportArtefact(UUIDModel):
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
-        reports get counted to render 25. Reports with no artefacts are omitted.
+        reports get counted to render 25. Reports with no artefacts are omitted, and so are
+        `SYSTEM_SCORING_ARTEFACT_TYPES` rows.
         """
         if not report_ids:
             return {}
         rows = (
-            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+            cls.objects.filter(report_id__in=report_ids)
+            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .values("report_id")
+            .annotate(artefact_count=models.Count("*"))
         )
         return {str(row["report_id"]): row["artefact_count"] for row in rows}
 
@@ -1692,13 +1715,16 @@ class SignalReportArtefact(UUIDModel):
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ReportLink):
             with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
-                return cls._create(
+                artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=content,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
+            cls._capture_report_linked(artefact, content)
+            cls._schedule_plan_rollup(artefact, content)
+            return artefact
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1712,6 +1738,65 @@ class SignalReportArtefact(UUIDModel):
                 attribution=attribution,
             )
         return artefact
+
+    @staticmethod
+    def _capture_report_linked(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Count the link after it commits, from the one write path every producer shares.
+
+        Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
+        models <-> typed_report_links import cycle.
+        """
+
+        def _run() -> None:
+            from products.signals.backend.typed_report_links import ReportEdge, capture_report_linked
+
+            capture_report_linked(
+                team_id=artefact.team_id,
+                edge=ReportEdge(
+                    source_id=str(artefact.report_id),
+                    kind=content.kind,
+                    target_id=content.report_id,
+                    reason=content.reason,
+                ),
+                actor_kind=artefact.actor_kind,
+                actor_agent=artefact.actor_agent,
+            )
+
+        transaction.on_commit(_run)
+
+    @staticmethod
+    def _schedule_plan_rollup(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Close the plan when a step joins it after the step itself closed.
+
+        The roll-up otherwise runs from the step's status change, and a `part_of` row written on a
+        report that is already resolved or archived announces no change. Only a closed source is
+        worth the walk, because an open step leaves its plan open anyway. Scheduled on commit so
+        the new row is visible, best-effort so it never breaks the write, and imported lazily to
+        avoid a models <-> plan_rollup import cycle.
+        """
+        if content.kind != ReportLinkKind.PART_OF:
+            return
+
+        def _run() -> None:
+            from products.signals.backend.plan_rollup import roll_up_plan_parents
+
+            try:
+                status = (
+                    SignalReport.objects.using("default")
+                    .filter(team_id=artefact.team_id, id=artefact.report_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                    return
+                roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
+            except Exception:
+                logger.exception(
+                    "signals.plan_rollup.after_link_write_failed",
+                    extra={"report_id": str(artefact.report_id)},
+                )
+
+        transaction.on_commit(_run)
 
     @classmethod
     def append(
@@ -1764,6 +1849,8 @@ class SignalReportArtefact(UUIDModel):
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
+        if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+            raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -2593,6 +2680,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         *,
         pause_reason: "SignalScoutConfig.PauseReason",
         evaluated_at: datetime | None = None,
+        max_enabled_scouts: int | None = None,
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
@@ -2605,11 +2693,26 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
         status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        `max_enabled_scouts` is the project's already-resolved enabled-scout ceiling, for a
+        caller that is inside a locked section. Left `None`, a resume resolves it here — before
+        the transaction opens, so the flag read never happens while row locks are held.
         Saves and returns True when the transition applies; returns False without writing
         when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
+        # A resume must not carry the team past the enabled-scout cap: the pause freed a slot the
+        # config API may have legitimately given to another scout since. Only a resume needs the
+        # ceiling, so a pause pays for no flag read.
+        resume_cap: int | None = None
+        if new_status in self.RUNNABLE_STATUSES:
+            from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                max_enabled_scouts_for_team,
+            )
+
+            resume_cap = (
+                max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
+            )
         with transaction.atomic():
             # One ordered query locks the whole team's rows, not just ours: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
@@ -2639,15 +2742,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 and locked.status_changed_at > evaluated_at
             ):
                 return False
-            # A resume must not carry the team past the enabled-scout cap: the pause freed a
-            # slot the config API may have legitimately given to another scout since.
-            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
-                MAX_ENABLED_SCOUTS_PER_TEAM,
-            )
-
-            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+            if resume_cap is not None and locked.status not in self.RUNNABLE_STATUSES:
                 peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
-                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                if peers >= resume_cap:
                     return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:

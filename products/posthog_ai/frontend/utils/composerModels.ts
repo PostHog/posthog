@@ -8,7 +8,7 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
     CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
@@ -76,6 +76,14 @@ export function modelsForRuntimeAdapter(
     runtimeAdapter: RuntimeAdapterEnumApi
 ): ModelChoiceApi[] {
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
+}
+
+// Everything still offered, plus the model this run is already on when the catalogue has since retired it — without
+// that entry the picker names the run's own model by its raw id. Call it through `useMemo`: composers re-render on
+// every keystroke.
+export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
+    const selected = catalogueEntry(catalogue, selectedModel)
+    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
 }
 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,

@@ -63,6 +63,7 @@ import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
+    ScoutToolCatalogueApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -118,6 +119,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutReportCheckListParams,
     SignalsScoutReportChecksListParams,
     SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
@@ -931,7 +933,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -946,12 +948,52 @@ export const signalsReportArtefactsDestroy = async (
     })
 }
 
+export const getSignalsReportsArtefactsActivateCreateUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/activate/`
+}
+
+/**
+ * Artefacts attached to a signal report.
+ *
+ * Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
+ *
+ * - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
+ *   artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
+ *   merging commits/names forward from the current reviewers. Other types return 400.
+ * - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
+ *   (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
+ *   those return 400 naming the type.
+ *   Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
+ *   are latest-wins, so appending a new version supersedes the previous one as the report's
+ *   canonical status. Content is validated against the type's schema. Team scoping is
+ *   enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
+ *   report 404s.
+ *
+ * Writes are attributed: to the task named by the `X-PostHog-Task-Id` header (set automatically
+ * for sandbox agents) when present, else to the requesting user.
+ * @summary Activate a proposed impact measurement
+ */
+export const signalsReportsArtefactsActivateCreate = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(
+        getSignalsReportsArtefactsActivateCreateUrl(projectId, reportId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
 }
 
 /**
- * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * Fetch the unified diff for a `commit` artefact via the team's GitHub integration. A commit linked to a report pull request uses GitHub's durable pull request diff. A commit without that link compares the branch's current tip with the default branch.
  * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (
@@ -1209,7 +1251,7 @@ export const getSignalsScoutChatTasksCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; an `author_scout` chat can carry the user's request, which the server fences inside that prompt. The response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
 export const signalsScoutChatTasksCreate = async (
@@ -1371,6 +1413,24 @@ export const signalsScoutConfigSync = async (
     })
 }
 
+export const getSignalsScoutConfigToolCatalogueUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/tool_catalogue/`
+}
+
+/**
+ * List every MCP tool a scout could be configured with. Each entry carries the tool's name, label, one-line summary, category, and required scopes, plus `holdable`: whether a scout run can hold every scope the tool needs, and `missing_scopes`: what it would have to be granted on top of the baseline preset. The response also returns the scout scope presets and the write scopes a person can grant to one scout, so a caller can show why a tool is out of reach. Tools a successor has replaced are left out. A tool can carry a `feature_flag`, which resolves per project: evaluate it for the project you are configuring before you offer the tool. Read-only, and the same for every project.
+ * @summary List the MCP tool catalogue
+ */
+export const signalsScoutConfigToolCatalogue = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutToolCatalogueApi> => {
+    return apiMutator<ScoutToolCatalogueApi>(getSignalsScoutConfigToolCatalogueUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsScoutMembersListUrl = (projectId: string, params?: SignalsScoutMembersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1434,7 +1494,7 @@ export const getSignalsScoutNotesListUrl = (projectId: string, params?: SignalsS
 }
 
 /**
- * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Pass `text` to keep only the notes whose content contains it, case-insensitively. Results capped at 500.
  * @summary List scout notes
  */
 export const signalsScoutNotesList = async (
@@ -1573,7 +1633,7 @@ export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: st
 }
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResult = async (
@@ -1988,6 +2048,37 @@ export const signalsScoutRunsRecentPerScout = async (
     options?: RequestInit
 ): Promise<SignalScoutRunSummaryApi[]> => {
     return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsRecentPerScoutUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutReportCheckListUrl = (projectId: string, params: SignalsScoutReportCheckListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/report-checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/report-checks/`
+}
+
+/**
+ * Every check on one report, newest first. The `report_id` is the only input. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const signalsScoutReportCheckList = async (
+    projectId: string,
+    params: SignalsScoutReportCheckListParams,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi[]> => {
+    return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportCheckListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

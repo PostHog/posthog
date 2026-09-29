@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -127,7 +126,7 @@ describe('dashboardTemplateCopyLogic', () => {
         })
     })
 
-    it('on successful copy refreshes templates, toasts, and navigates to the templates tab', async () => {
+    it('on successful copy refreshes templates, toasts, and opens the templates modal', async () => {
         const getAllTemplates = jest.fn()
         ;(dashboardTemplatesLogic.findMounted as jest.Mock).mockReturnValue({
             actions: { getAllTemplates },
@@ -145,7 +144,7 @@ describe('dashboardTemplateCopyLogic', () => {
         expect(api.dashboardTemplates.copyBetweenProjects).toHaveBeenCalledWith(2, 'src-1')
         expect(getAllTemplates).toHaveBeenCalled()
         expect(lemonToast.success).toHaveBeenCalled()
-        expect(router.actions.push).toHaveBeenCalledWith(urls.dashboards(), { tab: DashboardsTab.Templates })
+        expect(router.actions.push).toHaveBeenCalledWith(urls.dashboards(), { templates: '1' })
     })
 
     it('submitCopy shows an error toast when the API fails', async () => {
