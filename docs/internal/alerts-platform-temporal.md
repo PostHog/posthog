@@ -317,8 +317,11 @@ the cost and the failures.
 Three lifecycle inputs serve an on-call rotation, and every one of them defaults to today's behavior.
 
 **Incident edges.** Every outcome carries an `incident` action next to its notification: `open` when the alert enters
-firing, `close` when it leaves firing for any reason (a clear check, disable, a broken configuration, a threshold
-change, the failure that breaks it), and `none` otherwise. Cooldown, snooze and quiet hours hold announcements and
+firing, `close` when it leaves firing or snoozed for a clear state (a clear check, disable, a broken configuration, a
+threshold change, the failure that breaks it), and `none` otherwise. A snoozed alert may have been firing when it
+was parked, so leaving SNOOZED closes too; a close for an incident that was never opened is a no-op at a paging
+provider keyed on the alert's fingerprint. A delivery preview carries a transition whenever a notification or an
+incident action exists, so a held announcement still reaches delivery as an incident-only transition. Cooldown, snooze and quiet hours hold announcements and
 never touch the incident, so a mute cannot leave an incident open and a cooldown cannot keep one open past the
 recovery that should close it. A snoozed alert and a first failed check keep their incident open. Delivery previews
 carry the action per group; a paging transport consumes it when native delivery lands.
@@ -329,7 +332,9 @@ windows are all clear. The default of zero resolves on the first clear window, a
 **No data.** `CheckInput.no_data` marks a window with no value, and `AlertSnapshot.no_data_policy` decides what it
 means: `inconclusive` keeps state and announces nothing (the default), `clear` reads it as a clear window, `breach`
 reads it as a breach so a metric that stops arriving can page. The metrics source reads both options from its
-`source_config` (`keep_firing_windows`, `no_data_policy`) until the shared configuration object settles.
+`source_config` (`keep_firing_windows`, `no_data_policy`) until the shared configuration object settles. It reads
+enough windows for keep-firing, applies the no-data policy to prior windows and to a label set the query no longer
+returns, and records scheduler lag once per check rather than once per group.
 
 **Missed evaluations.** `alerts_platform_missed_evaluations_total{source}` counts a check evaluated more than two
 cadences after its due time, so the platform falling behind is visible before a customer notices silence.

@@ -57,12 +57,16 @@ class IncidentAction(Enum):
 
 
 _FIRING_STATES = frozenset({AlertState.FIRING, AlertState.PENDING_RESOLVE})
+# A snoozed alert may have been firing when it was parked, so leaving SNOOZED for a clear state
+# closes too. A close for an incident that was never opened is a no-op at a paging provider,
+# which keys incidents on the alert's fingerprint.
+_MAY_HOLD_AN_INCIDENT = _FIRING_STATES | {AlertState.SNOOZED}
 
 
 def _incident(before: AlertState, after: AlertState) -> IncidentAction:
     if before not in _FIRING_STATES and after == AlertState.FIRING:
         return IncidentAction.OPEN
-    if before in _FIRING_STATES and after in (AlertState.NOT_FIRING, AlertState.BROKEN):
+    if before in _MAY_HOLD_AN_INCIDENT and after in (AlertState.NOT_FIRING, AlertState.BROKEN):
         return IncidentAction.CLOSE
     return IncidentAction.NONE
 

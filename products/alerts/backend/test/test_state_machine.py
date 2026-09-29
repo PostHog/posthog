@@ -442,6 +442,15 @@ class TestOnCallLifecycle:
             ("broken_config", apply_broken_config),
             ("threshold_change", apply_threshold_change),
             ("fifth_failure", lambda s: evaluate_alert_check(s, ERROR, NOW, policy=LOGS_ALERT_POLICY)),
+            (
+                "clear_check_after_a_snooze",
+                lambda s: evaluate_alert_check(
+                    snapshot(state=AlertState.SNOOZED, last_notified_at=s.last_notified_at),
+                    CLEAR,
+                    NOW,
+                    policy=LOGS_ALERT_POLICY,
+                ),
+            ),
         ]
     )
     def test_incident_closes_when_the_alert_leaves_firing(self, _name: str, transition) -> None:

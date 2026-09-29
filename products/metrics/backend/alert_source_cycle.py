@@ -56,6 +56,7 @@ from products.alerts.backend.facade.lifecycle import (
     AlertState,
     CheckInput,
     ControlPlaneOutcome,
+    IncidentAction,
     NotificationAction,
     apply_broken_config,
     evaluate_alert_check,
@@ -179,10 +180,15 @@ def _broken_reason(check: PlatformAlertCheckInput) -> str | None:
     return None
 
 
+def _windows_to_read(check: PlatformAlertCheckInput, source: MetricsAlertSource) -> int:
+    return max(check.evaluation_periods, source.keep_firing_windows + 1)
+
+
 def _request(source: MetricsAlertSource, check: PlatformAlertCheckInput, date_to: datetime) -> MetricQueryRequest:
     # Contiguous windows: N-of-M reads the newest `evaluation_periods` buckets of one query, so no
-    # history table is needed and a retry reads the same buckets.
-    lookback = timedelta(minutes=check.window_minutes * check.evaluation_periods)
+    # history table is needed and a retry reads the same buckets. Keep-firing needs one more prior
+    # window than it holds.
+    lookback = timedelta(minutes=check.window_minutes * _windows_to_read(check, source))
     clauses = tuple(
         MetricQueryClause(
             name=clause.name,
@@ -230,6 +236,11 @@ def _breached(value: float | None, threshold_count: int, threshold_operator: str
     if threshold_operator == "above":
         return value > threshold_count
     return value < threshold_count
+
+
+def _prior_flags(flags: Sequence[bool | None], source: MetricsAlertSource) -> tuple[bool, ...]:
+    """Prior windows with no value follow the same no-data policy as the current one."""
+    return tuple(flag if flag is not None else source.no_data_policy == "breach" for flag in flags)
 
 
 def _is_in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
@@ -368,12 +379,17 @@ def _record_check_metrics(
         safe_record(increment_notifications_muted, source, mute_reason.value)
     if group.state != new_state:
         safe_record(increment_state_transition, source, group.state, new_state)
-    if check.next_check_at is not None:
-        lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
-        if lag_ms > 0:
-            safe_record(record_scheduler_lag, source, lag_ms)
-        if lag_ms > 2 * check.check_interval_minutes * 60 * 1000:
-            safe_record(increment_missed_evaluations, source)
+
+
+def _record_lag(check: PlatformAlertCheckInput, now: datetime) -> None:
+    """Once per check, not per group: a grouped check is one late evaluation, not N."""
+    if check.next_check_at is None:
+        return
+    lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
+    if lag_ms > 0:
+        safe_record(record_scheduler_lag, SourceKind.METRICS.value, lag_ms)
+    if lag_ms > 2 * check.check_interval_minutes * 60 * 1000:
+        safe_record(increment_missed_evaluations, SourceKind.METRICS.value)
 
 
 def _verdict(
@@ -454,7 +470,7 @@ def _delivery(check: PlatformAlertCheckInput, decisions: Sequence[_GroupDecision
             incident=decision.outcome.incident.value,
         )
         for decision in decisions
-        if decision.outcome.notification != NotificationAction.NONE
+        if decision.outcome.notification != NotificationAction.NONE or decision.outcome.incident != IncidentAction.NONE
     )
     if not transitions:
         return outcomes, None
@@ -544,7 +560,7 @@ def _evaluate_group(
             check,
             group,
             CheckInput(threshold_breached=False, no_data=True, muted=muted),
-            tuple(bool(flag) for flag in prior),
+            _prior_flags(prior, source),
             now=now,
             skip=None,
             source=source,
@@ -553,18 +569,31 @@ def _evaluate_group(
         check,
         group,
         CheckInput(threshold_breached=current, muted=muted),
-        tuple(bool(flag) for flag in prior),
+        _prior_flags(prior, source),
         now=now,
         skip=None,
         source=source,
     )
 
 
-def _inconclusive(
-    check: PlatformAlertCheckInput, group: PlatformAlertGroupState, *, now: datetime, muted: bool
+def _vanished(
+    check: PlatformAlertCheckInput,
+    group: PlatformAlertGroupState,
+    source: MetricsAlertSource,
+    *,
+    now: datetime,
+    muted: bool,
 ) -> _GroupDecision:
+    """A label set the platform remembers and the query no longer returns: no data, under the
+    source's policy, so a group that stopped reporting can page or resolve instead of stranding."""
     outcome = _verdict(
-        check, group, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
+        check,
+        group,
+        CheckInput(threshold_breached=False, no_data=True, muted=muted),
+        (),
+        now=now,
+        skip=None,
+        source=source,
     )
     return _GroupDecision(
         group=group,
@@ -612,7 +641,7 @@ def _evaluate_groups(
         key = grouping_key_for(one.labels)
         seen.add(key)
         values = _values_newest_first(
-            one, check.evaluation_periods, window_end=window_end, window=timedelta(minutes=check.window_minutes)
+            one, _windows_to_read(check, source), window_end=window_end, window=timedelta(minutes=check.window_minutes)
         )
         group = _group_of(check, key)
         outcome = _evaluate_group(
@@ -644,7 +673,7 @@ def _evaluate_groups(
         if group.grouping_key == "" and grouped:
             # The root row of a grouped configuration only carries whole-evaluation failures.
             continue
-        decisions.append(_inconclusive(check, group, now=now, muted=muted))
+        decisions.append(_vanished(check, group, source, now=now, muted=muted))
     return decisions
 
 
@@ -677,6 +706,7 @@ def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip:
         consecutive_failures=outcome.consecutive_failures,
         incident=outcome.incident.value,
     )
+    _record_lag(check, now)
     _record_check_metrics(
         check,
         _root_group(check),
@@ -703,6 +733,7 @@ def _evaluate_check(
     if check.condition_type == "hog" and budget.take() is None:
         safe_record(increment_checks_skipped, SourceKind.METRICS.value, SkipReason.CONDITION_BUDGET.value)
         return None
+    _record_lag(check, now)
     # The last complete bucket at or before the due time, so a due time or a checkpoint inside a bucket
     # never evaluates a partial window.
     date_to = _align_to_interval(

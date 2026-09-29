@@ -50,6 +50,7 @@ from products.alerts.backend.facade.lifecycle import (
     AlertState,
     CheckInput,
     ControlPlaneOutcome,
+    IncidentAction,
     NotificationAction,
     apply_broken_config,
     evaluate_alert_check,
@@ -256,21 +257,24 @@ def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, win
         disable=outcome.disable,
         incident=outcome.incident.value,
     )
-    if outcome.notification == NotificationAction.NONE:
+    if outcome.notification == NotificationAction.NONE and outcome.incident == IncidentAction.NONE:
         return recorded, None
 
-    spec = EVENT_KIND_CONFIG[_NOTIFICATION_EVENT_KINDS[outcome.notification]]
-    destinations = list_active_alert_destinations(
-        team_id=check.team_id,
-        alert_id=str(check.legacy_configuration_id or check.id),
-        allowed_event_ids=[spec.event_id],
-    )
+    destination_names: tuple[str, ...] = ()
+    if outcome.notification != NotificationAction.NONE:
+        spec = EVENT_KIND_CONFIG[_NOTIFICATION_EVENT_KINDS[outcome.notification]]
+        destinations = list_active_alert_destinations(
+            team_id=check.team_id,
+            alert_id=str(check.legacy_configuration_id or check.id),
+            allowed_event_ids=[spec.event_id],
+        )
+        destination_names = tuple(destination.name for destination in destinations)
     return recorded, AlertDeliveryPreview(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
         evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
-        destination_names=tuple(destination.name for destination in destinations),
+        destination_names=destination_names,
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
         transitions=(
