@@ -103,20 +103,14 @@ class DeleteConfig(dagster.Config):
         return datetime.fromisoformat(self.timestamp)
 
 
-# sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
-# A run that resolves it inconsistently is worse than one that never tries: it creates the
-# dictionary on a cluster it may not mutate, and reports an erasure that did not happen. Rows the
-# table holds stay readable meanwhile, which is the cost this accepts; see COVERAGE_DOC.
-# Add it back to DEFAULT_DELETION_TARGETS to sweep and verify the table again. `skip_targets: []`
-# in run config sweeps it for one run, without a deploy.
-_DEFAULT_SKIP_TARGETS = [
-    target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
-]
-
-
 class SweepTargetsConfig(dagster.Config):
+    # sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
+    # A run that resolves it inconsistently can report an erasure without mutating its rows. Add it
+    # to DEFAULT_DELETION_TARGETS to sweep and verify it again, or pass [] for one run.
     skip_targets: list[str] = pydantic.Field(
-        default_factory=lambda: list(_DEFAULT_SKIP_TARGETS),
+        default_factory=lambda: [
+            target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
+        ],
         description="Deletion targets to leave out of this run, named by either their storage or "
         'their read table, e.g. ["sharded_events_json"] or ["events_json"]. A skipped target gets '
         "no dictionary, no mutation and no survivor count, and a cluster only it lives on is not "
