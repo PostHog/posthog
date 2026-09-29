@@ -436,7 +436,7 @@ pub struct Config {
     pub realtime_cohort_lookup_timeout_ms: u64,
 
     // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
-    // check, write, and read, and the properties fetch.
+    // check, write, and read, the group type mapping lookup, and the properties fetch.
     // statement_timeout cannot cancel a query on a database that has stopped answering, so
     // only this timer bounds the request then. On expiry, the flags that need persons data
     // return an error and the other flags evaluate normally. The default leaves 2s of the

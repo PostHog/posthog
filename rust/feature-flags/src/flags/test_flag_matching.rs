@@ -8212,7 +8212,13 @@ mod tests {
             key: "continuity_flag".mock_into(),
             ensure_experience_continuity: Some(true)
         );
-        let mut flags = flag_list_with_metadata(vec![rollout_flag, person_flag, continuity_flag]);
+        let group_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "group_flag".mock_into(),
+            filters: mock!(FlagFilters, aggregation_group_type_index: Some(0))
+        );
+        let mut flags =
+            flag_list_with_metadata(vec![rollout_flag, person_flag, continuity_flag, group_flag]);
         // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
         flags.cohorts = Some(Arc::from(Vec::new()));
 
@@ -8253,7 +8259,7 @@ mod tests {
         );
         assert!(
             elapsed < deadline * 2,
-            "the hash key lookup and the properties fetch share one deadline, took {elapsed:?}"
+            "the hash key lookup, the group type lookup, and the properties fetch share one deadline, took {elapsed:?}"
         );
         assert_eq!(
             stalled_db.connection_requests.load(Ordering::SeqCst),
