@@ -251,6 +251,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.web_analytics.backend.api.heatmaps_api.HeatmapViewSet",
     "products.web_analytics.backend.api.heatmaps_api.LegacyHeatmapViewSet",
     "products.web_analytics.backend.api.heatmaps_api.SavedHeatmapViewSet",
+    "products.web_analytics.backend.presentation.views.content_autopilot.ContentAutopilotOpportunityViewSet",
     "products.web_analytics.backend.presentation.views.content_autopilot.ContentAutopilotProposalViewSet",
     "products.web_analytics.backend.presentation.views.content_autopilot.ContentAutopilotRunViewSet",
     "products.wizard.backend.presentation.artifacts.views.WizardRunArtifactViewSet",
