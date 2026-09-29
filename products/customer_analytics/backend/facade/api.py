@@ -5405,7 +5405,7 @@ def list_shoutouts(team_id: int, offset: int, limit: int) -> tuple[list[contract
     queryset = _shoutouts_queryset(team_id)
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_shoutout_view(a) for a in page], total_count
+    return [_to_shoutout_view(s) for s in page], total_count
 
 
 def get_shoutout(team_id: int, short_id: str) -> contracts.ShoutoutView | None:

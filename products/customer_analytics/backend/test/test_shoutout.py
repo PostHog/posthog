@@ -27,7 +27,7 @@ class TestShoutoutModels(BaseTest):
 
         # Within a team context it returns only that team's rows...
         with team_scope(self.team.id, canonical=True):
-            assert [a.message for a in Shoutout.objects.all()] == ["ours"]
+            assert [s.message for s in Shoutout.objects.all()] == ["ours"]
 
         # ...while `all_teams` is the deliberate cross-team escape hatch.
         assert Shoutout.all_teams.count() == 2
