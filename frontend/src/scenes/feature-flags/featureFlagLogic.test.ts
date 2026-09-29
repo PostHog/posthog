@@ -2700,6 +2700,22 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('saveSidebarTags', () => {
+        it('saves a v1 flag through the full save, evaluation contexts included', async () => {
+            const update = jest
+                .spyOn(api, 'update')
+                .mockImplementation(async (_url, payload) => ({ ...MOCK_FEATURE_FLAG, ...(payload as object) }))
+
+            logic.actions.saveSidebarTags(['beta'], ['web'])
+            await expectLogic(logic).toDispatchActions(['updateFlag', 'saveFeatureFlag']).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(
+                expect.stringContaining(`/feature_flags/${MOCK_FEATURE_FLAG.id}`),
+                expect.objectContaining({ tags: ['beta'], evaluation_contexts: ['web'], filters: expect.anything() })
+            )
+        })
+    })
+
     describe('stale status after a mutation', () => {
         const STATUS_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`
 
@@ -3964,6 +3980,48 @@ describe('a flag in config version 2', () => {
         expect(update).toHaveBeenLastCalledWith(expect.stringContaining('/feature_flags/7'), {
             archived: true,
             active: false,
+            version: 3,
+        })
+    })
+
+    it('offers early access creation only for a v1 document', () => {
+        expect(logic.values.canCreateEarlyAccessFeature).toBe(false)
+
+        logic.actions.setFeatureFlag({ ...V2_FLAG, filters: { groups: [] } })
+        expect(logic.values.canCreateEarlyAccessFeature).toBe(true)
+    })
+
+    it('offers only disable in the disable confirmation, sending the row version', async () => {
+        const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_FLAG, ...(payload as object) }))
+        logic.actions.setFeatureFlag({ ...V2_FLAG, active: true })
+        logic.actions.setOriginalFeatureFlag({ ...V2_FLAG, active: true })
+
+        await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+        const dialogProps = dialogOpenSpy.mock.calls[0][0]
+        expect(dialogProps.secondaryButton).toBeNull()
+        dialogProps.primaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/7'), { active: false, version: 3 })
+    })
+
+    it('saves sidebar tags as a narrow versioned write, not the full save', async () => {
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_FLAG, ...(payload as object), version: 4 }))
+
+        logic.actions.saveSidebarTags(['checkout'], [])
+        await expectLogic(logic)
+            .toDispatchActions(['saveTagsInline'])
+            .toNotHaveDispatchedActions(['saveFeatureFlag'])
+            .toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledTimes(1)
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/7'), {
+            tags: ['checkout'],
             version: 3,
         })
     })
