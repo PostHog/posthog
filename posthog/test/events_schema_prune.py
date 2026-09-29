@@ -30,7 +30,6 @@ UNBOUNDED_PHASES = frozenset({"setup:package", "setup:session"})
 
 class RecordedTest(TypedDict):
     hits: dict[str, int]
-    seconds: float
     outcome: str
 
 
@@ -158,9 +157,10 @@ class EventsSchemaPruner:
         if not prunable:
             return
         # syrupy records collected tests in its own later hook. A test it never sees counts as deleted,
-        # so an unsplit --snapshot-update run would remove that test's snapshots.
-        if syrupy_session := getattr(config, "_syrupy", None):
-            syrupy_session.collect_items(items)
+        # so an unsplit --snapshot-update run would remove that test's snapshots. The private access
+        # fails loudly if a syrupy upgrade moves it.
+        if config.pluginmanager.has_plugin("syrupy"):
+            config._syrupy.collect_items(items)  # type: ignore[attr-defined]
         config.hook.pytest_deselected(items=[item for item in items if item.nodeid in prunable])
         items[:] = [item for item in items if item.nodeid not in prunable]
 
@@ -171,7 +171,6 @@ def merge_records(first: RecordedTest, second: RecordedTest) -> RecordedTest:
     return {
         "hits": dict(hits),
         "outcome": min(outcomes) if outcomes else PROVEN_OUTCOME,
-        "seconds": max(first["seconds"], second["seconds"]),
     }
 
 
