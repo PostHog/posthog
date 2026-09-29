@@ -2763,190 +2763,183 @@ mod tests {
         );
     }
 
-    /// Put instance `idx` into a read outage at once; the timing test covers the wait.
-    fn start_read_outage(limiter: &mut GlobalRateLimiterImpl, idx: usize) {
-        limiter.read_outage_limit = Some(Duration::ZERO);
-        limiter.read_health.record_tick(idx, false, Instant::now());
+    /// Poll until the outcome shows. The tick loop runs on real time, so a test waits for
+    /// what it can observe instead of a guessed delay.
+    macro_rules! wait_until {
+        ($why:expr, $cond:expr) => {{
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while !$cond {
+                assert!(tokio::time::Instant::now() < deadline, "{}", $why);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }};
+    }
+
+    /// The read-outage guard engages on the first failed read, so a test waits for ticks,
+    /// not for a window of wall-clock time.
+    fn outage_config(threshold: u64) -> GlobalRateLimiterConfig {
+        GlobalRateLimiterConfig {
+            global_threshold: threshold,
+            max_read_outage: Some(Duration::from_nanos(1)),
+            tick_interval: Duration::from_millis(10),
+            ..config_with_floor(0)
+        }
+    }
+
+    fn limited(result: EvalResult) -> bool {
+        matches!(result, EvalResult::Limited(_))
+    }
+
+    fn failing_reads() -> Arc<dyn Client + Send + Sync> {
+        Arc::new(MockRedisClient::new().mget_error(CustomRedisError::Timeout))
+    }
+
+    async fn wait_for_read_outage(limiter: &GlobalRateLimiterImpl, threshold: u64) {
+        let _ = limiter.check_limit("outage_probe", threshold, None).await;
+        wait_until!(
+            "reads keep failing, so the guard must engage",
+            !limited(limiter.check_limit("outage_probe", 1, None).await)
+        );
+    }
+
+    struct FleetCountCase {
+        name: &'static str,
+        reads_failing: bool,
+        last_read: Option<Instant>,
+        fleet_count_at_last_read: f64,
+        events_counted_here_since: u64,
+        expect_limited: bool,
     }
 
     #[tokio::test]
     async fn test_read_outage_judges_a_key_by_its_fleet_count_alone() {
         let now = Instant::now();
-        // (case, instance down, synced_at, fleet count, local count, expect_limited)
         let cases = [
-            (
-                "down, never read, local at threshold",
-                true,
-                None,
-                0.0,
-                10_000,
-                false,
-            ),
-            (
-                "down, fleet count drained, local pushes over",
-                true,
-                Some(now),
-                5_000.0,
-                10_000,
-                false,
-            ),
-            (
-                "down, fleet count still over",
-                true,
-                Some(now),
-                12_000.0,
-                0,
-                true,
-            ),
-            (
-                "healthy, never read, local at threshold",
-                false,
-                None,
-                0.0,
-                10_000,
-                true,
-            ),
-            (
-                "healthy, fleet count drained, local pushes over",
-                false,
-                Some(now),
-                5_000.0,
-                10_000,
-                true,
-            ),
+            FleetCountCase {
+                name: "reads failing, never read, this pod's count alone reaches the limit",
+                reads_failing: true,
+                last_read: None,
+                fleet_count_at_last_read: 0.0,
+                events_counted_here_since: 10_000,
+                expect_limited: false,
+            },
+            FleetCountCase {
+                name: "reads failing, fleet count under, this pod's count pushes over",
+                reads_failing: true,
+                last_read: Some(now),
+                fleet_count_at_last_read: 5_000.0,
+                events_counted_here_since: 10_000,
+                expect_limited: false,
+            },
+            FleetCountCase {
+                name: "reads failing, fleet count itself over",
+                reads_failing: true,
+                last_read: Some(now),
+                fleet_count_at_last_read: 12_000.0,
+                events_counted_here_since: 0,
+                expect_limited: true,
+            },
+            FleetCountCase {
+                name: "reads healthy, never read, this pod's count alone reaches the limit",
+                reads_failing: false,
+                last_read: None,
+                fleet_count_at_last_read: 0.0,
+                events_counted_here_since: 10_000,
+                expect_limited: true,
+            },
+            FleetCountCase {
+                name: "reads healthy, fleet count under, this pod's count pushes over",
+                reads_failing: false,
+                last_read: Some(now),
+                fleet_count_at_last_read: 5_000.0,
+                events_counted_here_since: 10_000,
+                expect_limited: true,
+            },
         ];
 
-        for (case, down, synced_at, estimated_count, local_pending, expect_limited) in cases {
-            let config = GlobalRateLimiterConfig {
-                global_threshold: 10_000,
-                ..config_with_floor(10)
+        for case in cases {
+            let redis: Arc<dyn Client + Send + Sync> = if case.reads_failing {
+                failing_reads()
+            } else {
+                Arc::new(MockRedisClient::new())
             };
-            let mut limiter =
-                GlobalRateLimiterImpl::new(config, vec![Arc::new(MockRedisClient::new())]).unwrap();
-            if down {
-                start_read_outage(&mut limiter, 0);
+            let limiter = GlobalRateLimiterImpl::new(outage_config(10_000), vec![redis]).unwrap();
+            if case.reads_failing {
+                wait_for_read_outage(&limiter, 10_000).await;
             }
             limiter.cache.insert(
                 "key".to_string(),
                 CacheEntry {
-                    estimated_count,
-                    synced_at,
-                    local_pending,
+                    estimated_count: case.fleet_count_at_last_read,
+                    synced_at: case.last_read,
+                    local_pending: case.events_counted_here_since,
                     pressure: 0.0,
                 },
             );
 
-            let limited = matches!(
-                limiter.check_limit("key", 1, None).await,
-                EvalResult::Limited(_)
-            );
+            let result = limiter.check_limit("key", 1, None).await;
+
             assert_eq!(
-                limited, expect_limited,
-                "{case}: while reads fail, this node's own count may not limit a key, but \
-                 the last fleet count still may"
+                limited(result),
+                case.expect_limited,
+                "{}: while reads fail, only the fleet count this pod last read may limit the key",
+                case.name
             );
             assert_eq!(
                 limiter.cache.get("key").unwrap().local_pending,
-                local_pending + 1,
-                "{case}: an outage gates the limit only, and must not reset the entry"
+                case.events_counted_here_since + 1,
+                "{}: the guard withholds the limit and changes nothing else",
+                case.name
             );
         }
     }
 
     #[tokio::test]
-    async fn test_read_health_tracks_the_current_run_of_failed_reads() {
-        type SharedClient = Arc<dyn Client + Send + Sync>;
-        async fn read_once(redis: &SharedClient, keys: &[String], health: &ReadHealth) {
-            let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
-            GlobalRateLimiterImpl::run_reads(
-                &test_config(),
-                redis,
-                &Arc::from("0"),
-                &cache,
-                keys,
-                Utc::now(),
-                health,
-                0,
-                "test",
-            )
-            .await;
+    async fn test_read_outage_engages_on_failed_reads_and_clears_on_the_next_success() {
+        let mut redis = MockRedisClient::new();
+        for call in 0..20 {
+            redis = redis.mget_error_at_call(call, CustomRedisError::Timeout);
         }
+        let limiter = GlobalRateLimiterImpl::new(outage_config(10), vec![Arc::new(redis)]).unwrap();
+        let _ = limiter.check_limit("key", 10, None).await;
 
-        let health = ReadHealth::new(1);
-        let failing: SharedClient =
-            Arc::new(MockRedisClient::new().mget_error(CustomRedisError::Timeout));
-        let healthy: SharedClient = Arc::new(MockRedisClient::new());
-        let keys = vec!["k".to_string()];
-        // A fixed later instant, so an unchanged start reads back as an equal duration.
-        let probe = || health.failing_for(0, health.base + Duration::from_secs(3600));
-
-        read_once(&failing, &[], &health).await;
-        assert_eq!(
-            probe(),
-            None,
-            "a tick with no reads must not start an outage, or a quiet node looks down"
+        assert!(
+            limited(limiter.check_limit("key", 1, None).await),
+            "before any read has failed, this pod's own count limits the key"
         );
-        read_once(&failing, &keys, &health).await;
-        let started = probe();
-        assert!(started.is_some(), "a failed read starts the outage clock");
-        read_once(&failing, &[], &health).await;
-        assert_eq!(
-            probe(),
-            started,
-            "a tick with no reads must leave a running clock alone"
+        wait_until!(
+            "failed reads must engage the guard",
+            !limited(limiter.check_limit("key", 10, None).await)
         );
-        read_once(&healthy, &keys, &health).await;
-        assert_eq!(probe(), None, "one successful read clears the outage");
-        read_once(&failing, &keys, &health).await;
-        assert!(probe().is_some(), "a new failure starts a new run");
+        wait_until!(
+            "the first successful read must clear the guard, so this pod's count limits again",
+            limited(limiter.check_limit("key", 10, None).await)
+        );
     }
 
     #[tokio::test]
-    async fn test_one_successful_read_in_a_tick_keeps_the_instance_healthy() {
+    async fn test_a_pod_that_never_reads_never_enters_a_read_outage() {
         let config = GlobalRateLimiterConfig {
-            // One entity per command, so two keys make two reads in one tick.
-            max_keys_per_command: 2,
-            ..test_config()
+            max_pending_sync_entries: 0,
+            ..outage_config(10)
         };
-        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
-        let health = ReadHealth::new(1);
-        health.record_tick(0, false, Instant::now());
-        let redis: Arc<dyn Client + Send + Sync> =
-            Arc::new(MockRedisClient::new().mget_error_at_call(0, CustomRedisError::Timeout));
+        let limiter = GlobalRateLimiterImpl::new(config, vec![failing_reads()]).unwrap();
+        let _ = limiter.check_limit("key", 10, None).await;
+        // Ticks run with nothing to read. The claim holds whether zero or many ran.
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
-        GlobalRateLimiterImpl::run_reads(
-            &config,
-            &redis,
-            &Arc::from("0"),
-            &cache,
-            &["a".to_string(), "b".to_string()],
-            Utc::now(),
-            &health,
-            0,
-            "test",
-        )
-        .await;
-
-        assert_eq!(
-            health.failing_for(0, Instant::now()),
-            None,
-            "an instance that answered any read this tick is reachable, so a transient \
-             partial failure must not move it toward an outage"
+        assert!(
+            limited(limiter.check_limit("key", 1, None).await),
+            "no read was attempted, so none failed, and this pod keeps limiting on its own count"
         );
     }
 
     #[tokio::test]
     async fn test_read_outage_is_judged_per_redis_instance() {
-        let config = GlobalRateLimiterConfig {
-            global_threshold: 10_000,
-            ..config_with_floor(10)
-        };
-        let clients: Vec<Arc<dyn Client + Send + Sync>> = vec![
-            Arc::new(MockRedisClient::new().mget_error(CustomRedisError::Timeout)),
-            Arc::new(MockRedisClient::new()),
-        ];
-        let mut limiter = GlobalRateLimiterImpl::new(config, clients.clone()).unwrap();
-        limiter.read_outage_limit = Some(Duration::ZERO);
+        let clients: Vec<Arc<dyn Client + Send + Sync>> =
+            vec![failing_reads(), Arc::new(MockRedisClient::new())];
+        let limiter = GlobalRateLimiterImpl::new(outage_config(10_000), clients).unwrap();
+        // `instance_index` is the routing rule every pod shares; the test needs one key per instance.
         let key_on = |instance: usize| -> String {
             (0..)
                 .map(|i| format!("key{i}"))
@@ -2954,89 +2947,103 @@ mod tests {
                 .unwrap()
         };
         let (on_down, on_healthy) = (key_on(0), key_on(1));
-
-        // Only instance 0's read fails, so the tick must record it against instance 0.
-        let pending: Arc<DashSet<String>> =
-            Arc::new(DashSet::from_iter([on_down.clone(), on_healthy.clone()]));
-        GlobalRateLimiterImpl::tick(
-            &limiter.config,
-            &clients,
-            &limiter.cache,
-            &pending,
-            &mut HashMap::new(),
-            &limiter.read_health,
-            "test",
-            1,
-        )
-        .await;
-
         for key in [&on_down, &on_healthy] {
-            limiter.cache.insert(
-                key.clone(),
-                CacheEntry {
-                    estimated_count: 0.0,
-                    synced_at: None,
-                    local_pending: 10_000,
-                    pressure: 0.0,
-                },
-            );
+            let _ = limiter.check_limit(key, 10_000, None).await;
         }
 
-        let limited = |r: EvalResult| matches!(r, EvalResult::Limited(_));
-        assert!(
-            !limited(limiter.check_limit(&on_down, 1, None).await),
-            "a key on a failing instance must not limit on this node's count alone"
+        wait_until!(
+            "the failing instance must enter a read outage",
+            !limited(limiter.check_limit(&on_down, 1, None).await)
         );
         assert!(
-            limited(limiter.check_limit(&on_healthy, 1, None).await),
-            "a failing instance must not suppress limits for keys a healthy one owns"
+            limited(limiter.check_limit(&on_healthy, 10_000, None).await),
+            "an outage on one instance must not withhold limits on a key the healthy one owns"
         );
     }
 
     #[tokio::test]
-    async fn test_read_outage_engages_after_the_configured_time() {
-        // (window, tick, override, expected limit)
+    async fn test_one_successful_read_in_a_tick_keeps_the_instance_healthy() {
+        let redis =
+            Arc::new(MockRedisClient::new().mget_error_at_call(0, CustomRedisError::Timeout));
+        let config = GlobalRateLimiterConfig {
+            // One entity per read command, so two keys make two reads in one tick.
+            max_keys_per_command: 2,
+            ..outage_config(10_000)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![redis.clone()]).unwrap();
+        for key in ["a", "b"] {
+            let _ = limiter.check_limit(key, 10_000, None).await;
+        }
+
+        wait_until!(
+            "both reads must go out",
+            redis.get_calls().iter().filter(|c| c.op == "mget").count() >= 2
+        );
+        for key in ["a", "b"] {
+            assert!(
+                limited(limiter.check_limit(key, 10_000, None).await),
+                "one read failed and one succeeded, so the instance is reachable and {key} stays \
+                 limited on this pod's count"
+            );
+        }
+    }
+
+    #[test]
+    fn test_read_health_keeps_the_start_of_the_current_run_of_failed_reads() {
+        let health = ReadHealth::new(2);
+        let at = |secs: u64| health.base + Duration::from_secs(secs);
+
+        assert_eq!(
+            health.failing_for(0, at(10)),
+            None,
+            "healthy until a read fails"
+        );
+        health.record_tick(0, false, at(10));
+        health.record_tick(0, false, at(40));
+        assert_eq!(
+            health.failing_for(0, at(70)),
+            Some(Duration::from_secs(60)),
+            "a later failed tick must not restart the run"
+        );
+        assert_eq!(
+            health.failing_for(1, at(70)),
+            None,
+            "each instance has its own run"
+        );
+        health.record_tick(0, true, at(80));
+        assert_eq!(
+            health.failing_for(0, at(90)),
+            None,
+            "one successful tick ends the run"
+        );
+        health.record_tick(0, false, at(100));
+        assert_eq!(
+            health.failing_for(0, at(105)),
+            Some(Duration::from_secs(5)),
+            "the next failure starts a new run"
+        );
+    }
+
+    #[test]
+    fn test_read_outage_limit_follows_the_window_unless_overridden() {
+        // (window_secs, override, expected_secs)
         let cases = [
-            (60, 1_000, None, Some(60)),
-            (600, 1_000, None, Some(600)),
-            (120, 50, None, Some(120)),
-            (120, 1_000, Some(Duration::from_secs(30)), Some(30)),
-            (120, 1_000, Some(Duration::ZERO), None),
+            (60, None, Some(60)),
+            (600, None, Some(600)),
+            (120, Some(Duration::from_secs(30)), Some(30)),
+            (120, Some(Duration::ZERO), None),
         ];
-        for (window_secs, tick_ms, max_read_outage, expected_secs) in cases {
+        for (window_secs, max_read_outage, expected_secs) in cases {
             let config = GlobalRateLimiterConfig {
                 window_interval: Duration::from_secs(window_secs),
-                tick_interval: Duration::from_millis(tick_ms),
                 max_read_outage,
-                ..config_with_floor(0)
+                ..test_config()
             };
-            let limiter =
-                GlobalRateLimiterImpl::new(config, vec![Arc::new(MockRedisClient::new())]).unwrap();
-            let base = limiter.read_health.base;
-            // Failed ticks far apart, as when ticks stall; a later one must not restart the clock.
-            limiter.read_health.record_tick(0, false, base);
-
-            let case =
-                format!("window {window_secs}s, tick {tick_ms}ms, override {max_read_outage:?}");
-            match expected_secs {
-                Some(secs) => {
-                    let limit = Duration::from_secs(secs);
-                    limiter.read_health.record_tick(0, false, base + limit / 2);
-                    assert!(
-                        !limiter.read_outage("key", base + limit - Duration::from_millis(1)),
-                        "{case}: no outage before the limit"
-                    );
-                    assert!(
-                        limiter.read_outage("key", base + limit),
-                        "{case}: the outage must engage once the limit has passed in time, \
-                         however few ticks ran, and follow the configured window"
-                    );
-                }
-                None => assert!(
-                    !limiter.read_outage("key", base + Duration::from_secs(86_400)),
-                    "{case}: a zero override disables the guard"
-                ),
-            }
+            assert_eq!(
+                GlobalRateLimiterImpl::read_outage_limit(&config),
+                expected_secs.map(Duration::from_secs),
+                "window {window_secs}s, override {max_read_outage:?}: unset follows the window, zero disables the guard"
+            );
         }
     }
 
