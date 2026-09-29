@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -19,17 +20,19 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerScene } from "@/components/DrawerScene";
-import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
 import { MenuIcon, SteeringIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
+import { OptionsSheet } from "@/components/OptionsSheet";
 import {
   CardButton,
   PriorityChip,
   ReportDetail,
 } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
+import { type ReportSort, usePrefs } from "@/lib/prefs";
 import {
+  REPORT_SORTS,
   useDismissReport,
   useReports,
   useSeenReports,
@@ -43,6 +46,9 @@ export default function SelfDrivingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const reports = useReports();
+  const sort = usePrefs((s) => s.reportSort);
+  const savePrefs = usePrefs((s) => s.set);
+  const [menu, setMenu] = useState<"sort" | "actions" | null>(null);
   const seen = useSeenReports((s) => s.seen);
   const markSeen = useSeenReports((s) => s.markSeen);
   const dismiss = useDismissReport();
@@ -158,7 +164,11 @@ export default function SelfDrivingScreen() {
     if (markingRead) return;
     setMarkingRead(true);
     try {
-      await markSeen(unseen.map((report) => report.id));
+      const ids = unseen.map((report) => report.id);
+      await markSeen(ids);
+      setNotice(
+        `${ids.length} report${ids.length === 1 ? "" : "s"} marked as read.`,
+      );
     } catch {
       setNotice("Could not mark reports as read.");
     } finally {
@@ -186,13 +196,18 @@ export default function SelfDrivingScreen() {
           </GlassCircleButton>
         )}
         <Text style={styles.title}>
-          {selectedReport
-            ? "Report"
-            : showDeck
-              ? "Triage"
-              : "Self-driving inbox"}
+          {selectedReport ? "Report" : showDeck ? "Triage" : "Self-driving"}
         </Text>
-        <View style={{ width: 46 }} />
+        {!selectedReport && !showDeck && all.length > 0 ? (
+          <GlassCircleButton
+            accessibilityLabel="Report options"
+            onPress={() => setMenu("actions")}
+          >
+            <Text style={styles.headerGlyph}>⋯</Text>
+          </GlassCircleButton>
+        ) : (
+          <View style={{ width: 46 }} />
+        )}
       </View>
 
       {selectedReport ? (
@@ -244,27 +259,29 @@ export default function SelfDrivingScreen() {
           exiting={FadeOut.duration(160)}
           contentContainerStyle={[
             styles.list,
-            { paddingBottom: insets.bottom + (all.length > 0 ? 100 : 24) },
+            { paddingBottom: insets.bottom + 24 },
           ]}
         >
           {all.length > 0 ? (
-            <Text style={styles.sectionTitle}>For you</Text>
-          ) : null}
-          {unseen.length > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              disabled={markingRead}
-              onPress={() => void markLoadedRead()}
-              style={styles.readAction}
-            >
-              <Text style={styles.actionText}>
-                {markingRead ? "Saving" : "Mark as read"}
+            <View style={styles.toolbar}>
+              <Text style={styles.rowMeta}>
+                {unseen.length ? `${unseen.length} unread` : "All read"}
               </Text>
-            </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sort reports"
+                onPress={() => setMenu("sort")}
+                style={styles.sortButton}
+              >
+                <Text style={styles.actionText}>
+                  {(REPORT_SORTS[sort] ?? REPORT_SORTS.newest).label} ↓
+                </Text>
+              </Pressable>
+            </View>
           ) : null}
           {reports.isError ? (
             <ListState
-              title="Could not load your inbox"
+              title="Could not load reports"
               description="Check your connection and try again."
               icon={<SteeringIcon />}
               action={{
@@ -279,7 +296,7 @@ export default function SelfDrivingScreen() {
               icon={<SteeringIcon />}
               title={
                 reports.isLoading
-                  ? "Loading your inbox"
+                  ? "Loading reports"
                   : reports.hasNextPage
                     ? "No reports in this page"
                     : "No reports to review"
@@ -304,13 +321,24 @@ export default function SelfDrivingScreen() {
                     setNotice("Could not mark the report as read."),
                   );
               }}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
+              accessibilityLabel={`${seen.has(report.id) ? "" : "Unread. "}${report.title ?? "Untitled report"}`}
+              style={({ pressed }) => [
+                styles.row,
+                !seen.has(report.id) && styles.rowUnread,
+                pressed && { opacity: 0.5 },
+              ]}
             >
               {report.priority ? (
                 <PriorityChip priority={report.priority} />
               ) : null}
               <View style={styles.rowBody}>
-                <Text style={styles.rowTitle} numberOfLines={2}>
+                <Text
+                  style={[
+                    styles.rowTitle,
+                    !seen.has(report.id) && styles.rowTitleUnread,
+                  ]}
+                  numberOfLines={3}
+                >
                   {report.title ?? "Untitled report"}
                 </Text>
                 <Text style={styles.rowMeta}>
@@ -340,35 +368,62 @@ export default function SelfDrivingScreen() {
           key={notice}
           entering={FadeInDown.duration(220)}
           exiting={FadeOutDown.duration(180)}
-          style={[styles.toast, { bottom: insets.bottom + 124 }]}
+          style={[styles.toast, { bottom: insets.bottom + 20 }]}
           pointerEvents="none"
         >
           <Text style={styles.notice}>{notice}</Text>
         </Animated.View>
       ) : null}
-      {!showDeck && !selectedReport && all.length > 0 ? (
-        <Animated.View
-          entering={FadeInDown.duration(260)}
-          exiting={FadeOutDown.duration(180)}
-          style={[styles.floating, { paddingBottom: insets.bottom + 14 }]}
-        >
-          <FadeScrim style={styles.floatingScrim} />
-          <Pressable
-            onPress={() =>
-              setDeck((unseen.length > 0 ? unseen : all).map((r) => r.id))
-            }
-            style={({ pressed }) => [
-              styles.triage,
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            <Text style={styles.triageText}>
-              {unseen.length > 0
-                ? `Triage ${unseen.length} new report${unseen.length === 1 ? "" : "s"}`
-                : `Triage ${all.length} report${all.length === 1 ? "" : "s"}`}
-            </Text>
-          </Pressable>
-        </Animated.View>
+      {menu ? (
+        <OptionsSheet
+          title={menu === "sort" ? "Sort reports" : "Self-driving"}
+          onClose={() => setMenu(null)}
+          options={
+            menu === "sort"
+              ? Object.entries(REPORT_SORTS).map(([value, option]) => ({
+                  label: option.label,
+                  selected: sort === value,
+                  onPress: () => {
+                    void savePrefs({ reportSort: value as ReportSort }).catch(
+                      () => setNotice("Could not save sort order."),
+                    );
+                  },
+                }))
+              : [
+                  {
+                    label: "Triage reports",
+                    onPress: () =>
+                      setDeck(
+                        (unseen.length > 0 ? unseen : all).map(
+                          (report) => report.id,
+                        ),
+                      ),
+                  },
+                  ...(unseen.length > 0
+                    ? [
+                        {
+                          label: markingRead
+                            ? "Marking reports as read"
+                            : `Mark ${unseen.length} report${unseen.length === 1 ? "" : "s"} as read`,
+                          disabled: markingRead,
+                          onPress: () =>
+                            Alert.alert(
+                              "Mark reports as read?",
+                              `This marks ${unseen.length} loaded report${unseen.length === 1 ? "" : "s"} as read on this device. Reports stay in the list.`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Mark as read",
+                                  onPress: () => void markLoadedRead(),
+                                },
+                              ],
+                            ),
+                        },
+                      ]
+                    : []),
+                ]
+          }
+        />
       ) : null}
     </DrawerScene>
   );
@@ -406,7 +461,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginTop: -2,
   },
-  list: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 8, gap: 10 },
+  list: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 8, gap: 2 },
   toast: { position: "absolute", left: 18, right: 18, alignItems: "center" },
   notice: {
     fontFamily: fonts.sansMedium,
@@ -418,50 +473,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     overflow: "hidden",
   },
-  floating: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: 0,
-  },
-  floatingScrim: {
-    position: "absolute",
-    left: -18,
-    right: -18,
-    top: -48,
-    bottom: 0,
-  },
-  triage: {
-    backgroundColor: colors.dark,
-    borderRadius: radius.pill,
-    paddingVertical: 16,
+  toolbar: {
+    flexDirection: "row",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
+    justifyContent: "space-between",
+    gap: 8,
   },
-  triageText: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 16,
-    color: colors.darkText,
-  },
-  sectionTitle: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 12,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: colors.inkMute,
-    marginTop: 8,
-    marginLeft: 4,
-  },
+  sortButton: { minHeight: 44, justifyContent: "center" },
+  rowUnread: { backgroundColor: colors.surface },
+  rowTitleUnread: { fontFamily: fonts.sansSemi, color: colors.ink },
   row: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
   },
   rowBody: { flex: 1, gap: 3 },
   rowTitle: {

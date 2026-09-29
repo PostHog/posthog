@@ -26,6 +26,7 @@ const SCOPES = [
   "integration:read",
   "conversation:write",
   "query:read",
+  "insight:read",
   "llm_skill:read",
 ];
 

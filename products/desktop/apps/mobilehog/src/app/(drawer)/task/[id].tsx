@@ -134,9 +134,14 @@ export default function TaskScreen() {
               </View>
             }
             ListFooterComponent={
-              session?.error ? (
-                <Text style={styles.error}>{session.error}</Text>
-              ) : null
+              <View>
+                {session?.error ? (
+                  <Text style={styles.error}>{session.error}</Text>
+                ) : null}
+                {session?.turnActive && hedgehogMode ? (
+                  <Hedgehog walking={walking} />
+                ) : null}
+              </View>
             }
           />
           {awayFromBottom ? (
@@ -150,7 +155,6 @@ export default function TaskScreen() {
           ) : null}
         </View>
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
-          {session && hedgehogMode ? <Hedgehog walking={walking} /> : null}
           <View>
             <Composer
               placeholder="Reply"
@@ -191,6 +195,5 @@ const styles = StyleSheet.create({
   composer: {
     paddingHorizontal: 12,
     paddingTop: 8,
-    backgroundColor: colors.bg,
   },
 });

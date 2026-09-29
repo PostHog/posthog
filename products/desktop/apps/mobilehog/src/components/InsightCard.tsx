@@ -1,3 +1,4 @@
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   getObjectKind,
   type ObjectTagRef,
@@ -9,6 +10,7 @@ import {
   shapeReportChartData,
 } from "@posthog/core/inbox/reportCharts";
 import { isSafeExternalUrl } from "@posthog/shared";
+import type { SignalReportChart } from "@posthog/shared/domain-types";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -26,11 +28,22 @@ import { colors, fonts } from "@/lib/theme";
 
 const palette = ["#F54E00", "#1D4AFF", "#39823A", "#9564D9", "#B56C08"];
 
-export function InsightCard({ reference }: { reference: ObjectTagRef }) {
-  const { kind, id, label } = reference;
+export function InsightCard({
+  reference,
+  definition,
+}: {
+  reference?: ObjectTagRef;
+  definition?: SignalReportChart;
+}) {
+  const { kind, id, label } = reference ?? {
+    kind: "report-chart",
+    id: definition?.chart_id ?? "",
+    label: definition?.title ?? "Chart",
+  };
+  const isChart = kind === "insight" || kind === "hogql" || !!definition;
   const chart = useQuery({
-    queryKey: ["message-chart", kind, id],
-    enabled: kind === "insight" || kind === "hogql",
+    queryKey: ["message-chart", kind, id, definition?.query],
+    enabled: isChart,
     staleTime: 5 * 60_000,
     retry: 1,
     queryFn: async () => {
@@ -46,24 +59,35 @@ export function InsightCard({ reference }: { reference: ObjectTagRef }) {
           data: shapeReportChartData(await client.runQuery(plan.source), plan),
         };
       }
-      const insight = await client.getInsightDefinition(id);
-      if (!insight) throw new Error("Insight not found");
-      const plan = planReportChart(insight.query);
+      let query = definition?.query;
+      let name = label;
+      if (!definition) {
+        const insight = await client.getInsightDefinition(id);
+        if (!insight) throw new Error("Insight not found");
+        query = insight.query;
+        name = insight.name || label;
+      }
+      let plan = planReportChart(query);
+      if (plan.kind === "saved-insight") {
+        const insight = await client.getInsightDefinition(plan.shortId);
+        if (!insight) throw new Error("Insight not found");
+        plan = planReportChart(insight.query);
+      }
       return {
-        name: insight.name,
+        name,
         data:
           plan.kind === "run"
-            ? shapeReportChartData(
-                insight.response ?? (await client.runQuery(plan.source)),
-                plan,
-              )
+            ? shapeReportChartData(await client.runQuery(plan.source), plan)
             : null,
       };
     },
   });
-  const path = objectWebPath(kind, id);
+  const saved = definition ? planReportChart(definition.query) : null;
+  const path =
+    saved?.kind === "saved-insight"
+      ? objectWebPath("insight", saved.shortId)
+      : objectWebPath(kind, id);
   const url = path ? `${getBaseUrl()}/project/${getProjectId()}${path}` : null;
-  const isChart = kind === "insight" || kind === "hogql";
   return (
     <View style={styles.card}>
       <Text style={styles.title}>
@@ -79,17 +103,27 @@ export function InsightCard({ reference }: { reference: ObjectTagRef }) {
       {chart.isError ? (
         <Pressable
           accessibilityRole="button"
+          disabled={chart.isFetching}
           onPress={() => void chart.refetch()}
         >
-          <Text style={styles.link}>Could not load chart. Tap to retry.</Text>
+          <Text style={styles.link}>
+            {requestErrorStatus(chart.error) === 403
+              ? "Chart access was denied. Sign in again to grant insight access, or check your project permissions."
+              : "Could not load chart. Tap to retry."}
+          </Text>
         </Pressable>
       ) : null}
       {chart.data?.data ? (
         <Chart data={chart.data.data} />
       ) : chart.isSuccess && isChart ? (
         <Text style={styles.note}>
-          Open this insight in PostHog to see its visualization.
+          {url
+            ? "Open this insight in PostHog to see its visualization."
+            : "This chart type is not available on mobile."}
         </Text>
+      ) : null}
+      {definition?.caption ? (
+        <Text style={styles.note}>{definition.caption}</Text>
       ) : null}
       {url && isSafeExternalUrl(url) ? (
         <Pressable

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Modal,
   Pressable,
   StyleSheet,
@@ -12,7 +13,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getBaseUrl, getProjectId } from "@/lib/api";
 import { getClient } from "@/lib/client";
+import { artifactDownloadPath, imageArtifactReference } from "@/lib/images";
 import { colors, fonts } from "@/lib/theme";
 
 export function ChatImage({
@@ -22,22 +25,30 @@ export function ChatImage({
   uri: string;
   label?: string;
 }) {
-  const { id: taskId } = useLocalSearchParams<{ id: string }>();
+  const { id: routeTaskId } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ratio, setRatio] = useState(1.5);
-  const fileUri = uri.startsWith("/") ? `file://${uri}` : uri;
+  const normalizedUri = uri.replace(/^sandbox:/, "");
+  const fileUri = normalizedUri.startsWith("/")
+    ? `file://${normalizedUri}`
+    : normalizedUri;
   const ref = extractPromptDisplayContent([
     { type: "resource_link", uri: fileUri, name: label },
   ]).attachments[0];
-  const artifact = ref?.cloudArtifact;
+  const download = imageArtifactReference(uri, getBaseUrl(), getProjectId());
+  const artifact = download ?? ref?.cloudArtifact;
+  const taskId = download?.taskId ?? routeTaskId;
+  const downloadLink = artifactDownloadPath(uri);
   const preview = useQuery({
     queryKey: ["image-preview", taskId, artifact?.runId, artifact?.artifactId],
     enabled: !!taskId && !!artifact,
-    staleTime: 50 * 60_000,
+    staleTime: 5 * 60_000,
     retry: 1,
     queryFn: async () => {
       if (!artifact) return null;
@@ -45,23 +56,29 @@ export function ChatImage({
       const run = await queryClient.fetchQuery({
         queryKey: ["image-artifacts", taskId, artifact.runId],
         queryFn: () => client.getTaskRun(taskId, artifact.runId),
-        staleTime: 50 * 60_000,
+        staleTime: 5 * 60_000,
       });
       const match = run.artifacts?.find(
         (item) => item.id === artifact.artifactId,
       );
       if (!match?.storage_path) throw new Error("Image not found");
-      return client.presignTaskRunArtifact(
-        taskId,
-        artifact.runId,
-        match.storage_path,
-      );
+      if (match.content_type && !match.content_type.startsWith("image/"))
+        return { url: null, name: match.name };
+      return {
+        url: await client.presignTaskRunArtifact(
+          taskId,
+          artifact.runId,
+          match.storage_path,
+        ),
+        name: match.name,
+      };
     },
   });
   // Device file URLs and arbitrary schemes from a message must never be loaded.
   const source = artifact
-    ? preview.data
-    : /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(uri)
+    ? preview.data?.url
+    : !downloadLink &&
+        /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(uri)
       ? uri
       : null;
   useEffect(() => {
@@ -70,23 +87,46 @@ export function ChatImage({
     setRatio(1.5);
   }, [source]);
   const retry = async () => {
-    setFailed(false);
-    setLoading(true);
-    if (artifact) {
-      await queryClient.invalidateQueries({
-        queryKey: ["image-artifacts", taskId, artifact.runId],
-      });
-      await preview.refetch();
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      if (artifact) {
+        await queryClient.invalidateQueries({
+          queryKey: ["image-artifacts", taskId, artifact.runId],
+        });
+        await preview.refetch();
+      }
+      setAttempt((value) => value + 1);
+      setFailed(false);
+      setLoading(true);
+    } finally {
+      setRetrying(false);
     }
   };
   return (
     <View style={styles.root}>
-      {!artifact && !source ? (
+      {preview.data && !preview.data.url ? (
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => {
+            if (/^https?:\/\//.test(uri))
+              void Linking.openURL(uri).catch(() => {});
+          }}
+        >
+          <Text style={styles.label}>
+            Open {preview.data.name} in PostHog ↗
+          </Text>
+        </Pressable>
+      ) : (!artifact && !source) || (artifact && !taskId) ? (
         <Text style={styles.label}>
           {label} is not available on this device.
         </Text>
       ) : preview.isError || failed ? (
-        <Pressable accessibilityRole="button" onPress={retry}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={retrying}
+          onPress={() => void retry()}
+        >
           <Text style={styles.label}>
             Could not load {label}. Tap to retry.
           </Text>
@@ -101,12 +141,13 @@ export function ChatImage({
             onPress={() => setExpanded(true)}
           >
             <Image
+              key={`${source}-${attempt}`}
               source={{ uri: source }}
               resizeMode="contain"
               style={{ width: "100%", aspectRatio: ratio, maxHeight: 360 }}
               accessibilityLabel={label}
               onLoad={(event) => {
-                const { width, height } = event.nativeEvent.source;
+                const { width, height } = event.nativeEvent.source ?? {};
                 if (width && height) setRatio(width / height);
                 setLoading(false);
               }}

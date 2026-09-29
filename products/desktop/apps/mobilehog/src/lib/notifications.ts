@@ -110,6 +110,7 @@ export function usePushNotifications(): void {
   }, [session]);
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
     const open = (response: Notifications.NotificationResponse): void => {
       const path = pathFromNotification(response.notification);
       if (path) router.push(path as never);

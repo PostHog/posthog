@@ -22,6 +22,17 @@ import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
+import { type ReportSort, usePrefs } from "@/lib/prefs";
+
+export const REPORT_SORTS: Record<
+  ReportSort,
+  { label: string; ordering: string }
+> = {
+  newest: { label: "Newest first", ordering: "-created_at,-id" },
+  oldest: { label: "Oldest first", ordering: "created_at,id" },
+  priority: { label: "Priority", ordering: "priority,-created_at,-id" },
+  updated: { label: "Recently updated", ordering: "-updated_at,-id" },
+};
 
 export const reportKeys = {
   all: ["reports"] as const,
@@ -33,8 +44,9 @@ export const reportKeys = {
 // Inbox and its badge use the same reviewer filter.
 export function useReports() {
   const session = useAuth((s) => s.session);
+  const sort = usePrefs((s) => s.reportSort);
   return useInfiniteQuery({
-    queryKey: reportKeys.list,
+    queryKey: [...reportKeys.list, sort],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const client = getClient();
@@ -45,7 +57,7 @@ export function useReports() {
         status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
         actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
         suggested_reviewers: user.uuid,
-        ordering: "priority,-created_at",
+        ordering: (REPORT_SORTS[sort] ?? REPORT_SORTS.newest).ordering,
         limit: 50,
         offset: pageParam,
       });
@@ -65,6 +77,18 @@ export function useReports() {
       data.pages
         .flatMap((page) => page.results)
         .filter((report) => canCreateImplementationPr(report)),
+  });
+}
+
+export function useReportDetail(id: string) {
+  return useQuery({
+    queryKey: ["reports", id, "detail"],
+    queryFn: async () => {
+      const report = await getClient().getSignalReport(id);
+      if (!report) throw new Error("Report is no longer available.");
+      return report;
+    },
+    staleTime: 60_000,
   });
 }
 

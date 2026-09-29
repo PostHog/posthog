@@ -18,8 +18,13 @@ import {
   Text,
   View,
 } from "react-native";
+import { InsightCard } from "@/components/InsightCard";
 import { Markdown } from "@/components/Markdown";
-import { useReportArtefacts, useReportSignals } from "@/lib/reports";
+import {
+  useReportArtefacts,
+  useReportDetail,
+  useReportSignals,
+} from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
 const PRIORITY: Record<
@@ -122,7 +127,13 @@ function EvidencePreview({ reportId }: { reportId: string }) {
 }
 
 // The expanded card: full summary sections, evidence and reviewers.
-export function ReportDetail({ report }: { report: SignalReport }) {
+export function ReportDetail({
+  report: initialReport,
+}: {
+  report: SignalReport;
+}) {
+  const detail = useReportDetail(initialReport.id);
+  const report = detail.data ?? initialReport;
   const signals = useReportSignals(report.id);
   const artefacts = useReportArtefacts(report.id);
   const summary = splitReportSummary(
@@ -150,12 +161,28 @@ export function ReportDetail({ report }: { report: SignalReport }) {
           </Text>
         </View>
       ) : null}
+      {detail.isPending ? (
+        <Text style={styles.muted}>Loading report details</Text>
+      ) : null}
+      {detail.isError ? (
+        <Pressable
+          disabled={detail.isFetching}
+          onPress={() => void detail.refetch()}
+        >
+          <Text style={styles.muted}>
+            Could not load report details. Tap to retry.
+          </Text>
+        </Pressable>
+      ) : null}
       {summary.lede ? <Markdown text={summary.lede} /> : null}
       {summary.sections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.sectionTitle}>{section.title}</Text>
           <Markdown text={section.body} />
         </View>
+      ))}
+      {report.charts?.map((chart) => (
+        <InsightCard key={chart.chart_id} definition={chart} />
       ))}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>
