@@ -15,7 +15,7 @@ from temporalio.worker import (
 )
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
-from posthog.exceptions_capture import ambient_exception_properties
+from posthog.exceptions_capture import ambient_exception_properties, find_table_access_denied
 from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
@@ -63,8 +63,8 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     egress-budget backpressure (a deliberate "defer and retry later" signal that our rate limiter
     already records via record_outbound_decision), errors explicitly marked non-reportable
     (expected customer/upstream conditions, e.g. a REST API serving a login page instead of JSON),
-    expected-control-flow ApplicationErrors (activity-retry-as-poll probes), and a saturated or
-    restarting database that clears on its own.
+    expected-control-flow ApplicationErrors (activity-retry-as-poll probes), a saturated or
+    restarting database that clears on its own, and a query denied a table by access control.
 
     The activity interceptor below re-raises these without reporting them. An activity that also
     captures locally must apply the same filter, or a worker drain mints an error tracking issue
@@ -78,6 +78,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
             and error.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         )
         or is_transient_db_error(error)
+        or find_table_access_denied(error) is not None
     )
 
 
@@ -134,6 +135,13 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                         "Transient database error in activity %s, leaving retry to Temporal",
                         activity.info().activity_type,
                         exc_info=e,
+                    )
+                elif (denied := find_table_access_denied(e)) is not None:
+                    await logger.awarning(
+                        "table_access_denied",
+                        table=denied.table_name,
+                        activity_type=activity.info().activity_type,
+                        workflow_type=activity.info().workflow_type,
                     )
                 raise
             activity_info = activity.info()

@@ -2,6 +2,8 @@ import contextvars
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 # Ambient properties merged into every capture_exception raised within the current execution
 # context. Lets a long-running subsystem (e.g. a data warehouse import) tag captured exceptions
 # with the job/source they belong to without threading context through every call site. This is
@@ -54,6 +56,23 @@ def celery_properties() -> dict:
     return {}
 
 
+def find_table_access_denied(error: BaseException | None) -> TableAccessDeniedError | None:
+    """Return the TableAccessDeniedError that caused `error`, if any, following the cause chain.
+
+    A denial means the acting user has no access to a table, which is an access control decision
+    and not a defect. Callers often wrap it (for example in a Temporal ApplicationError), so the
+    top-level type alone is not enough. Only explicit causes (`raise ... from`) count: an error
+    raised while handling a denial is a separate failure.
+    """
+    seen: set[int] = set()
+    while error is not None and id(error) not in seen:
+        if isinstance(error, TableAccessDeniedError):
+            return error
+        seen.add(id(error))
+        error = error.__cause__
+    return None
+
+
 def capture_exception(error=None, additional_properties=None):
     import structlog
     from posthoganalytics import (
@@ -74,6 +93,16 @@ def capture_exception(error=None, additional_properties=None):
         properties.update(additional_properties)
 
     properties.update(celery_properties())
+
+    denied = find_table_access_denied(error)
+    if denied is not None:
+        logger.warning(
+            "table_access_denied",
+            table=denied.table_name,
+            error_type=type(error).__name__,
+            properties=properties,
+        )
+        return
 
     if api_key:
         uuid = posthog_capture_exception(error, properties=properties)

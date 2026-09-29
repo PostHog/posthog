@@ -1,4 +1,7 @@
+import pytest
 from unittest import mock
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.exceptions_capture import (
     ambient_exception_properties,
@@ -44,3 +47,28 @@ def test_bind_exception_context_is_fire_and_forget_within_scope():
         bind_exception_context(k="v")
         assert ambient_exception_properties()["k"] == "v"
     assert "k" not in ambient_exception_properties()
+
+
+def _wrapped(error: Exception, cause: Exception) -> Exception:
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "error,expect_captured",
+    [
+        (TableAccessDeniedError("stripe_customer"), False),
+        (_wrapped(RuntimeError("export failed"), TableAccessDeniedError("stripe_customer")), False),
+        (ValueError("boom"), True),
+    ],
+)
+def test_capture_exception_skips_table_access_denials(error, expect_captured):
+    with (
+        mock.patch("posthog.clickhouse.query_tagging.get_query_tags") as mock_tags,
+        mock.patch("posthoganalytics.api_key", "phc_test"),
+        mock.patch("posthoganalytics.capture_exception", return_value=None) as mock_capture,
+    ):
+        mock_tags.return_value.model_dump.return_value = {}
+        capture_exception(error)
+
+    assert mock_capture.called == expect_captured

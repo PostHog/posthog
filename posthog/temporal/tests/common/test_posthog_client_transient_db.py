@@ -5,7 +5,10 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import ExecuteActivityInput
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
@@ -91,3 +94,13 @@ class TestTransientDatabaseErrorReporting:
     async def test_other_database_errors_are_still_reported(self, _name, error):
         mock_capture = await _run_and_capture(error)
         mock_capture.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_wrapped_table_access_denial_is_not_reported():
+    # Activities such as the exporter wrap the denial in an ApplicationError before it reaches the interceptor.
+    try:
+        raise ApplicationError("denied", type="TableAccessDeniedError") from TableAccessDeniedError("stripe_customer")
+    except ApplicationError as error:
+        mock_capture = await _run_and_capture(error)
+    mock_capture.assert_not_called()

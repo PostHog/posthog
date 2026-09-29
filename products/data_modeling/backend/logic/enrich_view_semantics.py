@@ -24,8 +24,6 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.hogql.errors import TableAccessDeniedError
-
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import GatewayNotConfiguredError, Product
@@ -124,14 +122,6 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     """
     try:
         parent_names = get_parents_from_model_query(team, saved_query.name, query_str)
-    except TableAccessDeniedError as e:
-        logger.warning(
-            "view_enrichment.lineage_table_access_denied",
-            team_id=team.id,
-            saved_query_id=str(saved_query.id),
-            table=e.table_name,
-        )
-        return []
     except Exception as e:
         capture_exception(e)
         return []
