@@ -79,10 +79,11 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             ("id_attributed", "campaign_id", False, False, False),
             ("name_attributed_compare", "campaign_name", False, True, False),
             ("id_precomputed_compare", "campaign_id", False, True, True),
+            ("id_direct_and_mapped", "campaign_id", False, False, False, True),
         ]
     )
     def test_campaign_aliases_join_costs_once_and_preserve_goal_math(
-        self, _name: str, match_field: str, warehouse: bool, compare: bool, precompute: bool
+        self, _name: str, match_field: str, warehouse: bool, compare: bool, precompute: bool, direct_id: bool = False
     ) -> None:
         ads_source = ExternalDataSource.objects.create(
             team=self.team, source_id="example-ads", connection_id="example-connection", source_type="GoogleAds"
@@ -118,8 +119,8 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             create_person(team=self.team, distinct_ids=[distinct_id])
         for distinct_id, campaign, day in [
             ("repeat-buyer", "winter-sale", 10),
-            ("repeat-buyer", "winter_sale", 11),
-            ("second-buyer", "winter_sale", 11),
+            ("repeat-buyer", "10042" if direct_id else "winter_sale", 11),
+            ("second-buyer", "10042" if direct_id else "winter_sale", 11),
         ]:
             session_id = str(uuid7(f"2023-01-{day}T12:00:00Z"))
             for event, minute in [("$pageview", 0), ("purchase", 10)]:
@@ -219,6 +220,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(rows) == 1
         assert [cell.value for cell in rows[0]] == ["Winter sale", "google", 1, 3, 2, 60]
         assert rows[0][0].conversionMatchKey == match_key
+        cost_only_rows = [row for row in result.results if row[0].value == "Cost only"]
+        assert len(cost_only_rows) == 1
+        assert cost_only_rows[0][0].conversionMatchKey is None
+        assert [cell.value for cell in cost_only_rows[0][:5]] == ["Cost only", "google", 2, 0, 0]
         assert not result.precomputeNotReady
 
     def _create_query_runner(
