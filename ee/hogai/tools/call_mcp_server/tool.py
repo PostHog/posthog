@@ -24,6 +24,7 @@ from .installations import (
     _get_cached_tools,
     _get_installations,
     _get_tool_approval_states,
+    _get_unlisted_tool_state,
     _mark_needs_reauth_sync,
     _refresh_token_sync,
 )
@@ -148,7 +149,17 @@ class CallMCPServerTool(MaxTool):
 
     async def _resolve_approval_state(self, server_url: str, tool_name: str) -> str:
         states = await self._get_approval_states(server_url)
-        return states.get(tool_name, _APPROVAL_DEFAULT)
+        if tool_name in states:
+            return states[tool_name]
+        gateway_server_id = self._get_installation(server_url).get("gateway_server_id")
+        if gateway_server_id is None:
+            return _APPROVAL_DEFAULT
+        # An org rule can match a tool the installation has no row for yet.
+        state = await database_sync_to_async(_get_unlisted_tool_state)(
+            self._team.id, gateway_server_id, self._user, tool_name
+        )
+        states[tool_name] = state
+        return state
 
     async def is_dangerous_operation(
         self, *, server_url: str, tool_name: str, arguments: dict | None = None, **_kwargs

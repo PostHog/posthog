@@ -93,8 +93,37 @@ def resolve_member_tool_states(
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
+            resolved[row["tool_name"]] = _member_tool_state(context, row["tool_name"], row["annotations"])
     return resolved
+
+
+def resolve_member_unlisted_tool_state(
+    team_id: int,
+    gateway_server_id: uuid.UUID,
+    user_id: int,
+    tool_name: str,
+) -> str:
+    """Return the effective state of a tool the installation has no row for.
+
+    Org rules and the team policy still apply to the tool name, but the result
+    is never looser than `needs_approval`, the default for unknown tools."""
+    context = PolicyContext(
+        team_id=team_id,
+        caller=GatewayCaller(kind="member", user_id=user_id),
+        gateway_server_id=gateway_server_id,
+        legacy_rows={},
+    )
+    state = _member_tool_state(context, tool_name, None)
+    return state if state == "do_not_use" else "needs_approval"
+
+
+def _member_tool_state(context: PolicyContext, tool_name: str, annotations: dict[str, Any] | None) -> str:
+    resolved = context.resolve(tool_name, annotations)
+    # A member cannot approve a call that an org rule locks at needs_approval,
+    # so for the member it is the same as do_not_use.
+    if resolved.locked and resolved.state == "needs_approval":
+        return "do_not_use"
+    return resolved.state
 
 
 def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Iterable[str]) -> list[str]:

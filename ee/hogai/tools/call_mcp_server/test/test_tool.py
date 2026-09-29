@@ -14,6 +14,7 @@ from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
+    MCPOrgRule,
     MCPServerInstallation,
     MCPServerInstallationTool,
     TeamMCPGatewayConfig,
@@ -1061,6 +1062,31 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
         installation = await sync_to_async(self._seed)({})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
         self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool"))
+
+    @parameterized.expand([("listed_tool", True), ("unlisted_tool", False)])
+    async def test_org_rule_locked_approval_cannot_be_self_approved(self, _name: str, tool_is_listed: bool) -> None:
+        def _setup() -> tuple[MCPServerInstallation, MCPGatewayServer]:
+            server = MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team, name="Linear", url=self.SERVER_URL
+            )
+            installation = self._seed({"delete_issue": "approved"} if tool_is_listed else {})
+            installation.gateway_server = server
+            installation.save()
+            MCPOrgRule.objects.for_team(self.team.id).create(
+                team=self.team, name="Review deletes", effect="needs_approval", tool_pattern="delete_*"
+            )
+            return installation, server
+
+        installation, server = await sync_to_async(_setup)()
+        tool = self._create_tool(installations=[{**self._inst_dict(installation), "gateway_server_id": server.id}])
+
+        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="delete_issue"))
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            MockClient.return_value = mock_instance
+            with self.assertRaises(MaxToolFatalError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="delete_issue", arguments={})
+        mock_instance.call_tool.assert_not_called()
 
     async def test_unknown_server_url_does_not_trigger_approval(self):
         # Validation will reject it during execution; approval gate stays off.
