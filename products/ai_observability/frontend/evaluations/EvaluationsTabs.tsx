@@ -9,6 +9,12 @@ import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+function accessTab(sceneKey: Scene, link: string): { link?: string; disabledReason?: string } {
+    const disabledReason = getProductAccessDisabledReason({ sceneKey })
+    // LemonTabs still renders the link of a disabled tab, so a click would open the Access denied page.
+    return { link: disabledReason ? undefined : link, disabledReason }
+}
+
 export function EvaluationsTabs({
     activeTab,
     children,
@@ -28,24 +34,19 @@ export function EvaluationsTabs({
                     {
                         key: 'online-evals',
                         label: 'Online evals',
-                        link: urls.aiObservabilityEvaluations(),
-                        disabledReason: getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityEvaluation }),
+                        ...accessTab(Scene.AIObservabilityEvaluation, urls.aiObservabilityEvaluations()),
                         'data-attr': 'evaluations-tab',
                     },
                     !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && {
                         key: 'offline-evals',
                         label: 'Offline evals',
-                        link: urls.aiObservabilityOfflineEvaluations(),
-                        disabledReason: getProductAccessDisabledReason({
-                            sceneKey: Scene.AIObservabilityOfflineExperiments,
-                        }),
+                        ...accessTab(Scene.AIObservabilityOfflineExperiments, urls.aiObservabilityOfflineEvaluations()),
                         'data-attr': 'offline-evals-tab',
                     },
                     {
                         key: 'scorers',
                         label: 'Scorers',
-                        link: urls.aiObservabilityScorers(),
-                        disabledReason: getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityScorers }),
+                        ...accessTab(Scene.AIObservabilityScorers, urls.aiObservabilityScorers()),
                         'data-attr': 'llma-scorers-tab',
                     },
                     {
