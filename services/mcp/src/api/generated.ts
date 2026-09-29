@@ -9823,6 +9823,11 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    /**
+     * Warnings attached to the query response that produced an insight's results.
+     */
+    export type _InsightResultWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning)[];
+
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
       date_from?: string | null;
@@ -9963,6 +9968,8 @@ export namespace Schemas {
       readonly resolved_date_range: InsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -13784,7 +13791,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `S3` - S3
      * * `AwsS3` - Aws S3
      * * `S3Compatible` - S3 Compatible
      * * `Snowflake` - Snowflake
@@ -13802,7 +13808,6 @@ export namespace Schemas {
 
 
     export const BatchExportDestinationDestinationEnum = {
-      S3: 'S3',
       AwsS3: 'AwsS3',
       S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
@@ -14083,7 +14088,6 @@ export namespace Schemas {
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
        *
-       * * `S3` - S3
        * * `AwsS3` - Aws S3
        * * `S3Compatible` - S3 Compatible
        * * `Snowflake` - Snowflake
@@ -15168,6 +15172,11 @@ export namespace Schemas {
          * @nullable
          */
       offset_hour?: number | null;
+    }
+
+    export interface BatchExportUnpauseRequest {
+      /** Whether to backfill the runs that the batch export missed while it was paused. */
+      backfill?: boolean;
     }
 
     /**
@@ -17753,6 +17762,13 @@ export namespace Schemas {
       end_date: string;
     }
 
+    export interface CalendarSyncInterval {
+      /** Id of the connected Google account. */
+      integration_id: number;
+      /** Minutes between scheduled syncs: 5, 15, 30, or 60. */
+      sync_interval_minutes: number;
+    }
+
     /**
      * Sync state of one connected calendar (read-only).
      */
@@ -17766,6 +17782,8 @@ export namespace Schemas {
       readonly last_synced_at: string | null;
       /** Whether a sync run is currently in flight. */
       readonly is_syncing: boolean;
+      /** Minutes between scheduled syncs. */
+      readonly sync_interval_minutes: number;
     }
 
     /**
@@ -25192,7 +25210,7 @@ export namespace Schemas {
     }
 
     /**
-     * InsightSerializer restricted to identifiers + result only.
+     * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
      */
     export interface InsightResult {
       readonly id: number;
@@ -25202,6 +25220,8 @@ export namespace Schemas {
       /** @nullable */
       readonly derived_name: string | null;
       readonly result: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
     }
 
     /**
@@ -35067,6 +35087,30 @@ export namespace Schemas {
       Currency: 'currency',
     } as const;
 
+    /**
+     * * `at_most` - at_most
+     * * `at_least` - at_least
+     */
+    export type GoalDirectionEnum = typeof GoalDirectionEnum[keyof typeof GoalDirectionEnum];
+
+
+    export const GoalDirectionEnum = {
+      AtMost: 'at_most',
+      AtLeast: 'at_least',
+    } as const;
+
+    /**
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval
+     */
+    export type GoalGrainEnum = typeof GoalGrainEnum[keyof typeof GoalGrainEnum];
+
+
+    export const GoalGrainEnum = {
+      WholeWindow: 'whole_window',
+      PerInterval: 'per_interval',
+    } as const;
+
     export interface ReportMetricComparison {
       /** Baseline or previous value, formatted like the current value. */
       value: number;
@@ -35146,6 +35190,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
       /** Legacy optional comparison. New report metrics must omit it. */
       comparison?: ReportMetricComparison | null;
     }
@@ -37195,7 +37268,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37401,7 +37474,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37647,7 +37720,7 @@ export namespace Schemas {
        * * `DESC` - DESC */
       orderDirection?: OrderDirectionEnum;
       /**
-         * Page size.
+         * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
          * @minimum 1
          * @maximum 100
          */
@@ -37658,7 +37731,7 @@ export namespace Schemas {
          */
       offset?: number;
       /**
-         * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+         * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
          * @minimum 0
          * @maximum 200
          */
@@ -38209,6 +38282,12 @@ export namespace Schemas {
          * @nullable
          */
       content_hash?: string | null;
+      /**
+         * Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.
+         * @minimum 0
+         * @nullable
+         */
+      content_length?: number | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkCheckUpload {
@@ -38275,6 +38354,10 @@ export namespace Schemas {
       presigned_url: ErrorTrackingSymbolSetPresignedPost;
       /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
       fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject. */
+      presigned_put_url?: string;
+      /** Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration. */
+      fallback_presigned_put_url?: string;
     }
 
     /**
@@ -38563,6 +38646,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -38577,6 +38661,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      OpenaiCompatible: 'openai_compatible',
     } as const;
 
     /**
@@ -38804,6 +38889,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -39351,6 +39443,7 @@ export namespace Schemas {
      * * `session_recordings` - Session Recordings
      * * `errortracking` - Errortracking
      * * `clientwarnings` - Clientwarnings
+     * * `heatmaps` - Heatmaps
      * * `ai` - Ai
      */
     export type IngestionPipelineEnum = typeof IngestionPipelineEnum[keyof typeof IngestionPipelineEnum];
@@ -39361,6 +39454,7 @@ export namespace Schemas {
       SessionRecordings: 'session_recordings',
       Errortracking: 'errortracking',
       Clientwarnings: 'clientwarnings',
+      Heatmaps: 'heatmaps',
       Ai: 'ai',
     } as const;
 
@@ -40428,8 +40522,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -42368,8 +42470,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -47530,38 +47640,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `events` - events
-     * * `persons` - persons
-     * * `sessions` - sessions
-     * * `hogql` - hogql
-     */
-    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
-
-
-    export const FileDownloadBatchExportOnDemandModelEnum = {
-      Events: 'events',
-      Persons: 'persons',
-      Sessions: 'sessions',
-      Hogql: 'hogql',
-    } as const;
-
-    /**
-     * Request shape for a FileDownload batch export on demand.
-     */
-    export interface FileDownloadBatchExportOnDemand {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadBatchExportOnDemandModelEnum;
-      include?: string[];
-      exclude?: string[];
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
-      hogql_query?: string;
-      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
-      data_interval_start?: string;
-      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
-      data_interval_end?: string;
-    }
-
-    /**
      * * `hogql` - hogql
      */
     export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
@@ -47701,6 +47779,40 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface FileSystemShortcutBulkItem {
+      /** Display path of the shortcut in the sidebar. */
+      path: string;
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
+      type?: string;
+      /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+         * @maxLength 4000
+         * @nullable
+         */
+      ref?: string | null;
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
+      href?: string | null;
+    }
+
+    export interface FileSystemShortcutBulkUpdate {
+      /**
+         * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+         * @maxItems 500
+         */
+      add?: FileSystemShortcutBulkItem[];
+      /**
+         * IDs of the current user's shortcuts to delete.
+         * @maxItems 500
+         */
+      remove_ids?: string[];
     }
 
     export interface FileSystemShortcutReorder {
@@ -52249,7 +52361,7 @@ export namespace Schemas {
     export interface TraceSpansQuery {
       /** Cursor for fetching the next page of results */
       after?: string | null;
-      dateRange: DateRange;
+      dateRange?: DateRange | null;
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
@@ -59488,6 +59600,8 @@ export namespace Schemas {
       readonly session_id: string;
       /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
+      /** Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls. */
+      readonly error_calls: number;
       /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
       /** Timestamp of the most recent $mcp_tool_call event in the session. */
@@ -62172,6 +62286,20 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    export interface OfflineCategorySummary {
+      /** Category key from the pinned configuration. */
+      key: string;
+      /** Successful results selecting this category. */
+      count: number;
+      /**
+         * Selection count divided by successful result count; null with no successes.
+         * @nullable
+         */
+      rate: number | null;
+      /** Category label from the pinned configuration. */
+      label: string;
+    }
+
     export interface OfflineEvaluationValidationError {
       /** Stable validation error code. */
       code: string;
@@ -62262,6 +62390,465 @@ export namespace Schemas {
     export interface OfflineExperimentItemsResponse {
       /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
       results: unknown[][];
+    }
+
+    export interface OfflineExperimentRead {
+      /** Stable experiment UUID. */
+      id: string;
+      /** Experiment name. */
+      name: string;
+      /** Execution source.
+       *
+       * * `ci` - CI
+       * * `local` - Local
+       * * `scheduled` - Scheduled */
+      run_source: OfflineExperimentRunSourceEnum | null;
+      /** Upload lifecycle state.
+       *
+       * * `uploading` - Uploading
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: OfflineExperimentStatusEnum;
+      /** Caller-supplied execution time. */
+      started_at: string;
+      /** First server acceptance time. */
+      created_at: string;
+      /**
+         * Server closure time, or null while uploading.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * Declared expected items, when supplied.
+         * @nullable
+         */
+      expected_item_count: number | null;
+      /**
+         * Declared expected results across all scorers.
+         * @nullable
+         */
+      expected_result_count: number | null;
+      /** Observed items, including items without a selected scorer result. */
+      accepted_item_count: number;
+      /**
+         * Results visible to this caller; unavailable without scorer-read scope.
+         * @nullable
+         */
+      visible_result_count: number | null;
+      /**
+         * Distinct visible scorer definitions.
+         * @nullable
+         */
+      visible_scorer_definition_count: number | null;
+      /**
+         * Distinct visible scorer versions.
+         * @nullable
+         */
+      visible_scorer_version_count: number | null;
+      /** authorized for visible-result counts, or unavailable without scorer-read scope. */
+      result_count_scope: string;
+      /**
+         * Durable suite identifier.
+         * @nullable
+         */
+      suite_key: string | null;
+      /**
+         * Dataset provider or source.
+         * @nullable
+         */
+      dataset_source: string | null;
+      /**
+         * Durable dataset identifier.
+         * @nullable
+         */
+      dataset_identifier: string | null;
+      /**
+         * Durable dataset revision identifier.
+         * @nullable
+         */
+      dataset_revision_identifier: string | null;
+      /**
+         * Optional hosted revision navigation reference.
+         * @nullable
+         */
+      dataset_revision_id: string | null;
+      /**
+         * Application revision under evaluation.
+         * @nullable
+         */
+      application_version: string | null;
+      /**
+         * Model revision under evaluation.
+         * @nullable
+         */
+      model_version: string | null;
+      /**
+         * Prompt revision under evaluation.
+         * @nullable
+         */
+      prompt_version: string | null;
+    }
+
+    export interface OfflineExperimentPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Experiment page. */
+      results: OfflineExperimentRead[];
+    }
+
+    /**
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean
+     */
+    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
+
+
+    export const ScoreDefinitionKindEnum = {
+      Categorical: 'categorical',
+      Numeric: 'numeric',
+      Boolean: 'boolean',
+    } as const;
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
+    export interface OfflineScorerVersionRead {
+      /** Exact immutable scorer-version UUID. */
+      id: string;
+      /** Stable scorer definition UUID. */
+      definition_id: string;
+      /** Version number within the definition. */
+      version: number;
+      /** Scorer value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      kind: ScoreDefinitionKindEnum;
+      /** Current scorer display name. */
+      name: string;
+      /** Current scorer description. */
+      description: string;
+      /** Whether the scorer is archived. */
+      archived: boolean;
+      /** Pinned immutable configuration used to interpret these results. */
+      config: ScoreDefinitionConfig;
+    }
+
+    export interface OfflineStatusCounts {
+      /** Successful results. */
+      ok: number;
+      /** Evaluator errors. */
+      error: number;
+      /** Skipped evaluations. */
+      skipped: number;
+      /** Not-applicable evaluations. */
+      not_applicable: number;
+    }
+
+    export interface OfflineScorerSummary {
+      /** Exact scorer version summarized. */
+      scorer: OfflineScorerVersionRead;
+      /** All observed experiment items, independent of scorer selection or item pagination. */
+      observed_item_count: number;
+      /** Submitted results for this scorer version, across all statuses. */
+      result_count: number;
+      /** Counts for each submitted outcome. */
+      status_counts: OfflineStatusCounts;
+      /** Observed items without a result for this version; not the number of all intended missing items. */
+      missing_result_count: number;
+      /** Distinct non-null case keys in observed items. */
+      distinct_case_count: number;
+      /** Observed items with case keys. */
+      items_with_case_key_count: number;
+      /** Observed items without case keys. */
+      items_without_case_key_count: number;
+      /** Observed items with trial identifiers. */
+      trial_item_count: number;
+      /** Distinct case/trial identities; trial-only items remain independent. */
+      distinct_trial_count: number;
+      /**
+         * Numeric mean of successful scores only; null for other kinds or no successes.
+         * @nullable
+         */
+      mean: number | null;
+      /**
+         * Successful boolean true results; null for other kinds.
+         * @nullable
+         */
+      true_count: number | null;
+      /**
+         * Successful boolean false results; null for other kinds.
+         * @nullable
+         */
+      false_count: number | null;
+      /**
+         * Boolean true fraction among successes; null with no successes or for other kinds.
+         * @nullable
+         */
+      true_rate: number | null;
+      /** Pinned categorical distribution; multiselect rates may sum above one. */
+      categories: OfflineCategorySummary[];
+    }
+
+    export interface OfflineHistoryPoint {
+      /** Experiment execution and cohort context. */
+      experiment: OfflineExperimentRead;
+      /** Complete summary for one experiment and scorer version. */
+      summary: OfflineScorerSummary;
+    }
+
+    export interface OfflineHistoryPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Experiment/scorer-version history page. */
+      results: OfflineHistoryPoint[];
+    }
+
+    /**
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired
+     */
+    export type PayloadStateEnum = typeof PayloadStateEnum[keyof typeof PayloadStateEnum];
+
+
+    export const PayloadStateEnum = {
+      NotProvided: 'not_provided',
+      Available: 'available',
+      Expired: 'expired',
+    } as const;
+
+    export interface OfflineResultCell {
+      /** Stable result UUID. */
+      id: string;
+      /** Item evaluated by this result. */
+      item_id: string;
+      /** Evaluation outcome.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Typed score for ok outcomes; null for other outcomes. */
+      value: number | boolean | string[] | null;
+      /**
+         * Optional evaluator error code.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * Optional evaluator trace navigation reference.
+         * @nullable
+         */
+      evaluator_trace_id: string | null;
+      /**
+         * Caller-supplied evaluation time.
+         * @nullable
+         */
+      evaluated_at: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Result payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Exact scorer-version UUID in the item page's scorer_versions list. */
+      scorer_version_id: string;
+    }
+
+    export interface OfflineItemRead {
+      /** Stable item UUID. */
+      id: string;
+      /** Owning experiment UUID. */
+      experiment_id: string;
+      /**
+         * Optional stable case identifier.
+         * @nullable
+         */
+      case_key: string | null;
+      /**
+         * Optional trial identifier within a case.
+         * @nullable
+         */
+      trial: string | null;
+      /**
+         * Durable dataset item identifier.
+         * @nullable
+         */
+      dataset_item_identifier: string | null;
+      /**
+         * Durable dataset item-version identifier.
+         * @nullable
+         */
+      dataset_item_version_identifier: string | null;
+      /**
+         * Optional hosted item-version navigation reference.
+         * @nullable
+         */
+      dataset_item_version_id: string | null;
+      /**
+         * Optional application trace navigation reference.
+         * @nullable
+         */
+      application_trace_id: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Item payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Cells for explicitly selected scorer versions; empty when none selected. */
+      results: OfflineResultCell[];
+    }
+
+    export interface OfflineItemPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Item page. */
+      results: OfflineItemRead[];
+      /** Selected scorer versions, each returned once, including versions with no results. */
+      scorer_versions: OfflineScorerVersionRead[];
+    }
+
+    export interface OfflineItemPayloadRead {
+      /** Owning item UUID. */
+      id: string;
+      /** Durable payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Whether the stored payload is currently available. */
+      available: boolean;
+      /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
+      data: OfflineExperimentItemPayloadInput | null;
+    }
+
+    export interface OfflineResultRead {
+      /** Stable result UUID. */
+      id: string;
+      /** Item evaluated by this result. */
+      item_id: string;
+      /** Evaluation outcome.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Typed score for ok outcomes; null for other outcomes. */
+      value: number | boolean | string[] | null;
+      /**
+         * Optional evaluator error code.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * Optional evaluator trace navigation reference.
+         * @nullable
+         */
+      evaluator_trace_id: string | null;
+      /**
+         * Caller-supplied evaluation time.
+         * @nullable
+         */
+      evaluated_at: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Result payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Pinned scorer version. */
+      scorer: OfflineScorerVersionRead;
+    }
+
+    export interface OfflineResultPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Result page. */
+      results: OfflineResultRead[];
+    }
+
+    export interface OfflineResultPayloadRead {
+      /** Owning result UUID. */
+      id: string;
+      /** Durable payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Whether the stored payload is currently available. */
+      available: boolean;
+      /** Stored reasoning/error payload; null if unavailable. */
+      data: OfflineEvaluationResultPayloadInput | null;
+    }
+
+    export interface OfflineSummaryPage {
+      /** Total authorized rows matching the filters, independent of this page. */
+      count: number;
+      /**
+         * Continuation cursor, or null after the final page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Scorer-version summary page; each group includes all matching results. */
+      results: OfflineScorerSummary[];
     }
 
     export interface OnboardWarehouseTeamRequest {
@@ -66137,22 +66724,6 @@ export namespace Schemas {
       results: SchemaPropertyGroup[];
     }
 
-    /**
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean
-     */
-    export type ScoreDefinitionKindEnum = typeof ScoreDefinitionKindEnum[keyof typeof ScoreDefinitionKindEnum];
-
-
-    export const ScoreDefinitionKindEnum = {
-      Categorical: 'categorical',
-      Numeric: 'numeric',
-      Boolean: 'boolean',
-    } as const;
-
-    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
-
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
@@ -66375,6 +66946,7 @@ export namespace Schemas {
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
@@ -66387,6 +66959,7 @@ export namespace Schemas {
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
      * * `ranking_score` - Ranking Score
+     * * `impact_measurement_plan` - Impact Measurement Plan
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -66410,6 +66983,7 @@ export namespace Schemas {
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
@@ -66422,6 +66996,7 @@ export namespace Schemas {
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
       RankingScore: 'ranking_score',
+      ImpactMeasurementPlan: 'impact_measurement_plan',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -66687,6 +67262,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
     }
 
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
@@ -68125,7 +68729,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -68396,6 +69001,8 @@ export namespace Schemas {
          * @nullable
          */
       task_summary: string | null;
+      /** Latest slug tags for this task, including tags inherited from an earlier run. */
+      task_tags: string[];
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -69656,7 +70263,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
@@ -70514,6 +71121,77 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WizardSessionDTO[];
+    }
+
+    /**
+     * * `suggested` - Suggested
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `applied` - Applied
+     */
+    export type WorkflowProposalStatusEnum = typeof WorkflowProposalStatusEnum[keyof typeof WorkflowProposalStatusEnum];
+
+
+    export const WorkflowProposalStatusEnum = {
+      Suggested: 'suggested',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Applied: 'applied',
+    } as const;
+
+    /**
+     * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
+     */
+    export type WorkflowProposalContent = { [key: string]: unknown };
+
+    /**
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     */
+    export type WorkflowProposalEvidence = { [key: string]: unknown };
+
+    export interface WorkflowProposal {
+      readonly id: string;
+      /** Short summary of the proposed change. */
+      readonly title: string;
+      /** Why the producer thinks this change is worth making. */
+      readonly rationale: string;
+      /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
+      readonly content: WorkflowProposalContent;
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      readonly evidence: WorkflowProposalEvidence;
+      /**
+         * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
+         * @nullable
+         */
+      readonly step_id: string | null;
+      /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
+      readonly base_version: number;
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+      readonly is_stale: boolean;
+      readonly status: WorkflowProposalStatusEnum;
+      /**
+         * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
+         * @nullable
+         */
+      readonly source_id: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly resolved_at: string | null;
+      readonly resolved_by: UserBasic | null;
+      /**
+         * Workflow version the approved change went live as.
+         * @nullable
+         */
+      readonly applied_version: number | null;
+    }
+
+    export interface PaginatedWorkflowProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkflowProposal[];
     }
 
     export interface PassRateBucket {
@@ -73143,8 +73821,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -74330,6 +75016,8 @@ export namespace Schemas {
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan?: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings?: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -74488,6 +75176,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -78239,7 +78934,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -78278,6 +78974,13 @@ export namespace Schemas {
          * @maxLength 1500
          */
       summary?: string;
+      /**
+         * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+         * @maxItems 10
+         * @items.maxLength 50
+         * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+         */
+      tags?: string[];
     }
 
     /**
@@ -78349,6 +79052,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -78377,6 +79081,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     /**
@@ -78435,7 +79140,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -78995,7 +79701,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
@@ -79940,6 +80646,127 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type SandboxPollStatusEnum = typeof SandboxPollStatusEnum[keyof typeof SandboxPollStatusEnum];
+
+
+    export const SandboxPollStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SandboxSource {
+      /** Source reference the reply relies on. */
+      ref: string;
+      /** Short excerpt that supports the reply. */
+      excerpt: string;
+    }
+
+    /**
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window
+     */
+    export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
+
+
+    export const SandboxToolNameEnum = {
+      BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+      BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    } as const;
+
+    export interface SandboxSearch {
+      /** Business knowledge tool the agent called.
+       *
+       * * `business-knowledge-documents-search` - Search
+       * * `business-knowledge-document-window-retrieve` - Window */
+      tool: SandboxToolNameEnum;
+      /** Tool input the agent sent. */
+      input: string;
+    }
+
+    export interface SandboxRun {
+      /** Sandbox task id. */
+      task_id: string;
+      /** Latest run id for this task. */
+      run_id: string;
+      /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      status: SandboxPollStatusEnum;
+      /**
+         * Answer text when status is completed. Null otherwise.
+         * @nullable
+         */
+      reply: string | null;
+      /** Sources cited in a completed answer. Empty when the run has not completed. */
+      sources: SandboxSource[];
+      /** Business knowledge search and window calls observed in the run log. */
+      searches: SandboxSearch[];
+      /**
+         * Why the run did not produce an answer. Null while running and on a completed answer.
+         * @nullable
+         */
+      error: string | null;
+      /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+      docs_search_called: boolean;
+    }
+
+    export interface PlaygroundTurn {
+      /** Turn id. */
+      id: string;
+      /** Question that started this turn's sandbox run. */
+      question: string;
+      /** Sandbox task id for this turn. */
+      task_id: string;
+      /** Order of this turn in the chat, starting at 0. */
+      position: number;
+      /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+      run: SandboxRun | null;
+      /**
+         * Why this turn could not be loaded. Null when run is present.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PlaygroundChat {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+      /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+      turns: PlaygroundTurn[];
+    }
+
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
     }
 
     /**
@@ -86382,6 +87209,35 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
+      /**
+         * Proposed threshold after release. Informational only; does not schedule a check.
+         * @nullable
+         */
+      goal_value?: number | null;
+      /** Whether success means at most or at least goal_value.
+       *
+       * * `at_most` - at_most
+       * * `at_least` - at_least */
+      goal_direction?: GoalDirectionEnum | null;
+      /** Whether the goal compares with the whole query window or each chart bucket.
+       *
+       * * `whole_window` - whole_window
+       * * `per_interval` - per_interval */
+      goal_grain?: GoalGrainEnum;
+      /**
+         * Suggested days after release before assessing impact, not a monitoring schedule.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      decision_window_days?: number | null;
+      /**
+         * Optional number of qualifying observations before assessing impact.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      minimum_data_points?: number | null;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -87007,7 +87863,7 @@ export namespace Schemas {
     } as const;
 
     export interface ResolveTemplateRequest {
-      /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+      /** Template to resolve. The templates endpoint lists each one with its description. Required.
        *
        * * `likely_active_soon` - Likely Active Soon
        * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -88483,6 +89339,21 @@ export namespace Schemas {
       task_id?: string;
     }
 
+    export interface SandboxQuestion {
+      /**
+         * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+         * @maxLength 4000
+         */
+      question: string;
+    }
+
+    export interface SandboxRunStarted {
+      /** Sandbox task id. Poll this id until the run finishes. */
+      task_id: string;
+      /** Run id for this question. */
+      run_id: string;
+    }
+
     export interface SaveRequest {
       /**
          * Label this config computes, e.g. ai_pilled.
@@ -89143,6 +90014,196 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface ScoreDefinitionVersion {
+      /** UUID identifying this exact immutable version. */
+      readonly id: string;
+      /** Scorer definition that owns this version. */
+      readonly definition_id: string;
+      /** Immutable version number within this scorer. */
+      readonly version: number;
+      /** Scorer value kind.
+       *
+       * * `categorical` - categorical
+       * * `numeric` - numeric
+       * * `boolean` - boolean */
+      readonly kind: ScoreDefinitionKindEnum;
+      /** Immutable configuration for this exact version. */
+      readonly config: ScoreDefinitionConfig;
+      /** Time this version was created. */
+      readonly created_at: string;
+      /** User who created this version. */
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface ScoreDefinitionVersionPage {
+      /** Total immutable versions for this scorer. */
+      count: number;
+      /**
+         * Continuation cursor, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Versions on this page, newest first. */
+      results: ScoreDefinitionVersion[];
+    }
+
+    export interface ScoringActivateRequest {
+      /** Saved scoring version to activate for subsequent evaluations. */
+      config_id: string;
+    }
+
+    export interface ScoringConfig {
+      /** Saved scoring configuration identifier. */
+      id: string;
+      /** Name of this immutable scoring version. */
+      version: string;
+      /** Editable Hog scoring formula. */
+      readonly source: string;
+      /** Whether scoring uses this version. */
+      is_active: boolean;
+      /** When this version was saved. */
+      created_at: string;
+      /**
+         * Author email, or null for imported configurations.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+    }
+
+    export interface ScoringConfigListResponse {
+      /** Saved configurations, newest first. */
+      results: ScoringConfig[];
+      /** Hog source for the default ICP scoring policy. */
+      default_source: string;
+    }
+
+    /**
+     * Points for each scoring component.
+     * @nullable
+     */
+    export type ScoringOutcomeComponents = {[key: string]: number} | null;
+
+    /**
+     * Named diagnostic values returned by the formula.
+     */
+    export type ScoringOutcomeFlags = {[key: string]: boolean | number | string | null};
+
+    export interface ScoringOutcome {
+      /** Scored, disqualified, missing-company, or insufficient-data status. */
+      status: string;
+      /**
+         * Total ICP score, or null when the company cannot be scored.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * Points for each scoring component.
+         * @nullable
+         */
+      components: ScoringOutcomeComponents;
+      /** Named diagnostic values returned by the formula. */
+      flags: ScoringOutcomeFlags;
+      /**
+         * Reason for disqualification, or null when absent.
+         * @nullable
+         */
+      dq_reason: string | null;
+    }
+
+    export interface ScoringPreviewRequest {
+      /**
+         * Hog formula to compile and execute.
+         * @maxLength 30000
+         */
+      source: string;
+      /** Configuration whose curated tags and investors to use for the draft. */
+      base_config_id: string;
+      /**
+         * Number of recent companies to preview.
+         * @minimum 1
+         * @maximum 10
+         */
+      sample?: number;
+    }
+
+    /**
+     * @nullable
+     */
+    export type ScoringPreviewRowInputsCompany = { [key: string]: unknown } | null;
+
+    export type ScoringPreviewRowInputsSignup = {
+      role: string;
+      domain: string;
+      wizard_ai_sdk: boolean;
+    };
+
+    export type ScoringPreviewRowInputsEnrichments = {[key: string]: { [key: string]: unknown }};
+
+    export type ScoringPreviewRowInputsLists = {[key: string]: string[]};
+
+    /**
+     * Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula.
+     */
+    export type ScoringPreviewRowInputs = {
+      /** @nullable */
+      company: ScoringPreviewRowInputsCompany;
+      signup: ScoringPreviewRowInputsSignup;
+      enrichments: ScoringPreviewRowInputsEnrichments;
+      lists: ScoringPreviewRowInputsLists;
+    };
+
+    export interface ScoringPreviewRow {
+      /** Company name from the archived enrichment. */
+      company: string;
+      /**
+         * Company signup domain.
+         * @nullable
+         */
+      domain: string | null;
+      /** Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula. */
+      inputs: ScoringPreviewRowInputs;
+      /** Result from the active formula on these inputs. */
+      active: ScoringOutcome | null;
+      /** Result from the draft formula, or null on failure. */
+      preview: ScoringOutcome | null;
+      /**
+         * Formula error for this company, or null on success.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface ScoringPreviewSummary {
+      /** Number of companies in the sample. */
+      evaluated: number;
+      /** Companies whose draft result differs from the active formula. */
+      changed: number;
+      /** Companies whose active or draft formula failed. */
+      errors: number;
+    }
+
+    export interface ScoringPreviewResponse {
+      /** Read-only comparison using saved company facts and labels. */
+      results: ScoringPreviewRow[];
+      /** Counts for this preview. */
+      summary: ScoringPreviewSummary;
+    }
+
+    export interface ScoringSaveRequest {
+      /**
+         * Hog formula to compile and execute.
+         * @maxLength 30000
+         */
+      source: string;
+      /**
+         * Unique name for the new scoring version.
+         * @maxLength 128
+         */
+      version: string;
+      /** Configuration whose curated tags and investors to retain. */
+      base_config_id: string;
+    }
+
     export interface ScoutChatTask {
       /** The created chat task. Open it on the task detail page to continue. */
       task_id: string;
@@ -89188,6 +90249,20 @@ export namespace Schemas {
          * @nullable
          */
       last_outcome: string | null;
+      /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+      run_state: string;
+      /** True while an `agent` check waits on a dispatched run to record its verdict. */
+      waiting_on_run: boolean;
+      /**
+         * The scout run the coordinator dispatched for the check, once it started. Null while queued.
+         * @nullable
+         */
+      dispatched_run_id: string | null;
+      /**
+         * When the coordinator last dispatched a run for the check. Null when no run waits.
+         * @nullable
+         */
+      dispatched_at: string | null;
     }
 
     /**
@@ -90114,7 +91189,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -97692,7 +98767,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -99323,7 +100399,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -101975,6 +103052,8 @@ export namespace Schemas {
       external_status: WebhookExternalStatus | null;
       /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
       missing_events?: string[];
+      /** Required webhook field names with no value yet. Deliveries are dropped while any is missing. */
+      missing_inputs?: string[];
     }
 
     export interface WebhookUrl {
@@ -102859,6 +103938,90 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowProposalApproveRequest {
+      /** Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409. */
+      overwrite?: boolean;
+      /**
+         * The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.
+         * @nullable
+         */
+      expected_draft_updated_at?: string | null;
+    }
+
+    /**
+     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.
+     */
+    export type WorkflowProposalCreateContent = { [key: string]: unknown };
+
+    /**
+     * The metric numbers behind the proposal, so a human can judge it without re-deriving them.
+     */
+    export type WorkflowProposalCreateEvidence = { [key: string]: unknown };
+
+    export interface WorkflowProposalCreate {
+      /**
+         * Short summary of the proposed change.
+         * @maxLength 200
+         */
+      title: string;
+      /** Why this change is worth making, in prose a human reads. */
+      rationale: string;
+      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it. */
+      content: WorkflowProposalCreateContent;
+      /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
+      evidence?: WorkflowProposalCreateEvidence;
+      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
+      base_version?: number;
+      /**
+         * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
+         * @maxLength 200
+         * @nullable
+         */
+      step_id?: string | null;
+      /**
+         * Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.
+         * @maxLength 200
+         * @nullable
+         */
+      source_id?: string | null;
+    }
+
+    export interface WorkflowProposalMetric {
+      /** What was measured, e.g. 'email open rate'. */
+      metric: string;
+      /**
+         * The rate over the window, or null when there was nothing to divide.
+         * @nullable
+         */
+      value: number | null;
+      /** Observations the rate was computed over. */
+      n: number;
+      /** True when n is too small for the rate to mean anything. Show it labelled, not as a finding. */
+      below_minimum_sample: boolean;
+    }
+
+    export interface WorkflowProposalVersionOutcome {
+      /** Workflow version these numbers belong to. */
+      version: number;
+      /** The metric the suggestion aimed at. */
+      target: WorkflowProposalMetric;
+      /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
+      click_through: WorkflowProposalMetric;
+      /** Counter-metrics over the same window, so a harmful win is visible. */
+      guardrails: WorkflowProposalMetric[];
+    }
+
+    export interface WorkflowProposalOutcome {
+      /** Relative window both sides were measured over. */
+      window: string;
+      /** The version the change was proposed against. */
+      before: WorkflowProposalVersionOutcome | null;
+      /** The version it went live as. Null until the proposal is applied. */
+      after: WorkflowProposalVersionOutcome | null;
+      /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
+      unavailable_guardrails: string[];
     }
 
     export interface WorkflowRunActivityPoint {
@@ -105437,12 +106600,16 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest start first. */
+      /** AI events in the trace, earliest start first, up to `limit` of them. */
       results: _TracingTraceAiEvent[];
+      /** The most AI events the lookup returns for one trace. */
+      limit: number;
+      /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+      has_more: boolean;
     }
 
     export interface _TracingTraceRequest {
-      /** Date range for the query. Defaults to last 24 hours. */
+      /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
@@ -107430,6 +108597,259 @@ export namespace Schemas {
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
      */
     refresh?: boolean;
+    };
+
+    export type AiObservabilityOfflineExperimentsListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string;
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string;
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string;
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string;
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string;
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string;
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string;
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string;
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string;
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    };
+
+    export type AiObservabilityOfflineScorersHistoryListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string;
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string;
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string;
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string;
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string;
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string;
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string;
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string;
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string;
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string;
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string;
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string;
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string;
     };
 
     export type AlertsListParams = {
@@ -112478,6 +113898,38 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFlowsProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return proposals in this status (suggested, approved, rejected, applied).
+     */
+    status?: HogFlowsProposalsListStatus;
+    };
+
+    export type HogFlowsProposalsListStatus = typeof HogFlowsProposalsListStatus[keyof typeof HogFlowsProposalsListStatus];
+
+
+    export const HogFlowsProposalsListStatus = {
+      Applied: 'applied',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Suggested: 'suggested',
+    } as const;
+
+    export type HogFlowsProposalsOutcomeRetrieveParams = {
+    /**
+     * Relative window, e.g. -7d. Defaults to -7d.
+     */
+    window?: string;
+    };
+
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
@@ -113602,6 +115054,7 @@ export namespace Schemas {
       Gemini: 'gemini',
       Minimax: 'minimax',
       Openai: 'openai',
+      OpenaiCompatible: 'openai_compatible',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
@@ -113711,6 +115164,21 @@ export namespace Schemas {
      * Search scorers by name or description.
      */
     search?: string;
+    };
+
+    export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
+    /**
+     * Continuation cursor from the prior page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
     };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
@@ -114487,6 +115955,11 @@ export namespace Schemas {
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
     filter_test_accounts?: boolean;
+    /**
+     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * @nullable
+     */
+    has_errors?: boolean | null;
     /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
@@ -116193,6 +117666,12 @@ export namespace Schemas {
      * @minLength 1
      */
     skill_name?: string;
+    /**
+     * Return only the notes whose content contains this text, case-insensitively. Pass an entity (an error id, a flag key, a page path, an event name) to find the notes about it, including older ones the newest-first cap would hide.
+     * @minLength 1
+     * @maxLength 200
+     */
+    text?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
@@ -116869,6 +118348,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -117013,6 +118493,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

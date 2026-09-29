@@ -97,7 +97,6 @@ def migrate_experiment(
         new_experiment.metrics_secondary = _prepare_metrics(
             convert_legacy_metrics(original.metrics_secondary), new_experiment
         )
-        _set_metric_ordering(new_experiment, saved_metric_targets)
         new_experiment.save()
 
         for link, target in saved_metric_targets:
@@ -174,9 +173,8 @@ def _migrated_target(metric: ExperimentSavedMetric, team_id: int) -> ExperimentS
 def _prepare_metrics(metrics: list[dict], experiment: Experiment) -> list[dict]:
     """Give each converted metric the uuid and fingerprint the new engine writes on create.
 
-    The conversion drops the legacy uuid and never had a fingerprint. Without a uuid the metric
-    cannot enter the ordering arrays, and the UI renders only what those arrays list, so an
-    experiment migrated without one shows no metrics at all.
+    The conversion drops the legacy uuid and never had a fingerprint. Results, reorders and the
+    activity log all key on the uuid, so a metric without one has no identity in the new engine.
     """
     stats_method = (experiment.stats_config or {}).get("method", "bayesian")
     for metric in metrics:
@@ -190,20 +188,3 @@ def _prepare_metrics(metrics: list[dict], experiment: Experiment) -> list[dict]:
             excluded_variants=experiment.excluded_variants,
         )
     return metrics
-
-
-def _set_metric_ordering(
-    experiment: Experiment, saved_metric_targets: list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]]
-) -> None:
-    """Fill the ordering arrays the new engine reads metrics through, inline metrics first."""
-    ordering: dict[str, list[str]] = {
-        "primary": [metric["uuid"] for metric in experiment.metrics or []],
-        "secondary": [metric["uuid"] for metric in experiment.metrics_secondary or []],
-    }
-    for link, target in saved_metric_targets:
-        if uuid := (target.query or {}).get("uuid"):
-            metric_type = (link.metadata or {}).get("type", "primary")
-            ordering["primary" if metric_type == "primary" else "secondary"].append(uuid)
-
-    experiment.primary_metrics_ordered_uuids = ordering["primary"]
-    experiment.secondary_metrics_ordered_uuids = ordering["secondary"]
