@@ -253,6 +253,7 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+#
 # `ticket:write` misses the bar in a different direction: a reply leaves PostHog and reaches a
 # customer, so it is neither recoverable nor project-scoped in effect. It is grantable on the same
 # terms as the others. A person grants it to one scout on purpose, and the picker row says the
