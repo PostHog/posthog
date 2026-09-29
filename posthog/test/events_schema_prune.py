@@ -157,6 +157,10 @@ class EventsSchemaPruner:
         prunable = select_prunable(self._files, (item.nodeid for item in items), digests_under(config.rootpath))
         if not prunable:
             return
+        # syrupy records collected tests in its own later hook. A test it never sees counts as deleted,
+        # so an unsplit --snapshot-update run would remove that test's snapshots.
+        if syrupy_session := getattr(config, "_syrupy", None):
+            syrupy_session.collect_items(items)
         config.hook.pytest_deselected(items=[item for item in items if item.nodeid in prunable])
         items[:] = [item for item in items if item.nodeid not in prunable]
 
