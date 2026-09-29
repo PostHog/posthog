@@ -6,6 +6,7 @@ import type {
 } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { create } from "zustand";
+import { loadTranscript, saveTranscript } from "@/lib/cache";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { type WatchHandle, watchRun } from "@/lib/engine";
@@ -221,6 +222,8 @@ export const useSessions = create<SessionState>((set, get) => {
       };
     });
 
+    if (isSnapshot || folded.turnEnded) saveTranscript(taskId, folded.blocks);
+
     if (!isSnapshot && folded.turnEnded && session.turnActive) {
       Haptics.notificationAsync(
         folded.turnFailed
@@ -328,13 +331,19 @@ export const useSessions = create<SessionState>((set, get) => {
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [task.id]: emptySession(task.id, runId),
+          // The saved chat shows at once; the live snapshot replaces it.
+          [task.id]: {
+            ...emptySession(task.id, runId),
+            blocks: loadTranscript(task.id) ?? [],
+          },
         },
       }));
       watch(task.id, runId);
     },
 
     disconnect: (taskId) => {
+      const session = get().sessions[taskId];
+      if (session) saveTranscript(taskId, session.blocks);
       handles.get(taskId)?.stop();
       handles.delete(taskId);
     },

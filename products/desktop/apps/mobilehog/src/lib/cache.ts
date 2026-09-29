@@ -7,7 +7,8 @@ import {
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { createMMKV, deleteMMKV, type MMKV } from "react-native-mmkv";
-import type { Session } from "@/lib/auth";
+import { type Session, useAuth } from "@/lib/auth";
+import type { Block } from "@/lib/transcript";
 
 export const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const KEY_NAME = "mobilehog_cache_key";
@@ -93,4 +94,51 @@ export function persistQueryCache(
         !query.queryKey.includes("search"),
     },
   });
+}
+
+const TRANSCRIPT_LIMIT = 50;
+
+interface SavedTranscript {
+  savedAt: number;
+  blocks: Block[];
+}
+
+function transcriptScope(): { store: MMKV; prefix: string } | null {
+  const { session } = useAuth.getState();
+  if (!session) return null;
+  return {
+    store: accountStore(session),
+    prefix: `transcript-${session.projectId}`,
+  };
+}
+
+export function loadTranscript(taskId: string): Block[] | null {
+  const scope = transcriptScope();
+  const raw = scope?.store.getString(`${scope.prefix}-${taskId}`);
+  if (!raw) return null;
+  try {
+    const saved = JSON.parse(raw) as SavedTranscript;
+    return Date.now() - saved.savedAt < CACHE_MAX_AGE ? saved.blocks : null;
+  } catch {
+    return null;
+  }
+}
+
+// Keeps the most recently saved chats and drops the oldest past the limit.
+export function saveTranscript(taskId: string, blocks: Block[]): void {
+  const scope = transcriptScope();
+  if (!scope || blocks.length === 0) return;
+  const { store, prefix } = scope;
+  const saved: SavedTranscript = { savedAt: Date.now(), blocks };
+  store.set(`${prefix}-${taskId}`, JSON.stringify(saved));
+  const indexKey = `${prefix}-index`;
+  let order: string[] = [];
+  try {
+    order = JSON.parse(store.getString(indexKey) ?? "[]");
+  } catch {}
+  order = [taskId, ...order.filter((id) => id !== taskId)];
+  for (const stale of order.slice(TRANSCRIPT_LIMIT)) {
+    store.remove(`${prefix}-${stale}`);
+  }
+  store.set(indexKey, JSON.stringify(order.slice(0, TRANSCRIPT_LIMIT)));
 }
