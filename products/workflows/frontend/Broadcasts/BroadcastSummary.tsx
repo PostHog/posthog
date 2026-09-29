@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
@@ -26,6 +26,8 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
@@ -272,6 +274,8 @@ export function BroadcastSummary(): JSX.Element {
     } = useValues(broadcastWizardLogic)
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
@@ -401,7 +405,12 @@ export function BroadcastSummary(): JSX.Element {
                                     <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4 @2xl:grid-cols-3">
                                         <SummaryRow label="Audience">
                                             {audienceProperties.length > 0 ? (
-                                                <PropertyFiltersDisplay filters={audienceProperties} />
+                                                <div className="flex flex-col gap-2">
+                                                    {nonCohortAudience.length > 0 ? (
+                                                        <PropertyFiltersDisplay filters={nonCohortAudience} />
+                                                    ) : null}
+                                                    <BroadcastAudienceCohorts />
+                                                </div>
                                             ) : (
                                                 <span className="text-muted">Everyone</span>
                                             )}

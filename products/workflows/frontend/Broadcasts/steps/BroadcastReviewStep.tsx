@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
@@ -6,6 +6,8 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
 import { SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 
@@ -30,6 +32,8 @@ export function BroadcastReviewStep(): JSX.Element {
         rateLimitedSendDuration,
         stepValidationErrors,
     } = useValues(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
 
@@ -59,7 +63,12 @@ export function BroadcastReviewStep(): JSX.Element {
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
                     {audienceProperties.length > 0 ? (
-                        <PropertyFiltersDisplay filters={audienceProperties} />
+                        <div className="flex flex-col gap-2">
+                            {nonCohortAudience.length > 0 ? (
+                                <PropertyFiltersDisplay filters={nonCohortAudience} />
+                            ) : null}
+                            <BroadcastAudienceCohorts />
+                        </div>
                     ) : (
                         <div className="text-muted text-xs">No filters. This broadcast goes to everyone.</div>
                     )}

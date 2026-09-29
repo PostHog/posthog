@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconWarning } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconUpload, IconWarning } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,6 +11,9 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 import { PropertyFilterType } from '~/types'
 
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
+import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
@@ -50,13 +53,16 @@ function AudienceSizePreview(): JSX.Element | null {
 export function BroadcastRecipientsStep(): JSX.Element {
     const { audienceProperties } = useValues(broadcastWizardLogic)
     const { setAudienceProperties } = useActions(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { openListModal } = useActions(broadcastAudienceListLogic(props))
 
     return (
         <div className="flex flex-col gap-2">
             <div>
                 <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or static cohorts. Without filters, the broadcast goes to everyone.
+                    Filter by person properties or cohorts, or add people from a list. Without filters, the broadcast
+                    goes to everyone.
                 </p>
             </div>
             <div>
@@ -86,6 +92,19 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
+            <div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconUpload />}
+                    onClick={openListModal}
+                    data-attr="broadcast-audience-add-list"
+                >
+                    Add people from a list
+                </LemonButton>
+            </div>
+            <BroadcastAudienceCohorts />
+            <BroadcastAudienceListModal />
         </div>
     )
 }
