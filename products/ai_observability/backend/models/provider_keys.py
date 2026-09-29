@@ -35,6 +35,7 @@ def llm_completion_provider_choices() -> list[tuple[str, str | Promise]]:
     return [(provider, label) for provider, label in LLMProvider.choices if provider != LLMProvider.SYSTEM_ONE]
 
 
+# nosemgrep: prefer-uuid7-django-pk -- This existing table's ID default needs a separate UUIDv7 migration.
 class LLMProviderKey(UUIDTModel):
     class State(models.TextChoices):
         UNKNOWN = "unknown"
