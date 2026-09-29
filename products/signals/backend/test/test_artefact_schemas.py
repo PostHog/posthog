@@ -1,4 +1,6 @@
 import json
+from copy import deepcopy
+from typing import NotRequired, TypedDict
 
 from django.test import SimpleTestCase
 
@@ -21,35 +23,115 @@ from products.signals.backend.artefact_schemas import (
     artefact_type_for,
     parse_artefact_content,
 )
+from products.signals.backend.impact_measurement_plans import validate_authored_measurement_plan
 from products.signals.backend.models import SignalReportArtefact
+
+
+class _FilterFixture(TypedDict):
+    type: str
+    key: str
+    value: str
+
+
+class _SeriesFixture(TypedDict):
+    kind: str
+    event: str
+    math: str
+    properties: NotRequired[list[_FilterFixture]]
+    fixedProperties: NotRequired[list[_FilterFixture]]
+
+
+class _SourceFixture(TypedDict):
+    kind: str
+    dateRange: dict[str, str]
+    series: list[_SeriesFixture]
+    trendsFilter: dict[str, str]
+    properties: NotRequired[list[_FilterFixture]]
+
+
+class _QueryFixture(TypedDict):
+    kind: str
+    source: _SourceFixture
+
+
+class _ImpactPlanFixture(TypedDict):
+    metric_id: str
+    title: str
+    kind: str
+    value_format: str
+    query: _QueryFixture
+    goal_value: int
+    goal_direction: str
+    decision_window_days: int
+    minimum_data_points: NotRequired[int]
+    eligibility_query: NotRequired[_QueryFixture]
+
+
+def _impact_plan() -> _ImpactPlanFixture:
+    return {
+        "metric_id": "errors",
+        "title": "Errors",
+        "kind": "occurrences",
+        "value_format": "count",
+        "query": {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "dateRange": {"date_from": "-7d"},
+                "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                "trendsFilter": {"display": "ActionsBar"},
+            },
+        },
+        "goal_value": 0,
+        "goal_direction": "at_most",
+        "decision_window_days": 7,
+    }
 
 
 class TestArtefactSchemas(SimpleTestCase):
     def test_impact_plan_rejects_boolean_decision_rules(self) -> None:
-        plan = {
-            "metric_id": "errors",
-            "title": "Errors",
-            "kind": "occurrences",
-            "value_format": "count",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-7d"},
-                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
-                    "trendsFilter": {"display": "ActionsBar"},
-                },
-            },
-            "goal_value": 0,
-            "goal_direction": "at_most",
-            "decision_window_days": 7,
-        }
+        plan = _impact_plan()
         ImpactMeasurementPlan.model_validate(plan)
         for field in ("goal_value", "decision_window_days", "minimum_data_points"):
             for boolean in (True, False):
                 with self.assertRaises(ValidationError) as caught:
                     ImpactMeasurementPlan.model_validate({**plan, field: boolean})
                 self.assertIn(field, str(caught.exception))
+
+    def test_impact_plan_authoring_rejects_unreadable_query_filters(self) -> None:
+        for location, field in (("series", "properties"), ("series", "fixedProperties"), ("source", "properties")):
+            with self.subTest(location=location, field=field):
+                plan = _impact_plan()
+                unreadable_filter: _FilterFixture = {
+                    "type": "hogql",
+                    "key": "properties.secret",
+                    "value": "secret",
+                }
+                if location == "source":
+                    plan["query"]["source"]["properties"] = [unreadable_filter]
+                elif field == "fixedProperties":
+                    plan["query"]["source"]["series"][0]["fixedProperties"] = [unreadable_filter]
+                else:
+                    plan["query"]["source"]["series"][0]["properties"] = [unreadable_filter]
+
+                existing_plan = ImpactMeasurementPlan.model_validate(plan)
+                with self.assertRaisesRegex(ValueError, "HogQL filters are unsupported"):
+                    validate_authored_measurement_plan(existing_plan)
+
+        supported = _impact_plan()
+        supported["query"]["source"]["series"][0]["properties"] = [
+            {"type": "event", "key": "$current_url", "value": "https://example.com/errors"}
+        ]
+        validate_authored_measurement_plan(ImpactMeasurementPlan.model_validate(supported))
+
+        eligibility = _impact_plan()
+        eligibility["minimum_data_points"] = 10
+        eligibility["eligibility_query"] = deepcopy(eligibility["query"])
+        eligibility["eligibility_query"]["source"]["series"][0]["properties"] = [
+            {"type": "hogql", "key": "properties.secret", "value": "secret"}
+        ]
+        with self.assertRaisesRegex(ValueError, "eligibility query filters cannot be checked"):
+            validate_authored_measurement_plan(ImpactMeasurementPlan.model_validate(eligibility))
 
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):

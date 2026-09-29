@@ -180,6 +180,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/experiments': ['Experiments', 'experiments'],
+    '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -812,6 +813,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'experiment',
         docsHref: 'https://posthog.com/docs/experiments',
     },
+    ExperimentsStaffTools: { instanceLevel: true, name: 'Experiments staff tools' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -1444,6 +1446,7 @@ export const productUrls = {
         return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
+    experimentsStaffTools: (): string => '/experiments/staff',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
