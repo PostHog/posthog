@@ -112,11 +112,20 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     Built from the batch's contents rather than from `(team_id, cutoff)`, because two sources can
     record for one team at one cutoff and a token those two shared would silently drop the second
     source's rows.
+
+    The grouping key is in the digest because one configuration writes one row per group once a
+    source groups its results. Without it, two batches that hold the same configurations and
+    evaluation keys but different groups take the same name, and the engine drops the second one
+    whole.
     """
     digest = hashlib.sha256(str(team_id).encode())
-    for configuration_id, evaluation_key in sorted((str(row.configuration_id), row.evaluation_key) for row in rows):
+    for configuration_id, grouping_key, evaluation_key in sorted(
+        (str(row.configuration_id), row.grouping_key, row.evaluation_key) for row in rows
+    ):
         digest.update(b"\0")
         digest.update(configuration_id.encode())
+        digest.update(b"\0")
+        digest.update(grouping_key.encode())
         digest.update(b"\0")
         digest.update(evaluation_key.encode())
     return digest.hexdigest()
