@@ -255,6 +255,96 @@ class TestPagination:
             _run("tickets")
 
 
+class TestFanout:
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_key, parent_field, child_path",
+        [
+            ("software_users", "applications", "application_users", "application_id", "applications/{}/users"),
+            (
+                "software_installations",
+                "applications",
+                "installations",
+                "application_id",
+                "applications/{}/installations",
+            ),
+            ("ticket_time_entries", "tickets", "time_entries", "ticket_id", "tickets/{}/time_entries"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_requests_and_parent_id_injection(
+        self, MockSession, endpoint: str, parent_key: str, child_key: str, parent_field: str, child_path: str
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({parent_key: [{"id": 7}, {"id": 9}]}),
+                _response({child_key: [{"id": 100}]}),
+                _response({child_key: [{"id": 100}]}),
+            ],
+        )
+
+        rows = _run(endpoint)
+
+        assert [s["url"] for s in snapshots[1:]] == [
+            f"https://acme.freshservice.com/api/v2/{child_path.format(7)}",
+            f"https://acme.freshservice.com/api/v2/{child_path.format(9)}",
+        ]
+        # The child `id` repeats across parents, so the injected parent id is what makes the
+        # composite primary key unique table-wide.
+        assert rows == [{"id": 100, parent_field: 7}, {"id": 100, parent_field: 9}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_time_entries_ask_the_parent_for_every_ticket(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"tickets": [{"id": 1}]}),
+                _response({"time_entries": [{"id": 20}]}),
+            ],
+        )
+
+        _run("ticket_time_entries")
+
+        # Without updated_since the ticket listing only returns the last 30 days, which would
+        # silently drop every older ticket's time entries.
+        assert snapshots[0]["params"]["updated_since"] == "1970-01-01T00:00:00Z"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_deleted_mid_sweep_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"tickets": [{"id": 1}, {"id": 2}]}),
+                _response({"message": "gone"}, status=404),
+                _response({"time_entries": [{"id": 21}]}),
+            ],
+        )
+
+        assert _run("ticket_time_entries") == [{"id": 21, "ticket_id": 2}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_after_the_parents_already_swept(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"applications": [{"id": 7}, {"id": 9}]}),
+                _response({"application_users": [{"id": 100}]}),
+            ],
+        )
+
+        manager = _make_manager(
+            resume_state=FreshserviceResumeConfig(completed=["/api/v2/applications/7/users"], current=None)
+        )
+        rows = _run("software_users", manager=manager)
+
+        assert [s["url"] for s in snapshots[1:]] == ["https://acme.freshservice.com/api/v2/applications/9/users"]
+        assert rows == [{"id": 100, "application_id": 9}]
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403])
     @mock.patch(FRESHSERVICE_SESSION_PATCH)

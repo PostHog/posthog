@@ -18,6 +18,11 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+    BatchPhaseProgress,
+    publish_phase_gauges,
+    track_batch_phases,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
 )
@@ -468,6 +473,7 @@ class BatchConsumer:
         self._last_reconcile_monotonic = 0.0
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
+        self._inflight_progress: dict[str, BatchPhaseProgress] = {}
         self._last_stuck_log_monotonic = 0.0
         # Consecutive failed polls, for the poll-failure liveness trip.
         self._consecutive_poll_failures = 0
@@ -1169,9 +1175,12 @@ class BatchConsumer:
         )
         self._inflight_started[batch.id] = time.monotonic()
         try:
-            yield
+            with track_batch_phases() as progress:
+                self._inflight_progress[batch.id] = progress
+                yield
         finally:
             self._inflight_started.pop(batch.id, None)
+            self._inflight_progress.pop(batch.id, None)
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
@@ -1607,6 +1616,7 @@ class BatchConsumer:
         """
         if self._health_reporter is None:
             return
+        publish_phase_gauges(list(self._inflight_progress.values()))
         threshold = self._config.poll_failure_liveness_threshold
         if threshold is not None and self._consecutive_poll_failures >= threshold:
             now = time.monotonic()
@@ -1625,11 +1635,15 @@ class BatchConsumer:
             if now - oldest_started > timeout:
                 if now - self._last_stuck_log_monotonic > 60:
                     self._last_stuck_log_monotonic = now
+                    progress = self._inflight_progress.get(oldest_id)
+                    phase, phase_seconds = progress.snapshot() if progress is not None else ("unknown", 0.0)
                     logger.error(
                         self._event("stuck_batch_watchdog_tripped"),
                         batch_id=oldest_id,
                         running_seconds=round(now - oldest_started, 1),
                         timeout_seconds=timeout,
+                        phase=phase,
+                        phase_seconds=round(phase_seconds, 1),
                     )
                 return
         self._health_reporter()

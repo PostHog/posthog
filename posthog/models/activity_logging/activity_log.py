@@ -359,6 +359,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
+    # readable through activity_log:read. Record that the rubrics changed, never their contents.
+    "SignalScoutConfig": ["rubrics"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -1201,11 +1204,13 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None):
+def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None, strict: bool = False):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit(using=using) and getattr(
-            settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+        if (
+            not strict
+            and not transaction.get_autocommit(using=using)
+            and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True)
         ):
             # The transaction already committed by the time this callback runs, so its own guard
             # keeps a slow audit write from failing a request whose data is already durable.
@@ -1223,6 +1228,8 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             return create_fn()
 
     except Exception as e:
+        if strict:
+            raise
         _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
             raise
@@ -1277,6 +1284,7 @@ def log_activity(
     # A product on its own database passes `router.db_for_write(Model)`, so the audit write waits
     # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
     using: str | None = None,
+    strict: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
@@ -1345,6 +1353,7 @@ def log_activity(
                 "activity": activity,
             },
             using=using,
+            strict=strict,
         )
 
     except Exception as e:
@@ -1357,7 +1366,7 @@ def log_activity(
             exception=e,
         )
         capture_exception(e)
-        if settings.TEST:
+        if settings.TEST or strict:
             raise
         return None
 
