@@ -36,7 +36,14 @@ from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import activity_storage, record_agent_intent
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    ActivityCredential,
+    activity_storage,
+    oauth_activity_credential,
+    record_activity_actor,
+    record_agent_intent,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -353,11 +360,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
-            # requests as system actions. Only write when the middleware owns cleanup: outside a
-            # request cycle (e.g. authenticate() called directly) the thread-local would leak.
-            if activity_storage.is_request_scoped():
-                activity_storage.set_user(personal_api_key_object.user)
-                record_agent_intent(request)
+            # requests as system actions.
+            record_activity_actor(
+                personal_api_key_object.user,
+                ActivityCredential(type="personal_api_key", id=personal_api_key_object.id),
+            )
+            record_agent_intent(request)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -431,6 +439,7 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
                 team_id=team.id,
                 access_method=AccessMethod.TEAM_SECRET_TOKEN,
             )
+            record_activity_actor(None, ActivityCredential(type="team_secret_token"))
 
             return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
@@ -495,6 +504,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             api_key_mask=psak.mask_value,
             api_key_label=psak.label,
         )
+        record_activity_actor(None, ActivityCredential(type="project_secret_key", id=psak.id))
 
         return (ProjectSecretAPIKeyUser(psak), None)
 
@@ -519,6 +529,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
+                        record_activity_actor(user, ActivityCredential(type="internal_jwt"))
                         return (user, None)
                     except AuthenticationFailed:
                         raise
@@ -711,6 +722,12 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                 team_id=user.current_team_id,
                 access_method=AccessMethod.ID_JAG,
             )
+
+            record_activity_actor(
+                user,
+                ActivityCredential(type="id_jag", id=str(claims["client_id"])[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH]),
+            )
+            record_agent_intent(request)
 
             return user, None
 
@@ -983,15 +1000,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
         # ActivityLoggingMiddleware only captures session-authenticated users (it runs
         # before DRF auth), so signal-driven activity logging would otherwise record
-        # bearer-token requests as system actions. Only write when the middleware owns
-        # cleanup: outside a request cycle (e.g. authenticate() called directly) the
-        # thread-local would leak.
+        # bearer-token requests as system actions. A token minted during staff
+        # impersonation keeps the impersonation marker through `impersonated_by_id`.
+        record_activity_actor(user, oauth_activity_credential(access_token))
         if activity_storage.is_request_scoped():
-            activity_storage.set_user(user)
-            # Tokens minted during staff impersonation must keep the impersonation
-            # marker in the audit trail.
-            if access_token.impersonated_by_id is not None:
-                activity_storage.set_was_impersonated(True)
             _record_agent_attribution(request, access_token)
             self._set_scout_activity_client(access_token)
 
@@ -1124,9 +1136,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
-        if activity_storage.is_request_scoped():
-            activity_storage.set_user(personal_api_key.user)
-            record_agent_intent(request)
+        record_activity_actor(
+            personal_api_key.user, ActivityCredential(type="personal_api_key", id=personal_api_key.id)
+        )
+        record_agent_intent(request)
         return personal_api_key.user, None
 
 
@@ -1271,6 +1284,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
+        record_activity_actor(None, ActivityCredential(type="internal_api_secret"))
         return (self._get_internal_api_user(request), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
@@ -1330,7 +1344,9 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         except jwt.PyJWTError:
             raise AuthenticationFailed("Invalid or expired service token.")
 
-        return self._authenticate_claims(request, claims)
+        principal, verified_claims = self._authenticate_claims(request, claims)
+        record_activity_actor(None, ActivityCredential(type="service_jwt", id=self.purpose.audience.value))
+        return principal, verified_claims
 
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         claim_team_id = claims.get("team_id")
