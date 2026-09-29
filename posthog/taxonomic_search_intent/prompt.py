@@ -14,8 +14,6 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from django.db import connections
-
 import structlog
 from posthoganalytics.ai.prompts import PromptResult
 
@@ -108,21 +106,13 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
 
 
 def fetch_search_intent_prompt(*, label: str | None = None, version: int | None = None) -> SearchIntentPrompt:
-    """Reads the app project's managed prompt. Request code reads `current_search_intent_prompt` instead."""
+    """Blocks on the network for up to the SDK timeout. Request code reads `current_search_intent_prompt` instead."""
     result = get_app_prompt(SEARCH_INTENT_PROMPT_NAME, label=label if version is None else None, version=version)
     if result is None:
         if version is not None:
             raise RuntimeError(f"Managed prompt {SEARCH_INTENT_PROMPT_NAME} version {version} was not found")
         return BUNDLED_SEARCH_INTENT_PROMPT
-    return parse_search_intent_prompt(
-        PromptResult(
-            source="api",
-            prompt=result["prompt"],
-            name=result["name"],
-            version=result["version"],
-            config=result.get("config"),
-        )
-    )
+    return parse_search_intent_prompt(result)
 
 
 class _PromptRefresher:
@@ -148,8 +138,6 @@ class _PromptRefresher:
         except Exception:
             logger.exception("taxonomic_search_intent_prompt_refresh_failed")
             prompt = None
-        finally:
-            connections.close_all()
         with self._lock:
             if prompt is not None and (prompt.version is not None or self._prompt.version is None):
                 self._prompt = prompt

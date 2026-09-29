@@ -1,15 +1,12 @@
 import time
+import functools
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from django.db import connections
-
 import structlog
 import posthoganalytics
-
-from posthog.models.team.team import Team
-from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
+from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 PROMPT_LABEL = "production"
@@ -18,11 +15,19 @@ PROMPT_REFRESH_SECONDS = 60
 logger = structlog.get_logger(__name__)
 
 
-def get_app_prompt(prompt_name: str, *, label: str | None = None, version: int | None = None) -> dict[str, Any] | None:
-    team = Team.objects.get_team_from_token(posthoganalytics.api_key)
-    if team is None:
+@functools.cache
+def app_prompts() -> Prompts:
+    # PostHog's own prompts live in the US project, and EU has no copy of that project, so every region
+    # reads them through the SDK. One client per process keeps the SDK cache between refreshes.
+    # It is built on first use, because apps.ready() sets the key after this module can be imported.
+    return Prompts(posthoganalytics, capture_errors=True)
+
+
+def get_app_prompt(prompt_name: str, *, label: str | None = None, version: int | None = None) -> PromptResult | None:
+    # Without a key (tests, local dev, self-hosted) the SDK still sends the request and gets a 401.
+    if not posthoganalytics.personal_api_key:
         return None
-    return get_prompt_by_name_from_cache(team, prompt_name, version=version, label=label)
+    return app_prompts().get(prompt_name, with_metadata=True, label=label, version=version)
 
 
 def model_from_config(config: Any, fallback: str = DEFAULT_DECISION_MODEL) -> str:
@@ -55,7 +60,7 @@ class ManagedDecisionModel:
             if version is not None:
                 raise RuntimeError(f"Managed prompt {self.prompt_name} version {version} was not found")
             raise RuntimeError(f"Managed prompt {self.prompt_name} was not found")
-        config = result.get("config")
+        config = result.config
         model = model_from_config(config, self.fallback)
         configured = config.get("model") if isinstance(config, dict) else None
         if configured is not None and model == self.fallback and configured != self.fallback:
@@ -68,8 +73,6 @@ class ManagedDecisionModel:
             model = self.fetch()
         except Exception:
             logger.exception("managed_decision_model_refresh_failed", prompt_name=self.prompt_name)
-        finally:
-            connections.close_all()
         with self._lock:
             if model is not None:
                 self._model = model

@@ -273,22 +273,22 @@ class TestSearchIntentPrompt(SimpleTestCase):
         assert parse_search_intent_prompt(result).model == model
 
     @patch("posthog.taxonomic_search_intent.prompt.get_app_prompt")
-    def test_fetch_uses_app_prompt_without_personal_key(self, read_prompt) -> None:
-        read_prompt.return_value = {
-            "name": "taxonomic-filter-search-intent",
-            "prompt": "Which tab?",
-            "version": 3,
-            "config": {"model": "posthog/hogference/jeeves-0.1"},
-        }
+    def test_fetch_reads_the_managed_prompt(self, read_prompt) -> None:
+        read_prompt.return_value = PromptResult(
+            source="api",
+            prompt="Which tab?",
+            name="taxonomic-filter-search-intent",
+            version=3,
+            config={"model": "posthog/hogference/jeeves-0.1"},
+        )
 
-        with patch("posthoganalytics.personal_api_key", None):
-            prompt = fetch_search_intent_prompt(label="production")
-            assert prompt.version == 3
-            assert prompt.model == "posthog/hogference/jeeves-0.1"
-            read_prompt.assert_called_with("taxonomic-filter-search-intent", label="production", version=None)
+        prompt = fetch_search_intent_prompt(label="production")
+        assert prompt.version == 3
+        assert prompt.model == "posthog/hogference/jeeves-0.1"
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", label="production", version=None)
 
-            fetch_search_intent_prompt(version=4)
-            read_prompt.assert_called_with("taxonomic-filter-search-intent", label=None, version=4)
+        fetch_search_intent_prompt(version=4)
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", label=None, version=4)
 
         read_prompt.return_value = None
         assert fetch_search_intent_prompt(label="production") is BUNDLED_SEARCH_INTENT_PROMPT
@@ -309,7 +309,6 @@ class TestSearchIntentPrompt(SimpleTestCase):
         with (
             patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", slow_fetch),
             patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
-            patch("posthog.taxonomic_search_intent.prompt.connections.close_all") as close_connections,
         ):
             assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
             assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
@@ -318,14 +317,11 @@ class TestSearchIntentPrompt(SimpleTestCase):
 
             assert refresher.current() == managed
             assert len(fetches) == 1
-            close_connections.assert_called_once_with()
 
-    @patch("posthog.taxonomic_search_intent.prompt.connections.close_all")
     @patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", side_effect=ConnectionError)
-    def test_failed_refresh_closes_worker_connection(self, _fetch_prompt, close_connections) -> None:
+    def test_failed_refresh_keeps_the_bundled_prompt(self, _fetch_prompt) -> None:
         refresher = _PromptRefresher()
 
         refresher._refresh()
 
         assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-        close_connections.assert_called_once_with()

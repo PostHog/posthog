@@ -26,8 +26,8 @@ decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_AN
     hogli evals eval_search_intent --eval email_in_events_tab
 
 It scores the `production` version of the managed prompt. Set SEARCH_INTENT_PROMPT_VERSION to score
-another version. The suite reads the app project's managed prompt directly; if it is unavailable,
-the production run uses the bundled copy, while an explicit version fails clearly.
+another version. Fetching it needs POSTHOG_PERSONAL_API_KEY with read access to the PostHog project;
+without it the production run scores the bundled copy, while an explicit version fails clearly.
 """
 
 from __future__ import annotations
