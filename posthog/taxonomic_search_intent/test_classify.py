@@ -1,6 +1,4 @@
-import threading
 import dataclasses
-from concurrent.futures import Future
 
 from unittest.mock import patch
 
@@ -16,7 +14,7 @@ from posthog.taxonomic_search_intent.contracts import SearchIntent, SearchIntent
 from posthog.taxonomic_search_intent.prompt import (
     BUNDLED_SEARCH_INTENT_PROMPT,
     SearchIntentPrompt,
-    _PromptRefresher,
+    fetch_search_intent_prompt,
     parse_search_intent_prompt,
 )
 
@@ -49,6 +47,7 @@ class TestClassifySearchIntent(SimpleTestCase):
         build = patch(BUILD_CLIENT).start()
         patch(CURRENT_PROMPT, return_value=BUNDLED_SEARCH_INTENT_PROMPT).start()
         self.addCleanup(patch.stopall)
+        self.build = build
         self.decide = build.return_value.decide
 
     @parameterized.expand(
@@ -180,6 +179,16 @@ class TestClassifySearchIntent(SimpleTestCase):
         question = self.decide.call_args.kwargs["questions"]["tab"]
         assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
 
+    def test_managed_model_is_sent_to_the_gateway_and_separates_cached_answers(self) -> None:
+        self.decide.return_value = _answer("events", 0.9)
+        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/jeeves-0.1")
+
+        classify_search_intent(_search("checkout"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
+        classify_search_intent(_search("checkout"), prompt=managed)
+
+        assert self.decide.call_count == 2
+        assert self.build.call_args.kwargs["model"] == managed.model
+
     @parameterized.expand(
         [
             ("same_team_and_prompt", 7, BUNDLED_SEARCH_INTENT_PROMPT, 1),
@@ -249,30 +258,34 @@ class TestSearchIntentPrompt(SimpleTestCase):
             instructions="Which tab?", options=options, confident_threshold=threshold, version=4
         )
 
-    def test_the_sdk_fallback_is_the_bundled_prompt(self) -> None:
+    def test_the_code_fallback_is_the_bundled_prompt(self) -> None:
         result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
 
         assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
 
-    def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
-        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)
-        release = threading.Event()
-        fetches: list[Future] = []
+    def test_model_config_uses_the_managed_model(self) -> None:
+        model = "posthog/hogference/jeeves-0.1"
+        result = PromptResult(source="api", prompt="Which tab?", name="n", version=4, config={"model": model})
 
-        def slow_fetch(**_kwargs: object) -> SearchIntentPrompt:
-            assert release.wait(timeout=5)
-            return managed
+        assert parse_search_intent_prompt(result).model == model
 
-        refresher = _PromptRefresher()
-        submit = refresher._executor.submit
-        with (
-            patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", slow_fetch),
-            patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
-        ):
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            release.set()
-            fetches[0].result(timeout=5)
+    @patch("posthog.taxonomic_search_intent.prompt.get_app_prompt")
+    def test_fetch_reads_the_managed_prompt(self, read_prompt) -> None:
+        read_prompt.return_value = PromptResult(
+            source="api",
+            prompt="Which tab?",
+            name="taxonomic-filter-search-intent",
+            version=3,
+            config={"model": "posthog/hogference/jeeves-0.1"},
+        )
 
-            assert refresher.current() == managed
-            assert len(fetches) == 1
+        prompt = fetch_search_intent_prompt()
+        assert prompt.version == 3
+        assert prompt.model == "posthog/hogference/jeeves-0.1"
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=None)
+
+        fetch_search_intent_prompt(version=4)
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=4)
+
+        read_prompt.return_value = None
+        assert fetch_search_intent_prompt() is BUNDLED_SEARCH_INTENT_PROMPT
