@@ -72,6 +72,7 @@ from products.access_control.backend.property_access_control import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
@@ -269,7 +270,7 @@ def get_experiment_session_bucket(
 
     run_end = experiment.end_date or timezone.now()
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
-    filter_test_accounts = bool(criteria.filterTestAccounts) if criteria else False
+    filter_test_accounts = resolve_filter_test_accounts(criteria)
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
