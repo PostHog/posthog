@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -35,3 +37,9 @@ class TestRadarCallSite(SimpleTestCase):
     def test_a_target_type_the_hub_forbids_does_not_exempt(self) -> None:
         seed_rules(exempt_rule(targetType="everyone", targetValue="", scope="signup_risk"))
         assert _decide_outcome(RadarVerdict.BLOCK, "anyone@example.org", "", "", "93.184.216.1") == "block"
+
+    @patch("posthog.workos_radar.is_radar_bypass_email", side_effect=RuntimeError("redis down"))
+    def test_an_unreadable_legacy_list_still_lets_a_rule_decide(self, _bypass: object) -> None:
+        seed_rules(exempt_rule(targetValue="trusted@example.org", scope="signup_risk"))
+        assert _decide_outcome(RadarVerdict.BLOCK, "trusted@example.org", "", "", "93.184.216.1") == "bypass_rule"
+        assert _decide_outcome(RadarVerdict.BLOCK, "other@example.org", "", "", "93.184.216.1") == "block"

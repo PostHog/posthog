@@ -194,6 +194,20 @@ def _evaluate_verdict(
     return verdict, (time.perf_counter() - start_time) * 1000
 
 
+def _legacy_bypass(email: str) -> bool:
+    """The Redis list, read so a Redis failure cannot decide the signup on its own.
+
+    Raising here would 500 the request before the access rules are consulted, so an
+    address with a valid exemption would be refused by an outage in the list it does
+    not use. Treating the failure as a miss hands the decision to the rule check.
+    """
+    try:
+        return is_radar_bypass_email(email)
+    except Exception:
+        logger.warning("workos_radar_bypass_list_unavailable", email_hash=_hash_email(email))
+        return False
+
+
 def _decide_outcome(
     verdict: RadarVerdict,
     email: str,
@@ -212,7 +226,7 @@ def _decide_outcome(
         return "completed" if token_valid else "block"
 
     if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE):
-        if is_radar_bypass_email(email):
+        if _legacy_bypass(email):
             return "bypass_legacy"
         if is_signup_risk_exempt(email):
             return "bypass_rule"
