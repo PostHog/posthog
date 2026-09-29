@@ -26,7 +26,13 @@ import posthog.hogql.compiler.bytecode  # noqa: F401
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
+    ClickhouseCluster,
+    LightweightDeleteMutationRunner,
+    MutationWaiter,
+    wait_for_mutations_on_shards,
+)
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
@@ -685,6 +691,7 @@ def _run_immediate_event_deletion(
     context.log.info(f"Starting immediate event deletion on tables {[t.data_table for t in targets]}")
 
     swept_shards = 0
+    enqueued: list[tuple[TargetPlacement, dict[int, MutationWaiter]]] = []
     for placement in placements:
         target = placement.target
         # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
@@ -692,28 +699,25 @@ def _run_immediate_event_deletion(
         predicate, parameters = event_removal_where(
             deletion_request, use_new_events_schema=target.uses_new_events_schema
         )
-
+        runner = LightweightDeleteMutationRunner(
+            table=target.data_table,
+            predicate=predicate,
+            parameters=parameters,
+            settings={"lightweight_deletes_sync": 0},
+        )
         # placement.cluster, not the job's handle: shard numbers are per cluster.
         shards = sorted(placement.cluster.shards)
         swept_shards += len(shards)
+        enqueued.append((placement, runner.enqueue_on_shards(placement.cluster, shards)))
+        context.log.info(f"Enqueued delete on {target.data_table} across {len(shards)} shard(s)")
 
-        for idx, shard_num in enumerate(shards, 1):
-            context.log.info(f"Processing {target.data_table} shard {shard_num} ({idx}/{len(shards)})")
-            shard_start = time.monotonic()
-
-            runner = LightweightDeleteMutationRunner(
-                table=target.data_table,
-                predicate=predicate,
-                parameters=parameters,
-                settings={"lightweight_deletes_sync": 0},
-            )
-
-            shard_result = placement.cluster.map_any_host_in_shards({shard_num: runner}).result()
-            _host, mutation_waiter = next(iter(shard_result.items()))
-            placement.cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
-
-            elapsed = time.monotonic() - shard_start
-            context.log.info(f"{target.data_table} shard {shard_num} complete in {elapsed:.1f}s")
+    # Every delete is already in flight, so these waits overlap and cost the slowest shard rather
+    # than their sum.
+    for placement, shard_mutations in enqueued:
+        wait_start = time.monotonic()
+        wait_for_mutations_on_shards(placement.cluster, shard_mutations)
+        elapsed = time.monotonic() - wait_start
+        context.log.info(f"{placement.target.data_table} complete on all shards after {elapsed:.1f}s more")
 
     _verify_swept(
         cluster,
