@@ -111,5 +111,8 @@ warn_unused_ignores = true
 
 [tool.uv]
 managed = true
+# The SDK release bot resets the posthoganalytics spec to a floor on every release, so
+# this constraint is what keeps a new major out until its migration PR.
+constraint-dependencies = ["posthoganalytics<8"]
 exclude-newer = "7 days"
 exclude-newer-package = { posthoganalytics = false }

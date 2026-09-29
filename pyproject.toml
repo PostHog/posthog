@@ -308,6 +308,10 @@ proto-codegen = [
 
 [tool.uv]
 required-version = ">=0.10.2"
+# posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
+# dependency spec on every release, so this constraint is what stops a new major from
+# landing by accident. Lift it in the migration PR that moves the call sites.
+constraint-dependencies = ["posthoganalytics<8"]
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
