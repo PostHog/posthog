@@ -104,6 +104,12 @@ describe('pagerduty template', () => {
         expect(sentBody(response).payload.severity).toBe('error')
     })
 
+    it.each(['', null])('sends a fallback source when the source renders as %p', async (source) => {
+        const response = await tester.invoke(inputs({ source }))
+
+        expect(sentBody(response).payload.source).toBe('PostHog')
+    })
+
     it('cuts the summary to the PagerDuty limit', async () => {
         const response = await tester.invoke(inputs({ summary: 'x'.repeat(1100) }))
 

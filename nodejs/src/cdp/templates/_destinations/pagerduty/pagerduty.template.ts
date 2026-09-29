@@ -31,9 +31,17 @@ if (action == 'trigger') {
         severity := 'error'
     }
 
+    // PagerDuty answers a blank payload.source with a 400 that names the field, which reads as a
+    // configuration mistake. The default value ends at project.name, which is empty when the team
+    // row carries no name, so a correctly configured destination can still send nothing.
+    let source := inputs.source
+    if (empty(source)) {
+        source := 'PostHog'
+    }
+
     let payload := {
         'summary': substring(inputs.summary, 1, 1024),
-        'source': inputs.source,
+        'source': source,
         'severity': severity
     }
     if (notEmpty(inputs.component)) {
@@ -115,7 +123,7 @@ if (res.status < 200 or res.status >= 300) {
             type: 'string',
             label: 'Source',
             description: 'The system that has the problem.',
-            default: '{project.name}',
+            default: '{event.properties.source ?? project.name}',
             secret: false,
             required: true,
         },
