@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -29,7 +30,7 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ingest_customer_email,
 )
 from products.conversations.backend.services.workflow_email_ingestion import get_ses_rfc_message_id
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
 
 class TestWorkflowEmailCaptureValidation(SimpleTestCase):
@@ -80,7 +81,8 @@ class TestWorkflowEmailCapture(BaseTest):
             kind=Integration.IntegrationKind.EMAIL,
             config={"verified": True, "email": "sender@example.com", "domain": "example.com"},
         )
-        self.account = Account.objects.for_team(self.team.id).create(
+        account_model = apps.get_model("customer_analytics", "Account")
+        self.account = account_model.objects.for_team(self.team.id).create(
             team=self.team,
             name="Example account",
             _properties={"known_emails": ["customer@example.com"], "email_domains": []},
@@ -153,7 +155,7 @@ class TestWorkflowEmailCapture(BaseTest):
             from_email="sender@example.com",
             domain="example.com",
         )
-        rfc_id = get_ses_rfc_message_id(self.payload["provider_message_id"])
+        rfc_id = get_ses_rfc_message_id(str(self.payload["provider_message_id"]))
         reply = ParsedEmail(
             message_id="<reply@mail.gmail.com>",
             in_reply_to=rfc_id,
@@ -184,24 +186,12 @@ class TestWorkflowEmailCapture(BaseTest):
             .filter(thread=outbound.thread)
             .values_list("id", flat=True)
         ) == [outbound.id, first.message_id]
-
-    @patch(
-        "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
-        return_value=True,
-    )
-    def test_eligibility_only_matches_accounts_without_persisting_content(self, _flag) -> None:
-        token = CONVERSATIONS_WORKFLOW_EMAILS_PURPOSE.mint(
-            {"team_id": self.team.id, "source_id": self.payload["source_id"]}
-        )
-        response = self.client.post(
-            f"{self.url}/eligible",
-            {key: self.payload[key] for key in ("source_id", "email_integration_id", "sender", "to", "cc")},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        assert response.status_code == 200
-        assert response.json() == {"eligible": True}
-        assert not EmailThreadMessage.objects.for_team(self.team.id).exists()
+        with patch(
+            "products.customer_analytics.backend.logic.email_account_matching._match_accounts_by_person_group",
+            return_value=({}, set()),
+        ) as person_group_lookup:
+            recalculate_email_thread_links(self.team.id, thread_ids=[str(outbound.thread_id)])
+        person_group_lookup.assert_called_once()
 
     @patch(
         "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
@@ -210,20 +200,54 @@ class TestWorkflowEmailCapture(BaseTest):
     def test_account_history_does_not_require_support_product(self, _flag) -> None:
         self.team.conversations_enabled = None
         self.team.save(update_fields=["conversations_enabled"])
-        token = CONVERSATIONS_WORKFLOW_EMAILS_PURPOSE.mint(
-            {"team_id": self.team.id, "source_id": self.payload["source_id"]}
-        )
-        eligible = self.client.post(
-            f"{self.url}/eligible",
-            {key: self.payload[key] for key in ("source_id", "email_integration_id", "sender", "to", "cc")},
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
         captured = self.post_capture()
 
-        assert eligible.json() == {"eligible": True}
         assert captured.json() == {"status": "created"}
         assert EmailThreadMessage.objects.for_team(self.team.id).filter(source_type="workflow").count() == 1
+
+    @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
+    @patch(
+        "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_capture_does_not_schedule_link_recalculation(self, _flag, mock_send_task) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post_capture()
+        assert response.json() == {"status": "created"}
+        mock_send_task.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.email_account_matching._match_accounts_by_person_group")
+    @patch(
+        "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_recalculation_skips_person_group_for_workflow_only_thread(self, _flag, mock_person_group_match) -> None:
+        response = self.post_capture()
+        assert response.json() == {"status": "created"}
+        thread_id = EmailThreadMessage.objects.for_team(self.team.id).get(source_type="workflow").thread_id
+        mock_person_group_match.side_effect = AssertionError("Workflow threads must not look up person groups")
+
+        assert recalculate_email_thread_links(self.team.id, thread_ids=[str(thread_id)]) == 1
+        mock_person_group_match.assert_not_called()
+        assert EmailThreadAccountLink.objects.for_team(self.team.id).filter(thread_id=thread_id).count() == 1
+
+    @patch("products.customer_analytics.backend.logic.email_account_matching._match_accounts_by_person_group")
+    @patch(
+        "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_person_group_only_match_does_not_create_thread(self, _flag, mock_person_group_match) -> None:
+        apps.get_model("customer_analytics", "Account").objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Group account",
+            external_id="group-account",
+            _properties={"known_emails": [], "email_domains": []},
+        )
+        mock_person_group_match.side_effect = AssertionError("SES must not look up person groups")
+        response = self.post_capture({**self.payload, "to": {"email": "person@unknown.example.net"}, "cc": []})
+        assert response.json() == {"status": "skipped_unmatched"}
+        mock_person_group_match.assert_not_called()
+        assert not EmailThreadMessage.objects.for_team(self.team.id).exists()
 
     @patch(
         "products.conversations.backend.services.workflow_email_ingestion.posthoganalytics.feature_enabled",
@@ -231,7 +255,7 @@ class TestWorkflowEmailCapture(BaseTest):
     )
     def test_internal_cc_does_not_link_an_unrelated_account(self, _flag) -> None:
         User.objects.create_and_join(self.organization, "coworker@example.org", None)
-        Account.objects.for_team(self.team.id).create(
+        apps.get_model("customer_analytics", "Account").objects.for_team(self.team.id).create(
             team=self.team,
             name="Internal account",
             _properties={"known_emails": ["coworker@example.org"], "email_domains": []},
@@ -270,7 +294,7 @@ class TestWorkflowEmailCapture(BaseTest):
         return_value=True,
     )
     def test_ambiguous_account_does_not_capture_email(self, _flag) -> None:
-        Account.objects.for_team(self.team.id).create(
+        apps.get_model("customer_analytics", "Account").objects.for_team(self.team.id).create(
             team=self.team,
             name="Another example account",
             _properties={"known_emails": ["customer@example.com"], "email_domains": []},

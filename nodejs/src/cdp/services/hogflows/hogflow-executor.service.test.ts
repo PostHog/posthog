@@ -304,6 +304,7 @@ describe('Hogflow Executor', () => {
 
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                conversationCaptures: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
@@ -347,6 +348,7 @@ describe('Hogflow Executor', () => {
                     queuePriority: 0,
                 },
                 finished: true,
+                skipped: undefined,
                 logs: [
                     {
                         level: 'info',

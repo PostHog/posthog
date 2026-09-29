@@ -1,24 +1,16 @@
 import { DateTime } from 'luxon'
 
-import {
-    CyclotronInvocationQueueParametersEmailCaptureType,
-    CyclotronInvocationQueueParametersEmailType,
-} from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersEmailCaptureType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { logger } from '~/common/utils/logger'
-import { captureTeamEvent, isFeatureFlagEnabled } from '~/common/utils/posthog'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { internalFetch } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 
-const CUSTOMER_ANALYTICS_CSP_FLAG = 'customer-analytics-csp'
-export const ELIGIBILITY_TIMEOUT_MS = 2 * 60 * 1000
-const ELIGIBILITY_RETRY_MS = 10 * 1000
 const CAPTURE_RETRY_MAX_MS = 30 * 60 * 1000
 const CAPTURE_MAX_AGE_MS = 24 * 60 * 60 * 1000
-
-type EligibilityResult = 'ineligible' | 'eligible' | 'retry'
 
 export class WorkflowConversationCaptureService {
     constructor(
@@ -27,110 +19,14 @@ export class WorkflowConversationCaptureService {
         private internalApiBaseUrl: string
     ) {}
 
-    async checkEligibility(
-        teamId: number,
-        sourceId: string,
-        integrationId: number,
-        sender: { email: string; name: string },
-        to: { email: string; name: string },
-        cc: { email: string; name: string }[]
-    ): Promise<EligibilityResult> {
-        let timeout: NodeJS.Timeout | undefined
-        try {
-            return await Promise.race([
-                this.checkEligibilityOnce(teamId, sourceId, integrationId, sender, to, cc),
-                new Promise<EligibilityResult>((resolve) => {
-                    timeout = setTimeout(() => resolve('retry'), 5000)
-                }),
-            ])
-        } finally {
-            if (timeout) {
-                clearTimeout(timeout)
-            }
-        }
-    }
-
-    private async checkEligibilityOnce(
-        teamId: number,
-        sourceId: string,
-        integrationId: number,
-        sender: { email: string; name: string },
-        to: { email: string; name: string },
-        cc: { email: string; name: string }[]
-    ): Promise<EligibilityResult> {
-        if (!this.jwt.enabled) {
-            return 'ineligible'
-        }
-        try {
-            const team = await this.teamManager.getTeam(teamId)
-            if (!team) {
-                return 'ineligible'
-            }
-            const enabled = await isFeatureFlagEnabled(
-                CUSTOMER_ANALYTICS_CSP_FLAG,
-                team.organization_id,
-                {
-                    groups: { organization: team.organization_id },
-                    onlyEvaluateLocally: false,
-                    sendFeatureFlagEvents: false,
-                },
-                true
-            )
-            if (!enabled) {
-                return 'ineligible'
-            }
-        } catch {
-            return 'retry'
-        }
-        try {
-            const response = await internalFetch(
-                `${this.internalApiBaseUrl}/api/projects/${teamId}/internal/conversations/workflow-emails/eligible`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${this.jwt.mint({ team_id: teamId, source_id: sourceId })}`,
-                    },
-                    body: JSON.stringify({ source_id: sourceId, email_integration_id: integrationId, sender, to, cc }),
-                    timeoutMs: 5000,
-                }
-            )
-            if (response.status === 200) {
-                const body: unknown = await response.json()
-                if (body && typeof body === 'object' && 'eligible' in body && typeof body.eligible === 'boolean') {
-                    return body.eligible ? 'eligible' : 'ineligible'
-                }
-                return 'retry'
-            }
-            if (response.status >= 500 || response.status === 429) {
-                return 'retry'
-            }
-            logger.warn('workflow_conversation_eligibility_rejected', { teamId, sourceId, status: response.status })
-            return 'ineligible'
-        } catch {
-            return 'retry'
-        }
-    }
-
-    getEligibilityDelay(params: CyclotronInvocationQueueParametersEmailType, now = Date.now()): number | null {
-        const firstFailure = Date.parse(params.conversationEligibilityFirstFailedAt ?? '')
-        if (!Number.isFinite(firstFailure)) {
-            params.conversationEligibilityFirstFailedAt = new Date(now).toISOString()
-            return ELIGIBILITY_RETRY_MS
-        }
-        const remaining = ELIGIBILITY_TIMEOUT_MS - (now - firstFailure)
-        return remaining > 0 ? Math.min(ELIGIBILITY_RETRY_MS, remaining) : null
+    get enabled(): boolean {
+        return this.jwt.enabled
     }
 
     async recordSkipped(
         teamId: number,
         invocationId: string,
-        reason:
-            | 'eligibility_timeout'
-            | 'body_unavailable'
-            | 'queue_unavailable'
-            | 'unmatched_after_send'
-            | 'disabled_after_send'
+        reason: 'body_unavailable' | 'queue_unavailable' | 'unmatched_after_send' | 'disabled_after_send'
     ): Promise<void> {
         logger.warn('workflow_conversation_capture_skipped', { teamId, invocationId, reason })
         const team = await this.teamManager.getTeam(teamId)

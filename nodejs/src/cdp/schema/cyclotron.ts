@@ -167,7 +167,6 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     // Emails authored through the API or MCP often carry html only.
     text: z.string().optional(),
     html: z.string(),
-    conversationEligibilityFirstFailedAt: z.string().optional(),
 })
 
 const WorkflowConversationAddressSchema = z.object({ email: z.string(), name: z.string() })

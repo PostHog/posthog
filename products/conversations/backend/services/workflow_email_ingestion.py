@@ -19,10 +19,9 @@ from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     EmailThreadIngestionResult,
     ParsedEmail,
-    ingest_customer_email,
+    ingest_email_message,
 )
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-from products.customer_analytics.backend.facade.email_matching import match_email_accounts
+from products.customer_analytics.backend.facade.email_matching import CUSTOMER_ANALYTICS_CSP_FLAG, match_email_accounts
 
 _SES_MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9-]{1,250}\Z")
 
@@ -75,12 +74,6 @@ def get_external_workflow_recipients(team: Team, sender_email: str, to_email: st
     return sorted(recipients - internal_emails)
 
 
-def has_workflow_email_account_match(team: Team, sender_email: str, to_email: str, cc_emails: list[str]) -> bool:
-    return bool(
-        match_email_accounts(team.id, get_external_workflow_recipients(team, sender_email, to_email, cc_emails))
-    )
-
-
 def ingest_workflow_email(
     *,
     team: Team,
@@ -102,6 +95,7 @@ def ingest_workflow_email(
         get_external_workflow_recipients(
             team, sender.email, to_recipient.email, [recipient.email for recipient in cc_recipients]
         ),
+        use_person_group_match=False,
     )
     if not matches:
         return None
@@ -124,7 +118,7 @@ def ingest_workflow_email(
         attachments=(),
     )
     with transaction.atomic():
-        result = ingest_customer_email(
+        result = ingest_email_message(
             team_id=team.id,
             channel=None,
             email=email,

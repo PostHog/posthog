@@ -9,6 +9,7 @@ from posthog.models.user import User
 
 from products.conversations.backend.facade import api as conversations
 from products.conversations.backend.facade.types import EmailThreadAccountLinkInput, EmailThreadForAccountMatching
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG as CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_member_search import is_account_member_search_enabled
 from products.customer_analytics.backend.logic.email_account_matching import (
@@ -101,16 +102,22 @@ def _dedupe_account_matches(matches_by_email: dict[str, MatchedAccount]) -> list
     return list(matches_by_account_id.values())
 
 
-def _match_email_accounts(team: Team, emails: list[str]) -> list[contracts.EmailAccountMatch]:
-    return _dedupe_account_matches(match_accounts_for_emails(team, emails))
+def _match_email_accounts(
+    team: Team, emails: list[str], *, use_person_group_match: bool = True
+) -> list[contracts.EmailAccountMatch]:
+    return _dedupe_account_matches(
+        match_accounts_for_emails(team, emails, use_person_group_match=use_person_group_match)
+    )
 
 
-def match_email_accounts(team_id: int, emails: list[str]) -> list[contracts.EmailAccountMatch]:
+def match_email_accounts(
+    team_id: int, emails: list[str], *, use_person_group_match: bool = True
+) -> list[contracts.EmailAccountMatch]:
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         return []
-    return _match_email_accounts(team, emails)
+    return _match_email_accounts(team, emails, use_person_group_match=use_person_group_match)
 
 
 def recalculate_email_thread_links(
@@ -142,18 +149,26 @@ def recalculate_email_thread_links(
         enabled_owner_ids = {
             owner_id for owner_id, owner in owners_by_id.items() if is_account_member_search_enabled(team, owner)
         }
-        threads_by_member_search: dict[bool, list[EmailThreadForAccountMatching]] = {}
+        threads_by_matching_policy: dict[tuple[bool, bool], list[EmailThreadForAccountMatching]] = {}
         for thread in threads:
-            member_search_enabled = thread.gmail_owner_id in enabled_owner_ids
-            threads_by_member_search.setdefault(member_search_enabled, []).append(thread)
-        matches_by_member_search = {
-            member_search_enabled: (
-                match_accounts_for_gmail_emails if member_search_enabled else match_accounts_for_emails
-            )(team, [email for thread in matching_threads for email in thread.participant_emails])
-            for member_search_enabled, matching_threads in threads_by_member_search.items()
-        }
+            policy = (thread.gmail_owner_id in enabled_owner_ids, thread.workflow_only)
+            threads_by_matching_policy.setdefault(policy, []).append(thread)
+        matches_by_matching_policy: dict[tuple[bool, bool], dict[str, MatchedAccount]] = {}
+        for policy, matching_threads in threads_by_matching_policy.items():
+            emails = [email for thread in matching_threads for email in thread.participant_emails]
+            if policy[0]:
+                policy_matches = match_accounts_for_gmail_emails(team, emails)
+            else:
+                policy_matches = (
+                    match_accounts_for_emails(team, emails, use_person_group_match=False)
+                    if policy[1]
+                    else match_accounts_for_emails(team, emails)
+                )
+            matches_by_matching_policy[policy] = policy_matches
         for thread in threads:
-            group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
+            group_matches = matches_by_matching_policy[
+                (thread.gmail_owner_id in enabled_owner_ids, thread.workflow_only)
+            ]
             thread_matches = {
                 email: group_matches[email]
                 for email in normalize_emails(thread.participant_emails)

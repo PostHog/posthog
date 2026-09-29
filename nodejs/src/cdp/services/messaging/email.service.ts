@@ -412,10 +412,6 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
-        let conversationCaptureEligible = false
-        let conversationCaptureSkipped = false
-        let conversationCaptureSkipReason: 'eligibility_timeout' | 'body_unavailable' = 'eligibility_timeout'
-        let conversationBodyPlain = ''
         let providerMessageId: string | undefined
 
         try {
@@ -523,46 +519,6 @@ export class EmailService {
                 return result
             }
 
-            if (
-                !isTest &&
-                invocation.hogFunction.metadata?.workflow_email_action === true &&
-                invocation.hogFunction.metadata?.match_email_to_accounts === true &&
-                (integration.config.provider ?? 'ses') === 'ses' &&
-                this.workflowConversationCaptureService
-            ) {
-                const eligibility = await this.workflowConversationCaptureService.checkEligibility(
-                    invocation.teamId,
-                    invocation.id,
-                    integrationId,
-                    from,
-                    { email: params.to.email, name: params.to.name ?? '' },
-                    extractEmailsFromAddressList(params.cc).map((email) => ({ email, name: '' }))
-                )
-                if (eligibility === 'retry') {
-                    const delay = this.workflowConversationCaptureService.getEligibilityDelay(params)
-                    if (delay !== null) {
-                        result.finished = false
-                        result.invocation.queueParameters = params
-                        result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: delay })
-                        return result
-                    }
-                    conversationCaptureSkipped = true
-                }
-                if (eligibility === 'eligible') {
-                    try {
-                        conversationBodyPlain = params.text || convert(params.html, { wordwrap: false })
-                        conversationCaptureEligible = conversationBodyPlain.length <= 200000
-                        if (!conversationCaptureEligible) {
-                            conversationCaptureSkipped = true
-                            conversationCaptureSkipReason = 'body_unavailable'
-                        }
-                    } catch {
-                        conversationCaptureSkipped = true
-                        conversationCaptureSkipReason = 'body_unavailable'
-                    }
-                }
-            }
-
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
@@ -656,25 +612,38 @@ export class EmailService {
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
-            if (conversationCaptureEligible && providerMessageId) {
-                result.conversationCaptures = [
-                    {
-                        source_id: invocation.id,
-                        provider_message_id: providerMessageId,
-                        email_integration_id: integrationId,
-                        sent_at: new Date().toISOString(),
-                        sender: from,
-                        to: { email: params.to.email, name: params.to.name ?? '' },
-                        cc: extractEmailsFromAddressList(params.cc).map((email) => ({ email, name: '' })),
-                        subject: sanitizeEmailSubject(params.subject),
-                        body_plain: conversationBodyPlain,
-                    },
-                ]
-            }
-            if (conversationCaptureSkipped) {
-                void this.workflowConversationCaptureService
-                    ?.recordSkipped(invocation.teamId, invocation.id, conversationCaptureSkipReason)
-                    .catch(() => {})
+            if (
+                !isTest &&
+                invocation.hogFunction.metadata?.workflow_email_action === true &&
+                invocation.hogFunction.metadata?.match_email_to_accounts === true &&
+                (integration.config.provider ?? 'ses') === 'ses' &&
+                this.workflowConversationCaptureService?.enabled &&
+                providerMessageId
+            ) {
+                try {
+                    const bodyPlain = params.text || convert(params.html, { wordwrap: false })
+                    if (bodyPlain.length > 200000) {
+                        throw new Error('Conversation body exceeds capture limit')
+                    }
+                    result.conversationCaptures = [
+                        {
+                            source_id: invocation.id,
+                            provider_message_id: providerMessageId,
+                            email_integration_id: integrationId,
+                            sent_at: new Date().toISOString(),
+                            sender: from,
+                            to: { email: params.to.email, name: params.to.name ?? '' },
+                            cc: extractEmailsFromAddressList(params.cc).map((email) => ({ email, name: '' })),
+                            subject: sanitizeEmailSubject(params.subject),
+                            body_plain: bodyPlain,
+                        },
+                    ]
+                } catch {
+                    // Capture failures must not retry an email SES already accepted.
+                    void this.workflowConversationCaptureService
+                        .recordSkipped(invocation.teamId, invocation.id, 'body_unavailable')
+                        .catch(() => {})
+                }
             }
         } catch (error) {
             if (error instanceof SESThrottleError) {

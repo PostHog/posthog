@@ -35,7 +35,6 @@ from products.conversations.backend.metrics import TICKET_ACTION_AUTH_COUNTER
 from products.conversations.backend.services.email_thread_ingestion import EmailAddress
 from products.conversations.backend.services.workflow_email_ingestion import (
     get_verified_workflow_sender,
-    has_workflow_email_account_match,
     ingest_workflow_email,
     is_workflow_email_capture_enabled,
 )
@@ -80,8 +79,11 @@ class WorkflowEmailCaptureSerializer(serializers.Serializer):
     sent_at = serializers.DateTimeField(help_text="SES acceptance time.")
     sender = WorkflowEmailAddressSerializer(help_text="Rendered verified sender.")
     to = WorkflowEmailAddressSerializer(help_text="Primary recipient.")
-    cc = WorkflowEmailAddressSerializer(
-        many=True, required=False, max_length=49, help_text="Visible copy recipients, excluding BCC."
+    cc = serializers.ListField(
+        child=WorkflowEmailAddressSerializer(),
+        required=False,
+        max_length=49,
+        help_text="Visible copy recipients, excluding BCC.",
     )
     subject = serializers.CharField(
         max_length=998, allow_blank=True, trim_whitespace=False, help_text="Rendered email subject."
@@ -100,54 +102,6 @@ class WorkflowEmailCaptureResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="created, existing, skipped_disabled, or skipped_unmatched.")
 
 
-class WorkflowEmailEligibilitySerializer(serializers.Serializer):
-    source_id = serializers.CharField(max_length=512, help_text="Stable Workflow invocation ID.")
-    email_integration_id = serializers.IntegerField(
-        min_value=1, help_text="Verified email integration for this project."
-    )
-    sender = WorkflowEmailAddressSerializer(help_text="Rendered verified sender.")
-    to = WorkflowEmailAddressSerializer(help_text="Primary recipient.")
-    cc = WorkflowEmailAddressSerializer(many=True, required=False, max_length=49, help_text="Visible copy recipients.")
-
-
-class WorkflowEmailEligibilityResponseSerializer(serializers.Serializer):
-    eligible = serializers.BooleanField(help_text="Whether this send can be retained as account email history.")
-
-
-class InternalWorkflowEmailEligibilityView(APIView):
-    authentication_classes = [ConversationsWorkflowEmailJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        request=WorkflowEmailEligibilitySerializer, responses={200: WorkflowEmailEligibilityResponseSerializer}
-    )
-    def post(self, request: Request, team_id: str) -> Response:
-        serializer = WorkflowEmailEligibilitySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        payload = serializer.validated_data
-        claims = cast(dict[str, Any], request.auth or {})
-        if claims.get("source_id") != payload["source_id"]:
-            return Response({"error": "Service token does not grant access to this email"}, status=403)
-
-        team = Team.objects.get(id=claims["team_id"])
-        if not is_workflow_email_capture_enabled(team):
-            return Response({"eligible": False})
-        if not get_verified_workflow_sender(
-            team_id=team.id, integration_id=payload["email_integration_id"], sender_email=payload["sender"]["email"]
-        ):
-            return Response({"error": "Email integration not found"}, status=404)
-        return Response(
-            {
-                "eligible": has_workflow_email_account_match(
-                    team,
-                    payload["sender"]["email"],
-                    payload["to"]["email"],
-                    [address["email"] for address in payload.get("cc", [])],
-                )
-            }
-        )
-
-
 class InternalWorkflowEmailView(APIView):
     authentication_classes = [ConversationsWorkflowEmailJWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -163,7 +117,7 @@ class InternalWorkflowEmailView(APIView):
 
         team = Team.objects.get(id=claims["team_id"])
         if not is_workflow_email_capture_enabled(team):
-            return Response({"status": "skipped_disabled"})
+            return Response(WorkflowEmailCaptureResponseSerializer({"status": "skipped_disabled"}).data)
         sender = EmailAddress(**payload["sender"])
         if not get_verified_workflow_sender(
             team_id=team.id, integration_id=payload["email_integration_id"], sender_email=sender.email
@@ -182,7 +136,9 @@ class InternalWorkflowEmailView(APIView):
             body_plain=payload["body_plain"],
         )
         return Response(
-            {"status": "skipped_unmatched" if result is None else "created" if result.created else "existing"}
+            WorkflowEmailCaptureResponseSerializer(
+                {"status": "skipped_unmatched" if result is None else "created" if result.created else "existing"}
+            ).data
         )
 
 

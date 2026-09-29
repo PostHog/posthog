@@ -43,7 +43,6 @@ from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import (
     InternalTicketView as ConversationsInternalTicketView,
-    InternalWorkflowEmailEligibilityView as ConversationsInternalWorkflowEmailEligibilityView,
     InternalWorkflowEmailView as ConversationsInternalWorkflowEmailView,
 )
 from products.customer_analytics.backend.presentation.views.internal import (
@@ -273,10 +272,6 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/conversations/workflow-emails",
         csrf_exempt(ConversationsInternalWorkflowEmailView.as_view()),
-    ),
-    path(
-        "api/projects/<str:team_id>/internal/conversations/workflow-emails/eligible",
-        csrf_exempt(ConversationsInternalWorkflowEmailEligibilityView.as_view()),
     ),
     # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
     path(

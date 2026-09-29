@@ -189,6 +189,9 @@ def _upsert_participants(
         .values_list("normalized_member_email", flat=True)
     )
     if channel is not None:
+        owner = channel.owner
+        if owner is None:
+            raise ValueError("Customer communication channels require an owner")
         organization_member_emails.update({channel.from_email.lower(), owner.email.lower()})
     if internal_sender_email is not None:
         organization_member_emails.add(internal_sender_email.lower())
@@ -308,7 +311,7 @@ def _ingest_customer_email_once(
     return EmailThreadIngestionResult(thread_id=thread.id, message_id=message.id, created=True)
 
 
-def ingest_customer_email(
+def ingest_email_message(
     *,
     team_id: int,
     channel: EmailChannel | None,
@@ -341,5 +344,27 @@ def ingest_customer_email(
             created=False,
         )
 
+    return result
+
+
+def ingest_customer_email(
+    *,
+    team_id: int,
+    channel: EmailChannel | None,
+    email: ParsedEmail,
+    direction: EmailThreadMessageDirection,
+    source_type: str = "mailgun",
+    source_id: str | None = None,
+    internal_sender_email: str | None = None,
+) -> EmailThreadIngestionResult:
+    result = ingest_email_message(
+        team_id=team_id,
+        channel=channel,
+        email=email,
+        direction=direction,
+        source_type=source_type,
+        source_id=source_id,
+        internal_sender_email=internal_sender_email,
+    )
     schedule_email_thread_link_recalculation_for_threads(team_id, [str(result.thread_id)])
     return result

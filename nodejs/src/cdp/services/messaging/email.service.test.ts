@@ -191,12 +191,8 @@ describe('EmailService', () => {
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         })
-        it('queues a capture without BCC only after SES accepts an eligible send', async () => {
-            const captureService = {
-                checkEligibility: jest.fn().mockResolvedValue('eligible'),
-                getEligibilityDelay: jest.fn(),
-                recordSkipped: jest.fn(),
-            }
+        it('queues a capture without BCC only after SES accepts an opted-in send', async () => {
+            const captureService = { enabled: true, recordSkipped: jest.fn() }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
             invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({
@@ -221,11 +217,20 @@ describe('EmailService', () => {
             expect(result.conversationCaptures?.[0]).not.toHaveProperty('bcc')
         })
 
+        it('does not queue a capture when SES rejects the send', async () => {
+            Reflect.set(service, 'workflowConversationCaptureService', { enabled: true, recordSkipped: jest.fn() })
+            invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
+            sendEmailSpy.mockRejectedValueOnce(new Error('SES unavailable'))
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+            expect(result.error).toBe('Failed to send email via SES: SES unavailable')
+            expect(result.conversationCaptures).toBeUndefined()
+        })
+
         it('captures a plain-text fallback for an HTML-only email', async () => {
-            Reflect.set(service, 'workflowConversationCaptureService', {
-                checkEligibility: jest.fn().mockResolvedValue('eligible'),
-                recordSkipped: jest.fn(),
-            })
+            Reflect.set(service, 'workflowConversationCaptureService', { enabled: true, recordSkipped: jest.fn() })
             invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
@@ -241,10 +246,7 @@ describe('EmailService', () => {
         })
 
         it('does not queue oversized content after SES acceptance', async () => {
-            const captureService = {
-                checkEligibility: jest.fn().mockResolvedValue('eligible'),
-                recordSkipped: jest.fn().mockResolvedValue(undefined),
-            }
+            const captureService = { enabled: true, recordSkipped: jest.fn().mockResolvedValue(undefined) }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
             invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, text: 'x'.repeat(200001) })
@@ -256,25 +258,14 @@ describe('EmailService', () => {
             expect(captureService.recordSkipped).toHaveBeenCalledWith(team.id, invocation.id, 'body_unavailable')
         })
 
-        it('sends once without capture after the pre-send eligibility deadline', async () => {
-            const captureService = {
-                checkEligibility: jest.fn().mockResolvedValue('retry'),
-                getEligibilityDelay: jest.fn().mockReturnValueOnce(10000).mockReturnValueOnce(null),
-                recordSkipped: jest.fn().mockResolvedValue(undefined),
-            }
-            Reflect.set(service, 'workflowConversationCaptureService', captureService)
+        it('sends without capture when the capture service is not configured', async () => {
+            Reflect.set(service, 'workflowConversationCaptureService', { enabled: false, recordSkipped: jest.fn() })
             invocation.hogFunction.metadata = { workflow_email_action: true, match_email_to_accounts: true }
 
-            const parked = await service.executeSendEmail(invocation)
-            expect(parked.finished).toBe(false)
-            expect(sendEmailSpy).not.toHaveBeenCalled()
-            expect(parked.invocation.queueParameters?.type).toBe('email')
-
-            const sent = await service.executeSendEmail(parked.invocation)
+            const result = await service.executeSendEmail(invocation)
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-            expect(sent.conversationCaptures).toBeUndefined()
-            expect(captureService.recordSkipped).toHaveBeenCalledTimes(1)
-            expect(sent.metrics.some((metric) => metric.metric_name === 'email_sent')).toBe(true)
+            expect(result.conversationCaptures).toBeUndefined()
+            expect(result.metrics.some((metric) => metric.metric_name === 'email_sent')).toBe(true)
         })
 
         it.each([
@@ -282,8 +273,8 @@ describe('EmailService', () => {
             ['disabled', false, true],
             ['standalone email', true, false],
             ['editor test send', true, true],
-        ])('skips account matching for %s sends', async (_, optIn, workflowAction) => {
-            const captureService = { checkEligibility: jest.fn(), recordSkipped: jest.fn() }
+        ])('skips conversation capture for %s sends', async (_, optIn, workflowAction) => {
+            const captureService = { enabled: true, recordSkipped: jest.fn() }
             Reflect.set(service, 'workflowConversationCaptureService', captureService)
             invocation.hogFunction.metadata = {
                 workflow_email_action: workflowAction,
@@ -291,7 +282,6 @@ describe('EmailService', () => {
             }
             const result = await service.executeSendEmail(invocation, optIn === true && workflowAction)
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-            expect(captureService.checkEligibility).not.toHaveBeenCalled()
             expect(result.conversationCaptures).toBeUndefined()
         })
 

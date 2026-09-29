@@ -142,6 +142,20 @@ class TestEmailAccountMatching(BaseTest):
                 (str(expected_account.id), expected_source)
             ]
 
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_can_skip_person_group_lookup_without_changing_default(self, mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        account = self._create_account(name="Grouped", external_id="group-account")
+        mock_group_keys.return_value = {"member@example.net": "group-account"}
+
+        assert match_email_accounts(self.team.id, ["member@example.net"], use_person_group_match=False) == []
+        mock_group_keys.assert_not_called()
+        assert [
+            (match.account_id, match.match_source)
+            for match in match_email_accounts(self.team.id, ["member@example.net"])
+        ] == [(str(account.id), "person_group")]
+
     def test_direct_matching_does_not_use_organization_membership(self) -> None:
         member = self._create_account_member(email="member@gmail.com")
         self._create_account(name="Customer", external_id=str(self.organization.id))

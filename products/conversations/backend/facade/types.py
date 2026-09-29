@@ -91,6 +91,7 @@ class EmailThreadForAccountMatching:
     id: str
     participant_emails: list[str]
     gmail_owner_id: int | None
+    workflow_only: bool = False
 
 
 @dataclass(frozen=True)
