@@ -276,8 +276,16 @@ the clause whose series is evaluated. The window rules differ from logs below th
   seconds left under `BATCH_QUERY_BUDGET_SECONDS` and `timeout_overflow_mode=throw`. There is no cross-alert cohort:
   metrics queries are per clause, so the module does not pretend to batch.
 - A missing current value is inconclusive: the alert keeps its state and its failure count and announces nothing.
-- A result with more than one series (a `group_by`) is a failed check that counts toward BROKEN until grouped
-  alerts land.
+- A `group_by` clause gives one `PlatformAlert` row per label set. The grouping key is the canonical JSON of the
+  sorted labels, empty for an ungrouped query, so an ungrouped source keeps its single row. Each label set fires,
+  resolves and mutes on its own; the configuration keeps the schedule and takes the worst failure count of its
+  groups. One preview per configuration carries one transition per group that has a notification.
+- Groups are capped at `MAX_GROUPS_PER_CONFIGURATION` (50, below the query facade's per-clause series cap so an
+  overflow is always visible). Past the cap the first 50 label sets by key are
+  evaluated and the overflow is recorded as a failed check on the root group, so a cap never reads as "nothing is
+  wrong". A label set the platform remembers and the query no longer returns is inconclusive for its group, not
+  dropped, so a firing group is never stranded. Once such a group is not firing its row is retired, and only live
+  groups count toward the cap, so churn in label sets cannot fill the cap for good.
 
 Nothing creates a metrics platform configuration yet except `upsert_configuration`, so a production tick finds
 no metrics demand until one is written by hand.

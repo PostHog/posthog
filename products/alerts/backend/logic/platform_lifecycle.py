@@ -10,7 +10,12 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.contracts import PlatformAlertCheckInput, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.contracts import (
+    PlatformAlertCheckInput,
+    PlatformAlertGroupState,
+    PlatformAlertOutcome,
+    PlatformAlertUpsert,
+)
 from products.alerts.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -21,32 +26,48 @@ def due_q(moment: datetime) -> Q:
     return Q(next_check_at__lte=moment) | Q(next_check_at__isnull=True)
 
 
-def _existing_alerts(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> dict[str, PlatformAlert]:
-    """The runtime rows that exist. A configuration with none has never been evaluated.
+GroupedAlerts = dict[str, dict[str, PlatformAlert]]
 
-    The grouping key is empty until a source groups its results, so today this is the whole of
-    an alert's state and a real key needs no new table.
+
+def _existing_alerts(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> GroupedAlerts:
+    """The runtime rows that exist, by configuration and then by grouping key.
+
+    A configuration with no rows has never been evaluated. An ungrouped source has one row with an
+    empty key; a grouped source has one row per label set it has seen.
     """
-    return {
-        str(alert.configuration_id): alert
-        for alert in PlatformAlert.objects.for_team(team_id).filter(configuration__in=configurations, grouping_key="")
-    }
+    grouped: GroupedAlerts = {}
+    for alert in PlatformAlert.objects.for_team(team_id).filter(configuration__in=configurations):
+        grouped.setdefault(str(alert.configuration_id), {})[alert.grouping_key] = alert
+    return grouped
 
 
-def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> dict[str, PlatformAlert]:
-    """The runtime rows, creating any configuration that has none yet."""
+def _alerts_for_write(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    keys_by_configuration: dict[str, set[str]] | None = None,
+) -> GroupedAlerts:
+    """The runtime rows, creating any (configuration, grouping key) that has none yet.
+
+    Without `keys_by_configuration` every configuration gets its root row, which is what an
+    ungrouped source and the copy-in need.
+    """
     existing = _existing_alerts(team_id, configurations)
-    missing = [c for c in configurations if str(c.id) not in existing]
+    missing: list[PlatformAlert] = []
+    for configuration in configurations:
+        wanted = (keys_by_configuration or {}).get(str(configuration.id), {""})
+        present = existing.get(str(configuration.id), {})
+        missing.extend(
+            PlatformAlert(team_id=team_id, configuration=configuration, grouping_key=key)
+            for key in wanted
+            if key not in present
+        )
     if missing:
         # ignore_conflicts leans on the unique constraint, so a concurrent cycle creating the
         # same row is not an error. `for_team` because these models are fail-closed and a
         # Temporal activity has no ambient scope; the rows still carry `team_id` themselves,
         # because a queryset filter does not propagate into row creation.
-        PlatformAlert.objects.for_team(team_id).bulk_create(
-            [PlatformAlert(team_id=team_id, configuration=c, grouping_key="") for c in missing],
-            ignore_conflicts=True,
-        )
-        existing.update(_existing_alerts(team_id, missing))
+        PlatformAlert.objects.for_team(team_id).bulk_create(missing, ignore_conflicts=True)
+        existing = _existing_alerts(team_id, configurations)
     return existing
 
 
@@ -90,10 +111,20 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
         return ()
 
     alerts = _existing_alerts(team_id, configurations)
-    return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
+    return tuple(_check(c, alerts.get(str(c.id), {})) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheckInput:
+def _group_state(alert: PlatformAlert) -> PlatformAlertGroupState:
+    return PlatformAlertGroupState(
+        grouping_key=alert.grouping_key,
+        state=alert.state,
+        last_notified_at=alert.last_notified_at,
+        snooze_until=alert.snooze_until,
+    )
+
+
+def _check(c: PlatformAlertConfiguration, alerts: dict[str, PlatformAlert]) -> PlatformAlertCheckInput:
+    root = alerts.get("")
     return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
@@ -110,9 +141,10 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         next_check_at=c.next_check_at,
         consecutive_failures=c.consecutive_failures,
         legacy_configuration_id=c.legacy_configuration_id,
-        state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
-        last_notified_at=alert.last_notified_at if alert else None,
-        snooze_until=alert.snooze_until if alert else None,
+        state=root.state if root else PlatformAlert.State.NOT_FIRING.value,
+        last_notified_at=root.last_notified_at if root else None,
+        snooze_until=root.snooze_until if root else None,
+        groups=tuple(_group_state(alert) for key, alert in sorted(alerts.items())),
     )
 
 
@@ -143,25 +175,39 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     """
     if not outcomes:
         return 0
-    by_id = {str(o.configuration_id): o for o in outcomes}
+    by_configuration: dict[str, list[PlatformAlertOutcome]] = {}
+    for outcome in outcomes:
+        by_configuration.setdefault(str(outcome.configuration_id), []).append(outcome)
 
     with transaction.atomic():
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_configuration).filter(due_q(now))
         )
         if not configurations:
             return 0
-        alerts = _alerts_for_write(team_id, configurations)
+        keys = {str(c.id): {outcome.grouping_key for outcome in by_configuration[str(c.id)]} for c in configurations}
+        alerts = _alerts_for_write(team_id, configurations, keys)
 
+        written: list[PlatformAlert] = []
+        retired: list[PlatformAlert] = []
         for configuration in configurations:
-            outcome = by_id[str(configuration.id)]
-            alert = alerts[str(configuration.id)]
-            alert.state = outcome.new_state
-            if outcome.notified:
-                alert.last_notified_at = now
+            group_outcomes = by_configuration[str(configuration.id)]
+            for outcome in group_outcomes:
+                alert = alerts[str(configuration.id)][outcome.grouping_key]
+                if outcome.retire and outcome.grouping_key:
+                    # A label set the query no longer returns and that holds nothing. The root row
+                    # is never retired: it carries the configuration's own state.
+                    retired.append(alert)
+                    continue
+                alert.state = outcome.new_state
+                if outcome.notified:
+                    alert.last_notified_at = now
+                written.append(alert)
 
-            configuration.consecutive_failures = outcome.consecutive_failures
-            if outcome.disable:
+            # Evaluation-level state: a failed check fails the whole evaluation, so the worst
+            # group decides the counter and any group can disable the configuration.
+            configuration.consecutive_failures = max(o.consecutive_failures for o in group_outcomes)
+            if any(o.disable for o in group_outcomes):
                 configuration.enabled = False
             configuration.next_check_at = advance_next_check_at(
                 configuration.next_check_at,
@@ -172,7 +218,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 ),
             )
 
-        PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
+        PlatformAlert.objects.for_team(team_id).bulk_update(written, ["state", "last_notified_at"])
+        if retired:
+            PlatformAlert.objects.for_team(team_id).filter(id__in=[alert.id for alert in retired]).delete()
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
@@ -204,7 +252,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "next_check_at": upsert.next_check_at,
             },
         )
-        alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
+        alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)][""]
         # State is left alone because a muted alert keeps tracking reality.
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
