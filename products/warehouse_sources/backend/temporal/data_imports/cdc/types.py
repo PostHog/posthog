@@ -111,7 +111,7 @@ class ChangeEvent:
     # Old values of the columns an UPDATE changed, where the change stream reports them (Postgres:
     # the old key tuple, or the whole old row under REPLICA IDENTITY FULL). Capture compares them
     # with the merge key, because an update that changes the key must also remove the old key.
-    previous_values: Mapping[str, Any] | None = None
+    previous_values: Mapping[str, object] | None = None
 
 
 class CDCStreamReader(Protocol):
@@ -131,6 +131,8 @@ class CDCStreamReader(Protocol):
     def current_position(self) -> str | None: ...
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
+
+    def get_deferrable_key_tables(self, schema_name: str, table_names: list[str]) -> set[str]: ...
 
     def get_decoder_key_columns(self, table_name: str) -> list[str]: ...
 

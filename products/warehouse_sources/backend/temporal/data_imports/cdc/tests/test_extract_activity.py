@@ -1506,6 +1506,9 @@ class _ScriptedReader:
     def get_decoder_key_columns(self, table):
         return []
 
+    def get_deferrable_key_tables(self, schema, tables):
+        return set()
+
     def clear_truncated_tables(self):
         self.truncated_tables = []
 
@@ -1783,9 +1786,16 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("key_changed", ["id"], {"id": 1}, [("D", 1, None), ("I", 2, 7)]),
-            ("one_column_of_a_composite_key_changed", ["id", "tenant_id"], {"id": 1}, [("D", 1, 7), ("I", 2, 7)]),
-            ("other_column_changed", ["id"], {"name": "Alice"}, [("U", 2, 7)]),
+            ("key_changed", ["id"], {"id": 1}, set(), [("D", 1, None), ("I", 2, 7)]),
+            (
+                "one_column_of_a_composite_key_changed",
+                ["id", "tenant_id"],
+                {"id": 1},
+                set(),
+                [("D", 1, 7), ("I", 2, 7)],
+            ),
+            ("other_column_changed", ["id"], {"name": "Alice"}, set(), [("U", 2, 7)]),
+            ("key_changed_on_a_deferrable_key", ["id"], {"id": 1}, {"users"}, [("U", 2, 7)]),
         ]
     )
     def test_an_update_that_changes_the_key_removes_the_old_key(
@@ -1793,6 +1803,7 @@ class TestBufferedIngressCapture:
         _name: str,
         primary_key: list[str],
         previous_values: dict[str, object],
+        deferrable_key_tables: set[str],
         expected_rows: list[tuple[str, int, int | None]],
     ) -> None:
         source = _make_source()
@@ -1806,6 +1817,7 @@ class TestBufferedIngressCapture:
         )
 
         with _capture_harness(source, [schema], [update]) as capture:
+            capture.reader.get_deferrable_key_tables.return_value = deferrable_key_tables
             capture.extract()
 
         buffered = capture.buffer.write_batch.call_args.kwargs["table"]

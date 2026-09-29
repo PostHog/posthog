@@ -1019,6 +1019,31 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_tables_with_deferrable_keys(conn: psycopg.Connection, schema: str, table_names: list[str]) -> set[str]:
+    """Tables with a primary key or unique constraint declared DEFERRABLE.
+
+    Postgres checks such a constraint at the end of the statement or transaction instead of per row,
+    so only these tables can hold one key in two rows for part of a transaction, as a key swap does.
+    """
+    if not table_names:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT c.relname
+            FROM pg_constraint con
+            JOIN pg_class c ON c.oid = con.conrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE con.contype IN ('p', 'u')
+              AND con.condeferrable
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            """,
+            (schema, table_names),
+        )
+        return {row[0] for row in cur}
+
+
 def get_leading_index_columns(
     conn: psycopg.Connection, schema: str, table_names: list[str]
 ) -> dict[str, set[str]] | None:

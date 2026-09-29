@@ -38,6 +38,8 @@ from typing import IO, Any
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
@@ -154,7 +156,7 @@ class RelationColumn:
 _REPLICA_IDENTITY_FULL = ord("f")
 
 
-@dataclass
+@frozen
 class Relation:
     """Cached relation (table) metadata from an R message."""
 

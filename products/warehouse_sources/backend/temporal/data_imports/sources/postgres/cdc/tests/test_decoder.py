@@ -68,7 +68,6 @@ def _make_relation(
     """Build a Relation (R) message.
 
     columns: list of (name, type_oid, type_modifier) tuples.
-    key_columns: the replica identity columns; None flags every column.
     """
     data = b"R"
     data += struct.pack("!I", relation_id)

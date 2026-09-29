@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_connection_dropped_error,
     _safe_close_connection,
     get_primary_key_columns,
+    get_tables_with_deferrable_keys,
 )
 
 if TYPE_CHECKING:
@@ -341,6 +342,12 @@ class PgCDCStreamReader:
         if self._conn is None:
             raise RuntimeError("Not connected. Call connect() first.")
         return get_primary_key_columns(self._conn, schema_name, table_names)
+
+    def get_deferrable_key_tables(self, schema_name: str, table_names: list[str]) -> set[str]:
+        """Tables whose key can be held by two rows until their transaction commits."""
+        if self._conn is None:
+            raise RuntimeError("Not connected. Call connect() first.")
+        return get_tables_with_deferrable_keys(self._conn, schema_name, table_names)
 
     @property
     def truncated_tables(self) -> list[str]:
