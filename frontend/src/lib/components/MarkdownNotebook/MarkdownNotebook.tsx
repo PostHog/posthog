@@ -25,7 +25,7 @@ import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { downloadFile, isMac } from 'lib/utils/dom'
+import { downloadFile, isMac, uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
@@ -171,6 +171,12 @@ import {
     omitInsertCommands,
 } from './InsertMenu'
 import {
+    MarkdownNotebookJupyterModeConfig,
+    NotebookJupyterCommands,
+    NotebookJupyterContext,
+    NotebookJupyterStore,
+} from './jupyterMode'
+import {
     deleteListItemSelectionRange,
     getListItemIndex,
     getListItemParagraphReplacement,
@@ -295,6 +301,7 @@ export type MarkdownNotebookProps = {
     autoFocus?: boolean
     /** Called on Cmd/Ctrl+S. Without it the key stays with the browser. */
     onSaveRequested?: () => void
+    jupyterMode?: MarkdownNotebookJupyterModeConfig | null
     showDebug?: boolean
     debugOpen?: boolean
     onDebugOpenChange?: (isOpen: boolean) => void
@@ -637,6 +644,7 @@ function MarkdownNotebookEditor({
     className,
     autoFocus = false,
     onSaveRequested,
+    jupyterMode = null,
     showDebug = false,
     debugOpen,
     onDebugOpenChange,
@@ -5243,6 +5251,215 @@ function MarkdownNotebookEditor({
         return moveBlockToBoundary(nodeId, direction === 'previous' ? fromIndex - 1 : fromIndex + 2)
     }
 
+    const jupyterStoreRef = useRef<NotebookJupyterStore | null>(null)
+    if (!jupyterStoreRef.current) {
+        jupyterStoreRef.current = new NotebookJupyterStore()
+    }
+    const jupyterStore = jupyterStoreRef.current
+
+    const getNotebookNodes = (): NotebookBlockNode[] =>
+        documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+
+    const isJupyterCellNode = (node: NotebookBlockNode | undefined): node is NotebookComponentBlockNode =>
+        !!jupyterMode && node?.type === 'component' && jupyterMode.cellTagNames.includes(node.tagName)
+
+    const createJupyterCellNode = (): NotebookComponentBlockNode | null => {
+        if (!jupyterMode) {
+            return null
+        }
+        const tagName = jupyterMode.newCellTagName
+        const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, tagName)
+        if (!definition) {
+            return null
+        }
+        const defaultProps = definition.insertCommand?.defaultProps ?? definition.defaultProps
+        const props = typeof defaultProps === 'function' ? defaultProps() : { ...defaultProps }
+        const node: NotebookComponentBlockNode = {
+            id: makeEmptyParagraph(`component-${tagName}`).id,
+            type: 'component',
+            tagName,
+            props,
+        }
+        return withPersistedComponentPanelProps(node, definition, getInsertedComponentPanelVisibility(node))
+    }
+
+    // The title row stays first, so nothing is ever placed above it.
+    const insertJupyterNodesAt = (index: number, insertedNodes: NotebookBlockNode[], edit: boolean): void => {
+        const firstNode = insertedNodes[0]
+        if (!firstNode) {
+            return
+        }
+        const nodes = getNotebookNodes()
+        const insertIndex = Math.max(1, Math.min(index, nodes.length))
+        insertedNodes.forEach((insertedNode) => markNotebookNodeFreshlyInserted(insertedNode.id))
+        commitDocument(
+            {
+                ...documentRef.current,
+                nodes: [...nodes.slice(0, insertIndex), ...insertedNodes, ...nodes.slice(insertIndex)],
+            },
+            { coalesce: false }
+        )
+        requestFocusForNode(firstNode, 'start')
+        jupyterStore.setActiveNodeId(firstNode.id)
+        jupyterStore.requestEditFocus(edit && isJupyterCellNode(firstNode) ? firstNode.id : null)
+    }
+
+    const getJupyterInsertIndex = (nodeId: string | null, position: 'above' | 'below'): number => {
+        const nodes = getNotebookNodes()
+        const index = nodeId ? nodes.findIndex((node) => node.id === nodeId) : -1
+        if (index === -1) {
+            // Past the trailing blank paragraph the editor keeps for typing, when there is one.
+            const lastNode = nodes[nodes.length - 1]
+            return isBlankInsertMenuButtonRow(lastNode) && nodes.length > 1 ? nodes.length - 1 : nodes.length
+        }
+        return position === 'above' ? index : index + 1
+    }
+
+    const copyJupyterNodes = (markdown: string): NotebookBlockNode[] =>
+        rekeyNotebookNodes(parseMarkdownNotebook(markdown).nodes, uuid()).map((node) =>
+            isJupyterCellNode(node) && jupyterMode?.prepareCellCopy ? jupyterMode.prepareCellCopy(node) : node
+        )
+
+    const serializeJupyterNode = (node: NotebookBlockNode): string =>
+        serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] })
+
+    const jupyterCommandsImplRef = useRef<Omit<NotebookJupyterCommands, 'config' | 'store'> | null>(null)
+    jupyterCommandsImplRef.current = {
+        insertCell: (nodeId, position, options = {}) => {
+            const node = createJupyterCellNode()
+            if (node) {
+                insertJupyterNodesAt(getJupyterInsertIndex(nodeId, position), [node], !!options.edit)
+            }
+        },
+        deleteCell: (nodeId) => {
+            const nodes = getNotebookNodes()
+            const index = nodes.findIndex((node) => node.id === nodeId)
+            if (index <= 0) {
+                return
+            }
+            jupyterStore.deletedCells.push({ markdown: serializeJupyterNode(nodes[index]), index })
+            requestFocusAfterRemovingNode(nodeId)
+            deleteNodeWithRefCleanup(nodeId)
+        },
+        undoDeleteCell: () => {
+            const deletedCell = jupyterStore.deletedCells.pop()
+            if (!deletedCell) {
+                return false
+            }
+            // A restored cell keeps its own nodeId, so its run history and execution count come back with it.
+            const parsedNodes = parseMarkdownNotebook(deletedCell.markdown).nodes
+            const restoredNodes = rekeyNotebookNodes(parsedNodes, uuid()).map((node, index) => {
+                const originalNode = parsedNodes[index]
+                return node.type === 'component' &&
+                    originalNode?.type === 'component' &&
+                    typeof originalNode.props.nodeId === 'string'
+                    ? { ...node, props: { ...node.props, nodeId: originalNode.props.nodeId } }
+                    : node
+            })
+            insertJupyterNodesAt(deletedCell.index, restoredNodes, false)
+            return true
+        },
+        copyCell: (nodeId) => {
+            const node = getNotebookNodes().find((currentNode) => currentNode.id === nodeId)
+            if (node) {
+                jupyterStore.clipboard = serializeJupyterNode(node)
+            }
+        },
+        cutCell: (nodeId) => {
+            jupyterCommandsImplRef.current?.copyCell(nodeId)
+            jupyterCommandsImplRef.current?.deleteCell(nodeId)
+        },
+        pasteCell: (nodeId, position) => {
+            if (!jupyterStore.clipboard) {
+                return false
+            }
+            insertJupyterNodesAt(
+                getJupyterInsertIndex(nodeId, position),
+                copyJupyterNodes(jupyterStore.clipboard),
+                false
+            )
+            return true
+        },
+        moveCell: (nodeId, direction) => {
+            const fromIndex = getNotebookNodes().findIndex((node) => node.id === nodeId)
+            if (fromIndex < 0 || (direction === 'up' && fromIndex <= 1)) {
+                return false
+            }
+            const moved = moveBlockToBoundary(nodeId, direction === 'up' ? fromIndex - 1 : fromIndex + 2)
+            if (moved) {
+                focusNodeRef.current = nodeId
+            }
+            return moved
+        },
+        convertCellToMarkdown: (nodeId) => {
+            const node = getNotebookNodes().find((currentNode) => currentNode.id === nodeId)
+            if (!isJupyterCellNode(node) || !jupyterMode) {
+                return
+            }
+            const source = jupyterMode.getCellSource(node)
+            const parsedNodes = rekeyNotebookNodes(parseMarkdownNotebook(source).nodes, uuid())
+            const markdownNodes = parsedNodes.length ? parsedNodes : [makeEmptyParagraph(`markdown-${nodeId}`)]
+            replaceNodeWithNodes(nodeId, markdownNodes)
+            requestFocusForNode(markdownNodes[0], 'start')
+            jupyterStore.setActiveNodeId(markdownNodes[0].id)
+        },
+        selectAdjacentCell: (nodeId, direction) => moveFocusToAdjacentNode(nodeId, direction, 0),
+        advanceFromCell: (nodeId) => {
+            const nodes = getNotebookNodes()
+            const index = nodes.findIndex((node) => node.id === nodeId)
+            const nextNode = nodes[index + 1]
+            const nextIsTrailingBlank = index + 2 === nodes.length && isBlankInsertMenuButtonRow(nextNode)
+            if (index === -1 || !nextNode || nextIsTrailingBlank) {
+                jupyterCommandsImplRef.current?.insertCell(nodeId, 'below', { edit: true })
+                return
+            }
+            moveFocusToAdjacentNode(nodeId, 'next', 0)
+        },
+        isCellNode: (nodeId) => isJupyterCellNode(getNotebookNodes().find((node) => node.id === nodeId)),
+    }
+
+    const jupyterCommands = useMemo<NotebookJupyterCommands | null>(() => {
+        if (!jupyterMode) {
+            return null
+        }
+        // Stable forwarders, so a cell re-renders only for its own slice of state and never because
+        // the editor re-rendered; each call reaches the implementation from the latest render.
+        const impl = (): Omit<NotebookJupyterCommands, 'config' | 'store'> => jupyterCommandsImplRef.current!
+        return {
+            config: jupyterMode,
+            store: jupyterStore,
+            insertCell: (...args) => impl().insertCell(...args),
+            deleteCell: (...args) => impl().deleteCell(...args),
+            undoDeleteCell: () => impl().undoDeleteCell(),
+            copyCell: (...args) => impl().copyCell(...args),
+            cutCell: (...args) => impl().cutCell(...args),
+            pasteCell: (...args) => impl().pasteCell(...args),
+            moveCell: (...args) => impl().moveCell(...args),
+            convertCellToMarkdown: (...args) => impl().convertCellToMarkdown(...args),
+            selectAdjacentCell: (...args) => impl().selectAdjacentCell(...args),
+            advanceFromCell: (...args) => impl().advanceFromCell(...args),
+            isCellNode: (...args) => impl().isCellNode(...args),
+        }
+    }, [jupyterMode, jupyterStore])
+
+    // A text block never takes focus (the canvas is the editing host), so the active block follows
+    // the caret instead, for the toolbar's insert and paste targets.
+    useEffect(() => {
+        if (!jupyterMode) {
+            return
+        }
+        const handleSelectionChange = (): void => {
+            const anchorNode = window.getSelection()?.anchorNode ?? null
+            const anchorElement = anchorNode instanceof HTMLElement ? anchorNode : (anchorNode?.parentElement ?? null)
+            const blockElement = anchorElement?.closest('[data-markdown-notebook-node-id]')
+            if (blockElement instanceof HTMLElement && canvasRef.current?.contains(blockElement)) {
+                jupyterStore.setActiveNodeId(blockElement.dataset.markdownNotebookNodeId ?? null)
+            }
+        }
+        window.document.addEventListener('selectionchange', handleSelectionChange)
+        return () => window.document.removeEventListener('selectionchange', handleSelectionChange)
+    }, [jupyterMode, jupyterStore])
+
     const handleBlockDragStart = (event: ReactDragEvent<HTMLDivElement>, nodeId: string): void => {
         event.stopPropagation()
         blockDragNodeIdRef.current = nodeId
@@ -6274,12 +6491,13 @@ function MarkdownNotebookEditor({
 
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
-    return (
+    const notebookElement = (
         <div
             className={clsx(
                 'MarkdownNotebook',
                 isDebugOpen && 'MarkdownNotebook--debug-open',
                 mode === 'edit' && 'MarkdownNotebook--edit',
+                jupyterMode && 'MarkdownNotebook--jupyter',
                 hasDiscussionComments &&
                     (fitsCommentGutter ? 'MarkdownNotebook--comments-margin' : 'MarkdownNotebook--comments-inline'),
                 className
@@ -6332,7 +6550,10 @@ function MarkdownNotebookEditor({
                         {renderedNodeGroups.map((group) => {
                             if (group.type === 'text') {
                                 const lastItem = group.items[group.items.length - 1]
-                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
+                                const chunks: {
+                                    surface: MarkdownNotebookTextSurface
+                                    items: typeof group.items
+                                }[] = []
                                 for (const item of group.items) {
                                     const lastChunk = chunks[chunks.length - 1]
                                     // Code blocks never merge: each one is its own surface with its own line
@@ -6400,6 +6621,17 @@ function MarkdownNotebookEditor({
                                 </Fragment>
                             )
                         })}
+                        {jupyterCommands && mode === 'edit' ? (
+                            <button
+                                type="button"
+                                className="MarkdownNotebook__jupyter-add-cell"
+                                contentEditable={false}
+                                data-attr="notebook-jupyter-add-cell"
+                                onClick={() => jupyterCommands.insertCell(null, 'below', { edit: true })}
+                            >
+                                Click to add a cell.
+                            </button>
+                        ) : null}
                     </div>
                     {adjustedRemoteCarets?.length ? (
                         <RemoteCaretOverlay
@@ -6517,4 +6749,6 @@ function MarkdownNotebookEditor({
             </div>
         </div>
     )
+
+    return <NotebookJupyterContext.Provider value={jupyterCommands}>{notebookElement}</NotebookJupyterContext.Provider>
 }

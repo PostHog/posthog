@@ -421,6 +421,7 @@ export const FEATURE_FLAGS = {
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_GENERATED_WIDGETS: 'notebook-generated-widgets', // owner: #team-data-tools
+    NOTEBOOK_JUPYTER_MODE: 'notebook-jupyter-mode', // owner: #team-data-tools, lays notebooks out and drives them like JupyterLab
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
     ONBOARDING_AI_REPORTS: 'onboarding-role-notifications', // owner: @joethreepwood #team-growth multivariate=control,test — offers a role-tailored weekly AI report step at the end of onboarding; code additionally gates on AI subscriptions being available, so keep the flag at 100% rollout (key predates the AI-reports naming; it's bound to the live experiment)

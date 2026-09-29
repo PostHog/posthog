@@ -5,6 +5,9 @@ import { createContext, useContext, useEffect } from 'react'
 export type NotebookComponentRunHandler = {
     run: () => void
     disabledReason?: string | null
+    isRunning?: boolean
+    executionCount?: number | null
+    interrupt?: () => void
 }
 
 // Lets the shell own the cell's key handling while knowing nothing about SQL or Python.
@@ -16,14 +19,17 @@ export function usePublishNotebookComponentRunHandler(handler: NotebookComponent
     const publishRunHandler = useContext(NotebookComponentRunHandlerContext)
     const run = handler?.run
     const disabledReason = handler?.disabledReason ?? null
+    const isRunning = handler?.isRunning ?? false
+    const executionCount = handler?.executionCount ?? null
+    const interrupt = handler?.interrupt
 
     useEffect(() => {
         if (!publishRunHandler) {
             return
         }
 
-        publishRunHandler(run ? { run, disabledReason } : null)
+        publishRunHandler(run ? { run, disabledReason, isRunning, executionCount, interrupt } : null)
 
         return () => publishRunHandler(null)
-    }, [publishRunHandler, run, disabledReason])
+    }, [publishRunHandler, run, disabledReason, isRunning, executionCount, interrupt])
 }

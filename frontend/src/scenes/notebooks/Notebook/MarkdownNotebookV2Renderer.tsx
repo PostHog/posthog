@@ -41,6 +41,7 @@ import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
 import { NotebookNodeType } from '../types'
+import { isJupyterModeAvailable } from '../utils'
 import {
     MarkdownNotebookEntityPicker,
     MarkdownNotebookEntityPickerKind,
@@ -68,6 +69,9 @@ import {
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { buildNotebookInlineAIFinishedEvent, buildNotebookInlineAIRequestedEvent } from './notebookAnalytics'
+import { notebookJupyterLogic } from './notebookJupyterLogic'
+import { getNotebookJupyterModeConfig } from './notebookJupyterMode'
+import { NotebookJupyterToolbar } from './NotebookJupyterToolbar'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -127,6 +131,16 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         saveNotebookNow,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { isJupyterMode } = useValues(notebookSettingsLogic)
+    const { requestKernelRestart } = useActions(notebookJupyterLogic({ shortId }))
+    // Canvases (customer profiles and the like) are not notebooks of cells, so they keep their layout.
+    const jupyterMode = useMemo(
+        () =>
+            isJupyterModeAvailable(featureFlags) && isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
+                ? getNotebookJupyterModeConfig(() => requestKernelRestart())
+                : null,
+        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart]
+    )
     const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
@@ -779,7 +793,17 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         deferRemoteValue={markdownEditorInteractionActive}
                         onInteractionStateChange={setMarkdownEditorInteractionActive}
                         allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
-                        canvasHeader={<NotebookVariablesBar />}
+                        jupyterMode={jupyterMode}
+                        canvasHeader={
+                            jupyterMode ? (
+                                <>
+                                    {isEditable ? <NotebookJupyterToolbar /> : null}
+                                    <NotebookVariablesBar />
+                                </>
+                            ) : (
+                                <NotebookVariablesBar />
+                            )
+                        }
                         className="Notebook__markdown-v2"
                         data-attr="notebook-markdown-v2"
                         autoFocus={isEditable}

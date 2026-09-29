@@ -12,6 +12,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
 import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
 
+import { notebookJupyterLogic } from '../../Notebook/notebookJupyterLogic'
 import { notebookLogic } from '../../Notebook/notebookLogic'
 import type { NotebookNodeSQLV2Result } from '../NotebookNodeSQLV2'
 import { type NotebookNodeSQLV2LogicProps, type RunNodeOverrides } from '../notebookNodeSQLV2Logic'
@@ -27,7 +28,7 @@ import { getNotebookSqlEditorTabId } from './NotebookSQLEditor'
  */
 export function NotebookCodeCellRunButton({ node, updateProps }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isShared, canEditNotebook } = useValues(mountedNotebookLogic)
+    const { isShared, canEditNotebook, shortId } = useValues(mountedNotebookLogic)
     // Cells persist their own id; a parsed markdown block id is a content fingerprint that drifts
     // as soon as a run writes runId/result, so it is only the fallback for a never-run cell.
     const nodeId = typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : node.id
@@ -47,6 +48,8 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
     )
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runNode, interruptRun } = useActions(dataLogic)
+    const { executionCounts } = useValues(notebookJupyterLogic({ shortId }))
+    const executionCount = executionCounts[nodeId] ?? null
 
     // The run endpoint requires editor access on the notebook, so it is offered only to a reader it
     // will answer for. That excludes a public share, a viewer-level reader, and a history preview,
@@ -76,9 +79,22 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
 
     // A run in flight blocks the shortcuts, because the button turns into Cancel there and a run
     // shortcut must never become a stop.
+    const interrupt = useCallback((): void => {
+        // Guard against double submission: one interrupt request at a time.
+        if (dataLogic.values.isRunning && !dataLogic.values.isInterrupting) {
+            interruptRun()
+        }
+    }, [dataLogic, interruptRun])
+
     usePublishNotebookComponentRunHandler(
         canRun
-            ? { run, disabledReason: isRunning ? 'This cell is already running' : (operationBlockReason ?? null) }
+            ? {
+                  run,
+                  disabledReason: isRunning ? 'This cell is already running' : (operationBlockReason ?? null),
+                  isRunning,
+                  executionCount,
+                  interrupt,
+              }
             : null
     )
 
@@ -95,9 +111,8 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
             onClick={() => {
                 if (!isRunning) {
                     run()
-                } else if (!isInterrupting) {
-                    // Guard against double submission: one interrupt request at a time.
-                    interruptRun()
+                } else {
+                    interrupt()
                 }
             }}
             loading={isInterrupting}

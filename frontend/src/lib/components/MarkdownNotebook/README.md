@@ -79,6 +79,17 @@ The shell only handles keys that happened inside its own DOM. A block that rende
 
 `Enter` focuses the element Monaco actually reads keystrokes from, and which one that is depends on the build. An EditContext-based Monaco uses `.native-edit-context` and renders a second textarea only for IME, so focusing that textarea puts the caret nowhere. The selector tries the EditContext element first and keeps the bare `textarea` last for older builds. `NotebookComponentShell.test.tsx` covers both shapes, because JSDOM alone cannot tell them apart.
 
+## Jupyter mode
+
+The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene passes it behind the `notebook-jupyter-mode` flag, and each user can turn it off from the notebook's View menu.
+
+- Component tags listed in `cellTagNames` render as code cells: an `In [n]:` prompt, the code editor, and the output below it. Every other block keeps its own shell and reads as rich output.
+- A cell's shell holding focus is command mode, and its code editor holding focus is edit mode. The active cell carries a blue bar, and the editor that holds the caret gets a blue border.
+- `resolveNotebookJupyterKey` in `jupyterMode.ts` maps key presses to commands, including the two-key sequences (`D D`, `I I`, `0 0`). It never takes a plain key typed inside the editor, so typing code can never add, delete, or convert a cell.
+- The editor implements the cell operations (`NotebookJupyterCommands`: insert, delete, undo delete, copy, paste, move, convert to markdown) against its own document, so they are undoable and merge like any other edit.
+- `NotebookJupyterStore` holds the state the cells and the notebook toolbar share: the active cell, each cell's published run handler, the cell clipboard, and the line number toggle. It lives outside React state, so a selection change re-renders only the two cells it affects.
+- The generic editor still knows nothing about Python or SQL. The run handler a cell publishes carries its running state and execution count, and the host supplies the cell source for the M key (`getCellSource`) and fresh identities for a pasted copy (`prepareCellCopy`).
+
 ## Sync model
 
 The component receives two props: `value` (the local content owned by the caller, e.g. `notebookLogic.localContent`) and `remoteValue` (the latest known server content). Internally it tracks:
