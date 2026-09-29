@@ -186,37 +186,44 @@ def _markdown_breaks_to_mrkdwn(text: str) -> str:
     return "".join(parts)
 
 
-def _scan_delimited_run(text: str, start: int, opener: str, closer: str) -> tuple[str, int] | None:
-    """Read the delimited run that starts at ``start``.
+def _balanced_closers(text: str, opener: str, closer: str) -> dict[int, int]:
+    """Map the index of each ``opener`` in ``text`` to the index of the ``closer`` that balances it.
 
-    Returns the text between the delimiters and the index after the closing one, or None when
-    the run never closes. A nested pair keeps the run open, because a markdown link
-    destination can hold balanced parentheses: a HogQL share link carries the whole query in
-    its fragment, so a scan that stops at the first ``)`` cuts the URL in half.
+    An opener that never closes gets no entry. A nested pair keeps the run open, because a
+    markdown link destination can hold balanced parentheses: a HogQL share link carries the whole
+    query in its fragment, so a scan that stops at the first ``)`` cuts the URL in half. One pass
+    serves every link, because a scan from each opener rereads the rest of the text at every
+    unclosed ``[`` or ``(`` and makes the conversion quadratic.
     """
-    if text[start : start + 1] != opener:
-        return None
-
-    depth = 0
-    index = start
+    closers: dict[int, int] = {}
+    open_indices: list[int] = []
+    index = 0
     while index < len(text):
         char = text[index]
         if char == "\\":
             index += 2
             continue
         if char == opener:
-            depth += 1
-        elif char == closer:
-            depth -= 1
-            if depth == 0:
-                return text[start + 1 : index], index + 1
+            open_indices.append(index)
+        elif char == closer and open_indices:
+            closers[open_indices.pop()] = index
         index += 1
-    return None
+    return closers
+
+
+def _delimited_run(text: str, start: int, closers: dict[int, int]) -> tuple[str, int] | None:
+    """Return the text inside the run that opens at ``start`` and the index after its closer, or None when it never closes."""
+    end = closers.get(start)
+    if end is None:
+        return None
+    return text[start + 1 : end], end + 1
 
 
 def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
     """Rewrite markdown ``[label](url)`` links, or ``![alt](url)`` images, into mrkdwn ``<url|label>``."""
     marker = "!" if images else "["
+    label_closers = _balanced_closers(text, "[", "]")
+    destination_closers = _balanced_closers(text, "(", ")")
     out: list[str] = []
     index = 0
     while index < len(text):
@@ -226,8 +233,8 @@ def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
             index += 2
             continue
         if char == marker:
-            label = _scan_delimited_run(text, index + 1 if images else index, "[", "]")
-            destination = _scan_delimited_run(text, label[1], "(", ")") if label else None
+            label = _delimited_run(text, index + 1 if images else index, label_closers)
+            destination = _delimited_run(text, label[1], destination_closers) if label else None
             # An empty destination, or a link with no label, stays as the author wrote it.
             if label and destination and destination[0] and (label[0] or images):
                 out.append(f"<{destination[0]}|{label[0]}>")

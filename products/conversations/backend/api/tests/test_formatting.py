@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
@@ -415,8 +416,13 @@ class TestSlackFormatting(SimpleTestCase):
                 "<https://ph.test/i/chart(1).png|chart>",
             ),
             ("unterminated_link_stays_literal", "[here](https://ph.test", "[here](https://ph.test"),
+            # A scan from each `[` rereads the rest of the text when a run never closes, which makes
+            # the conversion quadratic. The timeout fails these cases if that per-link scan returns.
+            ("unclosed_destination_run_stays_literal", "[x](a()" * 4000, "[x](a()" * 4000),
+            ("unclosed_label_run_stays_literal", "[" * 25000, "[" * 25000),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_outbound_mrkdwn_conversion(self, _name: str, markdown: str, expected: str) -> None:
         assert content_to_slack_mrkdwn(markdown) == expected
 
