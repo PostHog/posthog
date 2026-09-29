@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -64,6 +65,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
@@ -442,6 +446,7 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
+    release_lock_token: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -460,6 +465,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    await _update_job_status(inputs, logger)
+
+    # After the status write, as the separate release activity ran, and only when it returned:
+    # a status write that raises leaves the lock to its holder, as before. The release itself
+    # never raises (see release_v3_pipeline_lock), matching the swallowed failure of that activity.
+    if inputs.release_lock_token:
+        released = await asyncio.to_thread(
+            release_v3_pipeline_lock, inputs.team_id, inputs.schema_id, inputs.release_lock_token
+        )
+        logger.info("Released V3 pipeline lock after finalization", released=released)
+
+
+async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger) -> None:
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         # `rows_tracked` is decremented by rows actually written, but incremented by
@@ -875,7 +893,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                keyset_full_load_enabled = False
                 scheduled_full_refresh = False
+                repartition_needed = True
+                billing_limit_checked = False
+                hit_billing_limit = False
+                source_templates_needed = True
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -887,20 +910,28 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                keyset_full_load_enabled = create_job_result.keyset_full_load_enabled
                 scheduled_full_refresh = create_job_result.scheduled_full_refresh
+                repartition_needed = create_job_result.repartition_needed
+                billing_limit_checked = create_job_result.billing_limit_checked
+                hit_billing_limit = create_job_result.hit_billing_limit
+                source_templates_needed = create_job_result.source_templates_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
-            # Check billing limits
-            hit_billing_limit = await workflow.execute_activity(
-                check_billing_limits_activity,
-                CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                ),
-            )
+            # The job-creation activity answers the billing question in the same round trip. The
+            # separate check stays for a payload that predates that answer: a history that recorded
+            # it must replay it.
+            if not billing_limit_checked:
+                hit_billing_limit = await workflow.execute_activity(
+                    check_billing_limits_activity,
+                    CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=3,
+                    ),
+                )
 
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
@@ -908,9 +939,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed). A scheduled
-            # full refresh deletes the table before extraction, so rewriting it first is wasted work.
-            if job_id is not None and not scheduled_full_refresh:
+            # Never fails the sync (errors are swallowed). Skipped when the job-creation activity saw nothing
+            # queued and no on-disk measurement due, so the common sync pays no activity round trip. A
+            # scheduled full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh and repartition_needed:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,
@@ -929,6 +961,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         "Repartition activity failed; continuing with sync on existing layout",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
+            elif job_id is not None:
+                # Logged so the Syncs UI/log stream still shows the repartition check ran for the
+                # common no-op case — the activity's own start/finish logs only fire when it's called.
+                workflow.logger.info(
+                    "Repartition scheduling skipped",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "repartition_needed": repartition_needed,
+                        "scheduled_full_refresh": scheduled_full_refresh,
+                    },
+                )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -938,12 +981,20 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
                 scheduled_full_refresh=scheduled_full_refresh,
+                keyset_full_load_enabled=keyset_full_load_enabled,
             )
 
             is_resumable_source = False
             if source_type is not None:
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-                is_resumable_source = isinstance(source, ResumableSource)
+                # The class can resume, and its mechanism covers a run of this shape. Both halves
+                # matter: a class whose resume is narrower than itself would otherwise hand the
+                # resumable allowance to every one of its runs, including the ones that restart from
+                # row 0 on each of those extra attempts.
+                is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
+                    incremental_or_append=incremental_or_append,
+                    keyset_full_load_enabled=keyset_full_load_enabled,
+                )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
@@ -1149,13 +1200,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
 
-            # Create source templates
-            await workflow.execute_activity(
-                create_source_templates,
-                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            if source_templates_needed:
+                await workflow.execute_activity(
+                    create_source_templates,
+                    CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             if not post_import_in_workflow:
                 await workflow.execute_activity(
@@ -1264,6 +1315,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
 
+            # This run still owns the v3 lock when no batch reached the loader (extraction failed
+            # before producing batches, or a zero-batch run); the loader releases it otherwise.
+            # The finalizer below always runs in that case, so it can release the lock after the
+            # status write instead of a separate activity. patched() keeps in-flight pre-patch
+            # executions replaying the separate release they recorded.
+            workflow_releases_lock = is_v3 and bool(lock_token) and not consumer_manages_job_status
+            finalizer_releases_lock = workflow_releases_lock and workflow.patched(
+                "data-imports-finalizer-releases-v3-lock-2026-09"
+            )
+            if finalizer_releases_lock:
+                update_inputs.release_lock_token = lock_token
+
             if not skip_status_update:
                 await workflow.execute_activity(
                     update_external_data_job_model,
@@ -1277,12 +1340,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Release the V3 pipeline lock when the consumer is NOT managing job
-            # status (extraction failed before producing batches, or non-V3).
-            # When consumer_manages_job_status is True, the consumer releases.
-            # Runs before the post-import start so a raise there (cancellation)
-            # can't leave the lock held.
-            if is_v3 and lock_token and not consumer_manages_job_status:
+            # Pre-patch replay path of the release above. Runs before the post-import start so a
+            # raise there (cancellation) can't leave the lock held.
+            if workflow_releases_lock and not finalizer_releases_lock and lock_token is not None:
                 try:
                     await workflow.execute_activity(
                         release_v3_pipeline_lock_activity,

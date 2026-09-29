@@ -127,9 +127,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         Opened lazily on purpose. A job created before there is anything to write is a row nothing
         owns: the loader finishes a job when its final batch lands, this activity's own workflow
         only knows the schema's job, and the stranded sweep finds runs by their queued batches. A
-        crash between creating it and staging into it would leave it Running for good, and one such
-        row blocks the flip and the rollback for the whole source. Opening it here means every
-        companion job has at least one batch, so the sweep is its owner like any other run.
+        crash between creating it and staging into it would leave it Running for good. Opening it
+        here means every companion job has at least one batch, so the sweep is its owner like any
+        other run.
         """
         existing = self._writers_by_lane.get(index)
         if existing is not None:
@@ -248,9 +248,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             writer.row_count += lane_table.num_rows
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
-            writer.pg_producer.send_batch_notification(
-                batch_result, is_final_batch=False, cumulative_row_count=writer.row_count
-            )
+            writer.pg_producer.hold_batch(batch_result, cumulative_row_count=writer.row_count)
             # One read of a change stream is one sync however many tables it keeps.
             if lane.billable:
                 billable_rows += lane_table.num_rows
@@ -272,19 +270,21 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 continue
             lane_schema_path = await asyncio.to_thread(writer.s3_batch_writer.write_schema)
             schema_path = schema_path or lane_schema_path
-            writer.pg_producer.send_batch_notification(
+            writer.pg_producer.send_final_batch(
                 writer.batch_results[-1],
-                is_final_batch=True,
                 total_batches=len(writer.batch_results),
                 total_rows=writer.row_count,
                 data_folder=writer.s3_batch_writer.get_data_folder(),
                 schema_path=lane_schema_path,
-                cumulative_row_count=writer.row_count,
             )
             if writer.job is not None:
                 self._final_sent_job_ids.add(str(writer.job.id))
                 await self._record_companion_rows(writer)
         return schema_path
+
+    def _release_held_batches(self) -> None:
+        for writer in self._lane_writers:
+            writer.pg_producer.release_held_batch()
 
     async def _record_companion_rows(self, writer: _LaneWriter) -> None:
         """Count what a companion wrote onto its own job, as the workflow does for the first."""

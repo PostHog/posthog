@@ -56,7 +56,7 @@ def is_auto_widen_resync_enabled(team_id: int, schema_id: str, source_type: str 
 
     ``schema_id`` / ``team_id`` / ``source_type`` are passed as person properties so the flag can be
     released to a single table first (release condition ``schema_id = <id>``) before ramping by team /
-    org / source. Mirrors ``is_deltalite_write_enabled``. This flag is the only control (no env
+    org / source. This flag is the only control (no env
     switch), so recovery can be ramped or killed from the flag UI without a deploy. Any evaluation
     failure returns False (fail closed): a flags-service blip must never accidentally switch it on.
     """
@@ -127,8 +127,8 @@ def _schedule_auto_widen_resync(
         return None
     if not is_safe_numeric_widening(stored_type, incoming_type):
         return None
-    # A streaming-mode CDC schema has its per-schema schedule paused (CDCExtractionWorkflow owns
-    # it), so a stamped reset would never run; leave it to the manual repair flow.
+    # A streaming-mode CDC schema's run consumes its change buffer, which refuses a stamped reset: a
+    # re-sync has to go through snapshot mode, so leave it to the manual resync flow.
     if schema.is_cdc and schema.cdc_mode == "streaming":
         return None
     # A webhook-only resource consumes reset_pipeline without wiping the table (its rows can't be

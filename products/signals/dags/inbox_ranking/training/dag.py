@@ -6,6 +6,7 @@ Three assets on the same daily partition as the dataset dag, each writing under 
     inbox_ranking_models/v1/<name>/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
     inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
     inbox_ranking_unseen_scores/v1/dt=D/              the day's models on the reports born that day
+    inbox_ranking_served_scores/v1/dt=D/              the served model's own scores of those reports
 
 A fifth asset publishes what the scoring sweep serves. The dataset bucket holds the training
 history and the Temporal workers cannot reach it, so `inbox_ranking_serving_manifest` copies the
@@ -38,14 +39,16 @@ scores every report born on D (`unseen_pool` explains why no example can cover o
 head's horizon, keeping provisional evaluations separate from mature grades. The holdout AUC
 grades the recipe, because the shipped booster is refit on train plus holdout; the baked unseen
 AUC grades the model on reports it never saw. The two are comparable because both apply the
-same `Head` cohort, label and horizon.
+same `Head` cohort, label and horizon. `inbox_ranking_served_scores` (`training/served.py`) reads
+the scoring sweep's own birth-day scores of the same pool, and the grader grades them as the
+`served` role.
 """
 
 import json
 import datetime
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import dagster
@@ -67,6 +70,7 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
 )
 from products.signals.backend.ranking.model_contract import (
+    classification_thresholds,
     model_feature_set,
     model_mismatch,
     readable_head_names,
@@ -85,6 +89,7 @@ from products.signals.dags.inbox_ranking.common import (
     partition_object_key,
     read_parquet_if_exists,
     s3_client,
+    serving_mirror_storage,
     skip_unconfigured,
     snapshot_bounds,
     write_parquet,
@@ -136,6 +141,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
     MODEL_FAMILIES,
+    SERVED_SCORES_TABLE,
     UNSEEN_SCORES_TABLE,
     HeadGrade,
     ModelFamily,
@@ -155,6 +161,9 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
     with_model_names,
 )
+
+if TYPE_CHECKING:
+    from posthog.storage.object_storage import ObjectStorageClient
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
 MODELS_TABLE = "inbox_ranking_models"
@@ -807,6 +816,12 @@ def _decide_champion(
 SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
 
 
+@frozen
+class _ServingStore:
+    storage: "ObjectStorageClient"
+    bucket: str
+
+
 @dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
 def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
     """Publish the models the scoring sweep serves, and the manifest naming them.
@@ -860,13 +875,10 @@ def _publish_manifest(
 
     manifest = decision.manifest
     manifest_key = serving_manifest_key(prefix)
-    publication = publish_serving_models(context, client, bucket, prefix, manifest)
-    object_storage.write(
-        manifest_key,
-        manifest.model_dump_json(indent=2),
-        extras={"ContentType": "application/json"},
-    )
+    primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
+    publication = publish_serving_models(context, client, bucket, prefix, manifest, primary)
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
+    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
     capture_training_events(
         context,
         partition_key,
@@ -880,8 +892,12 @@ def _publish_manifest(
                 copied_keys=publication.copied,
                 present_keys=publication.present,
                 bytes_copied=publication.bytes_copied,
+                mirror_published=mirror_published,
             )
         ],
+    )
+    mirror_metadata = (
+        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
     )
     return {
         "published": dagster.MetadataValue.bool(True),
@@ -894,7 +910,29 @@ def _publish_manifest(
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
         "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        **mirror_metadata,
     }
+
+
+def _publish_mirror(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, manifest: ServingManifest
+) -> bool | None:
+    """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
+    set, otherwise whether the mirror now serves this manifest.
+
+    The primary publish has already succeeded, so a mirror failure only logs: the region that
+    trains keeps serving, and the mirror keeps its previous manifest and models.
+    """
+    if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
+        return None
+    try:
+        mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
+        publish_serving_models(context, client, bucket, prefix, manifest, mirror)
+    except Exception as error:
+        context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
+        return False
+    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
+    return True
 
 
 @frozen
@@ -910,12 +948,14 @@ def publish_serving_models(
     bucket: str,
     prefix: str,
     manifest: ServingManifest,
+    target: _ServingStore,
 ) -> _ModelPublication:
-    """Copy every model the manifest names from the dataset bucket into the app object store.
+    """Copy every model the manifest names from the dataset bucket into `target`, then write the
+    manifest there.
 
     Returns the keys copied, the keys already there, and the bytes moved. A missing source object
-    fails the asset before the manifest is written, so the manifest can never name a model the
-    sweep cannot load.
+    fails before the manifest is written, so the manifest can never name a model the sweep cannot
+    load.
     """
     copied: list[str] = []
     present: list[str] = []
@@ -924,7 +964,7 @@ def publish_serving_models(
         target_metadata = f"{entry.prefix}/{METADATA_FILE}"
         # A version is immutable, so its metadata record standing in for the whole prefix is safe
         # and saves re-reading a 1536-column booster every day.
-        if object_storage.head_object(target_metadata) is not None:
+        if target.storage.head_object(bucket=target.bucket, file_key=target_metadata) is not None:
             present.append(entry.key)
             continue
         # Metadata marks a complete copy, so write it after every booster to make retries safe.
@@ -934,10 +974,16 @@ def publish_serving_models(
             )
             if body is None:
                 raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
-            object_storage.write(f"{entry.prefix}/{name}", body)
+            target.storage.write(bucket=target.bucket, key=f"{entry.prefix}/{name}", content=body, extras=None)
             bytes_copied += len(body)
         copied.append(entry.key)
-        context.log.info(f"copied {entry.key} to {entry.prefix}")
+        context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
+    target.storage.write(
+        bucket=target.bucket,
+        key=serving_manifest_key(prefix),
+        content=manifest.model_dump_json(indent=2),
+        extras={"ContentType": "application/json"},
+    )
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 
@@ -992,6 +1038,7 @@ def load_family_models(
                 feature_set=feature_set,
                 boosters=boosters,
                 readable_heads=readable_head_names(metadata),
+                classification_thresholds=classification_thresholds(metadata),
             )
         )
     return models
@@ -1157,6 +1204,7 @@ def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataVal
     name="inbox_ranking_unseen_graded",
     deps=[
         dagster.AssetDep(UNSEEN_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
+        dagster.AssetDep(SERVED_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
         LABELS_TABLE,
     ],
     **COMMON_ASSET_KWARGS,
@@ -1177,35 +1225,43 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
     for observed_days in range(max(HEADS_BY_HORIZON) + 1):
         heads = [head for head in HEADS if observed_days <= head.horizon_days]
         scoring_partition = (day - datetime.timedelta(days=observed_days)).isoformat()
-        table = read_parquet_if_exists(
-            client, bucket, partition_object_key(prefix, UNSEEN_SCORES_TABLE, scoring_partition)
-        )
-        if table is None:
-            skipped[scoring_partition] = "no unseen scores"
-            continue
-        scores = with_model_names(table.to_pandas())
-        pool = scored_pool(scores)
-        graded_by_head: dict[str, pd.DataFrame] = {}
-        for head in heads:
-            missing = missing_label_columns(labels, head)
-            if missing:
-                skipped[f"{scoring_partition}/{head.name}"] = f"dt={partition_key} labels lack {', '.join(missing)}"
+        # The served object is graded through the same path, apart from the unseen one, and its
+        # rows carry `model_role = 'served'`. A missing one is a logged skip, as a missing unseen
+        # object is: partitions before the served asset existed have none.
+        for scores_name, skip_prefix, kind in (
+            (UNSEEN_SCORES_TABLE, "", "unseen"),
+            (SERVED_SCORES_TABLE, "served/", "served"),
+        ):
+            table = read_parquet_if_exists(client, bucket, partition_object_key(prefix, scores_name, scoring_partition))
+            if table is None:
+                skipped[f"{skip_prefix}{scoring_partition}"] = f"no {kind} scores"
                 continue
-            head_scores = scores[scores["head"] == head.name]
-            if head_scores.empty:
-                skipped[f"{scoring_partition}/{head.name}"] = "head was not scored"
-                continue
-            graded = graded_rows(head_scores, labels, head, pool=pool)
-            evaluated = head_grades(graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True)
-            evaluations.extend(evaluated)
-            if observed_days == head.horizon_days:
-                graded_by_head[head.name] = graded
-                grades.extend(grade for grade in evaluated if grade.rows)
-        report_rows.extend(
-            report_grade_rows(
-                graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
+            scores = with_model_names(table.to_pandas())
+            pool = scored_pool(scores)
+            graded_by_head: dict[str, pd.DataFrame] = {}
+            for head in heads:
+                head_key = f"{skip_prefix}{scoring_partition}/{head.name}"
+                missing = missing_label_columns(labels, head)
+                if missing:
+                    skipped[head_key] = f"dt={partition_key} labels lack {', '.join(missing)}"
+                    continue
+                head_scores = scores[scores["head"] == head.name]
+                if head_scores.empty:
+                    skipped[head_key] = "head was not scored"
+                    continue
+                graded = graded_rows(head_scores, labels, head, pool=pool)
+                evaluated = head_grades(
+                    graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True
+                )
+                evaluations.extend(evaluated)
+                if observed_days == head.horizon_days:
+                    graded_by_head[head.name] = graded
+                    grades.extend(grade for grade in evaluated if grade.rows)
+            report_rows.extend(
+                report_grade_rows(
+                    graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
+                )
             )
-        )
 
     for grade in grades:
         context.log.info(f"unseen grade: {grade.as_dict()}")
@@ -1244,6 +1300,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
         "inbox_ranking_model_champion",
         SERVING_MANIFEST_ASSET,
         UNSEEN_SCORES_TABLE,
+        SERVED_SCORES_TABLE,
         "inbox_ranking_unseen_graded",
     ],
     tags={

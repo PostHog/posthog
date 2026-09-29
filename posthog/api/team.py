@@ -13,7 +13,6 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import re2
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -125,6 +124,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -143,7 +144,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule as validate_custom_bot_rule,
     validate_rule_set as validate_custom_bot_rule_set,
 )
-from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -518,9 +520,9 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-def validate_secret_token_generation(team: Team, user: User) -> None:
+def validate_secret_token_generation(team: Team) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
-    first one is blocked once the team has access to project secret API keys."""
+    first one is blocked unless Support is enabled. Project secret API keys replace it."""
     if team.secret_api_token or team.secret_api_token_backup:
         return
     if team.conversations_enabled:
@@ -528,18 +530,10 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
         # API against it. Project secret API keys are only ever stored hashed, so they cannot
         # replace it, which would leave Support with no way to verify identity at all.
         return
-    if posthoganalytics.feature_enabled(
-        "project-secret-api-keys",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    ):
-        raise exceptions.ValidationError(
-            "The feature flags secure API key is deprecated. Create a project secret API key with the "
-            "feature_flag:read scope instead."
-        )
+    raise exceptions.ValidationError(
+        "The feature flags secure API key is deprecated. Create a project secret API key with the "
+        "feature_flag:read scope instead."
+    )
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -970,7 +964,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
     email_tracking_consent_mode = serializers.ChoiceField(
-        choices=EmailTrackingConsentMode.choices,
+        choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES,
         required=False,
         help_text=(
             "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
@@ -1353,6 +1347,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    flag_evaluations_mode = serializers.SerializerMethodField(
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
@@ -1397,6 +1397,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1420,6 +1421,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1483,6 +1485,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Team) -> int:
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -2789,7 +2795,7 @@ class TeamViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        validate_secret_token_generation(team, cast(User, request.user))
+        validate_secret_token_generation(team)
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 

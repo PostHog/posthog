@@ -55,6 +55,7 @@ def _request(
     ai_product: str = "ml_inference",
     trace_id: str | None = None,
     properties: dict[str, str] | None = None,
+    distinct_id: str | None = None,
 ) -> DecisionRequest:
     return DecisionRequest(
         team_id=42,
@@ -63,6 +64,7 @@ def _request(
         ai_product=ai_product,
         trace_id=trace_id,
         properties=properties,
+        distinct_id=distinct_id,
     )
 
 
@@ -70,6 +72,16 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
     question = DecisionQuestion(type=DecisionQuestionType.NOUL, instructions="Is it?")
     with pytest.raises(ValueError, match="at most 32"):
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
+
+
+@pytest.mark.parametrize(
+    "team_id,ai_product,arg", [(0, "ml_inference", "team_id"), (-1, "ml_inference", "team_id"), (1, "", "ai_product")]
+)
+def test_a_request_refuses_an_unattributed_call(team_id: int, ai_product: str, arg: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        DecisionRequest(team_id=team_id, state="text", questions=QUESTIONS, ai_product=ai_product)
+    # The whole error string repeats the input, so read the message alone.
+    assert arg in exc.value.errors()[0]["msg"]
 
 
 def test_a_request_refuses_non_json_state() -> None:
@@ -120,10 +132,12 @@ class TestDecide:
         assert [str(request.url) for request in seen] == ["https://gateway.example.com/v1/systemone"]
         request = seen[0]
         assert request.headers["Authorization"] == "Bearer phs_test"
+        assert request.headers["X-PostHog-Product"] == ai_product
         assert json.loads(request.headers["X-PostHog-Properties"]) == {
             "ai_product": ai_product,
             "signals_decision_id": "decision-1",
             "ai_stage": "signal_safety",
+            "team_id": "42",
         }
         assert request.headers["X-PostHog-Trace-Id"] == "decision-1"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
@@ -134,6 +148,23 @@ class TestDecide:
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
         assert result.input_tokens == 772
         assert result.latency_ms == 41.25
+
+    def test_attributes_the_call_to_the_customer_team_and_acting_user(self) -> None:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json=ANSWERS)
+
+        with override_settings(**GATEWAY):
+            decisions.decide(
+                _request(distinct_id="user-abc", properties={"team_id": "2"}),
+                transport=httpx.MockTransport(handler),
+            )
+
+        assert seen[0].headers["X-PostHog-Distinct-Id"] == "user-abc"
+        assert seen[0].headers["X-PostHog-Product"] == "ml_inference"
+        assert json.loads(seen[0].headers["X-PostHog-Properties"]) == {"ai_product": "ml_inference", "team_id": "42"}
 
     def test_parses_every_answer_type(self) -> None:
         result = decisions.parse_result(ANSWERS, QUESTIONS)
@@ -211,8 +242,7 @@ class TestDecisionsEnabled:
     @pytest.mark.parametrize(
         "debug,deployment,expected",
         [
-            (True, "EU", True),
-            (False, "EU", False),
+            (False, "unsupported", False),
             (False, None, False),
         ],
     )
@@ -224,3 +254,20 @@ class TestDecisionsEnabled:
             assert decisions.decisions_enabled(team_id=1) is expected
 
         flag.assert_not_called()
+
+    @pytest.mark.parametrize("deployment", ["US", "EU"])
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_cloud_regions_require_enrollment(self, deployment: str, enabled: bool) -> None:
+        with (
+            override_settings(DEBUG=False, CLOUD_DEPLOYMENT=deployment),
+            patch("products.ml_inference.backend.logic.decisions.Team") as team_model,
+            patch(
+                "products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled", return_value=enabled
+            ) as flag,
+        ):
+            team = team_model.objects.select_related.return_value.only.return_value.get.return_value
+            team.uuid = "test-team"
+            team.organization_id = "test-organization"
+            team.organization.is_ai_data_processing_approved = True
+            assert decisions.decisions_enabled(team_id=1) is enabled
+            flag.assert_called_once()

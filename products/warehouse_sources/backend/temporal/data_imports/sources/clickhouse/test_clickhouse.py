@@ -810,6 +810,11 @@ class TestIsTransientConnectDrop:
             "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
             "(Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
             "executing HTTP request attempt 1",
+            # The exact wrapped message that reached error tracking: the egress proxy accepted
+            # the TCP connection but hung up before answering the CONNECT request.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end "
+            "closed connection without response'))) executing HTTP request attempt 2",
         ],
     )
     def test_matches_transient_drops(self, message):

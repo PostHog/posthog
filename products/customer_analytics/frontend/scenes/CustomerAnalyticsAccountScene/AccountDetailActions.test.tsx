@@ -1,25 +1,38 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { resetContext } from 'kea'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AccountDetailActions } from './AccountDetailActions'
+import { accountViewsLogic } from './accountViewsLogic'
 
-jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
+jest.mock('../../generated/api', () => ({ accountViewsList: jest.fn().mockResolvedValue([]) }))
 
 describe('AccountDetailActions', () => {
-    beforeEach(jest.clearAllMocks)
-    afterEach(cleanup)
-
-    it.each(['Configure tabs', 'Add view'])('opens a work-in-progress dialog for %s', (title) => {
-        render(<AccountDetailActions />)
-
-        fireEvent.click(screen.getByText(title))
-
-        expect(LemonDialog.open).toHaveBeenCalledWith({
-            title,
-            content: 'This feature is a work in progress.',
+    beforeEach(() => {
+        resetContext()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true,
         })
+    })
+
+    afterEach(() => {
+        cleanup()
+        featureFlagLogic.unmount()
+    })
+
+    it('opens the personal account view editor', () => {
+        const logic = accountViewsLogic({ projectId: 1 })
+        logic.mount()
+        render(<AccountDetailActions projectId={1} />)
+
+        fireEvent.click(screen.getByText('New view'))
+
+        expect(logic.values.editorOpen).toBe(true)
+        logic.unmount()
     })
 })
