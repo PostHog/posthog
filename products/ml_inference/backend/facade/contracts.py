@@ -35,8 +35,8 @@ class DecisionGatewayError(Exception):
 
 
 MAX_QUESTIONS_PER_REQUEST = 32
-# JevK5 answers with one letter per option, A to P.
-MAX_OPTIONS_PER_QUESTION = 16
+# JevK5 answers with one letter per option, A to P; the serving host reads more options in several passes.
+MAX_OPTIONS_PER_QUESTION = 128
 
 
 @dataclass(frozen=True)

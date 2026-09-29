@@ -66,7 +66,7 @@ class TestDecideRequestValidation(SimpleTestCase):
                 {
                     "state": "text",
                     "questions": {
-                        "q": {"type": "choice", "instructions": "?", "criteria": {str(i): "m" for i in range(17)}}
+                        "q": {"type": "choice", "instructions": "?", "criteria": {str(i): "m" for i in range(129)}}
                     },
                 },
             ),

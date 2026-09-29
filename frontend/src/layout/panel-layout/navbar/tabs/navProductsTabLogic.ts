@@ -387,27 +387,22 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                         pauseOnPageHidden: false,
                     })
                     try {
-                        const scores = await Promise.all(
-                            buildAppRankingQuestions(items).map(async (questions) => {
-                                const result = await withTimeout(
-                                    decisionsApi.mlInferenceDecisionsDecideCreate(
-                                        String(values.currentTeamId),
-                                        {
-                                            state: query.trim(),
-                                            questions,
-                                        },
-                                        { signal: controller.signal }
-                                    ),
-                                    10000
-                                )
-                                return readAppRankings(result, items)
-                            })
+                        const result = await withTimeout(
+                            decisionsApi.mlInferenceDecisionsDecideCreate(
+                                String(values.currentTeamId),
+                                {
+                                    state: query.trim(),
+                                    questions: buildAppRankingQuestions(items),
+                                },
+                                { signal: controller.signal }
+                            ),
+                            10000
                         )
                         breakpoint()
                         if (!values.appRecommendationsEnabled) {
                             return null
                         }
-                        const rankings = Object.assign({}, ...scores)
+                        const rankings = readAppRankings(result, items, query)
                         rankingCache.set(cacheKey, rankings)
                         if (rankingCache.size > 10) {
                             rankingCache.delete(rankingCache.keys().next().value!)

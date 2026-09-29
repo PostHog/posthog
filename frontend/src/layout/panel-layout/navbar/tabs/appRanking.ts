@@ -5,38 +5,72 @@ import { DecideRequestApiQuestions, DecideResponseApi } from 'products/ml_infere
 import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { productsItemName } from './productsCatalog'
 
-export const APP_MATCH_THRESHOLD = 0.5
+// Relative to the best app, which scores 1.
+export const APP_MATCH_THRESHOLD = 0.25
+
+const NO_APP = 'none'
 
 export interface AppMatchGroups {
     matching: FileSystemImport[]
     other: FileSystemImport[]
 }
 
-export function buildAppRankingQuestions(items: FileSystemImport[]): DecideRequestApiQuestions[] {
-    const batches: DecideRequestApiQuestions[] = []
-    for (let offset = 0; offset < items.length; offset += 32) {
-        batches.push(
-            Object.fromEntries(
-                items.slice(offset, offset + 32).map((item, index) => [
-                    `app_${offset + index}`,
-                    {
-                        type: 'noul',
-                        instructions: `Would this PostHog app help with the user's goal? Interpret partial words and unfinished descriptions as intent. App: ${productsItemName(item)}. Category: ${item.category ?? ''}. ${sidebarProductMeta(item).description ?? ''} Example: ${sidebarProductMeta(item).example ?? ''}`,
-                    },
-                ])
-            )
-        )
-    }
-    return batches
+// The model reads each key next to its description.
+function appKeys(items: FileSystemImport[]): string[] {
+    const seen = new Set<string>([NO_APP])
+    return items.map((item, index) => {
+        const key = productsItemName(item)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_|_$/g, '')
+        const unique = !key || seen.has(key) ? `${key}_${index}` : key
+        seen.add(unique)
+        return unique
+    })
 }
 
-export function readAppRankings(result: DecideResponseApi, items: FileSystemImport[]): Record<string, number> {
+// A yes/no question per app says yes to most apps; one choice makes them compete.
+export function buildAppRankingQuestions(items: FileSystemImport[]): DecideRequestApiQuestions {
+    const keys = appKeys(items)
+    const criteria: Record<string, string> = Object.fromEntries(
+        items.map((item, index) => {
+            const { description, example } = sidebarProductMeta(item)
+            const text = [description, example && `For example: ${example}`].filter(Boolean).join(' ')
+            return [keys[index], (text || productsItemName(item)).slice(0, 500)]
+        })
+    )
+    criteria[NO_APP] =
+        'None of these apps: the request has nothing to do with a software product, its users, its data or its code.'
+    return {
+        app: {
+            type: 'choice',
+            instructions:
+                'The user described something they want to do. Which PostHog app fits it best? The description may be a few words or unfinished; read it as intent.',
+            criteria,
+        },
+    }
+}
+
+export function readAppRankings(
+    result: DecideResponseApi,
+    items: FileSystemImport[],
+    query: string
+): Record<string, number> {
+    const answer = result.answers.app
+    const probabilities = answer?.type === 'choice' ? (answer.probabilities ?? {}) : {}
+    const keys = appKeys(items)
+    const raw = items.map((_, index) => {
+        const probability = probabilities[keys[index]]
+        return typeof probability === 'number' && Number.isFinite(probability) ? Math.max(0, probability) : 0
+    })
+    const best = Math.max(0, ...raw)
+    const relevant = best > 0 && best > (probabilities[NO_APP] ?? 0)
+    // Partial words like "dash" carry too little intent for the model.
+    const prefix = query.trim().toLowerCase()
     const scores: Record<string, number> = {}
     for (const [index, item] of items.entries()) {
-        const answer = result.answers[`app_${index}`]
-        if (answer?.type === 'noul' && typeof answer.probability === 'number' && Number.isFinite(answer.probability)) {
-            scores[item.path] = Math.max(0, Math.min(1, answer.probability))
-        }
+        const named = prefix.length >= 3 && productsItemName(item).toLowerCase().startsWith(prefix)
+        scores[item.path] = named ? 1 : relevant ? raw[index] / best : 0
     }
     return scores
 }

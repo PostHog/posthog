@@ -14,8 +14,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
-
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
@@ -155,30 +153,21 @@ const meta: Meta<typeof SidebarStory> = {
                 '/api/environments/:team_id/file_system_shortcut/': [200, { results: starred }],
             },
             post: {
-                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
-                    const { questions } = (await request.json()) as DecideRequestApi
-                    return [
-                        200,
-                        {
-                            model: 'storybook',
-                            input_tokens: 1,
-                            latency_ms: 1,
-                            answers: Object.fromEntries(
-                                Object.entries(questions).map(([key, question]) => [
-                                    key,
-                                    {
-                                        type: 'noul',
-                                        probability: question.instructions.includes('App: Web analytics.')
-                                            ? 0.98
-                                            : question.instructions.includes('App: Product analytics.')
-                                              ? 0.8
-                                              : 0.1,
-                                    },
-                                ])
-                            ),
+                '/api/projects/:team_id/ml_inference/decisions/decide/': [
+                    200,
+                    {
+                        model: 'storybook',
+                        input_tokens: 1,
+                        latency_ms: 1,
+                        answers: {
+                            app: {
+                                type: 'choice',
+                                choice: 'web_analytics',
+                                probabilities: { web_analytics: 0.7, product_analytics: 0.2, none: 0.02 },
+                            },
                         },
-                    ]
-                },
+                    },
+                ],
                 '/api/projects/:team_id/file_system/home_folder/': [
                     200,
                     { id: 'home-folder', path: 'Users/Alex Example' },
@@ -270,20 +259,15 @@ export const CustomizeSidebarNoMatches: Story = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
-                    const { questions } = (await request.json()) as DecideRequestApi
-                    return [
-                        200,
-                        {
-                            model: 'storybook',
-                            input_tokens: 1,
-                            latency_ms: 1,
-                            answers: Object.fromEntries(
-                                Object.keys(questions).map((key) => [key, { type: 'noul', probability: 0.1 }])
-                            ),
-                        },
-                    ]
-                },
+                '/api/projects/:team_id/ml_inference/decisions/decide/': [
+                    200,
+                    {
+                        model: 'storybook',
+                        input_tokens: 1,
+                        latency_ms: 1,
+                        answers: { app: { type: 'choice', choice: 'none', probabilities: { none: 0.9 } } },
+                    },
+                ],
             },
         }),
     ],

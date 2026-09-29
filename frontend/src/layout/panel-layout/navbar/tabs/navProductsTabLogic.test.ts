@@ -397,7 +397,7 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.draftStarredPaths.has('Feature flags')).toBe(false)
     })
 
-    it('splits the full ranked catalog at the threshold and clears the grouping', async () => {
+    it('splits the full ranked catalog at a quarter of the best app and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
         const decide = jest.fn(async ({ request }) => {
             const body: DecideRequestApi = await request.json()
@@ -408,21 +408,21 @@ describe('navProductsTabLogic', () => {
                     model: 'test',
                     input_tokens: 1,
                     latency_ms: 1,
-                    answers: Object.fromEntries(
-                        Object.entries(body.questions).map(([key, question]: [string, { instructions: string }]) => [
-                            key,
-                            {
-                                type: 'noul',
-                                probability: question.instructions.includes('App: Web analytics.')
-                                    ? 0.99
-                                    : question.instructions.includes('App: SQL editor.')
-                                      ? 0.5
-                                      : question.instructions.includes('App: Feature flags.')
-                                        ? 0.499
-                                        : 0,
+                    answers: {
+                        app: {
+                            type: 'choice',
+                            choice: 'web_analytics',
+                            probabilities: {
+                                ...Object.fromEntries(
+                                    Object.keys(body.questions.app.criteria ?? {}).map((k) => [k, 0])
+                                ),
+                                web_analytics: 0.6,
+                                sql_editor: 0.15,
+                                feature_flags: 0.149,
+                                none: 0.05,
                             },
-                        ])
-                    ),
+                        },
+                    },
                 },
             ]
         })
@@ -440,15 +440,11 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.appRankingError).toBeNull()
         expect(navProductsTabLogic.values.rankedConfigurableApps[0].path).toBe('Web analytics')
         expect(new Set(navProductsTabLogic.values.rankedConfigurableApps)).toEqual(new Set(allApps))
-        expect(decide.mock.calls.length).toBe(Math.ceil(allApps.length / 32))
-        const questions = requests.flatMap(({ questions }) => Object.values(questions))
-        expect(questions).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    instructions: expect.stringContaining('Find which referral sources bring visitors who sign up.'),
-                }),
-            ])
-        )
+        expect(decide.mock.calls.length).toBe(1)
+        const criteria = requests[0].questions.app.criteria as Record<string, string>
+        expect(Object.keys(criteria)).toHaveLength(allApps.length + 1)
+        expect(criteria.web_analytics).toContain('Find which referral sources bring visitors who sign up.')
+        expect(criteria.none).toEqual(expect.any(String))
         expect(navProductsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
             'Web analytics',
             'SQL editor',
@@ -477,7 +473,7 @@ describe('navProductsTabLogic', () => {
         await expectLogic(navProductsTabLogic, () =>
             navProductsTabLogic.actions.setAppRecommendationQuery('  Track website visitors  ')
         ).toDispatchActions(['rankAppsSuccess'])
-        expect(decide.mock.calls.length).toBe(Math.ceil(allApps.length / 32))
+        expect(decide.mock.calls.length).toBe(1)
         expect(navProductsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
             'Web analytics',
             'SQL editor',
@@ -543,6 +539,31 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
     })
 
+    it.each([
+        ['suggests nothing when no app fits', 'Plan a hiking trip', []],
+        ['matches apps whose name starts with a partial word', 'dash', ['Dashboards']],
+    ])('%s', async (_name, query, expected) => {
+        const decide = jest.fn(() => [
+            200,
+            {
+                model: 'test',
+                input_tokens: 1,
+                answers: { app: { type: 'choice', choice: 'none', probabilities: { none: 0.9, activity: 0.1 } } },
+            },
+        ])
+        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        await expectLogic(navProductsTabLogic, () =>
+            navProductsTabLogic.actions.setAppRecommendationQuery(query)
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(navProductsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual(expected)
+        expect(navProductsTabLogic.values.customizeProductGroups.map((group) => group.label)).toEqual(
+            expected.length
+                ? expect.arrayContaining([SUGGESTED_GROUP_LABEL])
+                : expect.not.arrayContaining([SUGGESTED_GROUP_LABEL])
+        )
+    })
+
     it('discards ranking responses after the query is cleared', async () => {
         let release!: () => void
         const held = new Promise<void>((resolve) => {
@@ -550,7 +571,16 @@ describe('navProductsTabLogic', () => {
         })
         const decide = jest.fn(async () => {
             await held
-            return [200, { model: 'test', answers: { app_0: { type: 'noul', probability: 1 } }, input_tokens: 1 }]
+            return [
+                200,
+                {
+                    model: 'test',
+                    answers: {
+                        app: { type: 'choice', choice: 'session_replay', probabilities: { session_replay: 1 } },
+                    },
+                    input_tokens: 1,
+                },
+            ]
         })
         useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
