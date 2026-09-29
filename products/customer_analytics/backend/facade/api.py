@@ -135,6 +135,9 @@ from products.customer_analytics.backend.logic.event_stream_destination import (
     sync_event_stream_destination,
     sync_event_stream_destination_by_id as sync_event_stream_destination_by_id,
 )
+from products.customer_analytics.backend.logic.person_group_membership import (
+    is_person_group_membership_ready as _is_person_group_membership_ready,
+)
 from products.customer_analytics.backend.logic.person_property_projection import (
     person_properties_flag_enabled as person_properties_flag_enabled,
 )
@@ -209,6 +212,10 @@ if TYPE_CHECKING:
 
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.facade.contracts import AccountAudienceFilters
+
+
+def is_person_group_membership_ready(team_id: int) -> bool:
+    return _is_person_group_membership_ready(team_id)
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:

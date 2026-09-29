@@ -22,8 +22,17 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     ownership_claims_collect_teams_activity,
     ownership_claims_sweep_activity,
 )
+from products.customer_analytics.backend.temporal.person_group_membership import (
+    PersonGroupMembershipBackfillWorkflow,
+    PersonGroupMembershipCoordinatorWorkflow,
+    advance_membership_backfill_activity,
+    fail_membership_backfill_activity,
+    sync_membership_page_activity,
+)
 
 WORKFLOWS = [
+    PersonGroupMembershipBackfillWorkflow,
+    PersonGroupMembershipCoordinatorWorkflow,
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
     CalendarSyncCoordinatorWorkflow,
@@ -33,6 +42,9 @@ WORKFLOWS = [
     OwnershipClaimsSweepWorkflow,
 ]
 ACTIVITIES = [
+    advance_membership_backfill_activity,
+    fail_membership_backfill_activity,
+    sync_membership_page_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,

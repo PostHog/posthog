@@ -33,6 +33,7 @@ from .feature_request import (
     FeatureRequestStatus,
 )
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
+from .person_group_membership_state import PersonGroupMembershipState, PersonGroupMembershipStatus
 from .relationship import AccountRelationship, AccountRelationshipControl, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from .user_customer_analytics_config import UserCustomerAnalyticsConfig
@@ -80,6 +81,8 @@ __all__ = [
     "MeetingParticipant",
     "MeetingResponseStatus",
     "MeetingStatus",
+    "PersonGroupMembershipState",
+    "PersonGroupMembershipStatus",
     "RelationshipDefinition",
     "SlackSummaryCadence",
     "SyncStatus",

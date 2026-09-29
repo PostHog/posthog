@@ -314,6 +314,7 @@ rules:
                               |OfflineExperimentItemPayload
                               |ParserRecipe
                               |PendingSourceCredential
+                              |PersonGroupMembershipState
                               |PluginConfig
                               |ProductBrief
                               |ProductTour
@@ -743,6 +744,7 @@ rules:
                         |OfflineExperimentItemPayload
                         |ParserRecipe
                         |PendingSourceCredential
+                        |PersonGroupMembershipState
                         |PluginConfig
                         |ProductBrief
                         |ProductTour
