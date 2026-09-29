@@ -1179,7 +1179,7 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 # File lists of release commits, which cymbal uses to link stack frames to repository paths.
 # A list above the path cap is not stored. The fetch caps bound one git fetch in a worker.
 ERROR_TRACKING_REPO_PATHS_MAX_PATHS = get_from_env("ERROR_TRACKING_REPO_PATHS_MAX_PATHS", 200_000, type_cast=int)
-ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO = get_from_env("ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO", 50, type_cast=int)
+ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO = get_from_env("ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO", 200, type_cast=int)
 ERROR_TRACKING_REPO_PATHS_MAX_FETCH_BYTES = get_from_env(
     "ERROR_TRACKING_REPO_PATHS_MAX_FETCH_BYTES", 256 * 1024 * 1024, type_cast=int
 )
