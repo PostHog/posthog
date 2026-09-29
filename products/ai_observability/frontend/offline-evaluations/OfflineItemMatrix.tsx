@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
@@ -23,8 +23,7 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
         summaryCountLoading,
         summariesError,
     } = useValues(logic)
-    const { loadOfflineItems, nextItems, previousItems, openItem, setViewport, retryCellBatch, focusScorer } =
-        useActions(logic)
+    const { loadOfflineItems, nextItems, previousItems, openItem, setViewport, retryCellBatch } = useActions(logic)
     const tableRef = useRef<HTMLDivElement>(null)
     useEffect(() => {
         if (focusedScorerVersionId) {
@@ -41,19 +40,20 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
             width: 220,
             className: 'min-w-[220px] max-w-[220px]',
             render: (_, item) => (
-                <div className="min-w-0">
+                <div className="min-w-0 flex flex-col items-start gap-1">
                     <LemonButton
                         data-attr="offline-experiment-open-item"
+                        noPadding
                         size="small"
                         type="tertiary"
-                        className="max-w-full"
+                        className="max-w-full !my-0"
                         onClick={() => openItem(item.id)}
                     >
                         <span className="truncate" title={item.id}>
                             {item.case_key || item.dataset_item_identifier || item.id.slice(0, 8)}
                         </span>
                     </LemonButton>
-                    <div className="text-xs text-muted truncate">
+                    <div className="text-xs text-muted truncate max-w-full">
                         {[
                             item.trial ? `Trial ${item.trial}` : null,
                             item.payload_state === 'available'
@@ -134,29 +134,15 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
     ]
     return (
         <section className="min-w-0">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <div>
-                    <h3 className="mb-0">Items</h3>
-                    <p className="text-xs text-muted mb-0">
-                        {summaryCountLoading
-                            ? 'Discovering all scorer columns…'
-                            : summariesError
-                              ? 'Some scorer columns could not be loaded.'
-                              : 'All scorers are shown. Scroll horizontally to inspect more scores.'}
-                    </p>
-                </div>
-                {!!scorers.length && (
-                    <LemonSelect
-                        size="small"
-                        value={focusedScorerVersionId}
-                        placeholder="Jump to scorer"
-                        onChange={(value) => value && focusScorer(value)}
-                        options={scorers.map((scorer) => ({
-                            value: scorer.id,
-                            label: `${scorer.name} v${scorer.version}`,
-                        }))}
-                    />
-                )}
+            <div className="mb-2">
+                <h3 className="mb-0">Items</h3>
+                <p className="text-xs text-muted mb-0">
+                    {summaryCountLoading
+                        ? 'Discovering all scorer columns…'
+                        : summariesError
+                          ? 'Some scorer columns could not be loaded.'
+                          : 'All scorers are shown. Scroll horizontally to inspect more scores.'}
+                </p>
             </div>
             {itemsError && (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadOfflineItems() }}>

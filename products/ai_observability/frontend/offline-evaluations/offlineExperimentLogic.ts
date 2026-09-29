@@ -105,9 +105,6 @@ export interface offlineExperimentLogicActions {
         error: string
         index: number
     }
-    focusScorer: (scorerVersionId: string) => {
-        scorerVersionId: string
-    }
     hideCompletion: () => {
         value: true
     }
@@ -263,7 +260,6 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
             scorerVersionId,
         }),
         closeItem: true,
-        focusScorer: (scorerVersionId: string) => ({ scorerVersionId }),
         hydrateInspector: (search: Record<string, unknown>) => ({ search }),
         showCompletion: true,
         hideCompletion: true,
@@ -409,7 +405,6 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
         focusedScorerVersionId: [
             null as string | null,
             {
-                focusScorer: (_, { scorerVersionId }) => scorerVersionId,
                 openItem: (state, { scorerVersionId }) => scorerVersionId || state,
                 hydrateInspector: (_, { search }) =>
                     typeof search.scorer_version_id === 'string' ? search.scorer_version_id : null,
@@ -570,10 +565,6 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
         closeItem: () => [
             urls.aiObservabilityOfflineEvaluationExperiment(props.experimentId),
             { ...router.values.searchParams, item_id: undefined, result_id: undefined },
-        ],
-        focusScorer: () => [
-            urls.aiObservabilityOfflineEvaluationExperiment(props.experimentId),
-            { ...router.values.searchParams, scorer_version_id: values.focusedScorerVersionId },
         ],
     })),
     urlToAction(({ actions, props }) => ({

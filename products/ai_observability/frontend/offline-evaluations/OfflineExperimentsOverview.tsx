@@ -33,6 +33,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         experimentsError,
         filters,
         scorerIds,
+        suggestedScorersLoading,
         hasExperiments,
         trendFilters,
         dateRange,
@@ -44,34 +45,43 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Experiment',
             key: 'name',
+            width: '26%',
             render: (_, experiment) => (
-                <div className="min-w-0">
+                <Tooltip title={`${experiment.name} · ${experiment.id}`}>
                     <Link
                         to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
-                        className="font-semibold break-words"
+                        className="block font-semibold truncate"
                         data-attr="offline-experiment-open"
                     >
                         {experiment.name}
                     </Link>
-                    <div className="text-xs text-muted font-mono truncate" title={experiment.id}>
-                        {experiment.id.slice(0, 8)}
-                    </div>
-                </div>
+                </Tooltip>
             ),
         },
         {
             title: 'Execution',
             key: 'execution',
+            width: '18%',
             render: (_, experiment) => (
-                <div className="space-y-1">
+                <div className="truncate">
                     <TZLabel time={experiment.started_at} />
-                    <div className="text-muted text-xs">{offlineRunSourceLabel(experiment.run_source)}</div>
                 </div>
+            ),
+        },
+        {
+            title: 'Source',
+            key: 'source',
+            width: '12%',
+            render: (_, experiment) => (
+                <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
+                    <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
+                </Tooltip>
             ),
         },
         {
             title: 'Upload',
             key: 'status',
+            width: '16%',
             render: (_, experiment) => (
                 <LemonTag
                     type={
@@ -93,28 +103,30 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,
             key: 'coverage',
+            width: '28%',
             render: (_, experiment) => (
-                <div className="text-xs space-y-1">
-                    <div>{`${experiment.accepted_item_count.toLocaleString()} items`}</div>
-                    <div className="text-muted">
-                        {experiment.visible_result_count === null
+                <Tooltip
+                    title={[
+                        `${experiment.accepted_item_count.toLocaleString()} items`,
+                        experiment.visible_scorer_definition_count === null
+                            ? 'Scorers unavailable'
+                            : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`,
+                        experiment.visible_result_count === null
                             ? 'Results unavailable'
-                            : `${experiment.visible_result_count.toLocaleString()} visible results`}
-                    </div>
-                    <Tooltip
-                        title={
-                            experiment.visible_scorer_version_count === null
-                                ? 'Scorer version count unavailable'
-                                : `${experiment.visible_scorer_version_count} visible scorer versions`
-                        }
-                    >
-                        <span className="text-muted">
-                            {experiment.visible_scorer_definition_count === null
+                            : `${experiment.visible_result_count.toLocaleString()} visible results`,
+                        experiment.visible_scorer_version_count === null
+                            ? 'Scorer version count unavailable'
+                            : `${experiment.visible_scorer_version_count} visible scorer versions`,
+                    ].join(' · ')}
+                >
+                    <span className="block truncate text-xs" translate="no">
+                        {`${experiment.accepted_item_count.toLocaleString()} items · ${
+                            experiment.visible_scorer_definition_count === null
                                 ? 'Scorers unavailable'
-                                : `${experiment.visible_scorer_definition_count} visible scorers`}
-                        </span>
-                    </Tooltip>
-                </div>
+                                : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`
+                        }`}
+                    </span>
+                </Tooltip>
             ),
         },
     ]
@@ -186,13 +198,14 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                 </div>
                 {!dateRange ? (
                     <LemonBanner type="error">Choose a valid date range.</LemonBanner>
-                ) : scorerIds === null ? (
+                ) : scorerIds === null || (!scorerIds.length && suggestedScorersLoading) ? (
                     <LemonSkeleton className="h-40" />
                 ) : scorerIds.length > 0 ? (
                     <div className="grid grid-cols-1 @min-[56rem]:grid-cols-3 gap-3">
-                        {scorerIds.map((scorerId) => (
+                        {scorerIds.map((scorerId, index) => (
                             <OfflineOverviewTrend
                                 key={scorerId}
+                                colorOffset={index}
                                 teamId={props.teamId}
                                 timezone={props.timezone}
                                 scorerId={scorerId}
@@ -229,6 +242,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"
+                        size="small"
                         loading={experimentsLoading || experiments === null}
                         tableLayout="fixed"
                         emptyState="No experiments match these filters."

@@ -255,19 +255,31 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
                         })
                         breakpoint()
                         const latest = page.results.find((experiment) => (experiment.visible_result_count || 0) > 0)
-                        if (!latest) {
-                            return []
+                        if (latest) {
+                            const summaries = await api.aiObservabilityOfflineExperimentsScorerSummariesList(
+                                String(props.teamId),
+                                latest.id,
+                                { limit: 100 }
+                            )
+                            breakpoint()
+                            const scorerIds = [
+                                ...new Set(
+                                    summaries.results
+                                        .filter((summary) => !summary.scorer.archived)
+                                        .map((summary) => summary.scorer.definition_id)
+                                ),
+                            ].slice(0, 3)
+                            if (scorerIds.length) {
+                                return scorerIds
+                            }
                         }
-                        const summaries = await api.aiObservabilityOfflineExperimentsScorerSummariesList(
-                            String(props.teamId),
-                            latest.id,
-                            { limit: 100 }
-                        )
+                        const definitions = await api.llmAnalyticsScoreDefinitionsList(String(props.teamId), {
+                            archived: false,
+                            limit: 3,
+                            order_by: 'name',
+                        })
                         breakpoint()
-                        return [...new Set(summaries.results.map((summary) => summary.scorer.definition_id))].slice(
-                            0,
-                            3
-                        )
+                        return definitions.results.filter((definition) => !definition.archived).map(({ id }) => id)
                     } catch (error) {
                         breakpoint()
                         throw error
@@ -289,7 +301,7 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
             null as string[] | null,
             {
                 setScorerIds: (_, { scorerIds }) => scorerIds,
-                suggestScorerIds: (state, { scorerIds }) => (state === null ? scorerIds : state),
+                suggestScorerIds: (state, { scorerIds }) => (!state?.length ? scorerIds : state),
                 hydrateUrl: (_, { search }) =>
                     typeof search.scores === 'string'
                         ? (parseOfflineScorerIds(search.scores ? search.scores.split(',') : []) ?? [])
@@ -364,10 +376,15 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        setFilters: () => actions.loadOfflineExperiments(),
+        setFilters: () => {
+            actions.loadOfflineExperiments()
+            if (!values.scorerIds?.length && values.dateRange && values.suggestedScorers === null) {
+                actions.loadOfflineSuggestedScorers()
+            }
+        },
         hydrateUrl: () => {
             actions.loadOfflineExperiments()
-            if (values.scorerIds === null) {
+            if (!values.scorerIds?.length && values.dateRange) {
                 if (values.suggestedScorers) {
                     actions.suggestScorerIds(values.suggestedScorers)
                 } else {
@@ -379,7 +396,12 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         loadOfflineSuggestedScorersFailure: () => actions.suggestScorerIds([]),
         nextPage: () => actions.loadOfflineExperiments(),
         previousPage: () => actions.loadOfflineExperiments(),
-        refresh: () => actions.loadOfflineExperiments(),
+        refresh: () => {
+            actions.loadOfflineExperiments()
+            if (!values.scorerIds?.length && values.dateRange) {
+                actions.loadOfflineSuggestedScorers()
+            }
+        },
         openChooser: () => {
             actions.setDraftScorerIds(values.scorerIds || [])
             actions.loadOfflineScorerOptions()
@@ -390,7 +412,12 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
             actions.setScorerIds(values.draftScorerIds)
             actions.closeChooser()
         },
-        setScorerIds: ({ scorerIds }) => saveOfflineScorerPreferences(props.userId, props.teamId, scorerIds),
+        setScorerIds: ({ scorerIds }) => {
+            saveOfflineScorerPreferences(props.userId, props.teamId, scorerIds)
+            if (!scorerIds.length && values.dateRange) {
+                actions.loadOfflineSuggestedScorers()
+            }
+        },
     })),
     actionToUrl(({ values }) => {
         const location = (): [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }] => [
@@ -407,6 +434,7 @@ export const offlineExperimentsLogic = kea<offlineExperimentsLogicType>([
         return {
             setFilters: location,
             setScorerIds: location,
+            suggestScorerIds: location,
             nextPage: location,
             previousPage: location,
             refresh: location,

@@ -559,7 +559,7 @@ export const productConfiguration: Record<string, any> = {
     },
     AIObservabilityOfflineExperiments: {
         projectBased: true,
-        name: 'Offline experiments',
+        name: 'Offline evals',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },

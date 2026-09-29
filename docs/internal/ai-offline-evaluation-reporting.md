@@ -217,28 +217,37 @@ Opening those resources requires their own permissions.
 
 ## Inspecting offline results
 
-Open **Evaluations → Offline experiments** to see the newest experiments and chosen score trends.
+Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
 Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
+The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
 
 **Choose scores** selects and orders recurring scorer definitions above the experiment list.
+When no scores are selected, the overview selects up to three from recent completed experiments, falling back to available scorer definitions.
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
 The shared date picker supports presets, custom ranges, and all time.
-History pages are bounded; coverage labels show how many matching points are loaded.
+History pages are bounded; the scorer history shows how many matching points are loaded.
 Different scorer versions retain their pinned configurations and are not averaged together.
+Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
+The card summary shows the latest experiment's score and scored-item count; output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
+Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 
-An experiment shows whole-run scorer summaries and a horizontally scrollable item table with every observed scorer version.
+An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
+Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
 These larger payloads load only when the inspector requests them.
 Upload completion is separate from score quality. **Mark as completed** checks declared expected counts on the server; it cannot force a mismatched upload to complete.
 
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
 Scorer management remains available for manual reviews when offline evaluations are disabled.
-With the offline feature enabled, **View history** opens a dedicated scorer timeline with an exact version selector and comparison against a previous or custom period.
+With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+Its experiment table keeps names and coverage on one line, shows execution time in its own column, and opens run details with the arrow beside each name.
+Compare against a previous or custom period.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
 Version creation copies the current stored configuration unchanged and requires refreshing after a concurrent version change.
 

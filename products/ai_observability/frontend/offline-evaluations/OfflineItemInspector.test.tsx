@@ -69,7 +69,7 @@ describe('OfflineItemInspector', () => {
             />
         )
 
-        expect(await screen.findByText('"The evaluator did not finish in time."')).toBeInTheDocument()
+        expect(await screen.findByText('The evaluator did not finish in time.')).toBeInTheDocument()
         expect(screen.getByText('Evaluator error: evaluator_timeout')).toBeInTheDocument()
     })
 

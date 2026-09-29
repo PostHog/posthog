@@ -28,6 +28,6 @@ export function OfflineScorerHistoryScene(props: Pick<OfflineScorerHistoryProps,
             <Spinner />
         )
     ) : (
-        <LemonBanner type="info">Offline experiments are not available for this project.</LemonBanner>
+        <LemonBanner type="info">Offline evals are not available for this project.</LemonBanner>
     )
 }

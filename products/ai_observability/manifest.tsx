@@ -84,7 +84,7 @@ export const manifest: ProductManifest = {
         AIObservabilityOfflineExperiments: {
             import: () => import('./frontend/offline-evaluations/OfflineExperimentsScene'),
             projectBased: true,
-            name: 'Offline experiments',
+            name: 'Offline evals',
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },

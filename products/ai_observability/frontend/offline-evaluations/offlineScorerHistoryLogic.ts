@@ -35,13 +35,6 @@ export interface OfflineHistoryFilters {
     compare_to: string | null
     statuses: string
     run_source: string
-    suite_key: string
-    dataset_source: string
-    dataset_identifier: string
-    dataset_revision_identifier: string
-    application_version: string
-    model_version: string
-    prompt_version: string
 }
 
 const DEFAULT_FILTERS: OfflineHistoryFilters = {
@@ -53,13 +46,6 @@ const DEFAULT_FILTERS: OfflineHistoryFilters = {
     compare_to: '-30d',
     statuses: 'completed',
     run_source: '',
-    suite_key: '',
-    dataset_source: '',
-    dataset_identifier: '',
-    dataset_revision_identifier: '',
-    application_version: '',
-    model_version: '',
-    prompt_version: '',
 }
 
 function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
@@ -475,13 +461,6 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
                 limit: 50,
                 statuses: filters.statuses,
                 run_source: filters.run_source || undefined,
-                suite_key: filters.suite_key || undefined,
-                dataset_source: filters.dataset_source || undefined,
-                dataset_identifier: filters.dataset_identifier || undefined,
-                dataset_revision_identifier: filters.dataset_revision_identifier || undefined,
-                application_version: filters.application_version || undefined,
-                model_version: filters.model_version || undefined,
-                prompt_version: filters.prompt_version || undefined,
             }),
         ],
         trendPeriods: [

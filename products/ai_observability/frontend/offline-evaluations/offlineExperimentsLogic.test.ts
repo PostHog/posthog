@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import * as api from '../generated/api'
 import type { OfflineExperimentPageApi } from '../generated/api.schemas'
 import { offlineExperimentsLogic } from './offlineExperimentsLogic'
-import { overviewExperiments, overviewScorers } from './offlineOverviewFixtures'
+import { overviewExperiments, overviewScorers, overviewHistory } from './offlineOverviewFixtures'
 import { readOfflineScorerPreferences, saveOfflineScorerPreferences } from './offlineOverviewState'
 
 jest.mock('../generated/api', () => ({
@@ -27,16 +27,55 @@ describe('offlineExperimentsLogic', () => {
         jest.resetAllMocks()
         localStorage.clear()
         list.mockResolvedValue(page)
+        jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
+            results: overviewScorers.map((scorer) => overviewHistory(scorer)[0].summary),
+            count: 3,
+            next_cursor: null,
+        })
         jest.mocked(api.llmAnalyticsScoreDefinitionsList).mockResolvedValue({
             results: overviewScorers,
             count: 3,
             next: null,
             previous: null,
         })
-        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { scores: '' })
+        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { scores: overviewScorers[0].id })
     })
 
     afterEach(() => jest.useRealTimers())
+
+    it.each(['new', 'saved empty', 'URL empty'])(
+        'selects recent scorers when the selection is %s',
+        async (selection) => {
+            if (selection === 'saved empty') {
+                saveOfflineScorerPreferences(props.userId, props.teamId, [])
+            }
+            router.actions.push(
+                urls.aiObservabilityOfflineEvaluations(),
+                selection === 'URL empty' ? { scores: '' } : {}
+            )
+            const logic = offlineExperimentsLogic(props)
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(150)
+
+            expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
+            expect(router.values.searchParams.scores).toBe(overviewScorers.map(({ id }) => id).join(','))
+        }
+    )
+
+    it('falls back to available definitions after clearing the chosen scorers', async () => {
+        jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
+            results: [],
+            count: 0,
+            next_cursor: null,
+        })
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(150)
+        logic.actions.setScorerIds([])
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
+    })
 
     it('uses shared URL score selections without overwriting personal preferences', async () => {
         const saved = [overviewScorers[0].id]
@@ -63,7 +102,7 @@ describe('offlineExperimentsLogic', () => {
         const saved = [overviewScorers[0].id]
         saveOfflineScorerPreferences(props.userId, props.teamId, saved)
         router.actions.push(urls.aiObservabilityOfflineEvaluations(), {
-            scores: '',
+            scores: saved.join(','),
             date_from: '-24h',
             run_source: 'local',
             statuses: 'uploading',
@@ -193,5 +232,6 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.dateRange).not.toBeNull()
         expect(logic.values.trendFilters).toEqual({ statuses: 'completed,uploading,failed' })
         expect(logic.values.hasExperiments).toBe(true)
+        expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
     })
 })

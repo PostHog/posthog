@@ -30,6 +30,11 @@ const meta: Meta<typeof OfflineExperimentsOverview> = {
                     next_cursor: null,
                     results: overviewExperiments,
                 },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/scorer_summaries/': {
+                    results: overviewScorers.map((scorer) => overviewHistory(scorer)[0].summary),
+                    count: 3,
+                    next_cursor: null,
+                },
                 '/api/projects/:team/llm_analytics/score_definitions/': { count: 3, results: overviewScorers },
                 '/api/projects/:team/llm_analytics/score_definitions/:id/': ({ params }) =>
                     overviewScorers.find((scorer) => scorer.id === params.id),
@@ -112,4 +117,38 @@ export const ScoreError: Story = {
             },
         }),
     ],
+}
+
+export const DefaultScorers: Story = {
+    parameters: { pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=` },
+}
+export const MultipleVersions: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_scorers/:id/history/': ({ params }) => {
+                    const points = overviewHistory(overviewScorers.find((scorer) => scorer.id === params.id)!)
+                    const olderPoints = points.map((point) => ({
+                        ...point,
+                        summary: {
+                            ...point.summary,
+                            scorer: {
+                                ...point.summary.scorer,
+                                id: point.summary.scorer.id.replace('22222222', '44444444'),
+                                version: 1,
+                                config:
+                                    point.summary.scorer.kind === 'numeric'
+                                        ? { min: 0, max: 10 }
+                                        : point.summary.scorer.config,
+                            },
+                        },
+                    }))
+                    return { count: points.length * 2, next_cursor: null, results: [...points, ...olderPoints] }
+                },
+            },
+        }),
+    ],
+}
+export const MultipleVersionsNarrow: Story = {
+    decorators: [MultipleVersions.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
 }

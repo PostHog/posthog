@@ -34,7 +34,7 @@ export function OfflineExperimentScene({ experimentId }: { experimentId: string 
                         experimentId={experimentId}
                     />
                 ) : (
-                    <LemonBanner type="info">Offline experiments are not available for this project.</LemonBanner>
+                    <LemonBanner type="info">Offline evals are not available for this project.</LemonBanner>
                 )}
             </EvaluationsTabs>
         </SceneContent>

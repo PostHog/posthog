@@ -77,6 +77,27 @@ describe('offlineOverviewTrendLogic', () => {
         expect(logic.values.trendLoading).toBe(false)
     })
 
+    it('shows one version at a time and falls back when it has no results in the new window', async () => {
+        const olderPoints = page.results.map((point) => ({
+            ...point,
+            summary: { ...point.summary, scorer: { ...point.summary.scorer, id: 'older-version', version: 1 } },
+        }))
+        history.mockResolvedValueOnce({ ...page, results: [...olderPoints, ...page.results] })
+        const logic = offlineOverviewTrendLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeVersion?.version).toBe(2)
+        expect(logic.values.versionPoints).toEqual(page.results)
+        logic.actions.selectVersion('older-version')
+        expect(logic.values.versionPoints).toEqual(olderPoints)
+
+        offlineOverviewTrendLogic({ ...props, dateFrom: '2026-09-20T00:00:00Z' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeVersion?.version).toBe(2)
+        expect(logic.values.versionPoints).toEqual(page.results)
+    })
+
     it('reloads a shared source and upload state within the same frozen date range', async () => {
         const logic = offlineOverviewTrendLogic({ ...props, filters: { run_source: 'local' } })
         logic.mount()

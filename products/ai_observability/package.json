@@ -17,6 +17,8 @@
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",
+        "@types/d3": "7.4.3",
+        "d3": "7.9.0",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -26,9 +28,11 @@
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
+        "@types/d3": "7.4.3",
         "@types/papaparse": "*",
         "@types/react": "*",
         "clsx": "*",
+        "d3": "7.9.0",
         "eslint": "*",
         "jest": "*",
         "papaparse": "*",

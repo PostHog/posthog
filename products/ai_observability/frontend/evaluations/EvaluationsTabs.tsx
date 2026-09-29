@@ -34,7 +34,7 @@ export function EvaluationsTabs({
                     },
                     !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && {
                         key: 'offline-evals',
-                        label: 'Offline experiments',
+                        label: 'Offline evals',
                         link: urls.aiObservabilityOfflineEvaluations(),
                         disabledReason: getProductAccessDisabledReason({
                             sceneKey: Scene.AIObservabilityOfflineExperiments,

@@ -2,17 +2,18 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useState } from 'react'
 
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCard,
-    LemonInput,
     LemonLabel,
     LemonSelect,
     LemonTable,
     LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -25,23 +26,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import { ScoreDefinitionVersionButton } from '../scoreDefinitions/ScoreDefinitionVersionButton'
-import {
-    offlineScorerHistoryLogic,
-    type OfflineHistoryFilters,
-    type OfflineScorerHistoryProps,
-} from './offlineScorerHistoryLogic'
+import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
 import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreConfigurationLabel } from './offlineScoreTrends'
-
-const CONTEXT_FILTERS: { key: keyof OfflineHistoryFilters; label: string }[] = [
-    { key: 'suite_key', label: 'Suite' },
-    { key: 'application_version', label: 'Application version' },
-    { key: 'model_version', label: 'Model version' },
-    { key: 'prompt_version', label: 'Prompt version' },
-    { key: 'dataset_source', label: 'Dataset source' },
-    { key: 'dataset_identifier', label: 'Dataset identifier' },
-    { key: 'dataset_revision_identifier', label: 'Dataset revision' },
-]
 
 function experimentUrl(point: OfflineHistoryPointApi): string {
     return combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id), {
@@ -121,6 +108,33 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             />
                         </div>
                         <div className="flex flex-wrap gap-2 items-end">
+                            <div>
+                                <LemonLabel>Upload state</LemonLabel>
+                                <LemonSelect
+                                    value={filters.statuses}
+                                    onChange={(statuses) => setFilters({ statuses })}
+                                    options={[
+                                        { value: 'completed', label: 'Completed' },
+                                        { value: 'uploading', label: 'Uploading' },
+                                        { value: 'failed', label: 'Failed' },
+                                        { value: 'completed,uploading,failed', label: 'All states' },
+                                    ]}
+                                />
+                            </div>
+                            <div>
+                                <LemonLabel>Source</LemonLabel>
+                                <LemonSelect
+                                    value={filters.run_source}
+                                    onChange={(run_source) => setFilters({ run_source })}
+                                    options={[
+                                        { value: '', label: 'All sources' },
+                                        { value: 'ci', label: 'CI' },
+                                        { value: 'local', label: 'Local' },
+                                        { value: 'scheduled', label: 'Scheduled' },
+                                        { value: 'not_specified', label: 'Not specified' },
+                                    ]}
+                                />
+                            </div>
                             <div>
                                 <LemonLabel>Version</LemonLabel>
                                 <LemonSelect
@@ -215,48 +229,6 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 <div>{offlineScoreConfigurationLabel(selectedVersion)}</div>
                             </div>
                         )}
-                        <details className="border rounded p-3">
-                            <summary className="cursor-pointer">Filter runs</summary>
-                            <div className="flex flex-wrap gap-3 mt-3">
-                                <div>
-                                    <LemonLabel>Upload state</LemonLabel>
-                                    <LemonSelect
-                                        value={filters.statuses}
-                                        onChange={(statuses) => setFilters({ statuses })}
-                                        options={[
-                                            { value: 'completed', label: 'Completed' },
-                                            { value: 'uploading', label: 'Uploading' },
-                                            { value: 'failed', label: 'Failed' },
-                                            { value: 'completed,uploading,failed', label: 'All states' },
-                                        ]}
-                                    />
-                                </div>
-                                <div>
-                                    <LemonLabel>Source</LemonLabel>
-                                    <LemonSelect
-                                        value={filters.run_source}
-                                        onChange={(run_source) => setFilters({ run_source })}
-                                        options={[
-                                            { value: '', label: 'All sources' },
-                                            { value: 'ci', label: 'CI' },
-                                            { value: 'local', label: 'Local' },
-                                            { value: 'scheduled', label: 'Scheduled' },
-                                            { value: 'not_specified', label: 'Not specified' },
-                                        ]}
-                                    />
-                                </div>
-                                {CONTEXT_FILTERS.map(({ key, label }) => (
-                                    <div key={key} className="grow basis-48">
-                                        <LemonLabel>{label}</LemonLabel>
-                                        <LemonInput
-                                            value={filters[key] || ''}
-                                            onChange={(value) => setFilters({ [key]: value })}
-                                            placeholder="Exact value"
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </details>
                         {windows.error ? (
                             <LemonBanner type="error">{windows.error}</LemonBanner>
                         ) : (
@@ -352,26 +324,28 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                         {
                                                             title: 'Experiment',
                                                             key: 'name',
-                                                            width: '44%',
+                                                            width: '28%',
                                                             render: (_, point) => {
                                                                 const key = `${period.key}:${point.experiment.id}:${point.summary.scorer.id}`
                                                                 return (
-                                                                    <div className="space-y-1 min-w-0">
-                                                                        <Link
-                                                                            to={experimentUrl(point)}
-                                                                            className="line-clamp-2"
-                                                                        >
-                                                                            {point.experiment.name}
-                                                                        </Link>
-                                                                        <div className="text-xs text-muted">
-                                                                            <TZLabel
-                                                                                time={point.experiment.started_at}
-                                                                            />
-                                                                        </div>
+                                                                    <div className="flex items-center gap-1 min-w-0">
                                                                         <LemonButton
                                                                             type="tertiary"
                                                                             size="xsmall"
                                                                             noPadding
+                                                                            icon={
+                                                                                expandedRuns.has(key) ? (
+                                                                                    <IconChevronDown />
+                                                                                ) : (
+                                                                                    <IconChevronRight />
+                                                                                )
+                                                                            }
+                                                                            aria-label={`Run details for ${point.experiment.name}`}
+                                                                            tooltip={
+                                                                                expandedRuns.has(key)
+                                                                                    ? 'Hide details'
+                                                                                    : 'Run details'
+                                                                            }
                                                                             aria-expanded={expandedRuns.has(key)}
                                                                             data-attr="offline-history-run-details"
                                                                             onClick={() =>
@@ -383,23 +357,39 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                                                     return next
                                                                                 })
                                                                             }
-                                                                        >
-                                                                            {expandedRuns.has(key)
-                                                                                ? 'Hide details'
-                                                                                : 'Run details'}
-                                                                        </LemonButton>
+                                                                        />
+                                                                        <Tooltip title={point.experiment.name}>
+                                                                            <Link
+                                                                                to={experimentUrl(point)}
+                                                                                className="truncate min-w-0"
+                                                                            >
+                                                                                {point.experiment.name}
+                                                                            </Link>
+                                                                        </Tooltip>
                                                                     </div>
                                                                 )
                                                             },
                                                         },
                                                         {
-                                                            title: 'Score',
-                                                            key: 'score',
+                                                            title: 'Execution',
+                                                            key: 'execution',
                                                             width: '20%',
                                                             render: (_, point) => (
-                                                                <span className="tabular-nums line-clamp-2">
-                                                                    {formatOfflineScore(point.summary)}
-                                                                </span>
+                                                                <div className="truncate text-xs">
+                                                                    <TZLabel time={point.experiment.started_at} />
+                                                                </div>
+                                                            ),
+                                                        },
+                                                        {
+                                                            title: 'Score',
+                                                            key: 'score',
+                                                            width: '16%',
+                                                            render: (_, point) => (
+                                                                <Tooltip title={formatOfflineScore(point.summary)}>
+                                                                    <span className="block tabular-nums truncate">
+                                                                        {formatOfflineScore(point.summary)}
+                                                                    </span>
+                                                                </Tooltip>
                                                             ),
                                                         },
                                                         {
@@ -407,9 +397,11 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                             key: 'coverage',
                                                             width: '36%',
                                                             render: (_, { summary }) => (
-                                                                <div className="text-xs space-y-1">
-                                                                    <div>{`${summary.status_counts.ok} / ${summary.observed_item_count} successful`}</div>
-                                                                    <div className="flex flex-wrap gap-x-1">
+                                                                <Tooltip
+                                                                    title={`${summary.status_counts.ok} / ${summary.observed_item_count} scored items · ${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.missing_result_count} missing`}
+                                                                >
+                                                                    <div className="text-xs truncate">
+                                                                        <span>{`${summary.status_counts.ok}/${summary.observed_item_count} scored · `}</span>
                                                                         <span
                                                                             className={
                                                                                 summary.status_counts.error > 0
@@ -417,9 +409,9 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                                                     : 'text-muted'
                                                                             }
                                                                         >{`${summary.status_counts.error} errors`}</span>
-                                                                        <span className="text-muted">{`· ${summary.missing_result_count} missing`}</span>
+                                                                        <span className="text-muted">{` · ${summary.missing_result_count} missing`}</span>
                                                                     </div>
-                                                                </div>
+                                                                </Tooltip>
                                                             ),
                                                         },
                                                     ]}

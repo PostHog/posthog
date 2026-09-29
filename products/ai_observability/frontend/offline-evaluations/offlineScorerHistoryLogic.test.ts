@@ -50,7 +50,7 @@ describe('offlineScorerHistoryLogic', () => {
             date_from: windows.comparison!.dateFrom,
             date_to: windows.comparison!.dateTo,
         })
-        await expectLogic(logic, () => logic.actions.setFilters({ suite_key: 'another-suite' })).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setFilters({ run_source: 'ci' })).toFinishAllListeners()
         expect(logic.values.primaryCursors).toEqual([null])
         expect(logic.values.comparisonCursors).toEqual([null])
     })

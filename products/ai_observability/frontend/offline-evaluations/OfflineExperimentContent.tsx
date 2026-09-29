@@ -180,6 +180,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                     )}
                     <LemonTable
                         className="mt-3"
+                        tableLayout="fixed"
                         dataSource={summaries}
                         loading={summaryCountLoading && !summaries.length}
                         rowKey={(summary) => summary.scorer.id}
@@ -194,16 +195,12 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                 title: 'Scorer',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
                                     <Link
+                                        className="break-words"
                                         to={
                                             combineUrl(
                                                 urls.aiObservabilityOfflineScorerHistory(summary.scorer.definition_id),
                                                 {
                                                     version: summary.scorer.id,
-                                                    suite_key: experiment?.suite_key || undefined,
-                                                    dataset_source: experiment?.dataset_source || undefined,
-                                                    dataset_identifier: experiment?.dataset_identifier || undefined,
-                                                    dataset_revision_identifier:
-                                                        experiment?.dataset_revision_identifier || undefined,
                                                 }
                                             ).url
                                         }

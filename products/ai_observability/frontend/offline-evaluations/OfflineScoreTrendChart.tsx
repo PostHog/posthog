@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
+import { OfflineScoreTrendLines } from './OfflineScoreTrendLines'
 import { buildOfflineTrendPanels, formatOfflineNumericScore, type OfflineTrendPeriod } from './offlineScoreTrends'
 
 export interface OfflineScoreTrendChartProps {
@@ -14,6 +15,7 @@ export interface OfflineScoreTrendChartProps {
     onPointClick?: (point: OfflineHistoryPointApi) => void
     timezone?: string
     heightClassName?: string
+    colorOffset?: number
 }
 
 export function OfflineScoreTrendChart({
@@ -21,8 +23,18 @@ export function OfflineScoreTrendChart({
     onPointClick,
     timezone = 'UTC',
     heightClassName = 'h-64',
+    colorOffset = 0,
 }: OfflineScoreTrendChartProps): JSX.Element {
-    const theme = useChartTheme()
+    const baseTheme = useChartTheme()
+    const theme = useMemo(
+        () => ({
+            ...baseTheme,
+            colors: baseTheme.colors.map(
+                (_, index) => baseTheme.colors[(index + colorOffset) % baseTheme.colors.length]
+            ),
+        }),
+        [baseTheme, colorOffset]
+    )
     const panels = useMemo(() => buildOfflineTrendPanels(periods), [periods])
 
     if (panels.length === 0) {
@@ -42,9 +54,7 @@ export function OfflineScoreTrendChart({
                                 config={{
                                     xAxis: {
                                         domain: panel.xDomain,
-                                        label: panel.elapsed
-                                            ? 'Time from period start'
-                                            : `Execution time (${timezone})`,
+                                        label: panel.elapsed ? 'Time from period start' : undefined,
                                         tickFormatter: (value) =>
                                             panel.elapsed
                                                 ? `${(value / 86400000).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`
@@ -130,7 +140,9 @@ export function OfflineScoreTrendChart({
                                         </TooltipSurface>
                                     )
                                 }}
-                            />
+                            >
+                                <OfflineScoreTrendLines />
+                            </ScatterChart>
                         </div>
                     ) : (
                         <div className="text-muted p-8 text-center">
