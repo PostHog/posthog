@@ -132,10 +132,13 @@ Dollar costs remain unknown when the model route does not provide them.
 
 Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
 An exact evidence quote establishes where text came from, not that its claim is correct.
-Valid JSONL transcripts are decoded so citations can quote literal tool text, including quotes and newlines.
+Valid JSONL transcripts are decoded and keyed by their original entry numbers so citations can locate literal tool text.
+Quotes and newlines remain intact.
+Repeated large transcript strings refer to their first exact occurrence; all entries and their positions remain available.
 Unchanged after-state rows refer to their identical before-state rows; changed and new rows remain complete.
-The judgment records this evidence representation and the original output hash. Neither operation drops evidence.
-`--judge-max-input-tokens` sets a proxy token budget (default 980,000); the script retains an explicit ungraded error
+The judgment records the generated references, evidence representation, and original output and transcript hashes.
+These representations preserve the full captured evidence.
+`--judge-max-input-tokens` sets a proxy token budget (default 900,000); the script retains an explicit ungraded error
 when evidence exceeds the budget or byte limit, rather than silently dropping evidence.
 The budget is not a guarantee that a different judging model accepts the same context size.
 

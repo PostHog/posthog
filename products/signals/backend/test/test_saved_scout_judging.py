@@ -19,8 +19,11 @@ from parameterized import parameterized
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
 from products.signals.evals.agentic.rubric_judge import (
     STATE_REFERENCE_KEY,
+    TRANSCRIPT_REFERENCE_KEY,
     PrivateRubricClient,
+    RubricJudgment,
     RubricModelResponse,
+    canonical_json,
     content_hash,
     judge_rubric,
 )
@@ -97,6 +100,10 @@ class TestSavedScoutJudgment(SimpleTestCase):
         self.assertEqual(result.output_sha256, content_hash(self.output))
         self.assertEqual(result.rubric_sha256, content_hash(criteria))
         self.assertEqual(result.reference_sha256, content_hash(self.references))
+        self.assertEqual(
+            RubricJudgment.model_validate(result.model_dump(exclude={"transcript_references"})).transcript_references,
+            {},
+        )
         ask.assert_awaited_once()
         prompt = ask.call_args.args[0]
         self.assertIn("complete invented transcript ending", prompt)
@@ -243,7 +250,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
         self.assertEqual(result.criteria[0].status, "error" if source == "wrong_decoded_text" else "pass")
         self.assertEqual(result.output_sha256, content_hash(self.output))
         self.assertEqual(self.output["raw_log"], raw_log)
-        self.assertEqual(result.evidence_representation, "saved-output-v1" if fallback else "decoded-jsonl-v1")
+        self.assertEqual(result.evidence_representation, "saved-output-v1" if fallback else "indexed-jsonl-v1")
         if fallback:
             self.assertIn('"raw_log":', result.request_prompt)
             self.assertIsNone(result.transcript_sha256)
@@ -252,6 +259,59 @@ class TestSavedScoutJudgment(SimpleTestCase):
             self.assertEqual(result.transcript_sha256, content_hash([{"content": observed}]))
         if source != "wrong_decoded_text":
             self.assertEqual(result.criteria[0].evidence[0].quote, raw_log if fallback else observed)
+
+    @parameterized.expand(
+        ["text", "ancestor", "root_ancestor", "forged_literal", "forged_redirect", "generated_marker"]
+    )
+    async def test_shared_transcript_preserves_original_values_and_citation_identity(self, citation: str) -> None:
+        observed = 'Invented "blue" metric\nSecond invented observation. ' * 32
+        transcript = [
+            {"content": observed},
+            {"content": {"a/b~c": observed}},
+            {"content": {TRANSCRIPT_REFERENCE_KEY: "/0/content"}},
+            *[{"content": "short invented text"} for _ in range(8)],
+            {"content": observed},
+        ]
+        self.output["raw_log"] = "\n".join(json.dumps(entry) for entry in transcript) + "\n"
+        original = copy.deepcopy(self.output)
+        pointer, quote = {
+            "text": ("/1/content/a~1b~0c", observed),
+            "ancestor": ("/1", canonical_json(transcript[1])),
+            "root_ancestor": ("", "[" + canonical_json(transcript[0]) + ","),
+            "forged_literal": ("/2/content", "/0/content"),
+            "forged_redirect": ("/2/content", observed),
+            "generated_marker": ("/1/content/a~1b~0c/" + TRANSCRIPT_REFERENCE_KEY, "/0/content"),
+        }[citation]
+        row = verdict("check")
+        row["evidence"] = [{"source": "transcript", "pointer": pointer, "quote": quote}]
+        ask = AsyncMock(
+            return_value=RubricModelResponse(requested_model="invented-model", text=json.dumps({"criteria": [row]}))
+        )
+
+        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
+
+        self.assertEqual(
+            result.criteria[0].status, "error" if citation in ("forged_redirect", "generated_marker") else "pass"
+        )
+        self.assertEqual(self.output, original)
+        self.assertEqual(result.output_sha256, content_hash(original))
+        self.assertEqual(result.transcript_sha256, content_hash(transcript))
+        self.assertEqual(result.evidence_representation, "indexed-jsonl-v1")
+        self.assertEqual(
+            result.transcript_references,
+            {"/1/content/a~1b~0c": "/0/content", "/11/content": "/0/content"},
+        )
+        evidence = json.loads(result.request_prompt.rsplit("\n", 1)[1])
+        self.assertEqual(evidence["transcript_references"], result.transcript_references)
+        shared = evidence["transcript"]
+        self.assertEqual(set(shared), {str(index) for index in range(len(transcript))})
+        self.assertEqual(shared["1"]["content"]["a/b~c"], {TRANSCRIPT_REFERENCE_KEY: "/0/content"})
+        self.assertEqual(shared["11"]["content"], {TRANSCRIPT_REFERENCE_KEY: "/0/content"})
+        self.assertEqual(shared["2"], transcript[2])
+        self.assertLess(len(canonical_json(shared)), len(canonical_json(transcript)))
+        shared["1"]["content"]["a/b~c"] = shared["0"]["content"]
+        shared["11"]["content"] = shared["0"]["content"]
+        self.assertEqual([shared[str(index)] for index in range(len(transcript))], transcript)
 
     async def test_shared_state_expands_to_original_and_citations_follow_only_generated_references(self) -> None:
         before = [
@@ -287,7 +347,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
         result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
 
         self.assertEqual(result.criteria[0].status, "pass")
-        self.assertEqual(result.evidence_representation, "decoded-jsonl-shared-state-v1")
+        self.assertEqual(result.evidence_representation, "indexed-jsonl-v1")
         self.assertEqual(self.output, original)
         self.assertEqual(result.output_sha256, content_hash(original))
         self.assertEqual(result.state_references, {"/artifacts/after/reports/1": "/artifacts/before/reports/0"})

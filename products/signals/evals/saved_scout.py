@@ -152,7 +152,7 @@ class SavedScoutSuite:
         judge_results: tuple[Path, ...] = (),
         rubric_model: str = "gpt-6-sol",
         judge_model: str = "gpt-6-sol",
-        judge_max_input_tokens: int = 980_000,
+        judge_max_input_tokens: int = 900_000,
     ) -> None:
         self.saved = saved
         self.target_cutoff = target_cutoff
@@ -274,7 +274,7 @@ def run_saved_case(
     judge_results: tuple[Path, ...] = (),
     rubric_model: str = "gpt-6-sol",
     judge_model: str = "gpt-6-sol",
-    judge_max_input_tokens: int = 980_000,
+    judge_max_input_tokens: int = 900_000,
 ) -> int:
     from products.signals.evals.agentic.saved_case import (  # noqa: PLC0415 — saved input validation is optional for --help
         SavedScoutCase,
@@ -362,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--judge-max-input-tokens",
         type=int,
-        default=980_000,
+        default=900_000,
         help="Proxy token budget; oversized evidence is retained ungraded, never silently truncated.",
     )
     mode = parser.add_mutually_exclusive_group()

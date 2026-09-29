@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 JUDGE_VERSION = "scout-rubric-judge-v2"
 DEFAULT_JUDGE_MODEL = "gpt-6-sol"
 DEFAULT_MAX_INPUT_BYTES = 8 * 1024 * 1024
-DEFAULT_MAX_INPUT_TOKENS = 980_000
+DEFAULT_MAX_INPUT_TOKENS = 900_000
 STATE_REFERENCE_KEY = "__scout_eval_state_ref__"
+TRANSCRIPT_REFERENCE_KEY = "__scout_eval_transcript_ref__"
 
 CriterionStatus = Literal["pass", "fail", "unknown", "not_applicable", "error"]
 Applicability = Literal["applicable", "not_applicable", "unknown"]
@@ -97,10 +98,11 @@ class RubricJudgment(BaseModel):
     prompt_sha256: str
     request_prompt: str
     evidence_representation: Literal[
-        "saved-output-v1", "decoded-jsonl-v1", "shared-state-v1", "decoded-jsonl-shared-state-v1"
+        "saved-output-v1", "decoded-jsonl-v1", "shared-state-v1", "decoded-jsonl-shared-state-v1", "indexed-jsonl-v1"
     ]
     transcript_sha256: str | None
     state_references: dict[str, str]
+    transcript_references: dict[str, str] = Field(default_factory=dict)
     input_bytes: int
     input_tokens: int | None
     token_count_proxy_model: str | None = None
@@ -166,6 +168,32 @@ def _decoded_transcript(raw_log: object) -> list[object] | None:
         return transcript or None
     except (ValueError, TypeError):
         return None
+
+
+def _share_transcript_strings(transcript: dict[str, object]) -> dict[str, str]:
+    first_occurrences: dict[str, str] = {}
+    references: dict[str, str] = {}
+
+    def share(value: object, pointer: str) -> object:
+        if isinstance(value, str) and len(value.encode("utf-8")) >= 1024:
+            target = first_occurrences.setdefault(value, pointer)
+            if target != pointer:
+                marker = {TRANSCRIPT_REFERENCE_KEY: target}
+                if len(canonical_json(marker).encode("utf-8")) < len(canonical_json(value).encode("utf-8")):
+                    references[pointer] = target
+                    return marker
+        if isinstance(value, dict):
+            return {
+                key: share(item, pointer + "/" + key.replace("~", "~0").replace("/", "~1"))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [share(item, pointer + "/" + str(index)) for index, item in enumerate(value)]
+        return value
+
+    for index, entry in transcript.items():
+        transcript[index] = share(entry, "/" + index)
+    return references
 
 
 def _share_unchanged_state(output: dict[str, object]) -> dict[str, str]:
@@ -297,13 +325,21 @@ For memory/duplicate checks, missing prior report contents cannot establish whet
 Each evidence entry is {"source":"transcript","pointer":"/0/message/content","quote":"literal excerpt"}.
 source must be output, canonical_references, or transcript.
 The pointer must resolve in that exact source object. For a string value, quote must be a literal substring of that string.
-When present, transcript contains every decoded JSONL entry in order. Cite its decoded tool text directly, preserving
-quotes and newlines. The redundant output.raw_log is omitted only when every entry can be decoded without data loss.
+When present, transcript contains every decoded JSONL entry keyed by its original zero-based decimal index. These numeric
+keys identify chronological positions even when JSON keys are sorted lexically. Use the shown key in the citation pointer.
+The original transcript is the chronological array of these entries.
+Only positions listed in transcript_references contain generated __scout_eval_transcript_ref__ markers. Each replaces an
+exact repeated string with a pointer to its first literal occurrence in transcript. Read that occurrence for the full text.
+Objects at other positions with the same marker key are captured evidence, not generated references. Cite original string
+positions or their first occurrences; for ancestor objects or arrays, quote their expanded original values. Citation checks
+use the complete original transcript. Preserve literal quotes and newlines. The redundant output.raw_log is omitted only
+when every entry can be decoded without data loss.
 An after-state row containing only __scout_eval_state_ref__ is an exact copy of the before-state row at that JSON pointer.
 Array positions and all changed or new rows are preserved. Read the referenced row for its complete contents. You may cite
 the original before-state path or the equivalent after-state path; generated references are resolved for citation checks.
 For a nonstring value, quote must be a substring of its compact JSON representation (sorted object keys, no extra spaces).
 Quote at most 4000 characters per entry. Quotes must preserve whitespace and punctuation exactly; do not paraphrase.
+Prefer short contiguous excerpts; use separate citations for separate passages, and never join passages or insert ellipses.
 Pass, fail, and not_applicable require at least one evidence reference. Unknown may have an empty evidence list.
 Explain the criterion-specific reasoning and scope limitations concisely in rationale.
 
@@ -336,13 +372,19 @@ async def judge_rubric(
     evidence_output = dict(output)
     state_references = _share_unchanged_state(evidence_output)
     sources: dict[str, object] = {"output": evidence_output, "canonical_references": canonical_references}
+    prompt_sources = dict(sources)
+    transcript_references: dict[str, str] = {}
     if transcript is not None:
         evidence_output.pop("raw_log")
         sources["transcript"] = transcript
+        indexed_transcript = {str(index): entry for index, entry in enumerate(transcript)}
+        transcript_references = _share_transcript_strings(indexed_transcript)
+        prompt_sources["transcript"] = indexed_transcript
+        prompt_sources["transcript_references"] = transcript_references
     prompt = (
         _JUDGE_INSTRUCTIONS
         + "\n"
-        + canonical_json({"rubric": enabled, **sources, "execution_status": execution.status})
+        + canonical_json({"rubric": enabled, **prompt_sources, "execution_status": execution.status})
     )
     judgment = RubricJudgment(
         output_sha256=content_hash(output),
@@ -351,16 +393,15 @@ async def judge_rubric(
         prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         request_prompt=prompt,
         evidence_representation=(
-            "decoded-jsonl-shared-state-v1"
-            if transcript is not None and state_references
+            "indexed-jsonl-v1"
+            if transcript is not None
             else "shared-state-v1"
             if state_references
-            else "decoded-jsonl-v1"
-            if transcript is not None
             else "saved-output-v1"
         ),
         transcript_sha256=content_hash(transcript) if transcript is not None else None,
         state_references=state_references,
+        transcript_references=transcript_references,
         input_bytes=len(prompt.encode("utf-8")),
         input_tokens=None,
         max_input_bytes=max_input_bytes,
