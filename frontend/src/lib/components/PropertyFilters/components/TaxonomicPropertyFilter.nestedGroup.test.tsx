@@ -9,7 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilterValue, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../../TaxonomicFilter/types'
 import { PropertyFilters } from '../PropertyFilters'
@@ -43,13 +43,19 @@ describe('TaxonomicPropertyFilter nested group rows', () => {
     })
 
     it('labels a group the editor cannot edit instead of drawing an empty add-filter row', () => {
-        const nestedGroup = {
+        const nestedGroup: PropertyGroupFilterValue = {
             type: FilterLogicalOperator.Or,
             values: [
-                { key: 'id', value: 3, cohort_name: 'Logged in', type: PropertyFilterType.Cohort },
+                {
+                    key: 'id',
+                    value: 3,
+                    cohort_name: 'Logged in',
+                    operator: PropertyOperator.In,
+                    type: PropertyFilterType.Cohort,
+                },
                 { key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
             ],
-        } as unknown as AnyPropertyFilter
+        }
 
         render(
             <Provider>

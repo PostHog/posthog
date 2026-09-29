@@ -128,9 +128,11 @@ export function TaxonomicPropertyFilter({
         endpointFilters,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
-    const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
+    const row = filters[index] ? sanitizePropertyFilter(filters[index]) : null
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
-    const nestedGroup = isPropertyGroupFilterLike(filter) ? filter : undefined
+    // A group row has no key, operator or value, so everything below it reads the leaf filter only.
+    const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
+    const filter = isPropertyGroupFilterLike(row) ? null : row
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
@@ -417,7 +419,10 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect &&
                             placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}
-                        {editable && propertyKeyEditable ? editablePicker : filterContent}
+                        {/* A group row opens no picker: selecting a property there would replace
+                            every clause in the group. Removing it stays deliberate, via the row's
+                            own remove button. */}
+                        {editable && propertyKeyEditable && !nestedGroup ? editablePicker : filterContent}
                         {showOperatorValueSelect &&
                             !placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}

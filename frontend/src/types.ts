@@ -5161,6 +5161,9 @@ export interface PropertyGroupFilterValue {
     values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
+/** One row of a filter editor. A group's values can nest, so a row is not always a leaf filter. */
+export type PropertyFilterRow = AnyPropertyFilter | PropertyGroupFilterValue
+
 export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator

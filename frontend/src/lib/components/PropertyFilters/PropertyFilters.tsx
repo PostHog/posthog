@@ -8,7 +8,7 @@ import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/comp
 import { FILTER_ROW_FRAME_CLASSES } from 'lib/components/PropertyFilters/components/filterRowFrame'
 import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isBehavioralPropertyFilter, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -23,7 +23,7 @@ import { isOperatorFlag } from 'lib/utils/operators'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition, PropertyFilterRow } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
@@ -32,7 +32,7 @@ import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: PropertyFilterRow[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
@@ -156,10 +156,11 @@ export function PropertyFilters({
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
 
-    const rows = displayedFilters.map((item: AnyPropertyFilter, index: number) => {
+    const rows = displayedFilters.map((item: PropertyFilterRow, index: number) => {
         // Moving a new property into a separate chip row remounts its value editor.
         const openValueEditor =
             !!renderControls &&
+            !isPropertyGroupFilterLike(item) &&
             !!item.key &&
             'operator' in item &&
             (!item.operator || !isOperatorFlag(item.operator)) &&
