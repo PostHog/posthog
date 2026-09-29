@@ -49,7 +49,7 @@ export function LineageSearchResults({
                     : 'No matching models'}
             </span>
             <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5 text-xs text-secondary">
-                <span aria-live="polite">{resultCountLabel}</span>
+                <span>{resultCountLabel}</span>
                 {results.length > 0 && (
                     <div className="flex items-center gap-1">
                         <span>
@@ -87,7 +87,7 @@ export function LineageSearchResults({
                                 size="small"
                                 type="tertiary"
                                 active={node.id === selectedResultId}
-                                aria-pressed={node.id === selectedResultId}
+                                aria-current={node.id === selectedResultId}
                                 className="justify-start"
                                 onClick={() => onSelect(node.id)}
                                 data-attr="models-lineage-search-result"

@@ -46,7 +46,7 @@ describe('modelsLineageLogic', () => {
             showSearchResults: true,
             selectedSearchResult: NODES[0],
             highlightedNodeIds: new Set(['1', '2', '3']),
-            focusNodeIds: undefined,
+            focusNodeIds: null,
             searchFocusRequest: null,
         })
     })
@@ -134,7 +134,7 @@ describe('modelsLineageLogic', () => {
             searchResults: [],
             showSearchResults: true,
             selectedSearchResult: null,
-            focusNodeIds: undefined,
+            focusNodeIds: null,
         })
     })
 

@@ -37,7 +37,7 @@ export interface LineageGraphProps {
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
     fitViewOptions?: FitViewOptions
-    focusNodeIds?: Set<string>
+    focusNodeIds?: Set<string> | null
     searchFocusRequest?: { nodeId: string; requestId: number } | null
     showMinimap?: boolean
     minimapPosition?: PanelPosition

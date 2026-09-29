@@ -41,7 +41,7 @@ export interface modelsLineageLogicValues {
     showSearchResults: boolean
     selectedSearchResult: DataModelingNode | null
     highlightedNodeIds: Set<string>
-    focusNodeIds: Set<string> | undefined
+    focusNodeIds: Set<string> | null
     visibleNodes: DataModelingNode[]
     visibleEdges: DataModelingEdge[]
     isFiltered: boolean
@@ -268,9 +268,9 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
 
         focusNodeIds: [
             (s) => [s.parsedSearch, s.visibleNodes],
-            (parsedSearch: ParsedLineageSearch, visibleNodes: DataModelingNode[]): Set<string> | undefined => {
+            (parsedSearch: ParsedLineageSearch, visibleNodes: DataModelingNode[]): Set<string> | null => {
                 if (parsedSearch.mode === 'search') {
-                    return parsedSearch.term ? undefined : new Set()
+                    return parsedSearch.term ? null : new Set()
                 }
                 return new Set(visibleNodes.map((node) => node.id))
             },
