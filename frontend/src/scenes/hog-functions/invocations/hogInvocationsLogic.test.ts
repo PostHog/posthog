@@ -34,7 +34,8 @@ describe('hogInvocationsLogic', () => {
             expect(clause).toContain("event_uuid = 'run-42'")
             expect(clause).toContain("distinct_id = 'run-42'")
             expect(clause).toContain("person_id = 'run-42'")
-            expect(clause).toContain('FROM log_entries')
+            // DISTINCT keeps the GLOBAL IN temporary table to one row per invocation, not per log line.
+            expect(clause).toContain('SELECT DISTINCT instance_id FROM log_entries')
             expect(clause).toContain("message ILIKE concat('%', 'run-42', '%')")
             // No level narrowing for a manual search — it matches any level.
             expect(clause).not.toContain('lower(level)')
