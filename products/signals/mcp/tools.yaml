@@ -1238,6 +1238,9 @@ tools:
     signals-reports-pr-ci-statuses:
         operation: signals_reports_pr_ci_statuses
         enabled: false
+    signals-reports-read-state-create:
+        operation: signals_reports_read_state_create
+        enabled: false
     signals-reports-refresh-metrics-create:
         operation: signals_reports_refresh_metrics_create
         enabled: false
