@@ -36886,6 +36886,32 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
+    export interface ErrorTrackingBreakdownValue {
+      /** Property value. */
+      value: string;
+      /** Number of matching events with this value. */
+      count: number;
+    }
+
+    export interface ErrorTrackingBreakdownTopValues {
+      /** Most common $pathname values, most frequent first. */
+      path?: ErrorTrackingBreakdownValue[];
+      /** Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with backend SDKs. */
+      url?: ErrorTrackingBreakdownValue[];
+      /** Most common $screen_name values, most frequent first. */
+      screen?: ErrorTrackingBreakdownValue[];
+      /** Most common $browser values, most frequent first. */
+      browser?: ErrorTrackingBreakdownValue[];
+      /** Most common $os values, most frequent first. */
+      os?: ErrorTrackingBreakdownValue[];
+      /** Most common $lib values, most frequent first. */
+      library?: ErrorTrackingBreakdownValue[];
+      /** Most common $lib_version values, most frequent first. */
+      library_version?: ErrorTrackingBreakdownValue[];
+      /** Most common $app_version values, most frequent first. */
+      app_version?: ErrorTrackingBreakdownValue[];
+    }
+
     export interface Results {
       total_count: number;
       values: BreakdownValue[];
@@ -37216,6 +37242,21 @@ export namespace Schemas {
       type: AssigneeTypeEnum;
     }
 
+    export interface ErrorTrackingIssueBreakdown {
+      /** Start of the range that the breakdown covers. */
+      date_from: string;
+      /** End of the range that the breakdown covers. */
+      date_to: string;
+      /** True when the requested range was longer than 30 days and the breakdown covers only the last 30. */
+      range_limited: boolean;
+      /** Matching exception events in the breakdown range. */
+      occurrences: number;
+      /** Up to 5 $session_id values with the most matching events, for session recording lookups. */
+      sample_session_ids: string[];
+      /** Most common values for each dimension. A dimension with no values is left out. */
+      top_values: ErrorTrackingBreakdownTopValues;
+    }
+
     /**
      * * `set_status` - set_status
      * * `assign` - assign
@@ -37362,6 +37403,8 @@ export namespace Schemas {
       impact?: ErrorTrackingImpact;
       /** Optional compact occurrence sparkline. */
       sparkline?: number[];
+      /** Aggregate over matching events. Returned only when includeBreakdown is true. */
+      breakdown?: ErrorTrackingIssueBreakdown;
     }
 
     /**
@@ -37600,6 +37643,8 @@ export namespace Schemas {
       volumeResolution?: number;
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
+      /** Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false. */
+      includeBreakdown?: boolean;
     }
 
     /**
