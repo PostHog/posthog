@@ -92,6 +92,9 @@ export interface CatalogModel {
     /** Runs in fast mode. Absent means it does not, and a picker offers no
         fast-mode toggle. */
     supportsFastMode?: boolean
+    /** Superseded: no picker offers it, and a session already pinned to it
+        still runs and still reads its name and cost from here. */
+    retired?: boolean
 }
 
 /** The model `1×` refers to. */
@@ -119,6 +122,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '≈0.57×',
         costSummary: 'Input $1.40 · Output $4.40 per 1M tokens',
+        retired: true,
     },
     {
         id: 'zai-org/glm-5.3',
@@ -179,6 +183,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2.5×',
         costSummary: 'Input $5 · Output $25 per 1M tokens',
+        retired: true,
     },
     {
         id: 'claude-opus-4-6',
@@ -191,6 +196,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '2.5×',
         costSummary: 'Input $5 · Output $25 per 1M tokens',
+        retired: true,
     },
     {
         id: 'claude-opus-4-7',
@@ -205,6 +211,7 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Input $5 · Output $25 per 1M tokens',
         supports1MContext: true,
         supportsFastMode: true,
+        retired: true,
     },
     {
         id: 'claude-opus-4-8',
@@ -299,6 +306,7 @@ export const MODELS: readonly CatalogModel[] = [
         costMultiplier: '1.5×',
         costSummary: 'Input $3 · Output $15 per 1M tokens',
         supports1MContext: true,
+        retired: true,
     },
     {
         id: 'gpt-5',

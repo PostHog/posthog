@@ -20,12 +20,8 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
-from products.posthog_ai.eval_harness.log_parser import (
-    INFO_SYNTHETIC_PREFIX,
-    LogParser,
-    ToolCall,
-    is_schema_discovery_call,
-)
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,

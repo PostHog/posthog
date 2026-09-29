@@ -74,14 +74,14 @@ AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
 KafkaPayload = dict[str, typing.Any]
 
 
-def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
+def _notify_run_failure(batch_export_run_id: str | UUIDT, team_id: int) -> None:
     """Fan out failure notifications across every channel for a failed run.
 
     Both channels swallow their own exceptions, so this helper itself never raises.
     """
     email_sent = False
     try:
-        send_batch_export_run_failure(batch_export_run_id)
+        send_batch_export_run_failure(batch_export_run_id, team_id)
         email_sent = True
     except Exception:
         LOGGER.exception(
@@ -704,7 +704,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        await database_sync_to_async(_notify_run_failure)(inputs.id)
+        await database_sync_to_async(_notify_run_failure)(inputs.id, inputs.team_id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",

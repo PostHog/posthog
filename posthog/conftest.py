@@ -36,6 +36,20 @@ from posthog.test import flush_lock_guard
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture(scope="package")
+def clickhouse_database() -> None:
+    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+    Database(
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        trust_env=False,
+    ).create_database()
+
+
 def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
@@ -507,7 +521,10 @@ TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignor
 
 @pytest.fixture
 def base_test_mixin_fixture():
-    kls = PostHogTestCase()
+    # setUpTestData is a classmethod. On PostHogTestCase itself it would write the rows onto the
+    # shared base class, where a later test class that has not set up its own data yet reads a
+    # team this test already rolled back.
+    kls = type("BaseTestMixinFixture", (PostHogTestCase,), {})()
     kls.setUp()
     kls.setUpTestData()
 

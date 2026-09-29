@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
@@ -46,6 +47,10 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_skill_names,
+    canonical_structured_output_schema_for,
+)
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
@@ -772,6 +777,26 @@ class ScoutCheckSummarySerializer(serializers.Serializer):
     last_outcome = serializers.CharField(
         allow_null=True, help_text="Verdict of the most recent run; null before the first."
     )
+    run_state = serializers.CharField(
+        help_text=(
+            "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. "
+            "`paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. "
+            "`scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. "
+            "`queued`: a run was dispatched and has not started. `running`: the dispatched run started and has "
+            "time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches "
+            "again. Any other value is the terminal status."
+        )
+    )
+    waiting_on_run = serializers.BooleanField(
+        help_text="True while an `agent` check waits on a dispatched run to record its verdict."
+    )
+    dispatched_run_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+    )
+    dispatched_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the coordinator last dispatched a run for the check. Null when no run waits."
+    )
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
@@ -1224,6 +1249,15 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
             "full body — use this on wide scans so stacked notes can't dominate your context."
         ),
     )
+    text = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Return only the notes whose content contains this text, case-insensitively. Pass an "
+            "entity (an error id, a flag key, a page path, an event name) to find the notes about "
+            "it, including older ones the newest-first cap would hide."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1437,6 +1471,27 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         return attrs
 
 
+class ReportLinkWriteSerializer(serializers.Serializer):
+    """One typed, directed link to write on the report being emitted or edited."""
+
+    kind = serializers.ChoiceField(
+        choices=report_link_kind_choices(),
+        help_text=(
+            "How this report relates to `report_id`. `depends_on` for work that cannot land "
+            "until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
+        ),
+    )
+    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
@@ -1553,6 +1608,19 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    links = serializers.ListField(
+        required=False,
+        child=ReportLinkWriteSerializer(),
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Typed, directed links from the new report to reports that already exist. Send them here, "
+            "not in a later `edit-report` call, because autostart reads them when the report is created: "
+            "a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to "
+            "a report with no pull request yet, stops a second draft PR. Only the new report gets a row, "
+            "so link from the side the sentence starts at. Links of the same kind must stay acyclic and "
+            "every report must be in this project."
+        ),
+    )
     idempotency_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1601,27 +1669,6 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "above describe that first report. Expected on a retry; treat the report as filed and don't "
             "send it again."
         ),
-    )
-
-
-class ReportLinkWriteSerializer(serializers.Serializer):
-    """One typed, directed link to write on the report being edited."""
-
-    kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
-        help_text=(
-            "How the edited report relates to `report_id`. `depends_on` for work that cannot land "
-            "until the other report's fix does, `part_of` for one piece of a larger report, "
-            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
-            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
-        ),
-    )
-    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
-    reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=MAX_REPORT_LINK_REASON_LENGTH,
-        help_text="Optional one-line note on why the reports are linked this way.",
     )
 
 
@@ -2730,7 +2777,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "
@@ -2934,6 +2981,18 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "
     "only the config write. Records validate against the schema in force when the run was dispatched."
 )
+
+
+def _refuse_clearing_shipped_schema(skill_name: str) -> None:
+    """A null schema is what the canonical reconcile reads as "never seeded", so a clear on a
+    canonical scout that ships one would be undone on the next coordinator tick and the channel
+    would come back on. Send people to the two switches that stick instead."""
+    if skill_name in canonical_skill_names() and canonical_structured_output_schema_for(skill_name):
+        raise serializers.ValidationError(
+            "This scout ships its structured output schema, so clearing it does not stick. To stop it "
+            "recording, turn on the dry-run setting or disable the scout. To change what it records, "
+            "set a schema of your own instead."
+        )
 
 
 def _validate_structured_output_schema(value: dict | None) -> dict | None:
@@ -3536,6 +3595,12 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        if (
+            value is None
+            and isinstance(self.instance, SignalScoutConfig)
+            and self.instance.structured_output_schema is not None
+        ):
+            _refuse_clearing_shipped_schema(self.instance.skill_name)
         return _validate_structured_output_schema(value)
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
@@ -3998,6 +4063,132 @@ class ScoutMetadataSerializer(serializers.Serializer):
         help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
     )
     limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Tool catalogue ---------------------------------------------------------
+
+
+class ScoutToolCatalogueEntrySerializer(serializers.Serializer):
+    """One MCP tool, with what a scout would need to call it."""
+
+    name = serializers.CharField(
+        source="definition.name",
+        help_text="The tool's permanent identifier, for example `insight-get`. This is the name a scout calls.",
+    )
+    title = serializers.CharField(
+        source="definition.title", help_text="The label people read, for example `Get insight`."
+    )
+    summary = serializers.CharField(
+        source="definition.summary",
+        help_text=(
+            "One line on what the tool does. The tool's full description runs to several kilobytes on some "
+            "tools, so it is not part of this listing."
+        ),
+    )
+    category = serializers.CharField(
+        source="definition.category",
+        help_text="The product area the tool belongs to, for example `Error tracking`. Use it to group the listing.",
+    )
+    feature = serializers.CharField(
+        source="definition.feature",
+        help_text="The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`.",
+    )
+    required_scopes = serializers.ListField(
+        source="definition.required_scopes",
+        child=serializers.CharField(),
+        help_text="The API scopes a token must carry to call the tool. Empty for a tool that needs none.",
+    )
+    # Not `read_only`: that name is a DRF `Field` attribute, so a field declared under it
+    # shadows the base class and fails the typecheck.
+    is_read_only = serializers.BooleanField(
+        source="definition.read_only",
+        help_text="True when the tool only reads. A false value means the tool can change the project's data.",
+    )
+    requires_ai_consent = serializers.BooleanField(
+        source="definition.requires_ai_consent",
+        help_text="True when the tool is hidden until the project consents to AI features.",
+    )
+    holdable = serializers.BooleanField(
+        help_text=(
+            "True when a scout run can hold every scope the tool requires. A false value means no scout "
+            "reaches the tool, whatever it is granted, so it cannot be configured for one."
+        )
+    )
+    missing_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these "
+            "are what the scout has to be granted, or the preset it has to opt into. On a tool that is not "
+            "holdable they include every scope no scout can reach, and can also include scopes a person can "
+            "grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart."
+        ),
+    )
+    feature_flag = serializers.CharField(
+        source="definition.feature_flag",
+        allow_null=True,
+        help_text=(
+            "Feature flag key that gates the tool, or null when the tool is always served. The flag resolves "
+            "per project, so evaluate it for the project you are configuring before you offer the tool."
+        ),
+    )
+    feature_flag_behavior = serializers.CharField(
+        source="definition.feature_flag_behavior",
+        allow_null=True,
+        help_text=(
+            "How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` "
+            "(served only while the flag is off). Null means the default, `enable`."
+        ),
+    )
+    feature_flag_variant = serializers.CharField(
+        source="definition.feature_flag_variant",
+        allow_null=True,
+        help_text="Variant of `feature_flag` the tool needs, or null when any truthy value serves it.",
+    )
+    hidden_when_flag_on = serializers.CharField(
+        source="definition.hidden_when_flag_on",
+        allow_null=True,
+        help_text="A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.",
+    )
+    feature_entitlement = serializers.CharField(
+        source="definition.feature_entitlement",
+        allow_null=True,
+        help_text="Plan feature the organization must have for the tool to be served, or null when the tool is free.",
+    )
+
+
+class ScoutScopePresetSerializer(serializers.Serializer):
+    """A scope preset a scout run can be dispatched with."""
+
+    name = serializers.CharField(
+        help_text=(
+            "The preset's name. `signals_scout` is what every scout holds; `signals_scout_reports` adds the "
+            "report channel and is used only by a scout whose skill opted into it."
+        )
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Every scope a token minted from this preset carries, including the internal ones.",
+    )
+
+
+class ScoutToolCatalogueSerializer(serializers.Serializer):
+    """The MCP tool catalogue, with the scout scope postures to read it against."""
+
+    tools = ScoutToolCatalogueEntrySerializer(
+        many=True,
+        help_text=("Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out."),
+    )
+    presets = ScoutScopePresetSerializer(
+        many=True,
+        help_text="The scope presets a scout run can be dispatched with, and the scopes each one resolves to.",
+    )
+    grantable_write_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The write scopes a person can grant to one scout from its settings. A scope outside this set "
+            "can never be added to a scout's token."
+        ),
+    )
 
 
 # --- Members (reviewer routing) --------------------------------------------

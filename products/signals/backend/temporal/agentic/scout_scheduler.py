@@ -60,6 +60,9 @@ class RunSignalsScoutInput:
     # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
     # where standing steering is a scout note instead.
     run_note: str | None = None
+    # The report check a `check` dispatch answers. Stamped on the run row so the check can name
+    # its run and the run can record the check's verdict.
+    check_id: str | None = None
 
 
 @frozen
@@ -197,6 +200,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 repository=input.repository,
                 triggered_by=input.triggered_by,
                 run_note=input.run_note,
+                check_id=input.check_id,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -316,6 +320,7 @@ async def _start_off_schedule_run(
     source: str,
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -337,6 +342,7 @@ async def _start_off_schedule_run(
             triggered_by=source,
             workflow_origin_key=workflow_origin_key,
             run_note=run_note,
+            check_id=check_id,
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -370,7 +376,9 @@ def check_run_workflow_id(team_id: int, skill_name: str) -> str:
     return _off_schedule_run_workflow_id("signals-scout-check-run", team_id, skill_name)
 
 
-def start_check_signals_scout_run(client: Client, *, team_id: int, skill_name: str, run_note: str) -> str:
+def start_check_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str, check_id: str
+) -> str:
     """Dispatch one scout run to answer a report check; return its workflow id.
 
     Its own id namespace, like the manual and workflow paths, so a check dispatch and a human's
@@ -388,6 +396,7 @@ def start_check_signals_scout_run(client: Client, *, team_id: int, skill_name: s
         skill_name=skill_name,
         source=TRIGGERED_BY_CHECK,
         run_note=run_note,
+        check_id=check_id,
     )
 
 

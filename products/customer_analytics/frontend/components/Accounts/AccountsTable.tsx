@@ -93,6 +93,7 @@ function parseAssignedUserIds(value: unknown): number[] {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
+    const { accountPresenceByAccountId } = useValues(accountsLogic)
     const cell = getNameCell(record)
     return (
         <AccountsTableNameCell
@@ -100,6 +101,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
             name={cell?.name ?? ''}
             externalId={cell?.external_id}
             logoDomain={cell?.logo_domain}
+            viewers={cell?.id ? (accountPresenceByAccountId[cell.id] ?? []) : []}
         />
     )
 }

@@ -697,6 +697,16 @@ class TestOmitUnsupportedFlags(BaseTest):
         omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
         assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
 
+    def test_supported_v2_row_is_dropped_over_the_deployed_limit(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", created_by=self.user, filters={})
+        FeatureFlag.objects.filter(id=flag.id).update(
+            filters={"version": 2, "return_type": "boolean", "default_value": None, "rules": []}
+        )
+
+        assert [f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]] == ["v2-flag"]
+        with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=32):
+            assert _get_feature_flags_for_service(self.team)["flags"] == []
+
     def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
         FeatureFlag.objects.create(

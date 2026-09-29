@@ -771,6 +771,9 @@ const queryErrorTrackingIssue = (): ToolBase<
             if (params.includeSparkline !== undefined) {
                 body['includeSparkline'] = params.includeSparkline
             }
+            if (params.includeBreakdown !== undefined) {
+                body['includeBreakdown'] = params.includeBreakdown
+            }
             const result = await context.api.request<Schemas.ErrorTrackingIssueDetail>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,

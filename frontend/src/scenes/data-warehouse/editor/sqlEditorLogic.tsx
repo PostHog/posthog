@@ -6,6 +6,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -101,6 +102,7 @@ import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
@@ -122,6 +124,7 @@ import type { Response } from './fixSQLErrorsLogic'
 import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { findSelectionProblem } from './saveCandidateProblems'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
@@ -375,6 +378,28 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
         ...source,
         sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
     }
+}
+
+function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            ...source,
+            kind: NodeKind.HogQLQuery,
+            query: typeof source.query === 'string' ? source.query : '',
+        },
+        display: ChartDisplayType.Auto,
+    }
+}
+
+function metricEditorSourceQuery(definition: Record<string, unknown> | null | undefined): DataVisualizationNode | null {
+    if (!definition) {
+        return hogQLEditorSourceQuery()
+    }
+    if (definition.kind !== NodeKind.HogQLQuery) {
+        return null
+    }
+    return hogQLEditorSourceQuery(definition as Partial<HogQLQuery>)
 }
 
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
@@ -900,6 +925,13 @@ export interface sqlEditorLogicActions {
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
     }
+    openMetricFromUrl: (
+        metricName: string,
+        biEditorState: BIEditorState | null
+    ) => {
+        biEditorState: BIEditorState | null
+        metricName: string
+    }
     reportAIQueryAccepted: () => {
         value: true
     }
@@ -1342,6 +1374,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        openMetricFromUrl: (metricName: string, biEditorState: BIEditorState | null) => ({ metricName, biEditorState }),
         updateEditingMetric: true,
         setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
@@ -2239,6 +2272,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
 
                 // Checked once as the dialog opens rather than on every keystroke: it only depends
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
@@ -2291,6 +2325,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
@@ -2308,6 +2343,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </div>
                         ) : (
                             <>
+                                <LemonField name="saveTarget">
+                                    {({ onChange }) => (
+                                        <SaveTargetCycler
+                                            candidates={candidates}
+                                            onChange={(query, index) => {
+                                                selectedRef.current = query
+                                                onChange(index)
+                                            }}
+                                        />
+                                    )}
+                                </LemonField>
                                 <LemonField name="viewName" label="Name">
                                     <LemonInput
                                         data-attr="sql-editor-input-save-view-name"
@@ -2381,15 +2427,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         </>
                                     )}
                                 </LemonField>
-                                <SaveTargetCycler
-                                    candidates={candidates}
-                                    onChange={(q) => {
-                                        selectedRef.current = q
-                                    }}
-                                />
                             </>
                         ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         viewName: validateSavedQueryName,
                         incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
                             incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
@@ -2668,14 +2709,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as endpoint',
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         name: '',
                         description: '',
                     },
                     content: (
                         <>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                             <LemonField name="name">
                                 <LemonInput
                                     data-attr="endpoint-name"
@@ -2689,15 +2743,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     placeholder="Please enter a description (optional)"
                                 />
                             </LemonField>
-                            <SaveTargetCycler
-                                candidates={candidates}
-                                onChange={(q) => {
-                                    selectedRef.current = q
-                                }}
-                            />
                         </>
                     ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         name: (name) => validateEndpointName(name?.trim() || ''),
                     },
                     onSubmit: async ({ name, description }) =>
@@ -2726,9 +2775,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsMetric: async () => {
                 const candidates = resolveSaveCandidates()
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as metric',
                     initialValues: {
+                        saveTarget: candidates.initialIndex,
                         name: '',
                         display_name: '',
                         description: '',
@@ -2737,6 +2788,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     content: (
                         <>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                             <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
                                 <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
                             </LemonField>
@@ -2758,15 +2820,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
                                 <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
                             </LemonField>
-                            <SaveTargetCycler
-                                candidates={candidates}
-                                onChange={(q) => {
-                                    selectedRef.current = q
-                                }}
-                            />
                         </>
                     ),
                     errors: {
+                        saveTarget: () => selectionProblem ?? undefined,
                         name: (name) => validateMetricName(name?.trim() || ''),
                         description: (description) =>
                             !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
@@ -2797,11 +2854,49 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }) as unknown as Record<string, unknown>,
                     })
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
+                const openMetricTab = (sourceQuery: DataVisualizationNode, boundMetricName?: string): void => {
+                    actions.createTab(
+                        sourceQuery.source.query,
+                        undefined,
+                        undefined,
+                        undefined,
+                        boundMetricName,
+                        biEditorState ?? undefined
+                    )
+                    actions.setQueryInput(sourceQuery.source.query)
+                    actions.setSourceQuery(sourceQuery)
+                }
+                try {
+                    // Validate before it reaches the request path: the value is interpolated
+                    // into the URL unencoded, so a name containing "../" could otherwise
+                    // traverse to a metric in another project. The name regex forbids slashes.
+                    if (validateMetricName(metricName)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    const metric = await dataCatalogMetricsRetrieve(String(ApiConfig.getCurrentTeamId()), metricName)
+                    breakpoint()
+                    const metricSourceQuery = metricEditorSourceQuery(metric.definition)
+                    if (!metricSourceQuery) {
+                        throw new Error('Metric is not defined in SQL')
+                    }
+                    openMetricTab(metricSourceQuery, metric.name)
+                } catch (error) {
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    breakpoint()
+                    // Invalid name, metric not found, or no access — open an unbound empty tab
+                    // rather than binding an update target we couldn't verify.
+                    openMetricTab(hogQLEditorSourceQuery())
                 }
             },
             updateEditingMetric: async () => {
@@ -2822,6 +2917,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     )
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     lemonToast.success('Metric updated')
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
@@ -3488,6 +3584,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
+                !searchParams.edit_metric &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
@@ -3717,39 +3814,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
                     // its stored query, so the update target and its definition come from the same
                     // authenticated response.
-                    try {
-                        // Validate before it reaches the request path: the value is interpolated
-                        // into the URL unencoded, so a name containing "../" could otherwise
-                        // traverse to a metric in another project. The name regex forbids slashes.
-                        if (validateMetricName(searchParams.edit_metric)) {
-                            throw new Error('Invalid metric name')
-                        }
-                        const metric = await dataCatalogMetricsRetrieve(
-                            String(ApiConfig.getCurrentTeamId()),
-                            searchParams.edit_metric
-                        )
-                        const definition = metric.definition as Record<string, unknown> | null | undefined
-                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
-                        actions.createTab(
-                            metricQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            metric.name,
-                            biEditorStateFromUrl ?? undefined
-                        )
-                    } catch {
-                        // Invalid name, metric not found, or no access — open an unbound empty tab
-                        // rather than binding an update target we couldn't verify.
-                        actions.createTab(
-                            '',
-                            undefined,
-                            undefined,
-                            undefined,
-                            undefined,
-                            biEditorStateFromUrl ?? undefined
-                        )
-                    }
+                    actions.openMetricFromUrl(searchParams.edit_metric, biEditorStateFromUrl)
                     tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
