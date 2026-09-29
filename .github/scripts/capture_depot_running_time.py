@@ -32,6 +32,7 @@ CONCLUSION_BY_STATUS = {"finished": "success", "failed": "failure"}
 # Depot posts one placeholder job per matrix that it expands from `fromJSON`. The placeholder runs nothing.
 MATRIX_PLACEHOLDER_SUFFIX = ":_dynamicMatrix"
 KNOWN_BOT_ACTORS = frozenset({"Copilot"})
+HANDOFF_JOB = "wait-for-handoff"
 
 
 def conclusion(status: str) -> str:
@@ -69,13 +70,22 @@ def github_context(env: Mapping[str, str]) -> JSONObject:
     }
 
 
+def job_id(job: JSONObject) -> str:
+    # A job key is `<workflow file>:<job id>`, with a `:matrix-NN` suffix on matrix cells.
+    return job["job_key"].partition(":")[2]
+
+
+def latest_attempt(job: JSONObject) -> JSONObject:
+    # A retried job keeps its earlier attempts. The Actions API reports the latest attempt only.
+    return max(job.get("attempts") or [job], key=lambda attempt: attempt.get("attempt", 0))
+
+
 def job_events(jobs: list[JSONObject], context: JSONObject, groups: JSONObject) -> list[JSONObject]:
     events: list[JSONObject] = []
     for job in jobs:
         if job["job_key"].endswith(MATRIX_PLACEHOLDER_SUFFIX):
             continue
-        # A retried job keeps its earlier attempts. The Actions API reports the latest attempt only.
-        latest = max(job.get("attempts") or [job], key=lambda attempt: attempt.get("attempt", 0))
+        latest = latest_attempt(job)
         finished_at = latest.get("finished_at")
         if not finished_at:
             continue
@@ -105,7 +115,11 @@ def build_events(
     context = github_context(env)
     group_key = f"{context['repositoryOwner']}/{context['repository']}/{context['runId']}"
     groups = {"workflow_run": group_key}
-    started_at = shown["workflow"]["started_at"]
+    jobs = shown.get("jobs") or []
+    # The workflow starts on every pull request event and idles in wait-for-handoff until GitHub
+    # routes the event here. The run starts after that wait, so the duration compares with GitHub's.
+    handoff = next((job for job in jobs if job_id(job) == HANDOFF_JOB), None)
+    started_at = (handoff and latest_attempt(handoff).get("finished_at")) or shown["workflow"]["started_at"]
     properties: JSONObject = {
         "duration_seconds": seconds_between(started_at, now.isoformat()),
         "url": workflow_url,
@@ -113,9 +127,7 @@ def build_events(
         "started_at": started_at,
         "runner": RUNNER,
     }
-    jobs = shown.get("jobs") or []
-    # A job key is `<workflow file>:<job id>`, with a `:matrix-NN` suffix on matrix cells.
-    gate = next((job for job in jobs if job["job_key"].partition(":")[2] == status_job), None)
+    gate = next((job for job in jobs if job_id(job) == status_job), None)
     if gate is None:
         sys.stdout.write(f"::warning::Job '{status_job}' not found in the Depot workflow\n")
     else:
