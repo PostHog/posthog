@@ -19,7 +19,8 @@ if TYPE_CHECKING:
     from openai.types.chat.completion_create_params import ResponseFormat
 
 JUDGE_VERSION = "scout-rubric-judge-v3"
-DEFAULT_JUDGE_MODEL = "gpt-6-sol"
+DEFAULT_GENERATOR_MODEL = "gpt-6-sol"
+DEFAULT_JUDGE_MODEL = "gpt-6-astra"
 DEFAULT_MAX_INPUT_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_INPUT_TOKENS = 900_000
 STATE_REFERENCE_KEY = "__scout_eval_state_ref__"

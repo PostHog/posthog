@@ -105,7 +105,7 @@ A changed or missing pinned rubric fails rather than regenerating during the com
 Keep the rubric JSON and its lock file together; use a new output directory to start a session with new criteria.
 Different scouts keep separate rubrics in the same session.
 
-Generation and judging default to `gpt-6-sol` at high reasoning effort, independently of the model being evaluated.
+Generation defaults to `gpt-6-sol` and judging to `gpt-6-astra`, both at high reasoning effort and independently of the model being evaluated.
 `--rubric-model` applies only to the first generation; changing it does not replace an existing session rubric.
 `--judge-model` selects the judging model, which is recorded with its responses and usage.
 Use the same judging model across a comparison.

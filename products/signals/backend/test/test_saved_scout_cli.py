@@ -268,6 +268,8 @@ class TestSavedScoutPreflight(SimpleTestCase):
         self.assertEqual(len(history_paths), 1)
         history = json.loads(history_paths[0].read_text())
         self.assertEqual(history["mode"], mode)
+        self.assertEqual(history["rubric_model"], "gpt-6-sol")
+        self.assertEqual(history["judge_model"], "gpt-6-astra")
         self.assertIsNone(history["target_cutoff"])
         self.assertEqual(history["case"]["validation_scope"], "instructions")
         self.assertEqual(history["case"]["source_cutoff"], SOURCE.isoformat())

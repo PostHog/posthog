@@ -15,6 +15,7 @@ from products.signals.backend.rubrics_schema import ScoutRubricCriterion, ScoutR
 from products.signals.backend.scout_harness.prompt import report_disposition_instructions
 from products.signals.backend.scout_harness.skill_loader import resolve_report_channel_variant
 from products.signals.evals.agentic.rubric_judge import (
+    DEFAULT_GENERATOR_MODEL,
     DEFAULT_JUDGE_MODEL,
     DEFAULT_MAX_INPUT_TOKENS,
     PrivateRubricClient,
@@ -34,7 +35,7 @@ class SavedRubrics:
         session_dir: Path,
         output_dir: Path,
         *,
-        generator_model: str = DEFAULT_JUDGE_MODEL,
+        generator_model: str = DEFAULT_GENERATOR_MODEL,
         judge_model: str = DEFAULT_JUDGE_MODEL,
         max_input_tokens: int = DEFAULT_MAX_INPUT_TOKENS,
     ) -> None:

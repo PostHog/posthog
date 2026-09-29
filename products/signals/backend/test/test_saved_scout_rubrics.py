@@ -167,7 +167,7 @@ class TestSavedScoutRubrics(SimpleTestCase):
         rubric = await self.pipeline.prepare()
         original_bytes = rubric.path.read_bytes()
         self.assertEqual(len(rubric.document.criteria), 7)
-        self.assertEqual(len(self.requests), 2)
+        self.assertEqual([request["model"] for request in self.requests], ["gpt-6-sol", "gpt-6-sol"])
         generation_input = json.dumps(self.requests)
         for excluded in (HIDDEN_ANSWER, EVALUATED_REPORT, "PAGE_2_ASSIGNMENT"):
             self.assertNotIn(excluded, generation_input)
@@ -188,6 +188,7 @@ class TestSavedScoutRubrics(SimpleTestCase):
         output = {**self._output(), "instructions": VARIANT_INSTRUCTIONS}
         score = await SavedRubricScorer(variant, reused).eval_async(output)
         self.assertEqual(score.score, 1.0)
+        self.assertEqual(self.requests[-1]["model"], "different-judge")
         assert score.metadata is not None
         path = Path(score.metadata["judgment_path"])
         sidecar = json.loads(path.read_text())
@@ -242,6 +243,10 @@ class TestSavedScoutRubrics(SimpleTestCase):
                 self.assertEqual(len(self.requests), 2)
             else:
                 self.assertIsNone(judgment.error)
+                self.assertEqual(
+                    [request["model"] for request in self.requests], ["gpt-6-sol", "gpt-6-sol", "gpt-6-astra"]
+                )
+                self.assertEqual(sidecar["model_response"]["requested_model"], "gpt-6-astra")
                 self.assertNotIn("old_verdict", sidecar["model_response"]["prompt"])
                 evidence = json.loads(sidecar["model_response"]["prompt"].rsplit("\n", 1)[1])
                 self.assertEqual(evidence["output"]["seed"]["target_cutoff"], target_cutoff)

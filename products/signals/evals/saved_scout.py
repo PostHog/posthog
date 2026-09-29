@@ -20,6 +20,7 @@ from products.posthog_ai.eval_harness.harness.env_preflight import load_env_file
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT, PERSONHOG_ROUTER_PORT
 from products.posthog_ai.eval_harness.harness.providers import SANDBOX_PROVIDER_SETTING, PreflightError, build_provider
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
+from products.signals.evals.agentic.rubric_judge import DEFAULT_GENERATOR_MODEL, DEFAULT_JUDGE_MODEL
 
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -150,8 +151,8 @@ class SavedScoutSuite:
         session_dir: Path | None = None,
         rubric_only: bool = False,
         judge_results: tuple[Path, ...] = (),
-        rubric_model: str = "gpt-6-sol",
-        judge_model: str = "gpt-6-sol",
+        rubric_model: str = DEFAULT_GENERATOR_MODEL,
+        judge_model: str = DEFAULT_JUDGE_MODEL,
         judge_max_input_tokens: int = 900_000,
     ) -> None:
         self.saved = saved
@@ -272,8 +273,8 @@ def run_saved_case(
     session_dir: Path | None = None,
     rubric_only: bool = False,
     judge_results: tuple[Path, ...] = (),
-    rubric_model: str = "gpt-6-sol",
-    judge_model: str = "gpt-6-sol",
+    rubric_model: str = DEFAULT_GENERATOR_MODEL,
+    judge_model: str = DEFAULT_JUDGE_MODEL,
     judge_max_input_tokens: int = 900_000,
 ) -> int:
     from products.signals.evals.agentic.saved_case import (  # noqa: PLC0415 — saved input validation is optional for --help
@@ -354,10 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--target-cutoff", type=parse_cutoff)
     parser.add_argument(
-        "--rubric-model", default="gpt-6-sol", help="Model used only when this scout has no session rubric."
+        "--rubric-model", default=DEFAULT_GENERATOR_MODEL, help="Model used only when this scout has no session rubric."
     )
     parser.add_argument(
-        "--judge-model", default="gpt-6-sol", help="Model that judges runs against the fixed session rubric."
+        "--judge-model", default=DEFAULT_JUDGE_MODEL, help="Model that judges runs against the fixed session rubric."
     )
     parser.add_argument(
         "--judge-max-input-tokens",

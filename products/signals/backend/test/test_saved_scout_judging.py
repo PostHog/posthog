@@ -72,7 +72,10 @@ class TestSavedScoutJudgment(SimpleTestCase):
             [
                 sys.executable,
                 "-c",
-                "import sys; import products.signals.evals.agentic.rubric_judge; assert 'django.db.models' not in sys.modules",
+                "import sys; "
+                "import products.signals.evals.agentic.rubric_judge; "
+                "import products.signals.evals.saved_scout; "
+                "assert 'django.db.models' not in sys.modules",
             ],
             check=True,
             capture_output=True,
