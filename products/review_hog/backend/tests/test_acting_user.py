@@ -230,6 +230,21 @@ class TestResolveActingUser(BaseTest):
         assert (as_default.resolved_from, as_default.urgency_threshold) == ("default", "consider")
         assert as_default.flash_reasoning_effort == "medium"
 
+    def test_override_by_a_different_mapped_user_still_follows_the_authors_media_preference(self) -> None:
+        # A teammate triggering a review from the UI supplies themselves as override_user_id while the
+        # PR author is a distinct mapped user — this must load the author's own opt-out rather than
+        # falling through to the built-in default the way an unmapped author would.
+        teammate = self._create_user("teammate@posthog.com")
+        UserSocialAuth.objects.create(user=teammate, provider="github", uid="gh-2", extra_data={"login": "teammate"})
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=teammate.id, celebrate_clean_reviews=False
+        )
+        result = _resolve_acting_user(
+            ResolveActingUserInput(team_id=self.team.id, author_login="teammate", override_user_id=self.user.id)
+        )
+        assert (result.acting_user_id, result.resolved_from) == (self.user.id, "override")
+        assert result.celebrate_clean_reviews is False
+
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
         # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.
         report = ReviewReport.objects.for_team(self.team.id).create(

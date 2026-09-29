@@ -693,8 +693,8 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
-    # Resolved even on override runs: the clean-review media switch keys off "is the acting user the
-    # PR author", which needs the mapped author identity regardless of how the acting user was chosen.
+    # Resolved even on override runs: the clean-review media switch keys off the mapped author's own
+    # preference, not the requester's, so an override run still needs this identity to load it.
     author_user_id = _login_to_user_id(input.team_id, input.author_login)
     acting_user_id: int | None
     if input.override_user_id is not None:
@@ -742,11 +742,16 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # switch never governs someone else's PR — an unmapped author gets the default posture (on).
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
         # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
-        # it to "your pull requests". An override run by someone else on their PR gets the default.
+        # it to "your pull requests". A teammate-triggered override still honors the mapped author's
+        # own preference — only an unmapped author falls back to the default.
         celebrate_clean_reviews=(
             settings.celebrate_clean_reviews
             if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
-            else True
+            else (
+                ReviewUserSettings.load(input.team_id, author_user_id).celebrate_clean_reviews
+                if resolved_from == "override" and author_user_id is not None
+                else True
+            )
         ),
         review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
         flash_reasoning_effort=(
