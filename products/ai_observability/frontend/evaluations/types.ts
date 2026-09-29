@@ -130,6 +130,10 @@ export interface EvaluationRun {
     // identifies what was graded. Absent on every other target.
     session_id?: string | null
     timestamp: string
+    // When the verdict was produced. A backfilled verdict's timestamp is its unit's own time, so
+    // this is what orders two verdicts for the same unit.
+    start_time?: string | null
+    backfill_id?: string | null
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
     result: boolean | null
