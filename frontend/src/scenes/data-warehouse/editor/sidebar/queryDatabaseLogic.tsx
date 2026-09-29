@@ -3940,13 +3940,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         retryTableFields: ({ tableName }) => {
-            cache.retriedTableNames ??= new Set<string>()
-            cache.retriedTableNames.add(tableName)
             posthog.capture('sql-editor-columns-retry-clicked')
+            const wasLoading = values.tableFieldsStatus[tableName] === 'loading'
             actions.hydrateTableFields([tableName])
-            // A skipped hydration sends no success or failure action, so it must not leave the table marked as retried.
-            if (values.tableFieldsStatus[tableName] !== 'loading') {
-                cache.retriedTableNames.delete(tableName)
+            // Mark the table only when this retry started a request, so a skipped or in-flight load is not counted.
+            if (!wasLoading && values.tableFieldsStatus[tableName] === 'loading') {
+                cache.retriedTableNames ??= new Set<string>()
+                cache.retriedTableNames.add(tableName)
             }
         },
         hydrateTableFieldsSuccess: ({ tableNames }) => {
