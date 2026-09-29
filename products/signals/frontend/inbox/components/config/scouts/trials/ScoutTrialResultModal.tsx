@@ -1,9 +1,11 @@
 import { LemonBanner, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { ScoutTrialResultApi, TrialComparisonReportApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { formatRunCost, formatRunDuration } from '../../../../utils/scoutRunsWindow'
 import { ScoutTrialJudgment } from './ScoutTrialJudgment'
 import { trialReportText } from './scoutTrialUtils'
 
@@ -21,6 +23,10 @@ export function ScoutTrialResultModal({
     }
     const memory = Object.entries(result.memory)
     const judgment = report?.runs.find((run) => run.launch_id === result.launch_id)
+    const duration =
+        result.started_at && result.completed_at
+            ? dayjs(result.completed_at).diff(dayjs(result.started_at), 'seconds', true)
+            : null
 
     return (
         <LemonModal isOpen onClose={onClose} title="Run results" width={760} className="ph-no-capture ph-replay-block">
@@ -28,6 +34,20 @@ export function ScoutTrialResultModal({
                 <div className="text-muted text-sm">
                     <span>{`${result.model} · ${result.reasoning_effort} effort · ${result.status}`}</span>
                 </div>
+                <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+                    <div>
+                        <dt className="text-muted">Run duration</dt>
+                        <dd className="m-0">
+                            {duration !== null && duration >= 0 ? formatRunDuration(duration) : 'Unavailable'}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt className="text-muted">Scout cost</dt>
+                        <dd className="m-0">
+                            {result.cost_usd === null ? 'Unavailable' : formatRunCost(result.cost_usd)}
+                        </dd>
+                    </div>
+                </dl>
                 {(result.error || result.invalid_reason) && (
                     <LemonBanner type="error">{result.error || result.invalid_reason}</LemonBanner>
                 )}

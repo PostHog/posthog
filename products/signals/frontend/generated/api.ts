@@ -66,6 +66,10 @@ import type {
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
     ScoutToolCatalogueApi,
+    ScoutTrialComparisonApi,
+    ScoutTrialComparisonHistoryApi,
+    ScoutTrialComparisonQueryApi,
+    ScoutTrialComparisonRequestApi,
     ScoutTrialEvaluationApi,
     ScoutTrialEvaluationRequestApi,
     ScoutTrialHistoryApi,
@@ -127,6 +131,8 @@ import type {
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
+    SignalsScoutConfigTrialComparisonHistoryParams,
+    SignalsScoutConfigTrialComparisonRetrieveParams,
     SignalsScoutConfigTrialEvaluationRetrieveParams,
     SignalsScoutConfigTrialHistoryParams,
     SignalsScoutConfigTrialResultParams,
@@ -1437,6 +1443,125 @@ export const signalsScoutConfigTrial = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutTrialLaunchApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison/`
+}
+
+/**
+ * Freeze variants and the reviewed rubric, then run scouts and judge their results in the background.
+ * @summary Run and judge a private scout comparison
+ */
+export const signalsScoutConfigTrialComparisonCreate = async (
+    projectId: string,
+    id: string,
+    scoutTrialComparisonRequestApi: ScoutTrialComparisonRequestApi,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialComparisonRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonHistoryUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsScoutConfigTrialComparisonHistoryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_history/`
+}
+
+/**
+ * Read recent comparisons, including those saved before any scout run started.
+ * @summary List your saved scout comparisons
+ */
+export const signalsScoutConfigTrialComparisonHistory = async (
+    projectId: string,
+    id: string,
+    params?: SignalsScoutConfigTrialComparisonHistoryParams,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonHistoryApi> => {
+    return apiMutator<ScoutTrialComparisonHistoryApi>(
+        getSignalsScoutConfigTrialComparisonHistoryUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSignalsScoutConfigTrialComparisonRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialComparisonRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_result/`
+}
+
+/**
+ * Read comparison progress and its saved report without starting any scout or judge calls.
+ * @summary Read a saved scout comparison
+ */
+export const signalsScoutConfigTrialComparisonRetrieve = async (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialComparisonRetrieveParams,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonResumeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_resume/`
+}
+
+/**
+ * Recover the same comparison without repeating saved scout runs or judge attempts.
+ * @summary Resume a saved scout comparison
+ */
+export const signalsScoutConfigTrialComparisonResume = async (
+    projectId: string,
+    id: string,
+    scoutTrialComparisonQueryApi: ScoutTrialComparisonQueryApi,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonResumeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialComparisonQueryApi),
     })
 }
 

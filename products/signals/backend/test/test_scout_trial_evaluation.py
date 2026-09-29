@@ -24,6 +24,17 @@ from posthog.storage import object_storage
 
 from products.signals.backend.facade.rubrics import default_criteria
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.trial_comparison import (
+    ScoutTrialComparisons,
+    comparison_evaluation_finished,
+    prepare_comparison_evaluation,
+)
+from products.signals.backend.scout_harness.trial_comparison_types import (
+    TrialComparisonPlan,
+    TrialComparisonRequest,
+    TrialComparisonVariant,
+    TrialComparisonVariantResult,
+)
 from products.signals.backend.scout_harness.trial_evaluation import (
     MAX_SOURCE_CHARS,
     MAX_TRACE_BYTES,
@@ -44,6 +55,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 from products.signals.backend.scout_harness.trial_judge import parse_trial_judgment
 from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
+from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     RunScoutTrialEvaluationWorkflow,
@@ -421,12 +433,16 @@ class TestScoutTrialEvaluation(BaseTest):
 
     @parameterized.expand(
         [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
-        + [(True, "completed", task_status) for task_status in ("not_started", "queued", "in_progress")]
+        + [
+            (True, status, task_status)
+            for status in ("completed", "failed", "cancelled", "skipped")
+            for task_status in ("not_started", "queued", "in_progress")
+        ]
     )
     def test_launch_needs_finalized_scout_and_task_before_scoring(
         self,
         bound: bool,
-        status: Literal["pending", "unknown", "not_started", "completed"],
+        status: Literal["pending", "unknown", "not_started", "completed", "failed", "cancelled", "skipped"],
         task_status: str | None,
     ) -> None:
         other = self.launch if bound else self.launch.model_copy(update={"id": uuid4()})
@@ -436,7 +452,8 @@ class TestScoutTrialEvaluation(BaseTest):
         if task_status is not None:
             self.scout_run.task_run.status = task_status
             self.scout_run.task_run.save(update_fields=["status"])
-            export_trial_result(self.scout_run, status="completed")
+            if status != "skipped":
+                export_trial_result(self.scout_run, status=status)
         with patch(f"{MODULE}.get_trial_workflow_status", return_value=TrialWorkflowStatus(status=status)):
             with self.assertRaisesMessage(
                 TrialEvaluationError, "task must finish" if task_status is not None else "known terminal state"
@@ -530,6 +547,169 @@ class TestScoutTrialEvaluation(BaseTest):
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         assert finish_trial_evaluation(self.team.id, snapshot.evaluation_id).runs[0].status == "judge_error"
+
+    @parameterized.expand([(False, None), (True, None), (False, "failed"), (False, "cancelled"), (False, "skipped")])
+    def test_automatic_comparison_waits_for_task_teardown_and_keeps_its_launch_rubric(
+        self, manual_first: bool, excluded_status: Literal["failed", "cancelled", "skipped"] | None
+    ) -> None:
+        rubric = SavedScoutRubricReader(team_id=self.team.id).read(config_id=self.config.id, skill_name=self.skill.name)
+        launch_ids = [self.launch.id]
+        if excluded_status is not None:
+            unsuccessful = self.launch.model_copy(update={"id": uuid4()})
+            self._save("launches", unsuccessful.id, unsuccessful)
+            launch_ids.append(unsuccessful.id)
+        request = TrialComparisonRequest(
+            comparison_id=self.request.evaluation_id,
+            baseline_variant_id=self.request.baseline_variant_id,
+            variants=[
+                TrialComparisonVariant(
+                    id=self.request.variants[0].id,
+                    label=self.request.variants[0].label,
+                    launch_ids=launch_ids,
+                    model=self.launch.model,
+                    reasoning_effort=self.launch.reasoning_effort,
+                )
+            ],
+        )
+        plan = TrialComparisonPlan(
+            comparison_id=request.comparison_id,
+            team_id=self.team.id,
+            config_id=self.config.id,
+            user_id=self.user.id,
+            context_id=self.context.id,
+            skill_name=self.skill.name,
+            skill_version=self.skill.version,
+            variants=[
+                TrialComparisonVariantResult(
+                    id=request.variants[0].id,
+                    label=request.variants[0].label,
+                    launch_ids=launch_ids,
+                    model=self.launch.model,
+                    reasoning_effort=self.launch.reasoning_effort,
+                    skill_body_sha256="synthetic",
+                )
+            ],
+            created_at=timezone.now(),
+            request=request,
+            request_hash="synthetic-plan",
+            rubric_document=rubric,
+            judge_model="gpt-5.5",
+            judge_prompt_version="8",
+        )
+        self.documents[f"signals/scout-trials/{self.team.id}/comparisons/{request.comparison_id}/plan.json"] = (
+            plan.model_dump_json()
+        )
+        self.config.rubrics = {}
+        self.config.save(update_fields=["rubrics"])
+        module = "products.signals.backend.scout_harness.trial_comparison"
+
+        def run_status(*, team_id: int, launch_id: UUID) -> TrialWorkflowStatus:
+            return TrialWorkflowStatus(
+                status=excluded_status if launch_id != self.launch.id and excluded_status else "completed"
+            )
+
+        with (
+            patch(f"{module}.get_trial_workflow_status", side_effect=run_status),
+            patch(f"{MODULE}.get_trial_workflow_status", side_effect=run_status),
+            patch(f"{module}.check_fleet_gates", return_value=None),
+            patch(f"{module}.check_spend_gates", return_value=None),
+            patch(f"{WORKFLOW_MODULE}.start_trial_evaluation", return_value="synthetic-evaluation") as dispatch,
+        ):
+            self.scout_run.task_run.status = "in_progress"
+            self.scout_run.task_run.save(update_fields=["status"])
+            assert not prepare_comparison_evaluation(self.team.id, request.comparison_id)
+            dispatch.assert_not_called()
+            assert read_trial_evaluation(self.team.id, request.comparison_id) is None
+            self.scout_run.task_run.status = "completed"
+            self.scout_run.task_run.save(update_fields=["status"])
+            if manual_first:
+                prepare_trial_evaluation(config=self.config, user=self.user, request=request.evaluation_request())
+            assert prepare_comparison_evaluation(self.team.id, request.comparison_id)
+            snapshot = read_trial_evaluation(self.team.id, request.comparison_id)
+            assert snapshot is not None
+            assert snapshot.rubric_document == rubric
+            assert snapshot.rubric_reference_context == self.reference
+            assert snapshot.judge_prompt_version == "8"
+            if excluded_status is not None:
+                assert snapshot.runs[1].execution_status == excluded_status
+                assert snapshot.runs[1].exclusion_reason is not None
+            assert (
+                prepare_trial_evaluation(config=self.config, user=self.user, request=request.evaluation_request())
+                == snapshot
+            )
+            changed = request.evaluation_request().model_copy(
+                update={"variants": [self.request.variants[0].model_copy(update={"label": "Changed"})]}
+            )
+            with self.assertRaisesMessage(TrialEvaluationError, "different request"):
+                prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
+            dispatch.assert_called_once()
+
+    @parameterized.expand(
+        ["user_id", "config_id", "context_id", "request", "rubric_document", "judge_model", "judge_prompt_version"]
+    )
+    def test_comparison_never_exposes_or_dispatches_a_mismatched_saved_evaluation(self, field: str) -> None:
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        variant = TrialComparisonVariant(
+            id=self.request.baseline_variant_id,
+            label=self.request.variants[0].label,
+            launch_ids=[self.launch.id],
+            model=self.launch.model,
+            reasoning_effort=self.launch.reasoning_effort,
+        )
+        request = TrialComparisonRequest(
+            comparison_id=snapshot.evaluation_id,
+            baseline_variant_id=variant.id,
+            variants=[variant],
+        )
+        plan = TrialComparisonPlan(
+            comparison_id=snapshot.evaluation_id,
+            team_id=self.team.id,
+            config_id=self.config.id,
+            user_id=self.user.id,
+            context_id=self.context.id,
+            skill_name=self.skill.name,
+            skill_version=self.skill.version,
+            variants=[
+                TrialComparisonVariantResult(
+                    id=variant.id,
+                    label=variant.label,
+                    launch_ids=variant.launch_ids,
+                    model=variant.model,
+                    reasoning_effort=variant.reasoning_effort,
+                    skill_body_sha256="synthetic",
+                )
+            ],
+            created_at=timezone.now(),
+            request=request,
+            request_hash="synthetic-plan",
+            rubric_document=snapshot.rubric_document,
+            judge_model=snapshot.judge_model,
+            judge_prompt_version=snapshot.judge_prompt_version,
+        )
+        changes: dict[str, object] = {
+            "user_id": self.user.id + 1,
+            "config_id": uuid4(),
+            "context_id": uuid4(),
+            "request": snapshot.request.model_copy(update={"baseline_variant_id": uuid4()}),
+            "rubric_document": {**snapshot.rubric_document, "revision": 99},
+            "judge_model": "synthetic-other-model",
+            "judge_prompt_version": "7",
+        }
+        altered = snapshot.model_copy(update={field: changes[field]})
+        self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
+            altered.model_dump_json()
+        )
+        self.documents[f"signals/scout-trials/{self.team.id}/comparisons/{snapshot.evaluation_id}/plan.json"] = (
+            plan.model_dump_json()
+        )
+        with patch(f"{WORKFLOW_MODULE}.start_trial_evaluation") as dispatch:
+            with self.assertRaisesMessage(TrialEvaluationError, "does not belong"):
+                ScoutTrialComparisons(self.config, self.user).result(plan)
+            with self.assertRaisesMessage(TrialEvaluationError, "does not belong"):
+                prepare_comparison_evaluation(self.team.id, snapshot.evaluation_id)
+            with self.assertRaisesMessage(TrialEvaluationError, "does not belong"):
+                comparison_evaluation_finished(self.team.id, snapshot.evaluation_id)
+            dispatch.assert_not_called()
 
 
 class TestScoutTrialEvaluationWorkflow(SimpleTestCase):

@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { ScoutTrialJudgment } from './ScoutTrialJudgment'
-import { trialFixtureReport } from './scoutTrialsFixtures'
+import { trialFixtureLongReport, trialFixtureReport } from './scoutTrialsFixtures'
 
 const meta: Meta<typeof ScoutTrialJudgment> = {
     title: 'Scenes-App/Inbox/Scout run judgment',
@@ -41,6 +43,56 @@ export const Excluded: Story = {
             execution_status: 'cancelled',
             sources: [],
             exclusion_reason: 'The run was canceled before producing evidence.',
+        },
+    },
+}
+
+export const TwelveRubrics: Story = {
+    args: {
+        judgment: trialFixtureLongReport.runs[0],
+        evidence: trialFixtureLongReport.evidence[0],
+        criteria: trialFixtureLongReport.criteria,
+    },
+}
+
+export const TwelveRubricsNarrow: Story = {
+    ...Narrow,
+    ...TwelveRubrics,
+}
+
+export const ExpandedRubric: Story = {
+    ...TwelveRubrics,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(within(canvasElement).getByText('Evidence grounding'))
+    },
+}
+
+export const MixedVerdicts: Story = {
+    ...TwelveRubrics,
+    args: {
+        ...TwelveRubrics.args,
+        judgment: {
+            ...trialFixtureLongReport.runs[0],
+            score: 8 / 10,
+            coverage: 10 / 11,
+            criteria: trialFixtureLongReport.runs[0].criteria?.map((criterion) =>
+                criterion.criterion_id === 'recurrence'
+                    ? {
+                          ...criterion,
+                          verdict: 'unknown',
+                          confidence: 'low',
+                          reason: 'The captured result does not establish whether the same behavior happened more than once.',
+                          evidence: [],
+                      }
+                    : criterion.criterion_id === 'duplicates'
+                      ? {
+                            ...criterion,
+                            verdict: 'not_applicable',
+                            reason: 'No earlier finding covers this product area.',
+                            evidence: [],
+                        }
+                      : criterion
+            ),
         },
     },
 }

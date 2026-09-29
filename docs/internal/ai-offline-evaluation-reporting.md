@@ -75,14 +75,17 @@ Editing the scout, its references or a comparison candidate does not change that
 Only an explicit saved rubric update changes what future evaluations use.
 Rubrics without saved references, or with omitted or truncated reference content, must be regenerated, reviewed and saved before scoring.
 
-Scoring freezes the full rubric document, enabled criteria, saved revision and governing references before judging, so every variant uses the same requirements.
+Starting a comparison freezes the full rubric document, enabled criteria, saved revision and governing references before launching scouts, so every variant uses the same requirements.
+Editing the saved rubric while a comparison runs does not change its grading checklist.
 The report and JSON export retain the frozen references and their generation identity for inspection.
 The [mock fixture reader](../../products/signals/backend/scout_harness/trial_rubrics.py) remains available for offline development.
 Existing mock snapshots and reports remain readable, and exact-ID retries reuse their saved request; a new evaluation ID requires the saved rubric.
 
 ### Saved scoring and reports
 
-Scoring is an explicit action after all selected runs reach a known terminal state and incurs additional model charges.
+Starting a comparison includes scout execution and automatic judging, both of which incur model charges.
+The server waits until all selected runs reach a known terminal state before judging their saved evidence.
+The separate scoring endpoint remains available for existing runs and deliberate new scoring attempts.
 The request names a baseline and variant groups, with at most 20 distinct launches from the same scout, operator and saved starting context.
 Runs within a variant must use the same instructions, note, model, runtime, reasoning effort and service tier.
 The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
@@ -116,7 +119,12 @@ Execution exclusions and judge errors have no quality score and are counted sepa
 A scout runner failure remains an execution exclusion even if its sandbox task completed; the saved trial outcome records the runner failure.
 Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
 Baseline differences are withheld unless all selected runs were judged with complete, comparable verdicts.
-The differences describe these runs; they do not establish statistical significance or a reliable winner.
+New reports include a best variant, a tie, or an inconclusive result, with an explanation.
+The best variant passes the most rubric checks across repeated runs. Each check has equal weight; cost and speed do not affect the result.
+A winner requires at least two variants, equal repeat counts, and complete judgments on the same applicable checks.
+Unknown verdicts, excluded runs, judge errors or different applicability make the conclusion inconclusive, even when a displayed pass rate is high.
+These conclusions describe the captured runs; they do not establish statistical significance or guarantee results on other data.
+Historical reports without a saved conclusion remain readable without inventing one.
 Shared starting history does not freeze the live project data read during each run.
 
 Scoring uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation/`.
@@ -130,18 +138,19 @@ Every read remains restricted to the operator's current project and skill access
 ### Internal comparison UI
 
 Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
-The page submits at most 20 runs per comparison and shows deployment or scout compatibility blockers before launch.
-The first accepted launch saves the shared starting history; remaining launches reuse it with their own private writable state.
-Keep the page open until all submissions are confirmed. Accepted runs continue on the server after the page closes.
+The page submits one comparison containing at most 20 runs and shows deployment or scout compatibility blockers before launch.
+The server saves the variants, reviewed rubric and shared starting history before dispatch. Each run keeps its own private writable state.
+Once the comparison is accepted, execution and judging continue after the page closes.
+Progress distinguishes starting, running scouts, judging and completed results. Reloading reads saved state without starting another paid attempt.
 
-The page shows the operator's recent private runs, supports stopping active runs, and exports their captured reports, memory changes, and available usage as JSON.
-Once its runs finish, select a comparison and choose **Score comparison** to use the reviewed saved rubric.
-The report shows variant and run scores, coverage, criterion verdicts, supporting quotations and separate execution or judging errors, with a JSON export.
-Reloading the page restores saved scoring status without starting another evaluation.
-After scoring completes or fails, **New scoring attempt** prepares a new evaluation of the same scout runs using the current saved rubric and keeps the old report available.
-Choose **Score comparison** to start that attempt; it may charge for all runs again.
+The current comparison is separate from the operator's run history. Active runs can be stopped; captured reports, memory changes and available usage can be exported as JSON.
+The report leads with the comparison conclusion and variant results. It shows average pass rates and counts of passed, failed and undecided checks.
+Counts across repeated runs count each execution's checks, rather than distinct rubric definitions. Not-applicable checks remain separate.
+Individual runs are grouped by variant. Each run has compact criterion name/status rows; expand a criterion to read its explanation and supporting quotations.
+Saved rubric definitions, captured reference instructions and raw evidence remain available as supporting details.
+An explicit new judging attempt can reuse completed scout runs with the current saved rubric while keeping the old report available. It may charge for judging every run again.
 Browser storage keeps only scout, comparison, variant, baseline and launch IDs, scoped to the project and operator; prompts, labels, evidence and reports stay out of browser storage.
-Unsubmitted prompt edits are lost on reload; start a new comparison instead of reconstructing an uncertain request.
+Unsubmitted prompt edits are lost on reload. Accepted comparison plans and their status are recovered from the server.
 The setup, history and scoring endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
 Shared instructions guide investigations but do not enforce date or file access limits.
 

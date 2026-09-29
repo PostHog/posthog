@@ -108,6 +108,11 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.variants[1].baseline_delta == delta
         assert report.variants[1].criteria[0].baseline_delta == delta
         assert report.runs[-1].score == (0.0 if candidate_verdict == "fail" else None)
+        assert report.outcome is not None
+        assert report.outcome.status == ("tie" if candidate_verdict == "fail" else "inconclusive")
+        assert report.outcome.variant_ids == (
+            [self.baseline.id, self.candidate.id] if candidate_verdict == "fail" else []
+        )
 
     @parameterized.expand([("excluded",), ("judge_error",)])
     def test_execution_and_judge_failures_stay_separate_from_quality(self, status: str) -> None:
@@ -131,6 +136,8 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert candidate.excluded_runs == (1 if status == "excluded" else 0)
         assert candidate.judge_errors == (1 if status == "judge_error" else 0)
         assert report.runs[-1].score is None
+        assert report.outcome is not None and report.outcome.status == "inconclusive"
+        assert report.outcome.variant_ids == []
 
     @parameterized.expand([("unknown", 0.0), ("not_applicable", None)])
     def test_no_decisive_verdicts_produce_no_score(self, verdict: str, coverage: float | None) -> None:
@@ -139,6 +146,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         )
         assert all(variant.score is None and variant.coverage == coverage for variant in report.variants)
         assert all(variant.baseline_delta is None for variant in report.variants)
+        assert report.outcome is not None and report.outcome.status == "inconclusive"
 
     def test_duplicate_or_missing_run_cannot_silently_improve_the_report(self) -> None:
         judgments = [self._judgment(run, "pass") for run in self.snapshot.runs]
@@ -164,6 +172,9 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.variants[1].baseline_delta == 1.0
         assert report.variants[1].criteria[0].baseline_delta == 1.0
         assert "+100 percentage points" in report.summary
+        assert report.outcome is not None and report.outcome.status == "winner"
+        assert report.outcome.variant_ids == [self.candidate.id]
+        assert "2 of 2" in report.outcome.summary
         assert report.rubric_source == source
         assert report.rubric_revision == (3 if source == "saved" else 0)
         assert any("mock default criteria" in limitation for limitation in report.limitations) == (source == "mock")
@@ -173,6 +184,8 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.criteria == self.snapshot.criteria
         exported = report.model_dump_json(exclude_none=source == "mock")
         assert TrialComparisonReport.model_validate_json(exported) == report
+        historical = report.model_dump(mode="json", exclude={"outcome"})
+        assert TrialComparisonReport.model_validate(historical).outcome is None
 
     def test_repeats_have_equal_weight_when_applicable_criteria_differ(self) -> None:
         snapshot = self.snapshot.model_copy(
@@ -199,3 +212,88 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.runs[1].score == 1.0
         assert report.variants[0].score == 0.75
         assert report.variants[1].baseline_delta is None
+        assert report.outcome is not None and report.outcome.status == "inconclusive"
+
+    def test_fewer_repeats_cannot_win_by_avoiding_a_failed_run(self) -> None:
+        snapshot = self.snapshot.model_copy(
+            update={
+                "runs": self.snapshot.runs[:-1],
+                "request": self.snapshot.request.model_copy(
+                    update={
+                        "variants": [
+                            self.baseline,
+                            self.candidate.model_copy(update={"launch_ids": self.candidate.launch_ids[:1]}),
+                        ]
+                    }
+                ),
+            }
+        )
+        report = build_trial_comparison_report(
+            snapshot,
+            [
+                self._judgment(run, verdict)
+                for run, verdict in zip(snapshot.runs, ["pass", "fail", "pass"], strict=True)
+            ],
+        )
+        assert report.variants[1].score == 1.0
+        assert report.outcome is not None and report.outcome.status == "inconclusive"
+        assert "different numbers of runs" in report.outcome.summary
+
+    def test_only_top_variants_share_a_tie(self) -> None:
+        third = self.candidate.model_copy(update={"id": uuid4(), "label": "Third", "launch_ids": [uuid4(), uuid4()]})
+        third_runs = [
+            self.snapshot.runs[2].model_copy(update={"launch_id": launch_id, "variant_id": third.id})
+            for launch_id in third.launch_ids
+        ]
+        snapshot = self.snapshot.model_copy(
+            update={
+                "request": self.snapshot.request.model_copy(
+                    update={"variants": [self.baseline, self.candidate, third]}
+                ),
+                "runs": [*self.snapshot.runs, *third_runs],
+            }
+        )
+        report = build_trial_comparison_report(
+            snapshot,
+            [self._judgment(run, "fail" if run.variant_id == self.baseline.id else "pass") for run in snapshot.runs],
+        )
+        assert report.outcome is not None and report.outcome.status == "tie"
+        assert report.outcome.variant_ids == [self.candidate.id, third.id]
+
+    def test_equal_pass_counts_tie_when_passes_are_distributed_differently_across_repeats(self) -> None:
+        variants = [
+            variant.model_copy(update={"launch_ids": [uuid4() for _ in range(3)]})
+            for variant in (self.baseline, self.candidate)
+        ]
+        criteria = [self.snapshot.criteria[0].model_copy(update={"id": f"check-{index}"}) for index in range(5)]
+        runs = [
+            self.snapshot.runs[0].model_copy(update={"launch_id": launch_id, "variant_id": variant.id})
+            for variant in variants
+            for launch_id in variant.launch_ids
+        ]
+        snapshot = self.snapshot.model_copy(
+            update={
+                "request": self.snapshot.request.model_copy(update={"variants": variants}),
+                "runs": runs,
+                "criteria": criteria,
+            }
+        )
+        judgments = []
+        for run, passes in zip(runs, [0, 0, 3, 1, 1, 1], strict=True):
+            judgment = self._judgment(run, "pass")
+            judgments.append(
+                judgment.model_copy(
+                    update={
+                        "criteria": [
+                            judgment.criteria[0].model_copy(
+                                update={"criterion_id": criterion.id, "verdict": "pass" if index < passes else "fail"}
+                            )
+                            for index, criterion in enumerate(criteria)
+                        ]
+                    }
+                )
+            )
+        report = build_trial_comparison_report(snapshot, judgments)
+        assert report.outcome is not None and report.outcome.status == "tie"
+        assert report.outcome.variant_ids == [self.baseline.id, self.candidate.id]
+        assert "3 of 15" in report.outcome.summary

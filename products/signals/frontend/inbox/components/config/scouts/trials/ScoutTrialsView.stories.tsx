@@ -5,7 +5,9 @@ import {
     trialFixtureConfig,
     trialFixtureEvaluation,
     trialFixtureEvaluationWithJudgeError,
+    trialFixtureLongReport,
     trialFixtureResult,
+    trialFixtureServerComparison,
     trialFixtureSetup,
 } from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
@@ -13,7 +15,24 @@ import { createTrialBatch, initialTrialVariants } from './scoutTrialUtils'
 
 const noop = (): void => {}
 const variants = initialTrialVariants(trialFixtureSetup)
+variants[1] = {
+    ...variants[1],
+    label: 'Candidate prompt',
+    replacePrompt: true,
+    prompt: 'Investigate checkout failures over the last 7 days. Cite captured query results and propose one next step.',
+}
 const defaults: ScoutTrialsViewProps = {
+    comparisonStates: {},
+    comparisonState: { value: null, loading: false, resuming: false, error: null, notStarted: false },
+    comparisonHistory: { results: [], has_more: false },
+    comparisonHistoryLoading: false,
+    comparisonRows: [],
+    managedComparison: false,
+    serverComparisonIds: [],
+    editingComparison: false,
+    loadComparison: noop,
+    resumeComparison: noop,
+    loadComparisonHistory: noop,
     comparisons: [],
     comparisonsForConfig: [],
     selectedComparisonIds: {},
@@ -34,7 +53,7 @@ const defaults: ScoutTrialsViewProps = {
     historyLoading: false,
     selectedConfigId: trialFixtureConfig.id,
     variants,
-    repeats: 1,
+    repeats: 2,
     note: '',
     batch: null,
     tracked: [],
@@ -49,7 +68,7 @@ const defaults: ScoutTrialsViewProps = {
     rows: [],
     selectedResult: null,
     formError: null,
-    totalRuns: 2,
+    totalRuns: 4,
     hasUnaccepted: false,
     loadConfigs: noop,
     loadSetup: noop,
@@ -120,29 +139,66 @@ const completedBatch = createTrialBatch(
 )
 completedBatch.submissions = completedBatch.submissions.map((entry) => ({ ...entry, accepted: true }))
 
+const runningRows = trialFixtureComparison.groups.flatMap((group, variantIndex) =>
+    group.launchIds.map((launchId, repeatIndex) => ({
+        launchId,
+        variant: `${variantIndex === 0 ? 'Baseline' : 'Candidate prompt'} · run ${repeatIndex + 1}`,
+        model: trialFixtureResult.model,
+        effort: trialFixtureResult.reasoning_effort,
+        status: variantIndex === 0 && repeatIndex === 0 ? 'completed' : 'running',
+        startedAt: trialFixtureResult.started_at,
+        error: null,
+        result: {
+            ...trialFixtureResult,
+            launch_id: launchId,
+            status: variantIndex === 0 && repeatIndex === 0 ? 'completed' : 'running',
+            task_status: variantIndex === 0 && repeatIndex === 0 ? 'completed' : 'in_progress',
+            summary: '',
+            reports: [],
+            memory: {},
+            completed_at: null,
+        },
+    }))
+)
+const completedRows = runningRows.map((row) => ({
+    ...row,
+    status: 'completed',
+    result: {
+        ...row.result,
+        status: 'completed',
+        task_status: 'completed',
+        completed_at: trialFixtureResult.completed_at,
+    },
+}))
+
 export const Running: Story = {
     args: {
-        batch: completedBatch,
-        rows: variants.map((variant, index) => ({
-            launchId: `running-${index}`,
-            variant: variant.label,
-            model: variant.model,
-            effort: variant.effort,
-            status: 'running',
-            startedAt: trialFixtureResult.started_at,
-            error: null,
-            result: {
-                ...trialFixtureResult,
-                status: 'running',
-                task_status: 'running',
-                summary: '',
-                reports: [],
-                memory: {},
-                completed_at: null,
+        comparisons: [trialFixtureComparison],
+        comparisonsForConfig: [trialFixtureComparison],
+        selectedComparison: trialFixtureComparison,
+        managedComparison: true,
+        serverComparisonIds: [trialFixtureComparison.id],
+        comparisonStates: {
+            [trialFixtureComparison.id]: {
+                value: { ...trialFixtureServerComparison, status: 'running', evaluation: null },
+                loading: false,
+                resuming: false,
+                error: null,
+                notStarted: false,
             },
-        })),
+        },
+        comparisonState: {
+            value: { ...trialFixtureServerComparison, status: 'running', evaluation: null },
+            loading: false,
+            resuming: false,
+            error: null,
+            notStarted: false,
+        },
+        rows: runningRows,
+        comparisonRows: runningRows,
     },
 }
+export const RunningNarrow: Story = { ...Running, decorators: Narrow.decorators }
 
 export const Results: Story = {
     args: {
@@ -166,12 +222,18 @@ export const ResultsNarrow: Story = { ...Results, decorators: Narrow.decorators 
 
 export const Scored: Story = {
     args: {
-        ...Results.args,
+        ...Running.args,
+        rows: completedRows,
+        comparisonRows: completedRows,
+        comparisonState: { ...Running.args!.comparisonState!, value: trialFixtureServerComparison },
+        comparisonStates: {
+            [trialFixtureComparison.id]: { ...Running.args!.comparisonState!, value: trialFixtureServerComparison },
+        },
         comparisons: [trialFixtureComparison],
         comparisonsForConfig: [trialFixtureComparison],
         selectedComparison: trialFixtureComparison,
         evaluationState: {
-            value: trialFixtureEvaluation,
+            value: trialFixtureServerComparison.evaluation,
             loading: false,
             scoring: false,
             error: null,
@@ -181,6 +243,19 @@ export const Scored: Story = {
     },
 }
 export const ScoredNarrow: Story = { ...Scored, decorators: Narrow.decorators }
+export const ManyRubrics: Story = {
+    args: {
+        ...Scored.args,
+        evaluationState: {
+            ...Scored.args!.evaluationState!,
+            value: {
+                ...trialFixtureServerComparison.evaluation!,
+                report: { ...trialFixtureLongReport, rubric_source: 'saved' },
+            },
+        },
+    },
+}
+export const ManyRubricsNarrow: Story = { ...ManyRubrics, decorators: Narrow.decorators }
 export const ScoredWithJudgeError: Story = {
     args: {
         ...Scored.args,
@@ -196,6 +271,11 @@ export const ScoredWithJudgeError: Story = {
 export const Scoring: Story = {
     args: {
         ...Scored.args,
+        comparisonState: {
+            ...Running.args!.comparisonState!,
+            value: { ...trialFixtureServerComparison, status: 'judging' },
+        },
+        comparisonRows: completedRows,
         evaluationState: {
             value: { ...trialFixtureEvaluation, status: 'running', report: null },
             loading: false,
@@ -206,9 +286,14 @@ export const Scoring: Story = {
         scoreDisabledReason: 'This comparison is being scored.',
     },
 }
+export const ScoringNarrow: Story = { ...Scoring, decorators: Narrow.decorators }
 export const ScoringUnavailable: Story = {
     args: {
         ...Scored.args,
+        comparisonState: {
+            ...Running.args!.comparisonState!,
+            value: { ...trialFixtureServerComparison, status: 'unknown' },
+        },
         evaluationState: {
             value: { ...trialFixtureEvaluation, status: 'unknown', report: null },
             loading: false,
@@ -223,6 +308,13 @@ export const ScoringUnavailable: Story = {
 export const MissingSavedRubric: Story = {
     args: {
         ...Scored.args,
+        comparisonState: {
+            value: null,
+            loading: false,
+            resuming: false,
+            notStarted: true,
+            error: 'Generate suggestions, adopt their reference, and save the rubric before starting.',
+        },
         evaluationState: {
             value: null,
             loading: false,

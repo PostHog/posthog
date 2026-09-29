@@ -196,9 +196,9 @@ Choose a model and effort from the returned `models` list. If the source effort 
 1. Open the source scout's rubric editor. Generate suggestions once, review the criteria and reference, then save the checklist with that generation's reference. Generation is a separate paid action. Unsaved defaults, unreviewed suggestions and older rubrics without a captured reference cannot start scoring.
 2. Remove the default **Variant 1** row and set repeats to **1**, then launch one short baseline run against a known synthetic finding.
 3. Wait for a valid completed result and inspect the captured report, memory and tool evidence.
-4. Choose **Score comparison** once. This starts a separate paid judge call.
-5. Wait for the saved report. Inspect actual verdicts and source quotations; a report consisting of judge errors is not successful validation.
-6. Reload the page and export the report. Confirm it reads the same evaluation without another model call.
+4. Confirm judging starts automatically after the run finishes, without a separate scoring action.
+5. Wait for the saved report. Inspect actual verdicts and source quotations; a report consisting of judge errors is not successful validation. A single variant has no winner to compare.
+6. Reload the page and export the report. Confirm it reads the same evaluation without another model call. Also close the tab during a comparison and verify server-side judging still completes.
 7. Launch a small baseline/candidate pair sharing the starting context. Confirm separate writable memory and reports, and that the source scout's instructions/shared memory and normal inbox remain unchanged.
 
 Keep the saved rubric fixed while comparing scout edits. Editing a skill or running a comparison does not regenerate the rubric or change its reference instructions. To change the grading standard, explicitly review and save rubric changes. Adopting a new generation's reference applies it to the whole checklist; ordinary criterion edits retain the saved reference. Existing evaluation IDs keep their original rubric and evidence.
@@ -302,7 +302,8 @@ For each iteration:
 5. When changing only the judge/rubric, reuse completed scout runs under a **new evaluation ID**. When changing the scout or data, run a new comparison.
 6. Confirm promising scout changes on held-out scenarios and additional repeats within budget. Report results by scenario, including execution failures and cost uncertainty.
 
-The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. Execution failures and judge errors are separate from quality. Baseline differences appear only for fully comparable outcomes.
+The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. The UI explains this through passed, failed and undecided check counts. Execution failures and judge errors are separate from quality. Baseline differences appear only for fully comparable outcomes.
+New reports identify the best variant or a tie only when at least two variants have equal repeat counts and complete judgments on the same applicable checks. The winner passes the most checks; each check has equal weight. Missing evidence or incomplete runs produce an inconclusive result. Cost and speed do not decide the winner.
 
 A high score with low coverage is not strong evidence. The judge checks bounded saved evidence and exact quotations; it does not independently query source truth or measure recall. Use the synthetic answer key to measure missed findings and false positives. These small live comparisons do not establish statistical significance.
 

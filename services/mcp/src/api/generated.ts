@@ -91322,6 +91322,43 @@ export namespace Schemas {
       grantable_write_scopes: string[];
     }
 
+    export interface ScoutTrialComparisonVariant {
+      /** Variant identity. */
+      id: string;
+      /** Saved variant name. */
+      label: string;
+      /** Scout runs in this variant. */
+      launch_ids: string[];
+      /** Saved scout model. */
+      model: string;
+      /** Saved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the saved scout instructions. */
+      skill_body_sha256: string;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `starting` - starting
+     * * `running` - running
+     * * `judging` - judging
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `unknown` - unknown
+     */
+    export type ScoutTrialComparisonStatusEnum = typeof ScoutTrialComparisonStatusEnum[keyof typeof ScoutTrialComparisonStatusEnum];
+
+
+    export const ScoutTrialComparisonStatusEnum = {
+      NotStarted: 'not_started',
+      Starting: 'starting',
+      Running: 'running',
+      Judging: 'judging',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface ScoutTrialEvaluationVariant {
       /** Stable identity for this variant, independent of its display label. */
       id: string;
@@ -91383,6 +91420,21 @@ export namespace Schemas {
       Unknown: 'unknown',
       NotStarted: 'not_started',
     } as const;
+
+    export type TrialComparisonOutcomeStatusEnum = typeof TrialComparisonOutcomeStatusEnum[keyof typeof TrialComparisonOutcomeStatusEnum];
+
+
+    export const TrialComparisonOutcomeStatusEnum = {
+      Winner: 'winner',
+      Tie: 'tie',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    export interface TrialComparisonOutcome {
+      status: TrialComparisonOutcomeStatusEnum;
+      variant_ids?: string[];
+      summary: string;
+    }
 
     export type TrialComparisonReportRubricSourceEnum = typeof TrialComparisonReportRubricSourceEnum[keyof typeof TrialComparisonReportRubricSourceEnum];
 
@@ -91525,6 +91577,7 @@ export namespace Schemas {
       created_at: string;
       completed_at: string;
       summary: string;
+      outcome?: TrialComparisonOutcome | null;
       rubric_source: TrialComparisonReportRubricSourceEnum;
       rubric_revision: number;
       rubric_reference_context?: ScoutRubricReferenceContext | null;
@@ -91562,6 +91615,97 @@ export namespace Schemas {
       error: string | null;
       /** Saved comparison scores and their supporting evidence. */
       report: TrialComparisonReport | null;
+    }
+
+    export interface ScoutTrialComparison {
+      /** Comparison and automatic evaluation identity. */
+      comparison_id: string;
+      /** Source scout configuration. */
+      config_id: string;
+      /** Frozen starting context shared by every run. */
+      context_id: string;
+      /** Time the comparison was saved. */
+      created_at: string;
+      /** Baseline variant identity. */
+      baseline_variant_id: string;
+      /** Reviewed rubric revision frozen before the runs started. */
+      rubric_revision: number;
+      /** Saved variant groups and runtime settings. */
+      variants: ScoutTrialComparisonVariant[];
+      /** Comparison lifecycle, including automatic judging.
+       *
+       * * `not_started` - not_started
+       * * `starting` - starting
+       * * `running` - running
+       * * `judging` - judging
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `unknown` - unknown */
+      status: ScoutTrialComparisonStatusEnum;
+      /**
+         * Sanitized comparison error, if any.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved evaluation and report when available. */
+      evaluation: ScoutTrialEvaluation | null;
+    }
+
+    export interface ScoutTrialComparisonHistory {
+      /** This operator's most recent saved comparisons. */
+      results: ScoutTrialComparison[];
+      /** Whether more comparisons exist than the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialComparisonQuery {
+      /** Saved comparison identity. */
+      comparison_id: string;
+    }
+
+    export interface ScoutTrialComparisonVariantRequest {
+      /** Stable variant identity within this comparison. */
+      id: string;
+      /**
+         * Variant name shown in the report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Stable run IDs for this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+      /**
+         * Scout model to run.
+         * @maxLength 200
+         */
+      model: string;
+      /**
+         * Reasoning effort supported by this model.
+         * @maxLength 20
+         */
+      reasoning_effort: string;
+      /**
+         * Replacement scout instructions. Omit to use the saved source instructions.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+    }
+
+    export interface ScoutTrialComparisonRequest {
+      /** Stable comparison ID. Reuse for an exact request retry. */
+      comparison_id: string;
+      /** Variant used as the comparison baseline. */
+      baseline_variant_id: string;
+      /** Variants containing at most 20 total scout runs. */
+      variants: ScoutTrialComparisonVariantRequest[];
+      /**
+         * Shared investigation note.
+         * @maxLength 1000
+         */
+      note?: string;
     }
 
     export interface ScoutTrialHistoryItem {
@@ -118797,6 +118941,22 @@ export namespace Schemas {
      * @minLength 1
      */
     tags?: string;
+    };
+
+    export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialComparisonRetrieveParams = {
+    /**
+     * Saved comparison identity.
+     */
+    comparison_id: string;
     };
 
     export type SignalsScoutConfigTrialEvaluationRetrieveParams = {

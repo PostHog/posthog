@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
 
 import {
     signalsScoutConfigList,
+    signalsScoutConfigTrialComparisonHistory,
     signalsScoutConfigTrialHistory,
     signalsScoutConfigTrialResult,
     signalsScoutConfigTrialSetup,
@@ -15,12 +17,15 @@ import { ScoutTrialsPanel } from './ScoutTrialsPanel'
 jest.mock('products/signals/frontend/generated/api', () => ({
     ...jest.requireActual('products/signals/frontend/generated/api'),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigTrialComparisonHistory: jest.fn(),
     signalsScoutConfigTrialHistory: jest.fn(),
     signalsScoutConfigTrialResult: jest.fn(),
     signalsScoutConfigTrialSetup: jest.fn(),
 }))
 
 describe('ScoutTrialsPanel', () => {
+    afterEach(cleanup)
+
     beforeEach(() => {
         jest.clearAllMocks()
         localStorage.clear()
@@ -28,12 +33,13 @@ describe('ScoutTrialsPanel', () => {
         jest.mocked(signalsScoutConfigList).mockResolvedValue([trialFixtureConfig])
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue(trialFixtureSetup)
         jest.mocked(signalsScoutConfigTrialHistory).mockResolvedValue({ results: [], has_more: false })
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({ results: [], has_more: false })
     })
 
     it('renders loaded comparison settings through the logic binding', async () => {
         render(<ScoutTrialsPanel teamId={2} userId={42} />)
 
-        expect(await screen.findByText('Start 2 runs')).not.toBeNull()
+        expect(await screen.findByText('Start comparison')).not.toBeNull()
         expect(screen.getByText('Checkout quality')).not.toBeNull()
     })
 
@@ -60,6 +66,7 @@ describe('ScoutTrialsPanel', () => {
 
         render(<ScoutTrialsPanel teamId={2} userId={42} />)
 
+        await userEvent.click(await screen.findByText('Individual run history'))
         expect(await screen.findByText('Stop run')).not.toBeNull()
     })
 })

@@ -134,6 +134,12 @@ class TrialVariantAggregate(EvaluationDocument):
     criteria: list[TrialCriterionAggregate]
 
 
+class TrialComparisonOutcome(EvaluationDocument):
+    status: Literal["winner", "tie", "inconclusive"]
+    variant_ids: list[UUID] = Field(default_factory=list)
+    summary: str
+
+
 class TrialComparisonReport(EvaluationDocument):
     version: Literal[1] = 1
     evaluation_id: UUID
@@ -141,6 +147,7 @@ class TrialComparisonReport(EvaluationDocument):
     created_at: datetime
     completed_at: datetime
     summary: str
+    outcome: TrialComparisonOutcome | None = None
     rubric_source: Literal["mock", "saved"]
     rubric_revision: int
     rubric_reference_context: ScoutRubricReferenceContext | None = None

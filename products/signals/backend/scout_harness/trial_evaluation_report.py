@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from statistics import mean
 
 from products.signals.backend.scout_harness.trial_evaluation_types import (
+    TrialComparisonOutcome,
     TrialComparisonReport,
     TrialCriterionAggregate,
     TrialCriterionVerdict,
@@ -39,6 +40,46 @@ def _overall_comparable(variant: TrialVariantAggregate, baseline: TrialVariantAg
         if not _criterion_complete(criterion, variant) or not _criterion_complete(reference, baseline):
             return False
     return True
+
+
+def _comparison_outcome(variants: list[TrialVariantAggregate]) -> TrialComparisonOutcome:
+    reason: str | None = None
+    if len(variants) < 2:
+        reason = "Compare at least two variants to find the best result."
+    elif any(variant.judged_runs != variant.total_runs for variant in variants):
+        reason = "Some runs failed, were stopped, or could not be judged. Complete those runs before choosing a winner."
+    elif any(criterion.unknown for variant in variants for criterion in variant.criteria):
+        reason = "Some rubric checks need more evidence. The results are incomplete, so a higher pass rate may be misleading."
+    elif any(variant.score is None for variant in variants):
+        reason = "There are not enough applicable rubric checks to compare these variants."
+    elif len({variant.total_runs for variant in variants}) != 1:
+        reason = "The variants have different numbers of runs. Use the same number of runs for a fair comparison."
+    elif any(not _overall_comparable(variant, variants[0]) for variant in variants):
+        reason = "Different rubric checks applied to these runs. Their pass rates cannot be compared fairly."
+    if reason is not None:
+        return TrialComparisonOutcome(status="inconclusive", summary=reason)
+
+    passed_counts = {
+        variant.variant_id: sum(criterion.passed for criterion in variant.criteria) for variant in variants
+    }
+    passed = max(passed_counts.values())
+    leaders = [variant for variant in variants if passed_counts[variant.variant_id] == passed]
+    assessed = sum(criterion.passed + criterion.failed for criterion in leaders[0].criteria)
+    runs = leaders[0].total_runs
+    run_label = "run" if runs == 1 else "runs"
+    if len(leaders) == 1:
+        summary = (
+            f"{leaders[0].label} passed the most rubric checks: {passed} of {assessed} "
+            f"across {runs} {run_label}. Every variant was judged on the same applicable checks."
+        )
+    else:
+        names = ", ".join(variant.label for variant in leaders)
+        summary = f"{names} tied: each passed {passed} of {assessed} rubric checks across {runs} {run_label}."
+    return TrialComparisonOutcome(
+        status="winner" if len(leaders) == 1 else "tie",
+        variant_ids=[variant.variant_id for variant in leaders],
+        summary=summary,
+    )
 
 
 def build_trial_comparison_report(
@@ -151,6 +192,7 @@ def build_trial_comparison_report(
         created_at=snapshot.created_at,
         completed_at=datetime.now(UTC),
         summary="\n".join(summary),
+        outcome=_comparison_outcome(compared),
         rubric_source=snapshot.request.rubric_source,
         rubric_revision=revision if isinstance(revision, int) and not isinstance(revision, bool) else 0,
         rubric_reference_context=snapshot.rubric_reference_context,
@@ -170,7 +212,7 @@ def build_trial_comparison_report(
             ),
             "Each run scores pass verdicts divided by pass and fail verdicts. Variant scores average runs with a decisive score; unknown and not applicable verdicts are excluded.",
             "Rubric coverage is the fraction of applicable verdicts that are pass or fail. Execution failures and judge errors are listed separately.",
-            "Differences are descriptive results from these runs, not evidence of statistical significance or a reliable winner.",
+            "The best result describes these runs only. It does not establish statistical significance or guarantee the same result on other data.",
             "Project data remains live. Shared starting context does not freeze every source a scout can read.",
             "Evidence quotes are checked against saved text. The judge does not independently verify external sources or measure recall.",
             *sorted({limitation for run in snapshot.runs for limitation in run.limitations}),

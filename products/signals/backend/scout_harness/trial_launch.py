@@ -255,6 +255,18 @@ def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, n
     )
 
 
+def create_trial_context(*, config: SignalScoutConfig, user: User, identifier: UUID, note: str) -> TrialContext:
+    assert_trial_environment_ready()
+    key = _document_key(config.team_id, "contexts", identifier)
+    context = _read_document(key, TrialContext)
+    if context is None:
+        context = _write_document_once(key, _snapshot_context(config, user, identifier, note))
+    if context.config_id != config.id or context.user_id != user.id or context.note != note:
+        raise ScoutTrialLaunchError("The comparison context belongs to a different request.")
+    _validate_source(context)
+    return context
+
+
 def create_trial_launch(
     *,
     config: SignalScoutConfig,

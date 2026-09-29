@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
-import { trialFixtureReport } from './scoutTrialsFixtures'
+import { trialFixtureLongReport, trialFixtureReport } from './scoutTrialsFixtures'
 
 const meta: Meta<typeof ScoutTrialComparisonReport> = {
     title: 'Scenes-App/Inbox/Scout comparison report',
@@ -40,6 +40,12 @@ export const PartialEvidence: Story = {
         report: {
             ...trialFixtureReport,
             summary: 'The candidate has incomplete evidence. Its score cannot be compared with the baseline.',
+            outcome: {
+                status: 'inconclusive',
+                variant_ids: [],
+                summary:
+                    'One check has too little evidence, and one run could not be judged. These results cannot identify the best variant.',
+            },
             variants: trialFixtureReport.variants.map((variant) =>
                 variant.is_baseline
                     ? variant
@@ -91,4 +97,51 @@ export const PartialEvidence: Story = {
             ),
         },
     },
+}
+
+export const Tie: Story = {
+    args: {
+        report: {
+            ...trialFixtureLongReport,
+            outcome: {
+                status: 'tie',
+                variant_ids: trialFixtureLongReport.variants.map((variant) => variant.variant_id),
+                summary: 'Both variants tied: each passed 24 of 24 rubric checks across 2 runs.',
+            },
+            variants: trialFixtureLongReport.variants.map((variant) => ({
+                ...variant,
+                score: 1,
+                baseline_delta: variant.is_baseline ? null : 0,
+                criteria: variant.criteria.map((criterion) => ({
+                    ...criterion,
+                    passed: 2,
+                    failed: 0,
+                    pass_rate: 1,
+                    baseline_delta: variant.is_baseline ? null : 0,
+                })),
+            })),
+            runs: trialFixtureLongReport.runs.map((run) => ({
+                ...run,
+                score: 1,
+                criteria: run.criteria?.map((criterion) => ({
+                    ...criterion,
+                    verdict: 'pass',
+                    reason: 'The captured scout output satisfies this check.',
+                })),
+            })),
+        },
+    },
+}
+
+export const TwelveRubrics: Story = {
+    args: { report: trialFixtureLongReport },
+}
+
+export const TwelveRubricsNarrow: Story = {
+    ...Narrow,
+    args: { report: trialFixtureLongReport },
+}
+
+export const SavedWithoutConclusion: Story = {
+    args: { report: { ...trialFixtureReport, outcome: null } },
 }

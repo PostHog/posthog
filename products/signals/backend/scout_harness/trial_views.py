@@ -23,6 +23,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_spend_gates
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.trial_comparison_views import ScoutTrialComparisonMixin
 from products.signals.backend.scout_harness.trial_evaluation_serializers import (
     ScoutTrialEvaluationQuerySerializer,
     ScoutTrialEvaluationRequestSerializer,
@@ -54,7 +55,7 @@ from products.signals.backend.scout_harness.trial_serializers import (
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 
 
-class ScoutTrialConfigMixin:
+class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     team: Team
 
     def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:

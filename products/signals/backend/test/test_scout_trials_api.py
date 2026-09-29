@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -243,7 +243,9 @@ class TestScoutTrialLaunch(APIBaseTest):
             self.addCleanup(mock_patch.stop)
 
     def _write(self, key: str, content: str, **kwargs: object) -> None:
-        assert key not in self.documents
+        extras = kwargs.get("extras")
+        if key in self.documents and isinstance(extras, dict) and extras.get("IfNoneMatch") == "*":
+            raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
     def _internal_scout_base(self) -> str:
@@ -256,11 +258,9 @@ class TestScoutTrialLaunch(APIBaseTest):
         self.enterContext(team_scope(self.team.id, canonical=True))
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
-        for module in ("trial_inspection", "trial_views"):
+        for module in ("trial_inspection", "trial_views", "trial_comparison"):
             for function in (
-                ("check_fleet_gates", "check_spend_gates")
-                if module == "trial_inspection"
-                else ("withheld_skills_for_team",)
+                ("check_fleet_gates", "check_spend_gates") if module != "trial_views" else ("withheld_skills_for_team",)
             ):
                 gate_patch = patch(
                     f"products.signals.backend.scout_harness.{module}.{function}",
@@ -270,7 +270,7 @@ class TestScoutTrialLaunch(APIBaseTest):
                 self.addCleanup(gate_patch.stop)
         return f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/"
 
-    @parameterized.expand([("trial_setup",), ("trial_history",)])
+    @parameterized.expand([("trial_setup",), ("trial_history",), ("trial_comparison_history",)])
     def test_internal_inspection_requires_staff_and_exact_project(self, action: str) -> None:
         base = self._internal_scout_base()
         self.user.is_staff = False
@@ -705,3 +705,150 @@ class TestScoutTrialLaunch(APIBaseTest):
             invalid = {**payload, "evaluation_id": "not-a-uuid"}
             assert self.client.post(f"{base}trial_evaluation/", invalid, format="json").status_code == 400
             dispatch.assert_not_called()
+
+    def test_comparison_freezes_the_plan_before_dispatch_and_restores_without_browser_state(self) -> None:
+        base = self._internal_scout_base()
+        variant_id = str(uuid4())
+        comparison_id = str(uuid4())
+        payload = {
+            "comparison_id": comparison_id,
+            "baseline_variant_id": variant_id,
+            "variants": [
+                {
+                    "id": variant_id,
+                    "label": "Baseline",
+                    "launch_ids": [str(uuid4()), str(uuid4())],
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "medium",
+                },
+                {
+                    "id": str(uuid4()),
+                    "label": "Candidate",
+                    "launch_ids": [str(uuid4()), str(uuid4())],
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "high",
+                    "skill_body": "Inspect the synthetic funnel.",
+                },
+            ],
+        }
+        reference = _reference_context(
+            skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+        )
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": reference.model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
+        module = "products.signals.backend.temporal.agentic.scout_trial_comparison"
+        storage_client = MagicMock()
+        storage_client.list_objects_v2.side_effect = lambda **kwargs: {
+            "Contents": [{"Key": key} for key in sorted(self.documents) if key.startswith(kwargs["Prefix"])][
+                : kwargs["MaxKeys"]
+            ]
+        }
+        with (
+            patch(f"{module}.start_trial_comparison", side_effect=RuntimeError("Synthetic dispatch interruption")),
+            patch.object(
+                object_storage,
+                "object_storage_client",
+                return_value=object_storage.ObjectStorage(storage_client),
+            ),
+            patch(
+                f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="not_started")
+            ) as workflow_status,
+        ):
+            interrupted = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            assert interrupted.status_code == 500
+            history = self.client.get(f"{base}trial_comparison_history/")
+            assert history.status_code == 200, history.data
+            assert [item["comparison_id"] for item in history.json()["results"]] == [comparison_id]
+            assert history.json()["results"][0]["evaluation"] is None
+            assert history.json()["results"][0]["status"] == "not_started"
+            workflow_status.assert_not_called()
+            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_id})
+            assert saved.status_code == 200, saved.data
+            assert saved.json()["rubric_revision"] == 1
+            assert saved.json()["status"] == "not_started"
+            assert "Inspect the synthetic funnel." not in str(saved.json())
+        plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
+        frozen = self.documents[plan_key]
+        assert len([key for key in self.documents if "/launches/" in key]) == 4
+        assert (
+            len({json.loads(value)["context_id"] for key, value in self.documents.items() if "/launches/" in key}) == 1
+        )
+        self.config.rubrics = {}
+        self.config.save(update_fields=["rubrics"])
+        with patch(f"{module}.start_trial_comparison", return_value="synthetic-workflow") as dispatch:
+            resumed = self.client.post(
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_id}, format="json"
+            )
+            assert resumed.status_code == 202, resumed.data
+            retry = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            assert retry.status_code == 202, retry.data
+            assert self.documents[plan_key] == frozen
+            changed = {**payload, "note": "A different request"}
+            assert self.client.post(f"{base}trial_comparison/", changed, format="json").status_code == 400
+            assert dispatch.call_count == 2
+            other_user = self._create_user("another-comparison-operator@example.com")
+            other_user.is_staff = True
+            other_user.save(update_fields=["is_staff"])
+            self.client.force_login(other_user)
+            assert (
+                self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_id}).status_code == 404
+            )
+            assert (
+                self.client.post(
+                    f"{base}trial_comparison_resume/", {"comparison_id": comparison_id}, format="json"
+                ).status_code
+                == 404
+            )
+            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 400
+            assert dispatch.call_count == 2
+
+    @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id"])
+    def test_comparison_rejects_unusable_setup_before_any_run_dispatch(self, invalid: str) -> None:
+        base = self._internal_scout_base()
+        variant_id = str(uuid4())
+        variant = {
+            "id": variant_id,
+            "label": "Baseline",
+            "launch_ids": [str(uuid4())],
+            "model": "gpt-5.5",
+            "reasoning_effort": "medium",
+        }
+        payload = {
+            "comparison_id": str(uuid4()),
+            "baseline_variant_id": variant_id,
+            "variants": [variant],
+        }
+        if invalid != "rubric":
+            self.config.rubrics = {
+                "revision": 1,
+                "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+                "reference_context": _reference_context(
+                    skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+                ).model_dump(mode="json"),
+                "reference_generation_id": str(uuid4()),
+            }
+            self.config.save(update_fields=["rubrics"])
+        if invalid == "model":
+            variant["model"] = "unsupported-synthetic-model"
+        elif invalid == "effort":
+            variant["reasoning_effort"] = "unsupported-effort"
+        elif invalid == "writes":
+            self.config.write_scopes = ["dashboard:write"]
+            self.config.save(update_fields=["write_scopes"])
+        elif invalid == "nonstaff":
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+        elif invalid == "invalid_id":
+            payload["comparison_id"] = "not-a-uuid"
+        with patch(
+            "products.signals.backend.temporal.agentic.scout_trial_comparison.start_trial_comparison"
+        ) as dispatch:
+            result = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            assert result.status_code == (404 if invalid == "nonstaff" else 400), result.data
+            dispatch.assert_not_called()
+        assert not self.documents
