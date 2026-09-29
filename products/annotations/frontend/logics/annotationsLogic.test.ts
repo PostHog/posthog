@@ -57,4 +57,22 @@ describe('annotationsLogic', () => {
         expect(getAnnotationSpy).not.toHaveBeenCalled()
         expect(annotationModalHostLogic.values.modalRequest).toMatchObject({ annotation: { id: annotation.id } })
     })
+
+    it('adds a visible annotation fetched from a URL after an update', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openAnnotationFromUrl(annotation.id)
+        }).toFinishAllListeners()
+
+        annotationsModel.actions.replaceAnnotation({ ...annotation, content: 'Updated release deployed' })
+
+        expect(annotationsModel.values.rawAnnotations).toMatchObject([
+            { id: annotation.id, content: 'Updated release deployed' },
+        ])
+    })
+
+    it('does not add a hidden annotation fetched from a URL after an update', async () => {
+        annotationsModel.actions.replaceAnnotation({ ...annotation, hidden_in_user_interface: true })
+
+        expect(annotationsModel.values.rawAnnotations).toEqual([])
+    })
 })

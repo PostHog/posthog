@@ -206,6 +206,9 @@ export const annotationsModel = kea<annotationsModelType>([
                 replaceAnnotation: (state, { annotation }) => {
                     const copy = state.slice()
                     const index = copy.findIndex((iterationAnnotation) => iterationAnnotation.id === annotation.id)
+                    if (index === -1) {
+                        return annotation.hidden_in_user_interface ? copy : [...copy, annotation]
+                    }
                     copy[index] = annotation
                     return copy
                 },
