@@ -1,5 +1,5 @@
 import type { Task } from "@posthog/shared";
-import { Box, Text, useAnimation, useBoxMetrics } from "ink";
+import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
 import { type ChatView, overlayBottom } from "../chatView";
@@ -14,8 +14,16 @@ import {
   withListedRun,
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
+import type { StatusChip } from "../status";
 import { transcriptFrom, withPending } from "../transcript";
 import { Spinner } from "./Spinner";
+
+const CHIP_COLORS = {
+  open: "green",
+  draft: "gray",
+  merged: "magenta",
+  closed: "red",
+} as const;
 
 function useRunView(
   runs: CloudRuns | null,
@@ -52,6 +60,8 @@ export function Pane({
   picker,
   modal,
   model,
+  chips,
+  onPrChip,
   onRunLive,
   focused,
 }: {
@@ -70,6 +80,10 @@ export function Pane({
   modal: { sheet: Sheet; index: number } | null;
   // The model this chat runs on, when known.
   model: string | undefined;
+  // Where the chat runs, its repository and pull request.
+  chips: StatusChip[];
+  // The pull request chip's box, so a click on it can open the PR.
+  onPrChip: (element: DOMElement | null, url: string | null) => void;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   focused: boolean;
@@ -217,10 +231,34 @@ export function Pane({
       paddingX={1}
       overflow="hidden"
     >
-      <Text bold={focused} dimColor={!focused} wrap="truncate-end">
-        {title}
-        {model && <Text dimColor> · {model}</Text>}
-      </Text>
+      <Box justifyContent="space-between" gap={2}>
+        <Text bold={focused} dimColor={!focused} wrap="truncate-end">
+          {title}
+          {model && <Text dimColor> · {model}</Text>}
+        </Text>
+        <Box flexShrink={0}>
+          {chips.map((chip, index) => (
+            <Box
+              key={chip.label}
+              ref={
+                chip.url
+                  ? (element) => onPrChip(element, chip.url ?? null)
+                  : undefined
+              }
+            >
+              <Text
+                dimColor={!chip.url || !focused}
+                color={chip.tone ? CHIP_COLORS[chip.tone] : undefined}
+              >
+                {index > 0 ? " · " : ""}
+                {chip.url
+                  ? `\u001b]8;;${chip.url}\u0007${chip.label}\u001b]8;;\u0007`
+                  : chip.label}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      </Box>
       <Box height={height} flexDirection="column" overflow="hidden">
         <Box
           flexGrow={1}

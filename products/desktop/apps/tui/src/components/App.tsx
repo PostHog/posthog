@@ -11,7 +11,7 @@ import {
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import { REGIONS } from "../auth";
-import type { PiChats } from "../chats";
+import { currentRepository, type PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { Composer, isAppKey, isTyping } from "../composer";
 import {
@@ -47,6 +47,7 @@ import {
   type Box as ScreenBox,
   type Wheel,
 } from "../mouse";
+import { openUrl } from "../openUrl";
 import type { CloudRuns } from "../runs";
 import { moveCursor, type Sheet, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, shortcutFor } from "../shortcuts";
@@ -59,6 +60,7 @@ import {
   sidebarRows,
   type WorkPage,
 } from "../sidebar";
+import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
@@ -164,6 +166,10 @@ export function App({
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
+  const prChips = useRef(
+    new Map<string, { element: DOMElement; url: string }>(),
+  );
+  const newChatRepository = useMemo(() => currentRepository(), []);
   const chatArea = useRef<DOMElement | null>(null);
   const area = useBoxMetrics(chatArea);
   const chatViews = useRef(new Map<string, ChatView>());
@@ -605,6 +611,16 @@ export function App({
       }
       return;
     }
+    const pr = hitTest(
+      click,
+      [...prChips.current.values()].map(
+        ({ element, url }) => [url, boxOf(element)] as [string, ScreenBox],
+      ),
+    );
+    if (pr) {
+      openUrl(pr[0]);
+      return;
+    }
     const panes = [...paneBoxes.current].map(
       ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
     );
@@ -786,6 +802,16 @@ export function App({
               (node.taskId ? taskModels.get(node.taskId)?.name : undefined)
             }
             onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
+            chips={
+              node.taskId && !taskOf(node.taskId)
+                ? []
+                : statusChips(taskOf(node.taskId), newChatRepository)
+            }
+            onPrChip={(element, url) => {
+              if (element && url)
+                prChips.current.set(node.id, { element, url });
+              else prChips.current.delete(node.id);
+            }}
             focused={!sidebarFocused && node.id === workspace.focusedPaneId}
           />
         </Box>
