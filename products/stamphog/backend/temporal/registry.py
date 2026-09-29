@@ -7,14 +7,18 @@ stable import target: ``from products.stamphog.backend.temporal.registry import 
 from __future__ import annotations
 
 from products.stamphog.backend.temporal.activities import (
+    checkout_review_sandbox,
+    destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
     refuse_on_pre_gates,
+    review_in_sandbox,
     run_review_in_sandbox,
     signal_review_started,
+    start_review_sandbox,
 )
 from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
@@ -23,10 +27,14 @@ WORKFLOWS = [StamphogReviewWorkflow]
 ACTIVITIES = [
     dismiss_stale_approvals,
     signal_review_started,
+    start_review_sandbox,
     fetch_review_context,
+    checkout_review_sandbox,
     refuse_on_pre_gates,
     list_in_flight_reviewer_bots,
+    review_in_sandbox,
     run_review_in_sandbox,
+    destroy_review_sandbox,
     post_verdict,
     mark_review_failed,
 ]

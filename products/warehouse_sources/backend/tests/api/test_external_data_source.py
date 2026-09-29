@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
@@ -65,6 +66,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     _classify_refresh_schemas_error,
+    get_credential_account_field_names,
     get_declared_field_names,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -80,6 +82,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
     VersionDeprecation,
     WebhookCreationResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
@@ -4407,27 +4413,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
-    @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
-        return_value=True,
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
-    )
-    @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
-    )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
-        self,
-        mock_get_source,
-        mock_cdc_pg_connection,
-        mock_get_primary_key_columns,
-        mock_setup_cdc_resources,
-        mock_add_table,
-        _mock_is_cdc_enabled_for_team,
+    def _post_postgres_cdc_source_with_one_table(
+        self, mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
     ):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
@@ -4474,7 +4461,7 @@ class TestExternalDataSource(APIBaseTest):
 
         mock_setup_cdc_resources.side_effect = setup_cdc_slot
 
-        response = self.client.post(
+        return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
@@ -4494,6 +4481,32 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_add_table,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        response = self._post_postgres_cdc_source_with_one_table(
+            mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
+        )
+
         assert response.status_code == status.HTTP_201_CREATED, response.content
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
@@ -4506,6 +4519,43 @@ class TestExternalDataSource(APIBaseTest):
         # (source, schema, table). The first arg is the source model.
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table",
+        side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table events"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_cdc_refused_when_a_table_cannot_join_the_publication(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        _mock_add_table,
+        mock_cleanup_resources,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        response = self._post_postgres_cdc_source_with_one_table(
+            mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "PostgreSQL only lets a table's owner publish it" in response.json()["message"]
+        mock_cleanup_resources.assert_called_once()
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+        assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="analytics.events").exists()
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
@@ -4952,7 +5002,13 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "no primary key" in response.json()["message"].lower()
+        message = response.json()["message"]
+        assert "no primary key" in message.lower()
+        # The wizard shows this verbatim, so it has to name the sync method the form offers
+        # rather than the API field and enum value behind it.
+        assert "full table replication" in message
+        assert "primary_key_columns" not in message
+        assert "full_refresh" not in message
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
 
     @parameterized.expand(
@@ -14039,6 +14095,159 @@ _PREVIEW_MANIFEST = {
         {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "data"}},
     ],
 }
+
+
+class TestGetCredentialAccountFieldNames(SimpleTestCase):
+    """This set is the allowlist the credential accounts endpoint enforces, so a field it fails to
+    find is one the picker can never send, and a field it wrongly includes is one a caller can push
+    into `parse_config`."""
+
+    def test_collects_declared_credential_fields(self):
+        fields = [
+            SourceFieldCredentialAccountSelectConfig(
+                name="ad_account_id",
+                label="Ad account ID",
+                credentialFields=["client_id", "private_key"],
+                required=False,
+            ),
+            SourceFieldInputConfig(
+                name="private_key",
+                label="Private key",
+                type=SourceFieldInputConfigType.TEXTAREA,
+                required=True,
+                placeholder="",
+                secret=True,
+            ),
+        ]
+
+        assert get_credential_account_field_names(cast(list, fields)) == {"client_id", "private_key"}
+
+    def test_finds_fields_nested_under_a_select_option(self):
+        # A source offering two auth methods would otherwise resolve to an empty allowlist, which the
+        # endpoint reads as "no picker" and rejects.
+        fields = [
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                defaultValue="key_pair",
+                required=True,
+                options=[
+                    SourceFieldSelectConfigOption(
+                        label="Key pair",
+                        value="key_pair",
+                        fields=[
+                            SourceFieldCredentialAccountSelectConfig(
+                                name="ad_account_id",
+                                label="Ad account ID",
+                                credentialFields=["client_id"],
+                                required=False,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+
+        assert get_credential_account_field_names(cast(list, fields)) == {"client_id"}
+
+    def test_a_source_with_no_picker_declares_nothing(self):
+        fields = [
+            SourceFieldInputConfig(
+                name="api_key",
+                label="API key",
+                type=SourceFieldInputConfigType.PASSWORD,
+                required=True,
+                placeholder="",
+                secret=True,
+            )
+        ]
+
+        assert get_credential_account_field_names(cast(list, fields)) == set()
+
+
+class TestCredentialAccountsEndpoint(APIBaseTest):
+    _APPLE_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source"
+
+    _CREDENTIALS = {
+        "client_id": "SEARCHADS.27478e17",
+        "apple_team_id": "SEARCHADS.27478e17",
+        "key_id": "a1b2c3d4",
+        "private_key": "-----BEGIN EC PRIVATE KEY-----\nkey\n-----END EC PRIVATE KEY-----",
+    }
+
+    def setUp(self):
+        super().setUp()
+        # Same disclosure concern as the OAuth picker, so the endpoint requires manage access.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @property
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.pk}/external_data_sources/credential_accounts/"
+
+    def test_lists_the_accounts_the_credentials_can_read(self):
+        with patch(f"{self._APPLE_SOURCE_MODULE}.AppleSearchAdsSource.get_credential_accounts") as mock_accounts:
+            mock_accounts.return_value = [
+                IntegrationAccount(value="1111111", display_name="Example Retail"),
+                IntegrationAccount(value="2222222", display_name="Example Retail Apps"),
+            ]
+            response = self.client.post(
+                self._url, {"source_type": "AppleSearchAds", "credentials": self._CREDENTIALS}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [account["value"] for account in response.json()["accounts"]] == ["1111111", "2222222"]
+
+    def test_a_credential_field_the_source_did_not_declare_is_rejected(self):
+        # The allowlist is the only thing standing between this endpoint and an arbitrary-config
+        # proxy: everything in `credentials` is handed to the source's own `parse_config`.
+        with patch(f"{self._APPLE_SOURCE_MODULE}.AppleSearchAdsSource.get_credential_accounts") as mock_accounts:
+            response = self.client.post(
+                self._url,
+                {
+                    "source_type": "AppleSearchAds",
+                    "credentials": {**self._CREDENTIALS, "org_id": "555"},
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "org_id" in response.json()["detail"]
+        mock_accounts.assert_not_called()
+
+    def test_a_source_without_a_credential_picker_is_rejected(self):
+        response = self.client.post(
+            self._url, {"source_type": "Stripe", "credentials": {"stripe_secret_key": "sk_test"}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_unknown_source_type_is_rejected(self):
+        response = self.client.post(self._url, {"source_type": "NotASource", "credentials": {}}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_a_provider_rejection_is_a_400_carrying_its_message(self):
+        # Without the `IntegrationAccountListingError` catch this 500s, and the user setting the
+        # source up sees an opaque server error instead of the reason their key was refused.
+        with patch(f"{self._APPLE_SOURCE_MODULE}.AppleSearchAdsSource.get_credential_accounts") as mock_accounts:
+            mock_accounts.side_effect = IntegrationAccountListingError("Apple rejected the signed client secret.")
+            response = self.client.post(
+                self._url, {"source_type": "AppleSearchAds", "credentials": self._CREDENTIALS}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Apple rejected the signed client secret." in response.json()["detail"]
+
+    def test_regular_member_is_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            self._url, {"source_type": "AppleSearchAds", "credentials": self._CREDENTIALS}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):

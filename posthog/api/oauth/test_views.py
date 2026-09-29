@@ -323,7 +323,7 @@ class TestOAuthAPI(APIBaseTest):
         # The serialized bootstrap, not the view's own template context: `_build_template_context`
         # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
         # frontend.
-        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        resolution = response.context["posthog_app_context"]["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
 
@@ -342,7 +342,7 @@ class TestOAuthAPI(APIBaseTest):
         def applies() -> bool:
             response = self.client.get(self.base_authorization_url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls_apply"]
+            return response.context["posthog_app_context"]["oauth_consent_access_controls_apply"]
 
         access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
         self.assertFalse(applies())
@@ -3728,6 +3728,46 @@ class TestOAuthAPI(APIBaseTest):
             response = self.client.get(f"{self.base_authorization_url}&scope=dashboard:read&approval_prompt=auto")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_render.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("team", None, None),
+            ("team", "{ }", "{ }"),
+            ("organization", "invalid", "invalid"),
+        ]
+    )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_auto_approval_inherits_token_access_instead_of_query_parameters(
+        self, access_level: str, teams_param: str | None, orgs_param: str | None
+    ) -> None:
+        scoped_teams = [self.team.id] if access_level == "team" else []
+        scoped_organizations = [str(self.organization.id)] if access_level == "organization" else []
+        self._set_scope_split(["experiment:read"], [])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"existing_{access_level}_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="experiment:read",
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
+
+        url = f"{self.base_authorization_url}&scope=experiment:read&approval_prompt=auto"
+        if teams_param is not None and orgs_param is not None:
+            url += f"&scoped_teams={quote(teams_param)}&scoped_organizations={quote(orgs_param)}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.scoped_teams, scoped_teams)
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_data = token_response.json()
+        self.assertEqual(token_data["scoped_teams"], scoped_teams)
+        self.assertEqual(token_data["scoped_organizations"], scoped_organizations)
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])

@@ -78,6 +78,12 @@ def session_id_from_conversation(conversation_id: str) -> str:
     return f"ses_{_fnv1a_hex(conversation_id)}{_fnv1a_hex(f'{conversation_id}::salt')}"
 
 
+# --surge-tool: share of calls that go to the surge tool in the most recent quarter of --days,
+# and in older sessions, so it shows a large increase on the Tool quality tab.
+SURGE_RECENT_CALL_PROBABILITY = 0.3
+SURGE_OLDER_CALL_PROBABILITY = 0.005
+
+
 def stable_hash(value: str) -> int:
     # Not hash(): that's salted per process, which would change how many RNG draws
     # each session consumes and break --seed reproducibility across invocations.
@@ -733,6 +739,15 @@ class Command(BaseCommand):
             help=f"Number of send_feedback reports ($mcp_feedback events), at most {MAX_FEEDBACK_PER_SESSION} "
             f"per session. Defaults to {DEFAULT_FEEDBACK_COUNT}, clamped to what --sessions allows.",
         )
+        parser.add_argument(
+            "--surge-tool",
+            type=str,
+            default=None,
+            # Feedback generation looks up templates by tool name, so only built-in tools are seedable.
+            choices=TOOL_NAMES,
+            help="Tool name to spike in the most recent quarter of --days, so it trends on the Tool quality tab "
+            "(for example with --days 14 and the default 7-day filter). Older sessions rarely call it. Needs --days.",
+        )
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
         parser.add_argument(
             "--clear",
@@ -748,6 +763,7 @@ class Command(BaseCommand):
         min_calls: int = options["min_calls"]
         max_calls: int = options["max_calls"]
         days: int = options["days"]
+        surge_tool: str | None = options["surge_tool"] if days > 0 else None
         # An explicit value is validated against --sessions; the default clamps instead,
         # so low-volume smoke runs (--sessions 5) work without extra flags.
         explicit_missing_capabilities: int | None = options["missing_capabilities"]
@@ -922,6 +938,11 @@ class Command(BaseCommand):
                 session_end_offset_min = rng.randint(31, 59)
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
             session_start_ms = int(session_start.timestamp() * 1000)
+            surge_probability = (
+                SURGE_RECENT_CALL_PROBABILITY
+                if session_end_offset_min <= days * 24 * 60 // 4
+                else SURGE_OLDER_CALL_PROBABILITY
+            )
 
             # The SDK mints a uuidv7 conversation handle on the first tool call and derives
             # $session_id from it, so every call in the conversation shares one session.
@@ -1014,7 +1035,12 @@ class Command(BaseCommand):
                 cumulative_offset_s += call_intervals[call_idx]
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
                 is_retry = retry_tool is not None
-                tool_name = retry_tool or rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
+                if retry_tool:
+                    tool_name = retry_tool
+                elif surge_tool and rng.random() < surge_probability:
+                    tool_name = surge_tool
+                else:
+                    tool_name = rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate

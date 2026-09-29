@@ -415,7 +415,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
         kwargs.setdefault("name", "Acme Corp")
         return contracts.CreateAccountInput(**kwargs)
 
-    def _create(self, **kwargs) -> contracts.AccountView:
+    def _create(self, **kwargs) -> contracts.AccountDetails:
         return facade.create_account_for_view(
             team=self.team,
             input=self._create_account_input(**kwargs),
@@ -428,7 +428,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_create_account_returns_view_and_persists(self):
         view = self._create(name="Acme", external_id="acme-1", properties={"stripe_customer_id": "cus_1"})
 
-        assert isinstance(view, contracts.AccountView)
+        assert isinstance(view, contracts.AccountDetails)
         assert view.name == "Acme"
         assert view.external_id == "acme-1"
         assert view.properties == {"stripe_customer_id": "cus_1"}

@@ -40,6 +40,7 @@ export type RequestProperties = {
     featureFlagOverrides?: string | undefined
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
+    clientIp?: string | undefined
 }
 
 export type ClientInfo = {
