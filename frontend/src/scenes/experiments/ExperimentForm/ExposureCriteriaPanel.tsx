@@ -341,7 +341,12 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-secondary">Multiple variant handling</span>
+                    <span className="flex items-center gap-1 text-sm text-secondary">
+                        Multiple variant handling
+                        <Tooltip title="Some people see more than one variant, for example after the split changes. Excluding them keeps the results clean. Using their first variant keeps them in, but can bias the results.">
+                            <IconInfo className="text-base" />
+                        </Tooltip>
+                    </span>
                     <LemonSelect
                         size="small"
                         dropdownMatchSelectWidth={false}
@@ -353,10 +358,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         options={[
                             {
                                 value: 'exclude',
-                                label: 'Exclude multivariate users',
+                                label: 'Exclude from analysis',
                                 labelInMenu: (
                                     <div>
-                                        <div>Exclude multivariate users</div>
+                                        <div>Exclude from analysis</div>
                                         <div className="text-xs text-muted font-normal">
                                             Users exposed to multiple variants will be excluded (recommended)
                                         </div>
@@ -366,10 +371,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             },
                             {
                                 value: 'first_seen',
-                                label: 'First seen variant',
+                                label: 'Use first seen variant',
                                 labelInMenu: (
                                     <div>
-                                        <div>First seen variant</div>
+                                        <div>Use first seen variant</div>
                                         <div className="text-xs text-muted font-normal">
                                             Users will be analyzed using their first seen variant
                                         </div>
