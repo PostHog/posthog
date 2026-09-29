@@ -4476,8 +4476,15 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
+    #[case::null_flag(serde_json::json!(null))]
+    #[case::real_false(serde_json::json!(false))]
+    #[case::lenient_no(serde_json::json!("no"))]
+    #[case::unreadable(serde_json::json!("maybe"))]
     #[tokio::test]
-    async fn import_mode_drops_non_historical_batch_and_publishes_nothing() {
+    async fn import_mode_drops_non_historical_batch_and_publishes_nothing(
+        #[case] flag: serde_json::Value,
+    ) {
         // Import mode exists to ingest backfills only: a batch without
         // historical_migration must be fully dropped (200, per-event Drop) and
         // never published — otherwise live traffic could sneak in via the
@@ -4486,7 +4493,7 @@ mod tests {
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        let batch = valid_batch(vec![valid_event(), valid_event()]);
+        let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
@@ -4500,15 +4507,32 @@ mod tests {
             .with_records(|records| assert!(records.is_empty(), "nothing may be published"));
     }
 
+    fn batch_with_historical_flag(flag: serde_json::Value, events: Vec<Event>) -> Batch {
+        let parsed: Batch = serde_json::from_value(serde_json::json!({
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "historical_migration": flag,
+            "batch": [],
+        }))
+        .unwrap();
+        Batch {
+            batch: events,
+            ..parsed
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::real_bool(serde_json::json!(true))]
+    #[case::lenient_word(serde_json::json!("yes"))]
+    #[case::lenient_number(serde_json::json!(1))]
     #[tokio::test]
-    async fn import_mode_publishes_historical_batch() {
+    async fn import_mode_publishes_historical_batch(#[case] flag: serde_json::Value) {
         // The happy path: a properly flagged historical batch flows through
         // Import mode exactly like Events mode and reaches the sink.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        let batch = historical_batch(vec![valid_event(), valid_event()]);
+        let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
@@ -4904,8 +4928,8 @@ mod tests {
     }
 
     /// Both option drop reasons reach the sender per event and share one
-    /// `invalid_options` warning that names each failed key once, on the
-    /// analytics and AI deployments alike.
+    /// `invalid_options` warning that names each failed key once, and lenient
+    /// boolean forms pass, on the analytics and AI deployments alike.
     #[rstest::rstest]
     #[case::analytics_deployment(CaptureMode::Events, "$pageview")]
     #[case::ai_deployment(CaptureMode::Ai, "$ai_generation")]
@@ -4937,6 +4961,22 @@ mod tests {
             "$posthog_cookieless",
             serde_json::json!({"cookieless_mode": true}),
         );
+        let lenient_ok = event(
+            "user-2",
+            serde_json::json!({
+                "cookieless_mode": "YES",
+                "disable_skew_correction": "off",
+                "process_person_profile": 0.0
+            }),
+        );
+        let lenient_placeholder_ok = event(
+            "$posthog_cookieless",
+            serde_json::json!({
+                "cookieless_mode": " t ",
+                "disable_skew_correction": 1,
+                "process_person_profile": "n"
+            }),
+        );
         let expected: HashMap<Uuid, (EventResult, Option<&str>)> = HashMap::from([
             (
                 placeholder.uuid.parse().unwrap(),
@@ -4951,12 +4991,19 @@ mod tests {
                 (EventResult::Drop, Some("invalid_options")),
             ),
             (cookieless_ok.uuid.parse().unwrap(), (EventResult::Ok, None)),
+            (lenient_ok.uuid.parse().unwrap(), (EventResult::Ok, None)),
+            (
+                lenient_placeholder_ok.uuid.parse().unwrap(),
+                (EventResult::Ok, None),
+            ),
         ]);
         let batch = valid_batch(vec![
             placeholder,
             placeholder_again,
             bad_tour,
             cookieless_ok,
+            lenient_ok,
+            lenient_placeholder_ok,
         ]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();

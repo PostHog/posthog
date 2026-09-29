@@ -1276,6 +1276,7 @@ original property ordering and formatting.
 - Any other value for an expected key drops the event with `invalid_options`.
 - A `distinct_id` of `$posthog_cookieless` without `cookieless_mode: true` drops the event with `cookieless_mode_required`, because ingestion would merge every such visitor into one person.
 - Both drops emit the `invalid_options` ingestion warning, whose `invalidOptions` detail names the failed keys.
+- The batch-level `capture_internal` and `historical_migration` flags use the same boolean reader. An unreadable value means "not set" and never fails the batch.
 
 ### IngestionEvent / IngestionData
 

@@ -20,7 +20,7 @@ The rest of this file covers the five hash-input warnings, which only fire once 
 
 On the capture v1 endpoints (`/i/v1/analytics/events` and `/i/v1/ai/events`), an event whose distinct ID is `$posthog_cookieless` must also set the event option `cookieless_mode: true`.
 Without it, ingestion would never replace the placeholder, and every such visitor would merge into one shared `$posthog_cookieless` person. So the endpoint drops the event instead.
-The warning is `invalid_options` with `invalidOptions: ["cookieless_mode"]`, and the capture response marks the event `drop` with the reason `cookieless_mode_required`.
+When no other option value is invalid, the warning is `invalid_options` with `invalidOptions: ["cookieless_mode"]`, and the capture response marks the event `drop` with the reason `cookieless_mode_required`.
 
 - SDKs move a legacy `$cookieless_mode` property into the option, so SDK users rarely see this. A hand-built request that sets only the `$cookieless_mode` property is dropped.
 - Fix: set `options.cookieless_mode: true` on every event that uses the placeholder, or send a real distinct ID.

@@ -64,7 +64,9 @@ pub enum EventResult {
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
-    #[serde(default)]
+    /// Read like a boolean option, so an unreadable value means "not a
+    /// historical migration" instead of failing the whole batch.
+    #[serde(default, deserialize_with = "deserialize_lenient_flag_or_false")]
     pub historical_migration: bool,
     /// Read like a boolean option, so an unreadable value means "not set"
     /// instead of failing the whole batch.
@@ -73,15 +75,25 @@ pub struct Batch {
     pub batch: Vec<Event>,
 }
 
+fn lenient_flag(value: &Value) -> Option<bool> {
+    match coerce_bool(value) {
+        Parsed::Set(flag) => Some(flag),
+        Parsed::Unset | Parsed::Invalid => None,
+    }
+}
+
 fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let value = Value::deserialize(deserializer)?;
-    Ok(match coerce_bool(&value) {
-        Parsed::Set(flag) => Some(flag),
-        Parsed::Unset | Parsed::Invalid => None,
-    })
+    Ok(lenient_flag(&Value::deserialize(deserializer)?))
+}
+
+fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(lenient_flag(&Value::deserialize(deserializer)?).unwrap_or(false))
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -1048,6 +1060,21 @@ mod tests {
         }))
     }
 
+    fn options_with(key: ExpectedOption, value: serde_json::Value) -> RawOptions {
+        let mut map = serde_json::Map::new();
+        map.insert(key.as_str().to_string(), value);
+        RawOptions(serde_json::Value::Object(map))
+    }
+
+    fn bool_option(options: &Options, key: ExpectedOption) -> Option<bool> {
+        match key {
+            ExpectedOption::CookielessMode => options.cookieless_mode,
+            ExpectedOption::DisableSkewCorrection => options.disable_skew_correction,
+            ExpectedOption::ProcessPersonProfile => options.process_person_profile,
+            ExpectedOption::ProductTourId => unreachable!("product_tour_id is not a boolean"),
+        }
+    }
+
     #[test]
     fn raw_options_null_validates_to_defaults() {
         let raw = RawOptions::default();
@@ -1066,71 +1093,89 @@ mod tests {
         assert_eq!(opts.disable_skew_correction, None);
     }
 
+    const READABLE_BOOLS: &[(&str, Option<bool>)] = &[
+        ("true", Some(true)),
+        ("false", Some(false)),
+        (r#""true""#, Some(true)),
+        (r#""false""#, Some(false)),
+        (r#""t""#, Some(true)),
+        (r#""f""#, Some(false)),
+        (r#""yes""#, Some(true)),
+        (r#""no""#, Some(false)),
+        (r#""y""#, Some(true)),
+        (r#""n""#, Some(false)),
+        (r#""on""#, Some(true)),
+        (r#""off""#, Some(false)),
+        (r#""1""#, Some(true)),
+        (r#""0""#, Some(false)),
+        (r#""FALSE""#, Some(false)),
+        (r#""Yes""#, Some(true)),
+        (r#""  true  ""#, Some(true)),
+        (r#""1.0""#, Some(true)),
+        (r#""0.0""#, Some(false)),
+        (r#""-0""#, Some(false)),
+        (r#""-1""#, Some(true)),
+        ("1", Some(true)),
+        ("0", Some(false)),
+        ("0.0", Some(false)),
+        ("1.5", Some(true)),
+        ("42", Some(true)),
+        ("-1", Some(true)),
+        ("null", None),
+        (r#""""#, None),
+        (r#""   ""#, None),
+    ];
+
+    const UNREADABLE_BOOLS: &[&str] = &[
+        "[1, 2, 3]",
+        r#"{"nested": true}"#,
+        r#""maybe""#,
+        r#""[Filtered]""#,
+        r#""nan""#,
+        r#""inf""#,
+    ];
+
+    fn json(source: &str) -> serde_json::Value {
+        serde_json::from_str(source).expect("test table holds valid JSON")
+    }
+
     #[rstest::rstest]
-    #[case::native_true(serde_json::json!(true), Some(true))]
-    #[case::native_false(serde_json::json!(false), Some(false))]
-    #[case::str_true(serde_json::json!("true"), Some(true))]
-    #[case::str_false(serde_json::json!("false"), Some(false))]
-    #[case::str_t(serde_json::json!("t"), Some(true))]
-    #[case::str_f(serde_json::json!("f"), Some(false))]
-    #[case::str_yes(serde_json::json!("yes"), Some(true))]
-    #[case::str_no(serde_json::json!("no"), Some(false))]
-    #[case::str_y(serde_json::json!("y"), Some(true))]
-    #[case::str_n(serde_json::json!("n"), Some(false))]
-    #[case::str_on(serde_json::json!("on"), Some(true))]
-    #[case::str_off(serde_json::json!("off"), Some(false))]
-    #[case::str_one(serde_json::json!("1"), Some(true))]
-    #[case::str_zero(serde_json::json!("0"), Some(false))]
-    #[case::str_uppercase(serde_json::json!("FALSE"), Some(false))]
-    #[case::str_mixed_case(serde_json::json!("Yes"), Some(true))]
-    #[case::str_padded(serde_json::json!("  true  "), Some(true))]
-    #[case::str_float_one(serde_json::json!("1.0"), Some(true))]
-    #[case::str_float_zero(serde_json::json!("0.0"), Some(false))]
-    #[case::str_negative_zero(serde_json::json!("-0"), Some(false))]
-    #[case::str_negative(serde_json::json!("-1"), Some(true))]
-    #[case::num_one(serde_json::json!(1), Some(true))]
-    #[case::num_zero(serde_json::json!(0), Some(false))]
-    #[case::num_float_zero(serde_json::json!(0.0), Some(false))]
-    #[case::num_float(serde_json::json!(1.5), Some(true))]
-    #[case::num_large(serde_json::json!(42), Some(true))]
-    #[case::num_negative(serde_json::json!(-1), Some(true))]
-    #[case::null_is_unset(serde_json::json!(null), None)]
-    #[case::empty_is_unset(serde_json::json!(""), None)]
-    #[case::blank_is_unset(serde_json::json!("   "), None)]
     fn raw_options_bool_coercion_valid(
-        #[case] input: serde_json::Value,
-        #[case] expected: Option<bool>,
+        #[values(
+            ExpectedOption::CookielessMode,
+            ExpectedOption::DisableSkewCorrection,
+            ExpectedOption::ProcessPersonProfile
+        )]
+        key: ExpectedOption,
     ) {
-        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
-        assert_eq!(raw.validate().unwrap().cookieless_mode, expected);
+        for (source, expected) in READABLE_BOOLS {
+            let options = options_with(key, json(source)).validate().unwrap();
+            assert_eq!(
+                bool_option(&options, key),
+                *expected,
+                "{} = {source}",
+                key.as_str()
+            );
+        }
     }
 
     #[rstest::rstest]
-    #[case::array(serde_json::json!([1, 2, 3]))]
-    #[case::object(serde_json::json!({"nested": true}))]
-    #[case::junk_word(serde_json::json!("maybe"))]
-    #[case::redaction_placeholder(serde_json::json!("[Filtered]"))]
-    #[case::nan_word(serde_json::json!("nan"))]
-    #[case::inf_word(serde_json::json!("inf"))]
-    fn raw_options_bool_uncoercible(#[case] input: serde_json::Value) {
-        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
-        assert_eq!(
-            raw.validate().unwrap_err(),
-            invalid(&[ExpectedOption::CookielessMode])
-        );
-    }
-
-    #[test]
-    fn raw_options_all_bool_fields_routed_to_correct_slot() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": "true",
-            "disable_skew_correction": 0,
-            "process_person_profile": "no"
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, Some(true));
-        assert_eq!(opts.disable_skew_correction, Some(false));
-        assert_eq!(opts.process_person_profile, Some(false));
+    fn raw_options_bool_uncoercible(
+        #[values(
+            ExpectedOption::CookielessMode,
+            ExpectedOption::DisableSkewCorrection,
+            ExpectedOption::ProcessPersonProfile
+        )]
+        key: ExpectedOption,
+    ) {
+        for source in UNREADABLE_BOOLS {
+            assert_eq!(
+                options_with(key, json(source)).validate().unwrap_err(),
+                invalid(&[key]),
+                "{} = {source}",
+                key.as_str()
+            );
+        }
     }
 
     #[rstest::rstest]
@@ -1274,29 +1319,24 @@ mod tests {
         assert_eq!(err.failed_keys().names().collect::<Vec<_>>(), keys);
     }
 
-    #[rstest::rstest]
-    #[case::native_true(serde_json::json!(true), Some(true))]
-    #[case::native_false(serde_json::json!(false), Some(false))]
-    #[case::str_true(serde_json::json!("true"), Some(true))]
-    #[case::str_yes(serde_json::json!("yes"), Some(true))]
-    #[case::num_one(serde_json::json!(1), Some(true))]
-    #[case::str_zero(serde_json::json!("0"), Some(false))]
-    #[case::null(serde_json::json!(null), None)]
-    #[case::empty(serde_json::json!(""), None)]
-    #[case::junk(serde_json::json!("maybe"), None)]
-    #[case::object(serde_json::json!({"x": 1}), None)]
-    #[case::array(serde_json::json!([true]), None)]
-    fn parse_batch_capture_internal_is_lenient(
-        #[case] flag: serde_json::Value,
-        #[case] expected: Option<bool>,
-    ) {
-        let json = serde_json::json!({
-            "created_at": "2026-03-19T14:30:00.000Z",
-            "capture_internal": flag,
-            "batch": []
-        });
-        let batch: Batch = serde_json::from_value(json).unwrap();
-        assert_eq!(batch.capture_internal, expected);
+    #[test]
+    fn parse_batch_flags_are_lenient() {
+        let unreadable = UNREADABLE_BOOLS.iter().map(|source| (*source, None));
+        for (source, expected) in READABLE_BOOLS.iter().copied().chain(unreadable) {
+            let body = format!(
+                r#"{{"created_at": "2026-03-19T14:30:00.000Z", "capture_internal": {source}, "historical_migration": {source}, "batch": []}}"#
+            );
+            let batch: Batch = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                batch.capture_internal, expected,
+                "capture_internal = {source}"
+            );
+            assert_eq!(
+                batch.historical_migration,
+                expected.unwrap_or(false),
+                "historical_migration = {source}"
+            );
+        }
     }
 
     // --- SinkEvent impl for WrappedEvent ---
@@ -2150,6 +2190,27 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties["$process_person_profile"], false);
+    }
+
+    // Ingestion turns person processing off only for a JSON `false` in
+    // `$process_person_profile`, so capture injects the parsed boolean, never
+    // the sender's raw form.
+    #[rstest::rstest]
+    #[case::cookieless_yes(ExpectedOption::CookielessMode, serde_json::json!("YES"), "$cookieless_mode", true)]
+    #[case::skew_off(ExpectedOption::DisableSkewCorrection, serde_json::json!("off"), "$ignore_sent_at", false)]
+    #[case::skew_t(ExpectedOption::DisableSkewCorrection, serde_json::json!("t"), "$ignore_sent_at", true)]
+    #[case::person_profile_float_zero(ExpectedOption::ProcessPersonProfile, serde_json::json!(0.0), "$process_person_profile", false)]
+    #[case::person_profile_no(ExpectedOption::ProcessPersonProfile, serde_json::json!(" no "), "$process_person_profile", false)]
+    fn serialize_injects_lenient_options_as_booleans(
+        #[case] key: ExpectedOption,
+        #[case] raw: serde_json::Value,
+        #[case] property: &str,
+        #[case] expected: bool,
+    ) {
+        let mut wrapped = pageview_event();
+        wrapped.options = options_with(key, raw).validate_for("user-42").unwrap();
+        let (_, data) = serialize_and_parse(&wrapped, &serialize_ctx());
+        assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
     }
 
     #[test]
