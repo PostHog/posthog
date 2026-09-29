@@ -412,6 +412,8 @@ class Resolver(CloningVisitor):
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
         self._synthetic_using_join_aliases: set[str] = set()
+        # Per scope: USING column name -> aliases of the tables whose copies of that column the join merged.
+        self._scope_using_columns: dict[int, dict[str, set[str]]] = {}
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
         # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
@@ -1393,6 +1395,7 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
+                self._record_using_columns(node, using_column_names)
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
@@ -1511,6 +1514,7 @@ class Resolver(CloningVisitor):
             node.table.type = node_table_type
             if node.table_args is not None:
                 node.table_args = [self.visit(arg) for arg in node.table_args]
+            self._record_using_columns(node, using_column_names)
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
@@ -1650,6 +1654,7 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            self._record_using_columns(node, using_column_names)
             node.next_join = self.visit(node.next_join)
             node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
@@ -1696,6 +1701,7 @@ class Resolver(CloningVisitor):
                 node.type = cast(ast.TableOrSelectType, node.table.type)
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
+            self._record_using_columns(node, using_column_names)
             node.next_join = self.visit(node.next_join)
             node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
@@ -1724,6 +1730,7 @@ class Resolver(CloningVisitor):
                 node.type = cast(ast.TableOrSelectType, node.table.type)
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
+            self._record_using_columns(node, using_column_names)
             node.next_join = self.visit(node.next_join)
             node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
@@ -1751,6 +1758,7 @@ class Resolver(CloningVisitor):
                 node.type = cast(ast.TableOrSelectType, node.table.type)
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
+            self._record_using_columns(node, using_column_names)
             node.next_join = self.visit(node.next_join)
             node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
@@ -1824,10 +1832,57 @@ class Resolver(CloningVisitor):
             field_type = field_type.type
         if not isinstance(field_type, ast.FieldType):
             return
-        for alias, table_type in self._get_scope().tables.items():
-            if table_type is field_type.table_type:
-                expr.chain = [alias, expr.chain[-1]]
-                return
+        alias = self._scope_alias_of(field_type.table_type)
+        if alias is not None:
+            expr.chain = [alias, expr.chain[-1]]
+
+    def _scope_alias_of(self, table_type: ast.Type | None) -> Optional[str]:
+        for alias, scope_table_type in self._get_scope().tables.items():
+            if scope_table_type is table_type:
+                return alias
+        return None
+
+    def _record_using_columns(self, node: ast.JoinExpr, using_column_names: Optional[list[str]]) -> None:
+        """Remember which tables a USING join merged each of its columns across.
+
+        In SQL an unqualified USING column is one merged column, not an ambiguous reference. For
+        INNER and LEFT joins the merged value is the left-hand column. RIGHT and FULL joins take
+        the value from the right side or from both sides, so they keep the ambiguity error. Trino
+        resolves fields again by name in a second pass, so it also keeps the ambiguity error.
+
+        Call this after the joined table enters the scope and before the next join is visited.
+        Then only the tables to the left and the joined table are in scope, and a later USING
+        join on the same column can resolve against the merged column.
+        """
+        join_type = (node.join_type or "").removeprefix("GLOBAL ")
+        if not using_column_names or self.dialect == "trino" or join_type.startswith(("RIGHT", "FULL")):
+            return
+        scope = self._get_scope()
+        right_alias = self._scope_alias_of(node.type)
+        if right_alias is None:
+            return
+        using_columns = self._scope_using_columns.setdefault(id(scope), {})
+        for name in using_column_names:
+            left_sources = {
+                alias
+                for alias, table in scope.tables.items()
+                if alias != right_alias and table.has_child(name, self.context)
+            }
+            merged_aliases = using_columns.get(name, set())
+            if len(left_sources) == 1 or (left_sources and left_sources <= merged_aliases):
+                using_columns[name] = merged_aliases | left_sources | {right_alias}
+
+    def _lookup_using_column(self, scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
+        """Resolve an unqualified USING column to its left-most source, not to an ambiguity error."""
+        merged_aliases = self._scope_using_columns.get(id(scope), {}).get(name)
+        if not merged_aliases or name in scope.aliases:
+            return None
+        if any(table.has_child(name, self.context) for table in scope.anonymous_tables):
+            return None
+        sources = [alias for alias, table in scope.tables.items() if table.has_child(name, self.context)]
+        if len(sources) < 2 or not set(sources) <= merged_aliases:
+            return None
+        return scope.tables[sources[0]].get_child(name, self.context)
 
     def _desugar_using_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
@@ -2404,7 +2459,7 @@ class Resolver(CloningVisitor):
             type = scope.get_child(name, self.context)
 
         if not type:
-            type = lookup_field_by_name(scope, name, self.context)
+            type = self._lookup_using_column(scope, name) or lookup_field_by_name(scope, name, self.context)
 
         # If scope is a lambda, check with the parent scope
         if not type and scope.is_lambda_type and len(self.scopes) > 1:

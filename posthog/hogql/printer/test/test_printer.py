@@ -51,7 +51,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -2472,6 +2472,49 @@ class TestPrinter(BaseTest):
         printed = self._select(query)
         self.assertIn(expected_constraint, printed)
         self.assertNotIn("USING", printed)
+
+    @parameterized.expand(
+        [
+            (
+                "cte_inner_join",
+                "WITH a AS (SELECT event FROM events), b AS (SELECT event FROM events) "
+                "SELECT event FROM a JOIN b USING (event)",
+                "SELECT a.event AS event FROM a",
+            ),
+            (
+                "left_join",
+                "SELECT event FROM events AS e1 LEFT JOIN events AS e2 USING (event)",
+                "SELECT e1.event AS event FROM events AS e1",
+            ),
+            (
+                "chained_using_joins",
+                "SELECT event FROM events AS e1 JOIN events AS e2 USING (event) JOIN events AS e3 USING (event)",
+                "SELECT e1.event AS event FROM events AS e1",
+            ),
+            (
+                "aliasless_subquery",
+                "SELECT event FROM events JOIN (SELECT event FROM events) USING (event)",
+                "SELECT events.event AS event FROM events",
+            ),
+        ],
+    )
+    def test_unqualified_join_using_column_resolves_to_left_side(self, _name: str, query: str, expected_select: str):
+        self.assertIn(expected_select, self._select(query))
+
+    @parameterized.expand(
+        [
+            ("right_join", "SELECT event FROM events AS e1 RIGHT JOIN events AS e2 USING (event)"),
+            ("full_join", "SELECT event FROM events AS e1 FULL JOIN events AS e2 USING (event)"),
+            (
+                "third_table_joined_on",
+                "SELECT event FROM events AS e1 JOIN events AS e2 USING (event) "
+                "JOIN events AS e3 ON e3.event = e1.event",
+            ),
+        ],
+    )
+    def test_unqualified_join_using_column_stays_ambiguous(self, _name: str, query: str):
+        with self.assertRaisesMessage(ResolutionError, "Ambiguous query. Found multiple sources for field: event"):
+            self._select(query)
 
     def test_join_using_unknown_right_column_raises(self):
         with self.assertRaisesMessage(

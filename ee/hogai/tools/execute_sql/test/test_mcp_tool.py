@@ -104,6 +104,48 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "multi_cte_on_join",
+                "WITH a AS (SELECT person_id FROM events), b AS (SELECT person_id FROM events) "
+                "SELECT count() FROM a JOIN b ON a.person_id = b.person_id WHERE person_id IS NOT NULL",
+                "(a.person_id, b.person_id)",
+                "WHERE >>person_id<< IS NOT NULL",
+            ),
+            (
+                "bounded_events_to_events_join",
+                "SELECT e1.event, count() FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id "
+                "AND e2.timestamp > e1.timestamp WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY e1.event",
+                "(e1.timestamp, e2.timestamp)",
+                "WHERE >>timestamp<< > now()",
+            ),
+        ]
+    )
+    async def test_ambiguous_field_error_locates_the_unqualified_reference(
+        self, _name: str, query: str, expected_sources: str, expected_context: str
+    ) -> None:
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        message = str(ctx.exception)
+        self.assertIn(expected_sources, message)
+        self.assertIn("The unqualified reference is at character", message)
+        self.assertIn(expected_context, message)
+
+    async def test_unqualified_using_column_in_multi_cte_join_runs(self) -> None:
+        _create_event(team=self.team, distinct_id="using_join_user", event="using_join_event")
+
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="WITH a AS (SELECT distinct_id, count() AS c FROM events GROUP BY distinct_id), "
+                "b AS (SELECT distinct_id, max(event) AS e FROM events GROUP BY distinct_id) "
+                "SELECT distinct_id, c, e FROM a JOIN b USING (distinct_id)"
+            )
+        )
+
+        self.assertIn("using_join_user|1|using_join_event", result.content)
+
+    @parameterized.expand(
+        [
             ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(x1, greatest(x2, x3))"),
             ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
             ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
