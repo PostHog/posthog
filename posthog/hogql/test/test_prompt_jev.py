@@ -13,9 +13,9 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.prompt_jev import PromptJevCall
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.prompt_jev import PromptJevRunner
+from posthog.hogql.transforms.prompt_jev import PromptJevBudget, PromptJevRunner
 
 from posthog.models.team import Team
 
@@ -39,6 +39,22 @@ def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
 class TestPromptJev(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("SELECT __preview_promptJev('a', 'q') AS p", 1000),
+            ("SELECT __preview_promptJev('a', 'q') AS p, __preview_promptJev('b', 'q') AS q LIMIT 500", 1000),
+            ("SELECT __preview_promptJev('a', 'q') AS p, __preview_promptJev('b', 'q') AS q LIMIT 0", 0),
+            (
+                "WITH c AS (SELECT __preview_promptJev('a', 'q') AS p LIMIT 1000) SELECT a.p, b.p FROM c a CROSS JOIN c b",
+                1000,
+            ),
+        ]
+    )
+    def test_query_budget_reservations(self, query: str, expected: int) -> None:
+        budget = PromptJevBudget()
+        budget.visit(parse_select(query))
+        self.assertEqual(budget.decisions, expected)
+
     @parameterized.expand(
         [
             ("__preview_promptJev('a', '')", "non-empty"),
@@ -141,6 +157,28 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         self.feature_enabled = flag.start()
         self.addCleanup(flag.stop)
 
+    @parameterized.expand(
+        [
+            ("SELECT " + ", ".join(f"__preview_promptJev('a', 'q{i}') AS p{i}" for i in range(10)) + " LIMIT 101",),
+            ("SELECT __preview_promptJev('a', 'q') AS p, __preview_promptJev('b', 'q') AS q",),
+            (
+                "SELECT __preview_promptJev('a', 'q') AS p LIMIT 501 UNION ALL SELECT __preview_promptJev('b', 'q') AS p LIMIT 500",
+            ),
+            (
+                "SELECT __preview_promptJev(toString(p), 'q') AS q FROM (SELECT __preview_promptJev('a', 'q') AS p LIMIT 501) LIMIT 500",
+            ),
+        ]
+    )
+    def test_combined_budget_rejects_before_source_queries_or_inference(self, query: str) -> None:
+        with (
+            patch("posthog.hogql.query.sync_execute") as execute,
+            patch("httpx.AsyncClient.post") as post,
+            self.assertRaisesRegex(QueryError, "across all columns and SELECTs"),
+        ):
+            execute_hogql_query(query, self.team, user=self.user)
+        execute.assert_not_called()
+        post.assert_not_called()
+
     @parameterized.expand([(False,), (None,)])
     def test_unapproved_project_cannot_start_inference(self, enabled: bool | None) -> None:
         self.feature_enabled.return_value = enabled
@@ -206,6 +244,12 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             ("SELECT __preview_promptJev(NULL, 'Refund?') AS p", [(None,)]),
             ("SELECT __preview_promptJev('hello', 'Refund?') AS p LIMIT 0", []),
+            (
+                "SELECT "
+                + ", ".join(f"__preview_promptJev('refund', 'Refund?') AS p{i}" for i in range(10))
+                + " LIMIT 100",
+                [(0.9,) * 10],
+            ),
         ]
     )
     def test_sql_decisions(self, query: str, expected: list) -> None:

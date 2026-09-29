@@ -706,12 +706,14 @@ class HogQLQueryExecutor:
 
     def _evaluate_prompt_jev(self) -> None:
         from posthog.hogql.transforms.prompt_jev import (  # noqa: PLC0415 -- keep the optional model clients off ordinary query imports
+            PromptJevBudget,
             PromptJevPlanner,
             PromptJevRunner,
             validate_prompt_jev_access,
         )
 
         validate_prompt_jev_access(self.team)
+        PromptJevBudget().visit(self.select_query)
         self._prompt_jev_tables = []
 
         def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:

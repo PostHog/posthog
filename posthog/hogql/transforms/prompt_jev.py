@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 MAX_ROWS = 1000
+MAX_DECISIONS = 1000
 MAX_INPUT_BYTES = 8192
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_BATCH_BYTES = 32768
@@ -163,7 +164,7 @@ class PromptJevRunner:
             if _DecisionKey(question=question_key, text=value) not in self.cache:
                 missing[value] = None
         self.input_bytes += sum(len(text.encode()) for text in missing)
-        if len(self.cache) + len(missing) > MAX_ROWS or self.input_bytes > MAX_TOTAL_BYTES:
+        if len(self.cache) + len(missing) > MAX_DECISIONS or self.input_bytes > MAX_TOTAL_BYTES:
             raise QueryError("__preview_promptJev exceeds the query budget. Select fewer or shorter inputs.")
         if missing and self.client is None:
             try:
@@ -202,6 +203,35 @@ class PromptJevRunner:
 class _LocalFinder(PromptJevFinder):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         pass
+
+
+class PromptJevBudget(TraversingVisitor):
+    def __init__(self) -> None:
+        self.decisions = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        finder = _LocalFinder()
+        for column in node.select:
+            finder.visit(column)
+        if finder.calls:
+            rows = MAX_ROWS
+            if node.limit is not None:
+                if (
+                    not isinstance(node.limit, ast.Constant)
+                    or type(node.limit.value) is not int
+                    or not 0 <= node.limit.value <= MAX_ROWS
+                ):
+                    raise QueryError(f"__preview_promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                rows = node.limit.value
+            # Reserve the worst case before any stage runs, including stages that depend on earlier decisions.
+            self.decisions += rows * len(finder.calls)
+            if self.decisions > MAX_DECISIONS:
+                raise QueryError(
+                    f"__preview_promptJev allows at most {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
+                    f"This query reserves {self.decisions}. Add smaller LIMITs to the SELECTs containing Jev calls, "
+                    "or use fewer Jev columns. A SELECT without LIMIT reserves 1000 rows per Jev column."
+                )
+        super().visit_select_query(node)
 
 
 class _AliasReferences(TraversingVisitor):
