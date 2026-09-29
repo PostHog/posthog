@@ -48,7 +48,8 @@ Stars come from two writers:
 When shortcuts load, `withProductShortcutHref` in `defaultTree.tsx` fills in a missing `href` by product name.
 The file tree then looks up the product by `href` (`getSidebarProduct` in `defaultTree.tsx`) and uses its current name, tags, icon and color. It wraps custom icons in `ProductIconWrapper`.
 The sidebar rows and the customize dialog match a star to a product by name or `href` (`findProductShortcut` in `ProjectTree/utils.tsx`).
-A star keeps the name it had when a user starred it. So when you rename a product, stars created before the rename match only by `href`. Keep the `href` stable, or old stars lose their product.
+A star keeps the name it had when it was created. When you rename a product, keep its `href` stable, so frontend-created stars still match by `href`.
+Backend-created stars get an `href` only while their stored name matches the current product name. A stable `href` does not keep these stars after a rename.
 Do not add a per-surface icon override. Fix the manifest and the map, and the star follows.
 
 **Pinned rows stay neutral.** Home, Self-driving and Activity and people have no color on purpose.
