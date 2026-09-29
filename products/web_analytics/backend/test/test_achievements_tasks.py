@@ -101,7 +101,10 @@ class TestRecomputeTask(BaseTest):
         self.assertEqual(progress.current_stage, 1)
         self.assertEqual(progress.state["checkpoint"], checkpoint)
 
-    def test_overlapping_team_recompute_keeps_the_first_checkpoint(self) -> None:
+    @parameterized.expand([("racing_recompute", True), ("racing_backfill", False)])
+    def test_overlapping_team_recompute_keeps_the_first_checkpoint(
+        self, _name: str, bumps_last_computed_at: bool
+    ) -> None:
         progress = WebAnalyticsAchievementProgress(
             team=self.team,
             user=None,
@@ -117,7 +120,8 @@ class TestRecomputeTask(BaseTest):
         def pageviews_racing_another_run(_ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
             row = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(pk=progress.pk)
             row.progress_value = 150
-            row.last_computed_at = timezone.now()
+            if bumps_last_computed_at:
+                row.last_computed_at = timezone.now()
             row.state = {"checkpoint": winning_checkpoint}
             row.save(update_fields=["progress_value", "last_computed_at", "state"])
             return TrackEvaluation(value=prior.value + 20, checkpoint={"counted_through": "2026-01-02T00:01:00+00:00"})

@@ -1,6 +1,8 @@
+import json
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from django.utils import timezone
 
@@ -118,33 +120,45 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
 
 
 INGESTION_LAG = timedelta(hours=1)
+LATE_ARRIVAL_LOOKBACK = timedelta(days=3)
 
 
-def _time_window_expr(since: datetime | None, until: datetime) -> ast.Expr:
-    before_until = ast.CompareOperation(
-        op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=until)
-    )
-    if since is None:
-        return before_until
-    return ast.And(
-        exprs=[
+def _ingestion_window_expr(since: datetime | None, until: datetime, earliest_timestamp: datetime | None) -> ast.Expr:
+    exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["created_at"]), right=ast.Constant(value=until)
+        )
+    ]
+    if since is not None:
+        exprs.append(
             ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=since)
-            ),
-            before_until,
-        ]
-    )
+                op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["created_at"]), right=ast.Constant(value=since)
+            )
+        )
+    if earliest_timestamp is not None:
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=earliest_timestamp),
+            )
+        )
+    return ast.And(exprs=exprs)
 
 
 def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     until = timezone.now() - INGESTION_LAG
     since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through")) or prior.last_computed_at
+    earliest_timestamp = since - LATE_ARRIVAL_LOOKBACK if since is not None else None
     total = prior.value if since is not None else 0
     with achievement_query_scope(ctx.team.id):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {window}, {test})",
-                placeholders={"window": _time_window_expr(since, until), "test": _test_account_filter_expr(team)},
+                placeholders={
+                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
+                    "test": _test_account_filter_expr(team),
+                },
             )
             response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
             if response.results:
@@ -169,15 +183,22 @@ def _action_event_filter_expr(actions: list[Action]) -> ast.Expr:
     )
 
 
-def _daily_buckets(checkpoint: dict[str, object], action_ids: list[int]) -> dict[str, list[int]] | None:
+def _action_fingerprints(actions: list[Action]) -> list[list[object]]:
+    return [
+        [action.id, hashlib.sha256(json.dumps(action.steps_json or [], sort_keys=True).encode()).hexdigest()[:16]]
+        for action in actions
+    ]
+
+
+def _daily_buckets(checkpoint: dict[str, object], fingerprints: list[list[object]]) -> dict[str, list[int]] | None:
     daily = checkpoint.get("daily")
-    if checkpoint.get("action_ids") != action_ids or not isinstance(daily, dict):
+    if checkpoint.get("actions") != fingerprints or not isinstance(daily, dict):
         return None
     try:
         return {
             str(day): [int(count) for count in counts]
             for day, counts in daily.items()
-            if isinstance(counts, list) and len(counts) == len(action_ids)
+            if isinstance(counts, list) and len(counts) == len(fingerprints)
         }
     except (TypeError, ValueError):
         return None
@@ -193,22 +214,23 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
         return TrackEvaluation(value=0, checkpoint={})
 
     until = timezone.now() - INGESTION_LAG
-    window_start = until - timedelta(days=CONVERSIONS_LOOKBACK_DAYS)
-    action_ids = [action.id for action in actions]
-    daily = _daily_buckets(prior.checkpoint, action_ids)
-    counted_through = parse_zoned_datetime_string(prior.checkpoint.get("counted_through"))
-    if daily is None or counted_through is None:
-        daily, since = {}, window_start
+    window_start = datetime.combine(
+        (until - timedelta(days=CONVERSIONS_LOOKBACK_DAYS - 1)).astimezone(UTC).date(), time.min, tzinfo=UTC
+    )
+    fingerprints = _action_fingerprints(actions)
+    daily = _daily_buckets(prior.checkpoint, fingerprints)
+    since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through"))
+    if daily is None or since is None:
+        daily, since, earliest_timestamp = {}, None, window_start
     else:
-        since = max(counted_through.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0), window_start)
+        earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK)
 
-    rescanned: dict[str, list[int]] = {}
     with achievement_query_scope(ctx.team.id):
         for team in _project_environment_teams(ctx.team):
             query = parse_select(
                 "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
                 placeholders={
-                    "window": _time_window_expr(since, until),
+                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
                     "events": _action_event_filter_expr(actions),
                     "test": _test_account_filter_expr(team),
                 },
@@ -221,16 +243,16 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
             ]
             response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
             for row in response.results or []:
-                day_counts = rescanned.setdefault(row[0].isoformat(), [0] * len(actions))
+                day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
                 for index, value in enumerate(row[1:]):
                     day_counts[index] += int(value or 0)
 
     oldest_kept_day = window_start.date().isoformat()
-    daily = {day: counts for day, counts in {**daily, **rescanned}.items() if day >= oldest_kept_day and any(counts)}
+    daily = {day: counts for day, counts in daily.items() if day >= oldest_kept_day and any(counts)}
     per_action_totals = [sum(counts[index] for counts in daily.values()) for index in range(len(actions))]
     return TrackEvaluation(
         value=max(len(actions), max(per_action_totals, default=0)),
-        checkpoint={"action_ids": action_ids, "daily": daily, "counted_through": until.isoformat()},
+        checkpoint={"actions": fingerprints, "daily": daily, "counted_through": until.isoformat()},
     )
 
 

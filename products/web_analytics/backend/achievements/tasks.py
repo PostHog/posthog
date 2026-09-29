@@ -246,7 +246,10 @@ def _apply_progress(
             .select_for_update()
             .get(pk=evaluated_progress.pk)
         )
-        if evaluation.checkpoint is not None and progress.last_computed_at != evaluated_progress.last_computed_at:
+        if evaluation.checkpoint is not None and (
+            progress.last_computed_at != evaluated_progress.last_computed_at
+            or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
+        ):
             return []
         new_value = evaluation.value
         is_cumulative = track.evaluator_key != "streak"

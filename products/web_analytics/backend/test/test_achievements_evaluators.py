@@ -86,13 +86,14 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             steps_json=[{"event": event, "tag_name": "button", "text": "Pay $10"}],
         )
 
-    def _pay_click(self, timestamp: datetime | None = None) -> None:
+    def _pay_click(self, timestamp: datetime | None = None, created_at: datetime | None = None) -> None:
         _create_event(
             team=self.team,
             event="$autocapture",
             distinct_id="d1",
             elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
             timestamp=timestamp or timezone.now() - timedelta(hours=2),
+            created_at=created_at,
         )
 
     def test_cumulative_pageviews_counts_pageviews_across_environments(self) -> None:
@@ -113,6 +114,13 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark - timedelta(hours=2))
         _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark - timedelta(hours=2))
         _create_event(team=self.team, event="$pageview", distinct_id="d1", timestamp=watermark + timedelta(minutes=30))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=watermark - timedelta(hours=2),
+            created_at=watermark + timedelta(minutes=30),
+        )
         flush_persons_and_events()
         prior = (
             PriorProgress(value=100, last_computed_at=None, checkpoint={"counted_through": watermark.isoformat()})
@@ -122,7 +130,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
         evaluation = evaluate_cumulative_pageviews(self._ctx(), prior)
 
-        self.assertEqual(evaluation.value, 101)
+        self.assertEqual(evaluation.value, 102)
         assert evaluation.checkpoint is not None
         self.assertGreater(datetime.fromisoformat(str(evaluation.checkpoint["counted_through"])), watermark)
 
@@ -139,23 +147,38 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self._pay_action("$autocapture")
         self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 1)
 
-    @parameterized.expand([("same_actions_roll_the_window", True, 4), ("changed_actions_rebuild", False, 2)])
-    def test_conversions_keep_a_rolling_ninety_day_window(self, _name: str, same_actions: bool, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("unchanged_actions_add_new_arrivals", "unchanged", 5),
+            ("edited_steps_rebuild", "edited_steps", 3),
+            ("other_actions_rebuild", "other_actions", 3),
+        ]
+    )
+    def test_conversions_keep_a_rolling_ninety_day_window(self, _name: str, change: str, expected: int) -> None:
         action = self._pay_action("$autocapture")
-        self._pay_click()
-        self._pay_click()
-        flush_persons_and_events()
+        prior_checkpoint = evaluate_conversions(self._ctx(), EMPTY_PRIOR).checkpoint
+        assert prior_checkpoint is not None
+        actions = prior_checkpoint["actions"]
+        if change == "edited_steps":
+            action.steps_json = [{"event": "$autocapture", "text": "Pay $10"}]
+            action.save()
+        elif change == "other_actions":
+            actions = [[action.id + 1, "0"]]
         now = timezone.now()
+        counted_through = now - timedelta(hours=3)
+        late_day = (now - timedelta(days=2)).date().isoformat()
+        expired_day = (now - timedelta(hours=1) - timedelta(days=90)).date().isoformat()
+        self._pay_click()
+        self._pay_click()
+        self._pay_click(timestamp=now - timedelta(days=2), created_at=now - timedelta(hours=2))
+        flush_persons_and_events()
         prior = PriorProgress(
             value=0,
-            last_computed_at=now - timedelta(hours=3),
+            last_computed_at=counted_through,
             checkpoint={
-                "action_ids": [action.id if same_actions else action.id + 1],
-                "daily": {
-                    (now - timedelta(days=120)).date().isoformat(): [50],
-                    (now - timedelta(days=2)).date().isoformat(): [2],
-                },
-                "counted_through": (now - timedelta(hours=3)).isoformat(),
+                "actions": actions,
+                "daily": {expired_day: [50], late_day: [2]},
+                "counted_through": counted_through.isoformat(),
             },
         )
 
@@ -165,4 +188,4 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         assert evaluation.checkpoint is not None
         daily = evaluation.checkpoint["daily"]
         assert isinstance(daily, dict)
-        self.assertNotIn((now - timedelta(days=120)).date().isoformat(), daily)
+        self.assertNotIn(expired_day, daily)
