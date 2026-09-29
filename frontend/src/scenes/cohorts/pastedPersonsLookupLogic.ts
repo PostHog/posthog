@@ -70,10 +70,10 @@ export interface pastedPersonsLookupLogicActions {
         errorObject?: any
     }
     lookupPastedValuesSuccess: (
-        lookupResult: PastedPersonsLookupResult | null,
+        lookupResult: PastedPersonsLookupResult,
         payload?: string[]
     ) => {
-        lookupResult: PastedPersonsLookupResult | null
+        lookupResult: PastedPersonsLookupResult
         payload?: string[]
     }
 }
@@ -105,13 +105,15 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
                     const checkedValues = values.slice(0, MAX_PASTED_VALUES)
                     const lowerCaseValues = checkedValues.map((value) => value.toLowerCase())
                     const tags = { scene: 'Cohort', productKey: 'cohorts' }
+                    // HogQL returns 100 rows unless the query sets a limit, and one value can match several rows
+                    const rowLimit = checkedValues.length * 2
                     const [byEmail, byDistinctId] = await Promise.all([
                         api.queryHogQL<[string, string]>(
-                            hogql`SELECT id, lower(toString(properties.email)) AS email FROM persons WHERE has(${lowerCaseValues}, lower(toString(properties.email)))`,
+                            hogql`SELECT id, lower(toString(properties.email)) AS email FROM persons WHERE has(${lowerCaseValues}, lower(toString(properties.email))) LIMIT ${rowLimit}`,
                             tags
                         ),
                         api.queryHogQL<[string, string]>(
-                            hogql`SELECT person_id, distinct_id FROM person_distinct_ids WHERE has(${checkedValues}, distinct_id)`,
+                            hogql`SELECT person_id, distinct_id FROM person_distinct_ids WHERE has(${checkedValues}, distinct_id) LIMIT ${rowLimit}`,
                             tags
                         ),
                     ])
@@ -148,9 +150,6 @@ export const pastedPersonsLookupLogic = kea<pastedPersonsLookupLogicType>([
     }),
     listeners(({ props }) => ({
         lookupPastedValuesSuccess: ({ lookupResult, payload }) => {
-            if (!lookupResult) {
-                return
-            }
             let alreadyInCohortCount = 0
             for (const { personId, value } of lookupResult.matches) {
                 if (props.existingPersonsSet?.has(personId)) {
