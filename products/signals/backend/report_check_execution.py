@@ -264,14 +264,14 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
     if verdict.outcome == "inconclusive":
         retries = check.consecutive_inconclusive
         can_wait = verdict.reason == "awaiting_data" and retries < len(AWAITING_DATA_RETRY_WAITS)
-        retry_at = now + AWAITING_DATA_RETRY_WAITS[retries] if can_wait else None
+        next_look_at = now + AWAITING_DATA_RETRY_WAITS[retries] if can_wait else None
         # `>=`, because a row due exactly at its horizon is swept rather than collected.
-        if retry_at is None or retry_at >= check.expires_at:
+        if next_look_at is None or next_look_at >= check.expires_at:
             return _CheckTransition(
                 status=SignalReportCheck.Status.INCONCLUSIVE, next_run_at=None, runs_remaining=check.runs_remaining
             )
         return _CheckTransition(
-            status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
+            status=SignalReportCheck.Status.ACTIVE, next_run_at=next_look_at, runs_remaining=check.runs_remaining
         )
 
     runs_remaining = max(0, check.runs_remaining - 1)
