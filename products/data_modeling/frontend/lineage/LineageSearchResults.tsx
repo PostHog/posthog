@@ -1,15 +1,18 @@
 import { useEffect, useRef } from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { DataModelingNode } from '~/types'
 
+import { LineageSearchMode } from './lineageSearch'
 import { NodeTypeTag } from './NodeTypeTag'
 
 export interface LineageSearchResultsProps {
     results: DataModelingNode[]
     selectedResultId?: string
+    anchorResultId?: string
+    mode: LineageSearchMode
     onSelect: (nodeId: string) => void
     onPrevious: () => void
     onNext: () => void
@@ -18,6 +21,8 @@ export interface LineageSearchResultsProps {
 export function LineageSearchResults({
     results,
     selectedResultId,
+    anchorResultId,
+    mode,
     onSelect,
     onPrevious,
     onNext,
@@ -25,6 +30,12 @@ export function LineageSearchResults({
     const selectedOptionRef = useRef<HTMLDivElement>(null)
     const selectedPosition = results.findIndex((node) => node.id === selectedResultId) + 1
     const selectedResult = results[selectedPosition - 1]
+    const resultCountLabel =
+        mode === 'search'
+            ? `${results.length} ${results.length === 1 ? 'result' : 'results'}`
+            : `${results.length} ${results.length === 1 ? 'model' : 'models'} · ${
+                  mode === 'both' ? 'both directions' : mode
+              }`
 
     useEffect(() => {
         selectedOptionRef.current?.scrollIntoView({ block: 'nearest' })
@@ -38,9 +49,7 @@ export function LineageSearchResults({
                     : 'No matching models'}
             </span>
             <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5 text-xs text-secondary">
-                <span aria-live="polite">
-                    {results.length} {results.length === 1 ? 'result' : 'results'}
-                </span>
+                <span aria-live="polite">{resultCountLabel}</span>
                 {results.length > 0 && (
                     <div className="flex items-center gap-1">
                         <span>
@@ -49,7 +58,7 @@ export function LineageSearchResults({
                         <LemonButton
                             size="xsmall"
                             noPadding
-                            icon={<IconChevronLeft />}
+                            icon={<IconChevronRight className="-rotate-90" />}
                             aria-label="Previous result"
                             tooltip="Previous result"
                             onClick={onPrevious}
@@ -58,7 +67,7 @@ export function LineageSearchResults({
                         <LemonButton
                             size="xsmall"
                             noPadding
-                            icon={<IconChevronRight />}
+                            icon={<IconChevronRight className="rotate-90" />}
                             aria-label="Next result"
                             tooltip="Next result"
                             onClick={onNext}
@@ -86,12 +95,16 @@ export function LineageSearchResults({
                                 <span className="flex min-w-0 items-center gap-2">
                                     <NodeTypeTag type={node.type} />
                                     <span className="truncate">{node.name}</span>
+                                    {node.id === anchorResultId && (
+                                        <span className="ml-auto shrink-0 text-xs text-secondary">Anchor</span>
+                                    )}
                                 </span>
                             </LemonButton>
                         </div>
                     ))
                 )}
             </div>
+            <div className="border-t px-2 py-1.5 text-[11px] text-secondary">↑↓ Select · Enter focus · Esc clear</div>
         </div>
     )
 }

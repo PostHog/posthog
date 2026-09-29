@@ -60,6 +60,22 @@ function walk(startId: string, adjacency: Map<string, string[]>, reached: Set<st
     }
 }
 
+function walkDistances(startId: string, adjacency: Map<string, string[]>, distances: Map<string, number>): void {
+    const queue = [startId]
+    while (queue.length > 0) {
+        const current = queue.shift() as string
+        const distance = distances.get(current) ?? 0
+        for (const neighbor of adjacency.get(current) ?? []) {
+            const nextDistance = distance + 1
+            const knownDistance = distances.get(neighbor)
+            if (knownDistance === undefined || nextDistance < knownDistance) {
+                distances.set(neighbor, nextDistance)
+                queue.push(neighbor)
+            }
+        }
+    }
+}
+
 /**
  * The nodes a selector reaches from an anchor.
  *
@@ -92,21 +108,49 @@ export function matchNodesByName(nodes: DataModelingNode[], term: string): DataM
 }
 
 /**
- * The node ids a lineage selector keeps, or null when the term prunes nothing.
+ * The ordered nodes for a lineage selector, or null when the term is a plain name search.
  *
- * Null means "no lineage restriction" — a plain term matches names in place, so a single letter
- * never empties the result. An unmatched anchor returns an empty set, since the term names nothing.
+ * The anchor comes first. Related nodes follow by graph distance and then name. Upstream and
+ * downstream walks stay separate, so a bidirectional selector does not reach sibling nodes.
  */
+export function orderedNodesForLineageSearch(
+    nodes: DataModelingNode[],
+    edges: DataModelingEdge[],
+    parsed: ParsedLineageSearch
+): DataModelingNode[] | null {
+    if (parsed.mode === 'search' || !parsed.term) {
+        return null
+    }
+    const anchor = matchNodesByName(nodes, parsed.term)[0]
+    if (!anchor) {
+        return []
+    }
+
+    const maps = buildAdjacencyMaps(edges)
+    const distances = new Map<string, number>([[anchor.id, 0]])
+    if (parsed.mode === 'upstream' || parsed.mode === 'both') {
+        walkDistances(anchor.id, maps.upstream, distances)
+    }
+    if (parsed.mode === 'downstream' || parsed.mode === 'both') {
+        walkDistances(anchor.id, maps.downstream, distances)
+    }
+
+    return nodes
+        .filter((node) => distances.has(node.id))
+        .sort((a, b) => {
+            const distanceDifference = (distances.get(a.id) ?? 0) - (distances.get(b.id) ?? 0)
+            return distanceDifference || a.name.localeCompare(b.name)
+        })
+}
+
+/** The node ids a lineage selector keeps, or null when a plain search does not prune the graph. */
 export function nodeIdsForLineageSearch(
     nodes: DataModelingNode[],
     edges: DataModelingEdge[],
     parsed: ParsedLineageSearch
 ): Set<string> | null {
-    if (parsed.mode === 'search' || !parsed.term) {
-        return null
-    }
-    const anchor = matchNodesByName(nodes, parsed.term)[0]
-    return anchor ? traverseLineage(anchor.id, buildAdjacencyMaps(edges), parsed.mode) : new Set<string>()
+    const orderedNodes = orderedNodesForLineageSearch(nodes, edges, parsed)
+    return orderedNodes === null ? null : new Set(orderedNodes.map((node) => node.id))
 }
 
 /** Keeps only edges whose endpoints both survived filtering, so no edge dangles. */

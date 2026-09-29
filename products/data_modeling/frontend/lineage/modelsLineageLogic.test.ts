@@ -138,16 +138,37 @@ describe('modelsLineageLogic', () => {
         })
     })
 
-    it('keeps the full cone behavior for lineage selectors', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setSearchTerm('+website_leads')
-            logic.actions.setDebouncedSearchTerm('+website_leads')
-        }).toMatchValues({
+    it('lists a lineage selector by graph distance and keeps the full cone behavior', async () => {
+        logic.actions.setSearchTerm('+website_leads')
+
+        await expectLogic(logic).toMatchValues({
             searchResults: [],
             showSearchResults: false,
-            selectedSearchResult: null,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setDebouncedSearchTerm('+website_leads')
+        }).toMatchValues({
+            searchResults: [NODES[0], NODES[3]],
+            showSearchResults: true,
+            lineageSearchAnchor: NODES[0],
+            selectedSearchResult: NODES[0],
             highlightedNodeIds: new Set(),
             focusNodeIds: new Set(['1', '4']),
         })
+    })
+
+    it('cycles through and focuses models in a lineage selector', async () => {
+        logic.actions.setSearchTerm('+website_leads')
+        logic.actions.setDebouncedSearchTerm('+website_leads')
+
+        await expectLogic(logic, () => {
+            logic.actions.moveSearchResult('next', true)
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                selectedSearchResult: NODES[3],
+                searchFocusRequest: { nodeId: '4', requestId: 1 },
+            })
     })
 })

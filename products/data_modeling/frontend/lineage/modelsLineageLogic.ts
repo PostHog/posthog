@@ -10,6 +10,7 @@ import {
     edgesWithinNodes,
     matchNodesByName,
     nodeIdsForLineageSearch,
+    orderedNodesForLineageSearch,
     parseLineageSearch,
 } from './lineageSearch'
 
@@ -35,6 +36,7 @@ export interface modelsLineageLogicValues {
     searchFocusRequest: SearchFocusRequest | null
     parsedSearchTerm: ParsedLineageSearch
     parsedSearch: ParsedLineageSearch
+    lineageSearchAnchor: DataModelingNode | null
     searchResults: DataModelingNode[]
     showSearchResults: boolean
     selectedSearchResult: DataModelingNode | null
@@ -166,6 +168,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 posthog.capture('models lineage search result focused', {
                     result_count: values.searchResults.length,
                     result_position: resultPosition + 1,
+                    search_mode: values.parsedSearchTerm.mode,
                     trigger,
                 })
             }
@@ -175,30 +178,57 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         parsedSearchTerm: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
         parsedSearch: [(s) => [s.debouncedSearchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
 
-        // Plain name matching is cheap, so keep the result list and highlights in step with typing.
-        // The debounce still protects lineage selectors, which prune and lay out the graph again.
+        lineageSearchAnchor: [
+            (s) => [s.nodes, s.parsedSearchTerm],
+            (nodes: DataModelingNode[], parsedSearchTerm: ParsedLineageSearch): DataModelingNode | null =>
+                parsedSearchTerm.mode === 'search' ? null : (matchNodesByName(nodes, parsedSearchTerm.term)[0] ?? null),
+        ],
+
+        // Plain name matching is cheap, so keep its results in step with typing. Lineage selectors
+        // wait for the debounce because they prune and lay out the graph again.
         searchResults: [
-            (s) => [s.nodes, s.typeFilter, s.parsedSearchTerm],
+            (s) => [
+                s.nodes,
+                s.edges,
+                s.typeFilter,
+                s.parsedSearchTerm,
+                s.parsedSearch,
+                s.searchTerm,
+                s.debouncedSearchTerm,
+                s.visibleNodes,
+            ],
             (
                 nodes: DataModelingNode[],
+                edges: DataModelingEdge[],
                 typeFilter: DataModelingNodeType[],
-                parsedSearchTerm: ParsedLineageSearch
+                parsedSearchTerm: ParsedLineageSearch,
+                parsedSearch: ParsedLineageSearch,
+                searchTerm: string,
+                debouncedSearchTerm: string,
+                visibleNodes: DataModelingNode[]
             ): DataModelingNode[] => {
-                if (parsedSearchTerm.mode !== 'search') {
+                if (parsedSearchTerm.mode === 'search') {
+                    const searchableNodes =
+                        typeFilter.length === LINEAGE_FILTER_TYPES.length
+                            ? nodes
+                            : nodes.filter((node) => typeFilter.includes(node.type))
+                    return matchNodesByName(searchableNodes, parsedSearchTerm.term)
+                }
+                if (searchTerm !== debouncedSearchTerm) {
                     return []
                 }
-                const searchableNodes =
-                    typeFilter.length === LINEAGE_FILTER_TYPES.length
-                        ? nodes
-                        : nodes.filter((node) => typeFilter.includes(node.type))
-                return matchNodesByName(searchableNodes, parsedSearchTerm.term)
+                const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
+                return (orderedNodesForLineageSearch(nodes, edges, parsedSearch) ?? []).filter((node) =>
+                    visibleNodeIds.has(node.id)
+                )
             },
         ],
 
         showSearchResults: [
-            (s) => [s.parsedSearchTerm],
-            (parsedSearchTerm: ParsedLineageSearch): boolean =>
-                parsedSearchTerm.mode === 'search' && parsedSearchTerm.term.length > 0,
+            (s) => [s.parsedSearchTerm, s.searchTerm, s.debouncedSearchTerm],
+            (parsedSearchTerm: ParsedLineageSearch, searchTerm: string, debouncedSearchTerm: string): boolean =>
+                parsedSearchTerm.term.length > 0 &&
+                (parsedSearchTerm.mode === 'search' || searchTerm === debouncedSearchTerm),
         ],
 
         selectedSearchResult: [
@@ -208,8 +238,9 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         ],
 
         highlightedNodeIds: [
-            (s) => [s.searchResults],
-            (searchResults: DataModelingNode[]): Set<string> => new Set(searchResults.map((node) => node.id)),
+            (s) => [s.searchResults, s.parsedSearchTerm],
+            (searchResults: DataModelingNode[], parsedSearchTerm: ParsedLineageSearch): Set<string> =>
+                parsedSearchTerm.mode === 'search' ? new Set(searchResults.map((node) => node.id)) : new Set(),
         ],
 
         visibleNodes: [

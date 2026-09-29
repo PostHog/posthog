@@ -147,6 +147,45 @@ export const SearchFocus: Story = {
     },
 }
 
+export const SelectorFocus: Story = {
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('revenue_summary')
+        const graph = canvasElement.querySelector<HTMLElement>('.react-flow')!
+        const target = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')!
+        const search = canvas.getByPlaceholderText('Search, or +name for upstream')
+        fireEvent.change(search, { target: { value: 'revenue_summary+' } })
+        await canvas.findByText('4 models · downstream')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        fireEvent.keyDown(search, { key: 'Enter' })
+        if ((search as HTMLInputElement).selectionStart !== 'revenue_summary'.length) {
+            throw new Error('A downstream selector must keep the caret before its trailing plus')
+        }
+        await waitFor(() => {
+            const nodeBounds = target.getBoundingClientRect()
+            const graphBounds = graph.getBoundingClientRect()
+            if (
+                Math.abs(nodeBounds.x + nodeBounds.width / 2 - graphBounds.x - graphBounds.width / 2) > 5 ||
+                Math.abs(nodeBounds.y + nodeBounds.height / 2 - graphBounds.y - graphBounds.height / 2) > 5
+            ) {
+                throw new Error('The selected downstream model must be centered in the lineage viewport')
+            }
+        })
+        if (graph.querySelectorAll('.react-flow__node').length !== 4) {
+            throw new Error('A downstream selector must keep only its lineage cone visible')
+        }
+    },
+}
+
 export const DarkMode: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="5" variant="full" showControls />

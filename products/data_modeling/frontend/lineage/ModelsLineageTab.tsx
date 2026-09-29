@@ -33,6 +33,8 @@ export function ModelsLineageTab(): JSX.Element {
         typeFilter,
         legendCollapsed,
         highlightedNodeIds,
+        parsedSearchTerm,
+        lineageSearchAnchor,
         searchResults,
         showSearchResults,
         selectedSearchResult,
@@ -51,6 +53,16 @@ export function ModelsLineageTab(): JSX.Element {
         toggleLegendCollapsed,
         resetFilters,
     } = useActions(modelsLineageLogic)
+
+    const focusSearchInput = (): void => {
+        const input = searchInputRef.current
+        input?.focus()
+        const trimmedSearchTerm = searchTerm.trimEnd()
+        if (input && trimmedSearchTerm.length > 1 && trimmedSearchTerm.endsWith('+')) {
+            const trailingSelectorPosition = trimmedSearchTerm.length - 1
+            input.setSelectionRange(trailingSelectorPosition, trailingSelectorPosition)
+        }
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -71,9 +83,11 @@ export function ModelsLineageTab(): JSX.Element {
                         ) {
                             event.preventDefault()
                             moveSearchResult(event.key === 'ArrowUp' ? 'previous' : 'next', false)
+                            focusSearchInput()
                         } else if (event.key === 'Enter' && selectedSearchResult) {
                             event.preventDefault()
                             focusSearchResult(selectedSearchResult.id, 'keyboard')
+                            focusSearchInput()
                         } else if (event.key === 'Escape' && searchTerm) {
                             event.preventDefault()
                             setSearchTerm('')
@@ -115,17 +129,19 @@ export function ModelsLineageTab(): JSX.Element {
                     <LineageSearchResults
                         results={searchResults}
                         selectedResultId={selectedSearchResult?.id}
+                        anchorResultId={lineageSearchAnchor?.id}
+                        mode={parsedSearchTerm.mode}
                         onSelect={(nodeId) => {
                             focusSearchResult(nodeId, 'click')
-                            searchInputRef.current?.focus()
+                            focusSearchInput()
                         }}
                         onPrevious={() => {
                             moveSearchResult('previous', true)
-                            searchInputRef.current?.focus()
+                            focusSearchInput()
                         }}
                         onNext={() => {
                             moveSearchResult('next', true)
-                            searchInputRef.current?.focus()
+                            focusSearchInput()
                         }}
                     />
                 )}
