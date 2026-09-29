@@ -1,6 +1,7 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
@@ -15,10 +16,9 @@ import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
-// Scopes come from a credential the user can edit. Somebody who adds a missing scope to a
-// personal API key must recover in the same session, so this entry expires much sooner than
-// the rest. Reconnecting the client does not help on its own: the cache is keyed by token.
-const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+// A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
+// its scopes are read again after this delay. Reconnecting the client does not help: same token.
+export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
@@ -104,22 +104,30 @@ export class StateManager {
     }
 
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        const [cached, fetchedAt] = await Promise.all([this._cache.get('apiKey'), this._cache.get('apiKeyFetchedAt')])
+        // An OAuth token gets a new value, and so a new cache entry, whenever its scopes change.
+        const refreshable = classifyAuthMethod(this._api.config.apiToken) !== 'oauth'
+        const [cached, fetchedAt] = await Promise.all([
+            this._cache.get('apiKey'),
+            refreshable ? this._cache.get('apiKeyFetchedAt') : undefined,
+        ])
 
-        if (cached && !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS)) {
+        if (cached && (!refreshable || !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS))) {
             return cached
         }
 
         try {
             const apiKey = await this._fetchApiKey()
-            await Promise.all([this._cache.set('apiKey', apiKey), this._cache.set('apiKeyFetchedAt', Date.now())])
+            await Promise.all([
+                this._cache.set('apiKey', apiKey),
+                refreshable ? this._cache.set('apiKeyFetchedAt', Date.now()) : undefined,
+            ])
             return apiKey
         } catch (error) {
             if (!cached) {
                 throw error
             }
-            // A failed refresh must not end a live session. These scopes only filter the tool
-            // roster, and every API call is authorized again server-side.
+            // A failed refresh must not end a live session. Every API call is authorized again
+            // server-side, so the last known scopes cannot grant access the key does not hold.
             this._reportException(error, 'api_key_refresh_failed')
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
