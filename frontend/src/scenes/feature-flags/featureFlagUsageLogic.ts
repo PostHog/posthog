@@ -123,8 +123,9 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): boolean | undefined => featureFlag.has_enriched_analytics,
         ],
-        // The backend adds flag_evaluations to the HogQL catalog for every mode above Events, so
-        // this check and the catalog agree, and a query here never hits a missing table.
+        // The backend adds flag_evaluations to the HogQL catalog whenever the organization's stored mode is
+        // above Events. This field is above Events only when the stored mode is, so a query here never hits
+        // a missing table.
         readsFlagEvaluationsTable: [
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>

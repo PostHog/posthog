@@ -77,41 +77,34 @@ class TestSetFlagEvaluationsMode(BaseTest):
             (
                 "keeps_a_higher_mode_by_default",
                 (),
-                False,
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 "Left 1 organization(s) above mode 1.",
             ),
             (
                 "lowers_it_with_allow_downgrade",
                 ("--allow-downgrade",),
-                False,
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 "Set mode 1 on 1 organization(s).",
-            ),
-            (
-                "reads_the_stored_mode_while_the_usage_tab_is_forced_to_events",
-                (),
-                True,
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                "Left 1 organization(s) above mode 1.",
             ),
         ]
     )
     def test_downgrade_guard(
-        self,
-        _name: str,
-        extra_args: tuple[str, ...],
-        usage_tab_forced_to_events: bool,
-        expected_mode: int,
-        expected_output: str,
+        self, _name: str, extra_args: tuple[str, ...], expected_mode: int, expected_output: str
     ) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", usage_tab_forced_to_events):
-            output = self._run("--mode", "1", "--organization-id", str(self.organization.id), *extra_args)
+        output = self._run("--mode", "1", "--organization-id", str(self.organization.id), *extra_args)
 
         self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), expected_mode)
         self.assertIn(expected_output, output)
+
+    def test_allow_downgrade_lowers_the_stored_mode_while_the_usage_tab_is_forced_to_events(self) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+            self._run("--mode", "0", "--organization-id", str(self.organization.id), "--allow-downgrade")
+
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)
 
     def test_a_raise_after_the_read_is_not_overwritten(self) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
