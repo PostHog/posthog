@@ -247,6 +247,17 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
     The body is read defensively for the same reason. A non-JSON error, from billing or from a
     proxy in front of it, must not turn a mapped refusal into a 500.
     """
+    from ee.api.billing import (  # noqa: PLC0415 - circular import
+        BILLING_GUIDANCE_ERRORS,
+        BillingQueryRejected,
+        BillingServiceError,
+    )
+
+    if res.status_code >= 500:
+        # A billing failure, including a response billing could not build. It is not the caller's
+        # to fix, so it never maps to a refusal that tells them to change the request.
+        logger.warning("billing_organization_error", upstream_status=res.status_code)
+        raise BillingServiceError()
     if res.status_code not in (400, 403, 404):
         return
     try:
@@ -262,21 +273,34 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
         if not map_not_found:
             return
         raise NotFound("Not found.")
-    from ee.api.billing import BILLING_GUIDANCE_ERRORS, BillingQueryRejected  # noqa: PLC0415 - circular import
-
     if code in BILLING_GUIDANCE_ERRORS:
         raise BILLING_GUIDANCE_ERRORS[code]()
     raise BillingQueryRejected()
+
+
+class BillingServiceResponseError(Exception):
+    """Billing answered with a status code the caller does not accept."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        # The message and the body keep the positions callers already read: see
+        # `_raise_billing_error` in ee/api/billing.py, which parses the status out of the message.
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", body)
+        self.status_code = status_code
+        self.body = body
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+            body: Any = res.json()
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            # A body that is not JSON, such as the empty body of a proxy timeout, is still the
+            # answer the caller has to report. Read it as text, so the decode failure does not
+            # become the reported cause of the error.
+            body = res.text
+
+        raise BillingServiceResponseError(res.status_code, body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -826,6 +850,12 @@ class BillingManager:
     ) -> dict[str, Any]:
         path = f"products/{product_key}/" if product_key else "products/"
         return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+
+    def get_organization_products_summary(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        # Billing serves this as products/catalog/, the name it shipped with.
+        return self._organization_get(organization, grants, "products/catalog/")
 
     def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "usage/")

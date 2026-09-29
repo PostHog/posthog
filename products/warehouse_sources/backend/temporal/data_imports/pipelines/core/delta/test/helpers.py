@@ -20,7 +20,6 @@ def make_local_table_ref(delta_uri: str) -> DeltaTableRef:
     table_ref = DeltaTableRef(resource_name="test", job=MagicMock(), logger=make_logger())
     patch.object(table_ref, "_get_delta_table_uri", new=AsyncMock(return_value=delta_uri)).start()
     patch.object(table_ref, "_get_credentials", new=MagicMock(return_value={})).start()
-    table_ref.get_delta_table.cache_clear()
     return table_ref
 
 

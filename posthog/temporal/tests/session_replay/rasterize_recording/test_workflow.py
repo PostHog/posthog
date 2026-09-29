@@ -7,7 +7,7 @@ import temporalio.workflow
 from temporalio import activity
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
-from temporalio.client import WorkflowHistory
+from temporalio.client import WorkflowFailureError, WorkflowHistory
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
@@ -451,13 +451,13 @@ def _activity_error() -> ActivityError:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("route_to_media", [False, True])
-async def test_render_runs_on_the_requested_queue(route_to_media: bool):
+@pytest.mark.parametrize("route_elsewhere", [False, True])
+async def test_render_runs_on_the_requested_queue(route_elsewhere: bool):
     from django.conf import settings
 
     from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
 
-    requested_queue = settings.RASTERIZATION_MEDIA_TASK_QUEUE if route_to_media else None
+    requested_queue = "other-rasterization-task-queue" if route_elsewhere else None
     expected_queue = requested_queue or settings.RASTERIZATION_TASK_QUEUE
     rendered_on: list[str] = []
 
@@ -495,7 +495,7 @@ async def test_render_runs_on_the_requested_queue(route_to_media: bool):
             # Both queues carry a render worker, so a mis-routed render still completes and the
             # assertion below names the wrong queue instead of hanging forever.
             Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
-            Worker(env.client, task_queue=settings.RASTERIZATION_MEDIA_TASK_QUEUE, activities=[render_mocked]),
+            Worker(env.client, task_queue="other-rasterization-task-queue", activities=[render_mocked]),
         ):
             await env.client.execute_workflow(
                 RasterizeRecordingWorkflow.run,
@@ -507,3 +507,52 @@ async def test_render_runs_on_the_requested_queue(route_to_media: bool):
             )
 
     assert rendered_on == [expected_queue]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("render_fails", [False, True])
+async def test_caller_built_render_skips_the_asset_steps(render_fails: bool):
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    @activity.defn(name="rasterize-recording")
+    async def render_mocked(_inputs: dict) -> dict:
+        if render_fails:
+            raise ApplicationError("no snapshots", type="NO_SNAPSHOTS", non_retryable=True)
+        return {"s3_uri": "s3://bench/case/video.mp4", "video_duration_s": 1.0, "playback_speed": 8.0}
+
+    render_input = RasterizationActivityInput(
+        session_id="case-1",
+        team_id=1,
+        source_s3_uri="s3://bench/case/events.jsonl.zst",
+        s3_bucket="bench",
+        s3_key_prefix="case",
+    )
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
+        ):
+            handle = await env.client.start_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(render_input=render_input, product="replay_vision_benchmark"),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if render_fails:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            else:
+                assert (await handle.result()).s3_uri == "s3://bench/case/video.mp4"
+            history = await handle.fetch_history()
+
+    # No asset to prepare from, finalize onto, or record a failure against.
+    assert _scheduled_activities(history) == ["rasterize-recording"]

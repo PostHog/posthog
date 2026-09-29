@@ -68,9 +68,11 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # reservation resolve to posthog_code and cannot mint. slack_app needs server
 # provenance too (has_slack_provenance), older rows included.
 # workflows qualifies because validate_origin_product reserves its origin for the
-# workflow_tasks endpoint.
+# workflow_tasks endpoint. posthog_ai is API-settable but not internally funded: its token
+# bills the run's own team to AI credits, and the mint refuses an exhausted balance.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "posthog_ai",
         "review_hog",
         "slack_app",
         "signals_scout",
@@ -90,11 +92,11 @@ MINTABLE_PRODUCTS = frozenset(
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
 # Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
-SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"posthog_ai", "slack_app"})
 
 # The Python gateway bills these mintable products to AI credits and stops them at zero.
 # The Go gateway has no credit check, so the mint checks the balance when the run starts.
-AI_CREDITS_BILLED_PRODUCTS = frozenset({"slack_app", "workflows"})
+AI_CREDITS_BILLED_PRODUCTS = frozenset({"posthog_ai", "slack_app", "workflows"})
 
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 

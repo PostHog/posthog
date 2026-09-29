@@ -116,10 +116,11 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
+    data_interval_end: str
     url: str
     token: str
 
@@ -219,22 +220,21 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         # Only the native source projects the mutation columns; a legacy table carries the same keys
         # in its `properties`.
-        fields = http_default_fields(
-            reads_native_events_source(
-                use_new_events_schema=use_native_schema,
-                team_id=inputs.team_id,
-                interval_start=interval_start,
-                interval_end=inputs.data_interval_end,
-                is_backfill=is_backfill,
-                backfill_details=inputs.backfill_details,
-            )
+        native_source = reads_native_events_source(
+            use_new_events_schema=use_native_schema,
+            team_id=inputs.team_id,
+            interval_start=interval_start,
+            interval_end=inputs.data_interval_end,
+            is_backfill=is_backfill,
+            backfill_details=inputs.backfill_details,
         )
+        fields = http_default_fields(native_source)
         columns = [field["alias"] for field in fields]
 
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None
+                filters, team_id=inputs.team_id, values=None, native_events_source=native_source
             )
         else:
             filters_str = ""

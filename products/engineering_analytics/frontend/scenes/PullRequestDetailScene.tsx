@@ -29,6 +29,7 @@ import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { PullRequestComparisonCard } from '../components/PullRequestComparisonCard'
 import { PullRequestDeliveryTimeline } from '../components/PullRequestDeliveryTimeline'
+import { PullRequestFrictionCard } from '../components/PullRequestFrictionCard'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
@@ -417,9 +418,20 @@ export function PullRequestDetailScene(): JSX.Element {
         timelinesLoading,
         timelinesFailed,
         timeline,
+        friction,
+        frictionLoading,
+        frictionFailed,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrCost, loadPrRuns, loadTimelines, loadFailureLogs, setWorkflowFilter, setRunExpanded } =
-        useActions(pullRequestDetailLogic)
+    const {
+        loadLifecycle,
+        loadPrCost,
+        loadPrRuns,
+        loadTimelines,
+        loadFailureLogs,
+        loadFriction,
+        setWorkflowFilter,
+        setRunExpanded,
+    } = useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -476,7 +488,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: withCurrentScope(urls.engineeringAnalytics(), sourceId),
+                    to: withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId),
                 }}
                 showDate={false}
             />
@@ -605,6 +617,18 @@ export function PullRequestDetailScene(): JSX.Element {
                 </>
             ) : (
                 <LemonSkeleton className="h-24 w-full" />
+            )}
+
+            {/* Friction exists only for merged pull requests. It reads a fixed window, like the author and team
+                pages, and comes first there too. */}
+            {pullRequest?.state === 'merged' && (
+                <Section id="pr-friction" title="Friction" note={`Last ${friction?.window_days ?? 30} days`}>
+                    {frictionFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
+                    ) : (
+                        <PullRequestFrictionCard friction={friction} loading={frictionLoading} />
+                    )}
+                </Section>
             )}
 
             <Section id="pr-timeline" title="Lifecycle">

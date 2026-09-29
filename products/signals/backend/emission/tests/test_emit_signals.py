@@ -16,6 +16,7 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
@@ -126,6 +127,71 @@ class TestQueryNewRecords:
 
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
+
+    @pytest.mark.parametrize(
+        "source_config,expected_ids",
+        [
+            ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
+            ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
+            # Every one of these means "read everything": a malformed list must not apply even in part.
+            ({"linear_team_ids": []}, None),
+            ({}, None),
+            (None, None),
+            ({"linear_team_ids": "team-1"}, None),
+            ({"linear_team_ids": ["team-1", 1]}, None),
+            ({"linear_team_ids": ["team-1", " "]}, None),
+            ({"linear_team_ids": ["x" * 300]}, None),
+            ({"linear_team_ids": [f"team-{i}" for i in range(101)]}, None),
+        ],
+    )
+    def test_scope_filter_comes_from_source_config(self, source_config, expected_ids):
+        config = _make_config(scope_field="JSONExtractString(team, 'id')", scope_config_key="linear_team_ids")
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": source_config,
+                    },
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        placeholders = mock_parse.call_args.kwargs["placeholders"]
+        if expected_ids is None:
+            assert "IN {scope_ids}" not in query_arg
+            assert "scope_ids" not in placeholders
+        else:
+            assert "JSONExtractString(team, 'id') IN {scope_ids}" in query_arg
+            assert placeholders["scope_ids"] == ast.Tuple(exprs=[ast.Constant(value=i) for i in expected_ids])
+
+    def test_source_without_scope_ignores_scope_keys_in_config(self):
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": {"linear_team_ids": ["team-1"]},
+                    },
+                )
+
+        assert "scope_ids" not in mock_parse.call_args[0][0]
 
     def test_first_sync_uses_lookback_window(self):
         config = _make_config(partition_field="time", first_sync_lookback_days=14)
@@ -430,9 +496,26 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        with (
+            patch(
+                "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+                return_value="typesafe-shadow",
+            ),
+            patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+            patch(
+                "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+                return_value=DecisionResult(
+                    model="jevk5-fp8-0.2",
+                    answers={"actionable": NoulAnswer(probability=0.98)},
+                    input_tokens=1000,
+                ),
+            ) as decide,
+        ):
+            await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
+        decision_request = decide.call_args.args[0]
+        assert headers["X-PostHog-Trace-Id"] == decision_request.trace_id
         # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
         # The blob owns ai_product (no product route) and team_id (the customer team the usage
         # report attributes to), since the per-call blob replaces the client default.
@@ -440,6 +523,8 @@ class TestCheckActionability:
         assert json.loads(headers["X-PostHog-Properties"]) == {
             "ai_product": "signals_emission",
             "ai_stage": "actionability",
+            "signals_decision_id": decision_request.trace_id,
+            "source_id": output.source_id,
             "source_product": output.source_product,
             "source_type": output.source_type,
             "team_id": "7",
@@ -449,22 +534,18 @@ class TestCheckActionability:
 class TestFilterActionable:
     @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
-        outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
+        outputs = [
+            _make_output(source_id="1", description="actionable one"),
+            _make_output(source_id="2", description="non-actionable two"),
+            _make_output(source_id="3", description="actionable three"),
+        ]
         team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        responses = [
-            _make_llm_response("ACTIONABLE"),
-            _make_llm_response("NOT_ACTIONABLE"),
-            _make_llm_response("ACTIONABLE"),
-        ]
-        call_count = 0
 
         async def mock_create(*args, **kwargs):
-            nonlocal call_count
-            resp = responses[call_count]
-            call_count += 1
-            return resp
+            prompt = kwargs["messages"][0]["content"]
+            return _make_llm_response("NOT_ACTIONABLE" if "non-actionable two" in prompt else "ACTIONABLE")
 
         mock_client.messages.create = mock_create
 
@@ -960,7 +1041,13 @@ class TestEmitActivityTableNameResolution:
 class TestEmitActivitySourceConfigThreading:
     @pytest.mark.asyncio
     async def test_passes_team_source_config_to_pipeline(self):
-        config = _make_config(record_fetcher=lambda team, config, context: [])
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
         team = MagicMock(id=7)
         schema = MagicMock()
         schema.table.name = "test_table"
@@ -991,3 +1078,5 @@ class TestEmitActivitySourceConfigThreading:
 
         fetch_mock.assert_awaited_once_with(team.id, config.source_product, config.source_type)
         assert run_mock.call_args.kwargs["source_config"] == {"steering": "skip chores"}
+        # The scope filter reads the blob from this context, so the handoff needs its own assertion.
+        assert captured_context["source_config"] == {"steering": "skip chores"}

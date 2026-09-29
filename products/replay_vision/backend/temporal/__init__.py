@@ -46,20 +46,24 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
+from products.replay_vision.backend.temporal.activities.benchmark import (
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    snapshot_benchmark_labels_activity,
+    write_benchmark_manifest_activity,
+)
 from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
 )
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
+from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
 from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
-)
-from products.replay_vision.backend.temporal.media_backfill import (
-    ReplayVisionMediaBackfillWorkflow,
-    find_media_backfill_candidates_activity,
 )
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
@@ -78,6 +82,7 @@ from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflo
 WORKFLOWS = [
     ApplyScannerWorkflow,
     BackfillScannerWorkflow,
+    BuildBenchmarkWorkflow,
     EvaluatePromptSuggestionWorkflow,
     MeterScannerReadsWorkflow,
     ObservationMediaWorkflow,
@@ -85,7 +90,6 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
-    ReplayVisionMediaBackfillWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
@@ -138,9 +142,13 @@ ACTIVITIES: list[Callable[..., Any]] = [
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     sweep_gemini_files_activity,
-    find_media_backfill_candidates_activity,
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
+    snapshot_benchmark_labels_activity,
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    write_benchmark_manifest_activity,
 ]
 
 __all__ = [
@@ -155,7 +163,6 @@ __all__ = [
     "RefreshScannerEstimatesWorkflow",
     "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
-    "ReplayVisionMediaBackfillWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",
     "refresh_prompt_suggestion_activity",

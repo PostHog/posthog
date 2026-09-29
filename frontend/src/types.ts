@@ -240,6 +240,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
@@ -475,11 +476,13 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    ai_evaluation_disabled?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
+    data_catalog_weekly_digest?: boolean
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
@@ -618,7 +621,6 @@ export interface OrganizationType extends OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
-    default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null
@@ -1144,10 +1146,11 @@ export enum ExperimentsTabs {
     Settings = 'settings',
 }
 
+// Values are URL path segments under /activity; `redirects` in scenes.ts keeps old ones working.
 export enum ActivityTab {
-    ExploreEvents = 'explore',
-    ExploreSessions = 'sessions',
+    ExploreEvents = 'events',
     LiveEvents = 'live',
+    ExploreSessions = 'sessions',
 }
 
 export enum ProgressStatus {
@@ -2085,7 +2088,6 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -5938,6 +5940,7 @@ export const API_SCOPE_OBJECTS = [
     'mcp_analytics',
     'metrics',
     'notebook',
+    'offline_evaluation_ingestion',
     'organization',
     'organization_integration',
     'organization_member',
@@ -6548,6 +6551,8 @@ export interface WebhookInfo {
     webhook_url?: string
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
+    // Required webhook field names with no value yet. Deliveries are dropped while any is missing.
+    missing_inputs?: string[]
     external_status?: WebhookExternalStatus | null
     // Desired provider events not yet on the webhook (manual setup, or created before a new table).
     missing_events?: string[]

@@ -80,6 +80,15 @@ class TestIsTransientObjectStoreError:
                 False,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+            (
+                # s3fs maps every 403 onto the same generic PermissionError
+                # (s3fs/errors.py::translate_boto_error), so RequestTimeTooSkewed (the worker's clock
+                # drifting from S3's) reaches us with this exact fixed message instead of a real
+                # AccessDenied - and clears on its own once the worker's clock resyncs.
+                "s3_clock_skew_permission_error",
+                PermissionError("The difference between the request time and the current time is too large."),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

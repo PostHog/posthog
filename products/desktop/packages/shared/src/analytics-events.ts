@@ -54,6 +54,7 @@ export type CommandMenuAction =
   | "logout"
   | "toggle-theme"
   | "toggle-left-sidebar"
+  | "toggle-notifications-pause"
   | "open-review-panel"
   | "archive-task"
   | "go-back"
@@ -300,6 +301,12 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export interface CommentSentToAgentProperties {
+  surface: "artifact" | "canvas" | "task";
+  with_context: boolean;
+  with_screenshot: boolean;
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -313,6 +320,8 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
+  /** How a rail destination was picked. Only the channels rail sends it. */
+  source?: "click" | "shortcut";
 }
 
 /** Every row of the account / project / org menu, plus opening it. */
@@ -446,6 +455,8 @@ export interface TaskCreationFailedProperties {
 export interface AgentSessionErrorProperties {
   task_id: string;
   error_type: string;
+  failure_reason?: "startup_timeout" | "startup_failed" | "other";
+  startup_step?: string;
 }
 
 export interface CloudStreamDisconnectedProperties {
@@ -914,6 +925,17 @@ export interface UsageViewedProperties {
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
   burst_used_percent: number | null;
+  /** Which meter the page rendered: org dollars, the valve bucket, or nothing. */
+  meter_kind: "dollars" | "bucket" | "hidden";
+  /** The dollar figure the meter rendered, null when it rendered no dollars. */
+  org_used_usd: number | null;
+  /** The org limit the figure is measured against, null when no dollars render. */
+  org_limit_usd: number | null;
+  /**
+   * The viewer's own 30-day spend, null when it has not loaded. Read against
+   * `org_used_usd` to see the two figures disagree.
+   */
+  personal_spend_30d_usd: number | null;
 }
 
 export interface SpendAnalysisTaskOpenedProperties {
@@ -1344,13 +1366,19 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
-export type ContextActionType = "save_version" | "generate_started" | "discard";
+export type ContextActionType =
+  | "save_version"
+  | "generate_started"
+  | "setup_started"
+  | "discard";
 
 export interface ContextActionProperties {
   action_type: ContextActionType;
   channel_id: string;
   /** generate_started only. */
   execution_type?: "local" | "cloud";
+  /** setup_started only: what the space was set up for. */
+  setup_kind?: "goal" | "feature";
   /** save_version: whether this created the first version vs. an update. */
   is_first_version?: boolean;
   success?: boolean;
@@ -1698,6 +1726,8 @@ export const ANALYTICS_EVENTS = {
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
   CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
   CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CODEX_CLOUD_ACCOUNT_CONNECTED: "Codex cloud account connected",
+  CODEX_CLOUD_ACCOUNT_DISCONNECTED: "Codex cloud account disconnected",
   CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
@@ -1832,6 +1862,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
+  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
 } as const;
 
 // Event property mapping
@@ -1909,6 +1940,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_DISCONNECTED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
@@ -2056,6 +2089,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
+  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
 };
 
 /**

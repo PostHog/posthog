@@ -191,10 +191,7 @@ messagingCategoriesRemoveTrackConfig projects/{}/messaging_categories/remove_tra
 messagingCategoriesRemoveWebhookConfig projects/{}/messaging_categories/remove_webhook_config
 messagingCategoriesSaveTrackConfig projects/{}/messaging_categories/save_track_config
 messagingCategoriesSaveWebhookConfig projects/{}/messaging_categories/save_webhook_config
-messagingCategory projects/{}/messaging_categories/{}
-messagingPreferencesBulkAddOptOuts projects/{}/messaging_preferences/bulk_add_opt_outs
 messagingPreferencesExportOptOutsCsv projects/{}/messaging_preferences/export_opt_outs_csv
-messagingPreferencesLink projects/{}/messaging_preferences/generate_link
 messagingTemplate projects/{}/messaging_templates/{}
 messagingTemplates projects/{}/messaging_templates
 notebook projects/{}/notebooks/{}
@@ -238,6 +235,7 @@ signalReport projects/{}/signals/reports/{}
 signalReports projects/{}/signals/reports
 signalSourceConfig projects/{}/signals/source_configs/{}
 signalSourceConfigs projects/{}/signals/source_configs
+signalTeamConfig projects/{}/signals/config
 subscription projects/{}/subscriptions/{}
 subscriptions projects/{}/subscriptions
 survey projects/{}/surveys/{}

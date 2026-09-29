@@ -1,4 +1,4 @@
-{% from "_macros.jinja" import cite_in, rate_notability %}Decide whether the following condition occurred during the session: {{ user_prompt }}
+{% from "_macros.jinja" import cite_in, pick_media, rate_notability %}Decide whether the following condition occurred during the session: {{ user_prompt }}
 
 Before deciding, verify each moment that bears on this condition with `get_events_around`: the video alone is easy to misread, and what the events record at a moment outranks a visual impression of it.
 
@@ -7,3 +7,5 @@ In `reasoning`, weigh the evidence for and against, noting what the events confi
 {{ cite_in('reasoning') }}
 
 {{ rate_notability() }}
+
+{{ pick_media() }}
