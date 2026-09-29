@@ -310,6 +310,32 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             configuration.refresh_from_db()
         assert configuration.consecutive_failures == 0
 
+    def test_the_group_cap_counts_remembered_label_sets_too(self) -> None:
+        configuration = self._configuration()
+        with team_scope(self.team.id):
+            for index in range(MAX_GROUPS_PER_CONFIGURATION):
+                PlatformAlert.objects.create(
+                    team=self.team,
+                    configuration=configuration,
+                    grouping_key=grouping_key_for({"pod": f"old-{index:04d}"}),
+                )
+        fresh = [
+            _series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"pod": f"new-{i:04d}"})
+            for i in range(2)
+        ]
+
+        evaluation, _ = self._run(configuration, series=fresh)
+        self._record(evaluation)
+
+        by_key = {o.grouping_key: o for o in evaluation.outcomes}
+        assert by_key[""].consecutive_failures == 1
+        assert grouping_key_for({"pod": "new-0000"}) not in by_key
+        with team_scope(self.team.id):
+            assert (
+                PlatformAlert.objects.filter(configuration=configuration).exclude(grouping_key="").count()
+                == MAX_GROUPS_PER_CONFIGURATION
+            )
+
     def test_the_group_cap_sits_below_the_query_facades_series_cap(self) -> None:
         # The facade truncates each clause at MAX_SERIES_PER_CLAUSE, so a cap at or above it could never see overflow.
         assert MAX_GROUPS_PER_CONFIGURATION < MAX_SERIES_PER_CLAUSE

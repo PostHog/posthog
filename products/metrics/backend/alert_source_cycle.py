@@ -494,9 +494,23 @@ def _evaluate_groups(
     rather than dropped, so a group that was firing is not stranded."""
     selected = _select_series(series, source)
     grouped = len(selected) > 1 or any(one.labels for one in selected)
+    # The cap counts the label sets the platform already remembers, or a configuration could add
+    # a fresh set of rows on every check and grow without bound.
+    remembered = {group.grouping_key for group in check.groups if group.grouping_key}
+    admitted: list[MetricSeries] = []
+    new_keys: set[str] = set()
+    overflow = 0
+    for one in selected:
+        key = grouping_key_for(one.labels)
+        if key == "" or key in remembered or len(remembered) + len(new_keys) < MAX_GROUPS_PER_CONFIGURATION:
+            admitted.append(one)
+            if key and key not in remembered:
+                new_keys.add(key)
+        else:
+            overflow += 1
     decisions: list[_GroupDecision] = []
     seen: set[str] = set()
-    for one in selected[:MAX_GROUPS_PER_CONFIGURATION]:
+    for one in admitted:
         key = grouping_key_for(one.labels)
         seen.add(key)
         values = _values_newest_first(
@@ -505,13 +519,14 @@ def _evaluate_groups(
         group = _group_of(check, key)
         outcome = _evaluate_group(check, group, values, now=now, muted=muted)
         decisions.append(_GroupDecision(group=group, labels=dict(one.labels), value=values[0], outcome=outcome))
-    if len(selected) > MAX_GROUPS_PER_CONFIGURATION:
+    if overflow:
         # Visible on the root group. Silently stopping at the cap would read as "nothing is wrong"
         # for every label set past it.
-        overflow = ValueError(
-            f"Too many groups ({len(selected)} > {MAX_GROUPS_PER_CONFIGURATION}); add filters or group by fewer labels"
+        total = len(remembered) + len(new_keys) + overflow
+        too_many = ValueError(
+            f"Too many groups ({total} > {MAX_GROUPS_PER_CONFIGURATION}); add filters or group by fewer labels"
         )
-        decisions.append(_failed(check, _root_group(check), overflow, now=now, muted=muted))
+        decisions.append(_failed(check, _root_group(check), too_many, now=now, muted=muted))
         seen.add("")
     for group in check.groups:
         if group.grouping_key in seen:
