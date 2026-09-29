@@ -2,13 +2,12 @@ import json
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 import dagster
@@ -60,6 +59,7 @@ class StoredRow:
     flag_key: str
     response: str
     session_id: str
+    person_id: UUID
     inserted_at_is_timestamp: bool
 
 
@@ -82,6 +82,7 @@ def copied(event: SourceEvent) -> StoredRow:
         flag_key=str(event.properties["$feature_flag"]),
         response=str(event.properties["$feature_flag_response"]),
         session_id=str(event.properties["$session_id"]),
+        person_id=uuid5(NAMESPACE_URL, event.distinct_id),
         inserted_at_is_timestamp=True,
     )
 
@@ -90,16 +91,12 @@ INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=1
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
 INSIDE_OLD = flag_called("inside_old", TEAM_TWO, timedelta(days=60))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
-# An import in the captured format keeps the source event's uuid, so a second team can hold the
-# same uuid on the same shard and day.
-ALREADY_FORKED_UUID_IN_TEAM_TWO = replace(ALREADY_FORKED, team_id=TEAM_TWO)
 
 SOURCE_EVENTS = [
     INSIDE_RECENT,
     INSIDE_TEAM_THREE,
     INSIDE_OLD,
     ALREADY_FORKED,
-    ALREADY_FORKED_UUID_IN_TEAM_TWO,
     SourceEvent(
         label="numeric_flag_key",
         team_id=TEAM_ONE,
@@ -134,10 +131,15 @@ KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timed
 # insert_flag_evaluations writes no properties, so the shard computes empty typed columns for this
 # row. A copied duplicate of the same uuid carries the source event's flag key instead.
 FORKED_ROW = StoredRow(
-    label=ALREADY_FORKED.label, flag_key="", response="", session_id="", inserted_at_is_timestamp=True
+    label=ALREADY_FORKED.label,
+    flag_key="",
+    response="",
+    session_id="",
+    person_id=uuid5(NAMESPACE_URL, ALREADY_FORKED.distinct_id),
+    inserted_at_is_timestamp=True,
 )
 
-DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD, ALREADY_FORKED_UUID_IN_TEAM_TWO)
+DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD)
 
 
 def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[SourceEvent]) -> None:
@@ -174,9 +176,9 @@ def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: Sourc
 def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
     labels = {event.uuid: event.label for event in SOURCE_EVENTS}
 
-    def select(client: Client) -> list[tuple[UUID, str, str, str, int]]:
+    def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, int]]:
         return client.execute(
-            """SELECT uuid, flag_key, response, session_id, inserted_at = timestamp
+            """SELECT uuid, flag_key, response, session_id, person_id, inserted_at = timestamp
             FROM flag_evaluations
             WHERE uuid != %(kafka_path_row)s""",
             {"kafka_path_row": KAFKA_PATH_ROW.uuid},
@@ -188,9 +190,10 @@ def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
             flag_key=flag_key,
             response=response,
             session_id=session_id,
+            person_id=person_id,
             inserted_at_is_timestamp=bool(inserted_at_is_timestamp),
         )
-        for uuid, flag_key, response, session_id, inserted_at_is_timestamp in cluster.any_host_by_role(
+        for uuid, flag_key, response, session_id, person_id, inserted_at_is_timestamp in cluster.any_host_by_role(
             select, NodeRole.DATA
         ).result()
     )
@@ -217,27 +220,25 @@ def days_before(now: datetime, days: int) -> str:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "config_for, runs, expected_copies",
+    "config_for, reported_rows, expected_copies",
     [
-        pytest.param(lambda now: {}, 1, DEFAULT_WINDOW_COPIES, id="default_window"),
-        pytest.param(lambda now: {}, 2, DEFAULT_WINDOW_COPIES, id="second_run_copies_nothing_new"),
+        pytest.param(lambda now: {}, [3], DEFAULT_WINDOW_COPIES, id="default_window"),
+        pytest.param(lambda now: {}, [3, 0], DEFAULT_WINDOW_COPIES, id="second_run_copies_nothing_new"),
         pytest.param(
             lambda now: {"start_date": days_before(now, 60), "end_date": days_before(now, 30)},
-            1,
+            [1],
             (INSIDE_OLD,),
             id="explicit_window_includes_start_day_and_excludes_end_day",
         ),
-        pytest.param(
-            lambda now: {"team_ids": [TEAM_TWO]}, 1, (INSIDE_OLD, ALREADY_FORKED_UUID_IN_TEAM_TWO), id="team_ids"
-        ),
-        pytest.param(lambda now: {"team_id_chunks": 3}, 1, DEFAULT_WINDOW_COPIES, id="team_id_chunks"),
-        pytest.param(lambda now: {"dry_run": True}, 1, (), id="dry_run"),
+        pytest.param(lambda now: {"team_ids": [TEAM_TWO]}, [1], (INSIDE_OLD,), id="team_ids"),
+        pytest.param(lambda now: {"team_id_chunks": 3}, [3], DEFAULT_WINDOW_COPIES, id="team_id_chunks"),
+        pytest.param(lambda now: {"dry_run": True}, [3], (), id="dry_run"),
     ],
 )
 def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     cluster: ClickhouseCluster,
     config_for: Callable[[datetime], dict[str, Any]],
-    runs: int,
+    reported_rows: list[int],
     expected_copies: tuple[SourceEvent, ...],
 ) -> None:
     now = datetime.now(UTC)
@@ -245,9 +246,12 @@ def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     seed_flag_evaluation(cluster, now, ALREADY_FORKED)
     seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
 
-    results = [run_backfill(cluster, **config_for(now)) for _ in range(runs)]
+    results = [run_backfill(cluster, **config_for(now)) for _ in reported_rows]
 
-    assert [result.success for result in results] == [True] * runs
+    assert [result.success for result in results] == [True] * len(reported_rows)
+    assert [sum(result.output_for_node("backfill_flag_evaluations_shard").values()) for result in results] == (
+        reported_rows
+    )
     assert stored_rows(cluster) == Counter([FORKED_ROW, *(copied(event) for event in expected_copies)])
 
 
@@ -272,7 +276,10 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
     run_config: dict[str, Any] | None,
 ) -> None:
     now = datetime.now(UTC)
-    seed_source_events(cluster, now, [INSIDE_RECENT])
+    on_first_copied_day = replace(
+        INSIDE_RECENT, age=now - datetime.combine(now.date() - timedelta(days=2), time(12), tzinfo=UTC)
+    )
+    seed_source_events(cluster, now, [on_first_copied_day])
     seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
     instance = dagster.DagsterInstance.ephemeral()
     # Dagster refuses to store a QUEUED run that has no code location origin.
@@ -298,23 +305,22 @@ def test_backfill_waits_for_an_active_blocking_run_before_copying(
 
     assert result.success
     assert copies_seen_while_blocked == [0]
-    assert stored_rows(cluster) == Counter([copied(INSIDE_RECENT)])
+    assert stored_rows(cluster) == Counter([copied(on_first_copied_day)])
 
 
 @pytest.mark.parametrize(
-    "status, since_offset, stops",
+    "status, created_before_the_check, stops",
     [
-        pytest.param(dagster.DagsterRunStatus.STARTED, timedelta(minutes=-1), True, id="started_during_the_copy"),
-        pytest.param(dagster.DagsterRunStatus.SUCCESS, timedelta(minutes=-1), True, id="finished_during_the_copy"),
-        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, timedelta(minutes=-1), False, id="not_started_yet"),
-        pytest.param(dagster.DagsterRunStatus.STARTED, timedelta(minutes=1), False, id="created_before_the_copy"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, False, True, id="started_during_the_copy"),
+        pytest.param(dagster.DagsterRunStatus.SUCCESS, False, True, id="finished_during_the_copy"),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, False, id="not_started_yet"),
+        pytest.param(dagster.DagsterRunStatus.CANCELED, True, False, id="finished_before_the_check"),
     ],
 )
 def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
-    status: dagster.DagsterRunStatus, since_offset: timedelta, stops: bool
+    status: dagster.DagsterRunStatus, created_before_the_check: bool, stops: bool
 ) -> None:
     instance = dagster.DagsterInstance.ephemeral()
-    instance.create_run_for_job(job_def=deletes_job, status=status)
     backfill = ShardBackfill(
         cluster=MagicMock(),
         shard_num=1,
@@ -326,68 +332,57 @@ def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
         workload=Workload.DEFAULT,
         node_role=NodeRole.ALL,
     )
-
-    check = partial(
-        backfill.check_no_blocking_run_started, since=datetime.now(UTC) + since_offset, day=date(2026, 3, 10)
-    )
+    if created_before_the_check:
+        instance.create_run_for_job(job_def=deletes_job, status=status)
+    check = backfill.wait_for_blocking_runs()
+    if not created_before_the_check:
+        instance.create_run_for_job(job_def=deletes_job, status=status)
 
     if stops:
-        with pytest.raises(dagster.Failure):
-            check()
+        with pytest.raises(dagster.Failure, match="2026-03-10"):
+            backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
     else:
-        check()
+        backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize(
-    "created_during",
-    [
-        pytest.param("wait_scan", id="created_while_the_wait_scans_other_jobs"),
-        pytest.param("failed_copy", id="created_during_a_copy_that_fails_partway"),
-    ],
+    "copy_fails", [pytest.param(False, id="copy_succeeds"), pytest.param(True, id="copy_fails_partway")]
 )
-def test_backfill_stops_when_a_blocking_run_is_created_after_the_wait_starts_its_scan(created_during: str) -> None:
+def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
+    cluster: ClickhouseCluster, copy_fails: bool
+) -> None:
+    now = datetime.now(UTC)
+    seed_source_events(cluster, now, [INSIDE_RECENT])
+    seed_flag_evaluation(cluster, now, KAFKA_PATH_ROW)
     instance = dagster.DagsterInstance.ephemeral()
-    backfill = ShardBackfill(
-        cluster=MagicMock(),
-        shard_num=1,
-        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
-        instance=instance,
-        run_id="backfill-run",
-        log=MagicMock(),
-        query_tags=DagsterTags(),
-        workload=Workload.DEFAULT,
-        node_role=NodeRole.ALL,
+    copy_day = ShardBackfill.copy_day
+
+    def copy_while_deletes_starts(backfill: ShardBackfill, *args: Any) -> int:
+        instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
+        rows = copy_day(backfill, *args)
+        if copy_fails:
+            raise RuntimeError("the insert stopped partway")
+        return rows
+
+    with patch.object(ShardBackfill, "copy_day", autospec=True, side_effect=copy_while_deletes_starts):
+        result = run_backfill(cluster, instance=instance, start_date=days_before(now, 3))
+
+    [failure] = result.get_step_failure_events()
+    assert failure.step_failure_data.error is not None
+    assert "started while" in failure.step_failure_data.error.message
+
+
+def test_backfill_refuses_to_start_while_another_backfill_runs() -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(job_def=flag_evaluations_backfill_job, status=dagster.DagsterRunStatus.STARTED)
+
+    result = flag_evaluations_backfill_job.execute_in_process(
+        resources={"cluster": MagicMock()}, instance=instance, raise_on_error=False
     )
-    day = date(2026, 3, 10)
 
-    with time_machine.travel(datetime(2026, 3, 12, tzinfo=UTC), tick=False) as clock:
-
-        def create_blocking_run() -> None:
-            # A minute on each side keeps the run's create_timestamp strictly between the clock
-            # readings taken before and after it.
-            clock.shift(timedelta(minutes=1))
-            instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
-            clock.shift(timedelta(minutes=1))
-
-        def scan(*_args: Any, **_kwargs: Any) -> list[str]:
-            if created_during == "wait_scan":
-                create_blocking_run()
-            return []
-
-        def copy(*_args: Any) -> int:
-            if created_during == "failed_copy":
-                create_blocking_run()
-                raise RuntimeError("insert failed partway")
-            return 0
-
-        with (
-            patch("posthog.dags.flag_evaluations_backfill.describe_active_runs", side_effect=scan),
-            patch.object(ShardBackfill, "check_disk_headroom"),
-            patch.object(ShardBackfill, "check_consumer_lag"),
-            patch.object(ShardBackfill, "copy_day", side_effect=copy),
-            pytest.raises(dagster.Failure, match=f"started while {day} copied"),
-        ):
-            backfill.run([day])
+    [failure] = result.get_step_failure_events()
+    assert failure.step_key == "plan_flag_evaluations_backfill"
 
 
 @pytest.mark.parametrize(
@@ -495,8 +490,26 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     [
         pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
         pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
+        pytest.param({"start_date": "2025-12-09"}, id="start_date_past_the_ttl"),
     ],
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
     with pytest.raises(dagster.Failure):
         resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+
+
+@pytest.mark.parametrize(
+    "overrides, newest, oldest, count",
+    [
+        pytest.param(
+            {"start_date": "2026-03-06", "end_date": "2026-03-09"}, date(2026, 3, 8), date(2026, 3, 6), 3, id="explicit"
+        ),
+        pytest.param({}, date(2026, 3, 8), date(2025, 12, 10), 89, id="default"),
+    ],
+)
+def test_resolve_backfill_days_lists_each_day_newest_first(
+    overrides: dict[str, Any], newest: date, oldest: date, count: int
+) -> None:
+    days = resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+
+    assert (days[0], days[-1], len(days)) == (newest, oldest, count)

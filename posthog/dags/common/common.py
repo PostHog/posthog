@@ -54,28 +54,35 @@ def settings_with_log_comment(
     return {"log_comment": qt.to_json()}
 
 
-# A run in one of these statuses is running, or it will start without anyone acting. CANCELING
-# counts because a ClickHouse mutation the run issued keeps applying on the server after the run stops.
-ACTIVE_RUN_STATUSES = (
-    dagster.DagsterRunStatus.QUEUED,
-    dagster.DagsterRunStatus.NOT_STARTED,
+# Statuses under which a run's work may still land on the cluster. STARTING and STARTED runs
+# execute. A CANCELING run's last ClickHouse mutation keeps applying on the server.
+EXECUTING_RUN_STATUSES = (
     dagster.DagsterRunStatus.STARTING,
     dagster.DagsterRunStatus.STARTED,
     dagster.DagsterRunStatus.CANCELING,
 )
 
+ACTIVE_RUN_STATUSES = (
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    *EXECUTING_RUN_STATUSES,
+)
 
-def describe_active_runs(
+
+def describe_runs(
     instance: dagster.DagsterInstance,
     job_names: Iterable[str],
     *,
     exclude_run_id: str,
     statuses: Sequence[dagster.DagsterRunStatus] = ACTIVE_RUN_STATUSES,
+    created_after: datetime | None = None,
 ) -> list[str]:
-    """Describe each run of these jobs that is in one of the statuses, except the excluded run."""
+    """Describe each run of these jobs that matches the statuses and creation time, except the excluded run."""
     blockers: list[str] = []
     for job_name in job_names:
-        records = instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=list(statuses)))
+        records = instance.get_run_records(
+            dagster.RunsFilter(job_name=job_name, statuses=list(statuses), created_after=created_after)
+        )
         blockers.extend(
             f"{job_name} run {record.dagster_run.run_id}"
             for record in records

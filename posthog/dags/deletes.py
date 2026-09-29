@@ -26,7 +26,7 @@ from posthog.clickhouse.cluster import (
     wait_for_mutations_on_shards,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
-from posthog.dags.common import JobOwners, describe_active_runs
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -381,17 +381,6 @@ class AdhocEventDeletesDictionary(Dictionary):
         )
 
 
-# Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
-# executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
-# NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
-# see this run once it starts.
-_EXECUTING_RUN_STATUSES = [
-    dagster.DagsterRunStatus.STARTING,
-    dagster.DagsterRunStatus.STARTED,
-    dagster.DagsterRunStatus.CANCELING,
-]
-
-
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
     """Fail this run when another run of the same job, or any squash run, is executing.
@@ -409,10 +398,11 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     between its check and the sensor launching this run, so the launched run checks again here.
     This covers direct launchpad starts as well.
     """
-    blockers = describe_active_runs(
+    # A queued run has done nothing yet. Its own guard sees this run once it starts.
+    blockers = describe_runs(
         context.instance,
         (context.job_name, squash_person_overrides.name),
-        statuses=_EXECUTING_RUN_STATUSES,
+        statuses=EXECUTING_RUN_STATUSES,
         exclude_run_id=context.run_id,
     )
     if blockers:
@@ -1220,7 +1210,7 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     """
     # Unlike the in-job guard, queued and not-started runs count here. This check asks whether
     # launching another run would collide, not which of two started runs came first.
-    blockers = describe_active_runs(
+    blockers = describe_runs(
         context.instance,
         (deletes_job.name, squash_person_overrides.name, context.job_name),
         exclude_run_id=context.run_id,

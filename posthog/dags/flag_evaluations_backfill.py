@@ -15,7 +15,7 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import JobOwners, dagster_tags, describe_active_runs
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, dagster_tags, describe_runs
 from posthog.dags.data_deletion_requests import DELETION_JOB_NAMES
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import squash_person_overrides
@@ -41,16 +41,15 @@ TIB = 1024 * GIB
 # removed: a stale person_id after a squash, or a row or property that a deletion erased.
 BLOCKING_JOB_NAMES = (squash_person_overrides.name, deletes_job.name, *DELETION_JOB_NAMES)
 
-_UNSTARTED_RUN_STATUSES = (dagster.DagsterRunStatus.QUEUED, dagster.DagsterRunStatus.NOT_STARTED)
-_EXECUTING_RUN_STATUSES = (
-    dagster.DagsterRunStatus.STARTING,
-    dagster.DagsterRunStatus.STARTED,
-    dagster.DagsterRunStatus.CANCELING,
+_FINISHED_RUN_STATUSES = (
+    dagster.DagsterRunStatus.SUCCESS,
+    dagster.DagsterRunStatus.FAILURE,
+    dagster.DagsterRunStatus.CANCELED,
 )
 
 # The nine DEFAULT columns are left out so the shard computes them from properties, the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
-# that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` arm,
+# that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` bound,
 # and it keeps copied rows out of the consumer-lag query below.
 _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp"
 
@@ -134,6 +133,12 @@ class BackfillPlan:
 
 
 @frozen
+class BlockingRunCheck:
+    since: datetime
+    finished_runs: frozenset[str]
+
+
+@frozen
 class PolicyDisk:
     volume_priority: int
     move_factor: float
@@ -155,6 +160,11 @@ def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date)
         else today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)
     )
     end = date.fromisoformat(config.end_date) if config.end_date else latest_end
+    earliest_start = today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)
+    if start < earliest_start:
+        raise dagster.Failure(
+            description=f"start_date {start} is before {earliest_start}. The TTL drops those rows as soon as they land."
+        )
     if end > latest_end:
         raise dagster.Failure(description=f"end_date {end} is after yesterday ({latest_end}).")
     if start >= end:
@@ -179,9 +189,9 @@ def disk_headroom(disks: Sequence[PolicyDisk]) -> DiskHeadroom:
     return DiskHeadroom(usable_bytes=int(usable), below_move_line=below_move_line)
 
 
-def build_copy_query(*, dry_run: bool, team_ids: bool, chunked: bool) -> str:
+def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> str:
     team_filter = ""
-    if team_ids:
+    if filter_team_ids:
         team_filter += " AND team_id IN %(team_ids)s"
     if chunked:
         team_filter += " AND modulo(team_id, %(team_id_chunks)s) = %(chunk)s"
@@ -191,8 +201,8 @@ SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-    AND (team_id, uuid) NOT IN (
-        SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    AND uuid NOT IN (
+        SELECT uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
     )
 WHERE JSONType(properties, '$feature_flag') = 'String'
@@ -208,6 +218,14 @@ def plan_flag_evaluations_backfill(
     context: dagster.OpExecutionContext, config: FlagEvaluationsBackfillConfig
 ) -> BackfillPlan:
     """Resolve the window once, so a shard re-executed from the UI later copies the same days."""
+    if not config.dry_run:
+        # Two runs that copy the same day at once both find the day's rows missing from the anti-join.
+        # Both runs then insert those rows.
+        other_runs = describe_runs(
+            context.instance, (context.job_name,), statuses=EXECUTING_RUN_STATUSES, exclude_run_id=context.run_id
+        )
+        if other_runs:
+            raise dagster.Failure(description="Another backfill is running: " + "; ".join(other_runs))
     days = resolve_backfill_days(config, today=datetime.now(UTC).date())
     context.log.info(f"Backfilling {len(days)} day(s), newest first, from {days[0]} back to {days[-1]}")
     return BackfillPlan(days=days, config=config)
@@ -250,9 +268,10 @@ class ShardBackfill:
     node_role: NodeRole
 
     def run(self, days: Sequence[date]) -> int:
-        self.check_no_other_backfill_run()
         copy_query = build_copy_query(
-            dry_run=self.config.dry_run, team_ids=bool(self.config.team_ids), chunked=self.config.team_id_chunks > 1
+            dry_run=self.config.dry_run,
+            filter_team_ids=bool(self.config.team_ids),
+            chunked=self.config.team_id_chunks > 1,
         )
         settings: dict[str, Any] = {
             "max_execution_time": self.config.max_execution_time_seconds,
@@ -262,16 +281,14 @@ class ShardBackfill:
         total_rows = 0
         for day in days:
             self.wait_for_parts_to_merge(day)
-            no_blocking_run_since = self.wait_for_blocking_runs()
+            blocking_run_check = self.wait_for_blocking_runs()
             self.check_disk_headroom()
             self.check_consumer_lag()
             try:
                 rows = self.copy_day(day, copy_query, settings)
             finally:
-                # An INSERT that fails partway keeps the parts it already wrote, so a failed copy
-                # can also hold rows that an overlapping run removed.
                 if not self.config.dry_run:
-                    self.check_no_blocking_run_started(since=no_blocking_run_since, day=day)
+                    self.check_no_blocking_run_started(blocking_run_check, day=day)
             total_rows += rows
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
@@ -294,50 +311,43 @@ class ShardBackfill:
             self.log.info(f"Waiting for partition {day:%Y%m} to merge: {active_parts} active parts")
             time.sleep(self.config.parts_check_poll_frequency_seconds)
 
-    def wait_for_blocking_runs(self) -> datetime:
-        while True:
-            # The scan reads one job at a time. Reading the clock before the scan makes a run that is
-            # created after the scan read its job still count as created after the returned time.
-            scan_started_at = datetime.now(UTC)
-            blockers = describe_active_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id)
-            if not blockers:
-                return scan_started_at
+    def wait_for_blocking_runs(self) -> BlockingRunCheck:
+        while blockers := describe_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id):
             self.log.info(
                 f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
             )
             time.sleep(self.config.blocking_run_poll_seconds)
-
-    def check_no_other_backfill_run(self) -> None:
-        # Two runs that copy the same shard and day at once both find a row missing, and both insert
-        # it. The two rows are identical, so no later run or delete can remove only one of them.
-        # Waiting here would leave two runs waiting on each other, so the later run stops instead.
-        # The check runs once per shard op, so a second run that stops here does not also stop the
-        # run that was already copying.
-        others = describe_active_runs(
+        # Run storage can record a creation time to the whole second, so the check reaches one second
+        # back. The returned value lists the runs that finished inside that second. The check ignores them.
+        since = datetime.now(UTC) - timedelta(seconds=1)
+        finished = describe_runs(
             self.instance,
-            (flag_evaluations_backfill_job.name,),
+            BLOCKING_JOB_NAMES,
+            statuses=_FINISHED_RUN_STATUSES,
+            created_after=since,
             exclude_run_id=self.run_id,
-            statuses=_EXECUTING_RUN_STATUSES,
         )
-        if others:
-            raise dagster.Failure(
-                description=f"Stopping shard {self.shard_num}: {'; '.join(others)} is executing. "
-                "Two backfill runs copying at once can insert the same row twice. "
-                "Wait for that run to finish or cancel it, then run the backfill again."
-            )
+        return BlockingRunCheck(since=since, finished_runs=frozenset(finished))
 
-    def check_no_blocking_run_started(self, *, since: datetime, day: date) -> None:
+    def check_no_blocking_run_started(self, check: BlockingRunCheck, *, day: date) -> None:
         started = [
-            f"{job_name} run {record.dagster_run.run_id}"
-            for job_name in BLOCKING_JOB_NAMES
-            for record in self.instance.get_run_records(dagster.RunsFilter(job_name=job_name, created_after=since))
-            if record.dagster_run.status not in _UNSTARTED_RUN_STATUSES
+            run
+            for run in describe_runs(
+                self.instance,
+                BLOCKING_JOB_NAMES,
+                statuses=(*EXECUTING_RUN_STATUSES, *_FINISHED_RUN_STATUSES),
+                created_after=check.since,
+                exclude_run_id=self.run_id,
+            )
+            if run not in check.finished_runs
         ]
         if started:
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: {'; '.join(started)} started while {day} copied. "
                 "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
-                f"Check {day} on this shard before running the backfill again."
+                f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
+                f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
+                "AND inserted_at = timestamp`), then run the backfill again."
             )
 
     def check_disk_headroom(self) -> None:
@@ -354,7 +364,10 @@ class ShardBackfill:
                 continue
             headroom = disk_headroom(disks)
             if headroom.below_move_line:
-                problems.append(f"{host.connection_info.host} has a disk below its move line")
+                problems.append(
+                    f"{host.connection_info.host} has a disk with less free space than its move_factor reserve, "
+                    "so ClickHouse is moving parts off it"
+                )
             elif headroom.usable_bytes < self.config.min_free_bytes:
                 problems.append(
                     f"{host.connection_info.host} has {headroom.usable_bytes} usable bytes, "
