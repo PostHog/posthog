@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 from posthog.test.base import BaseTest
@@ -36,7 +37,16 @@ class TestCompletedListingProof(BaseTest):
         )
         return ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
 
-    def _job(self, schema, *, status, listed_at=None, companion_of=None, billable=True, tail=None) -> ExternalDataJob:
+    def _job(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        status: str,
+        listed_at: dt.datetime | None = None,
+        companion_of: uuid.UUID | None = None,
+        billable: bool = True,
+        tail: dict[str, str] | None = None,
+    ) -> ExternalDataJob:
         snapshot: dict = {}
         if listed_at is not None:
             snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()

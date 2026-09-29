@@ -476,12 +476,19 @@ class _BufferFile:
         return self.key.rsplit("/", 1)[-1]
 
 
+# Past this many files at one position the tail is not recorded, and those files go by the mtime
+# rule a run later. A transaction split across that many files is rare, and the tail is stored on
+# every job that lists it.
+_MAX_TAIL_FILES = 100
+
+
 def _listing_tail(files: list[_BufferFile]) -> dict[str, str]:
     """Name to ETag of the files at the highest position listed, which the next run's floor sits on."""
     if not files:
         return {}
     top = max(file.span.end_seq for file in files)
-    return {file.name: file.etag for file in files if file.span.end_seq == top and file.etag}
+    tail = {file.name: file.etag for file in files if file.span.end_seq == top and file.etag}
+    return tail if len(tail) <= _MAX_TAIL_FILES else {}
 
 
 class ReplayFilter:
@@ -700,8 +707,9 @@ class CDCSourceManager:
         proof = self._proof
         if proof is None:
             return False
-        if file.etag is not None and proof.tail.get(file.name) == file.etag:
-            return True
+        if file.name in proof.tail:
+            # A different ETag means capture rewrote the file after that listing, so the run never read it.
+            return file.etag is not None and proof.tail[file.name] == file.etag
         modified = file.modified
         if modified is None or modified.tzinfo is None:
             return False
@@ -790,7 +798,8 @@ class CDCSourceManager:
         """
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        await self.stamp_listing(listed_at, _listing_tail(files))
+        tail = _listing_tail(files)
+        await self.stamp_listing(listed_at, tail)
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
@@ -808,6 +817,10 @@ class CDCSourceManager:
                     # A concurrent run, or a retry of this activity, can have deleted the file
                     # between the listing and this open — the listing is a snapshot, not a lease.
                     await self._logger.adebug("cdc_buffer_file_already_consumed", key=file.key)
+                    # This run never read the file, and a capture retry can write the same bytes
+                    # under the same name, so its ETag must not prove the rewrite read.
+                    if tail.pop(file.name, None) is not None:
+                        await self.stamp_listing(listed_at, tail)
                     continue
 
                 if table.num_rows == 0:

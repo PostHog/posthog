@@ -42,6 +42,7 @@ _PREFIX = f"bucket/cdc_producer/{_TEAM_ID}/{_SCHEMA_ID}"
 _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 # Older than any completed-run start minus the clock-skew margin.
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
+_RECENT = _NOW - dt.timedelta(minutes=1)
 
 
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
@@ -178,7 +179,7 @@ def _manager(*, deletion_floor: int | None = None, proof: ListingProof | None = 
 
 
 async def _collect(
-    s3: _FakeS3, *, deletion_floor: int | None = None, proof: ListingProof | None = None, **kwargs
+    s3: _FakeS3, *, deletion_floor: int | None = None, proof: ListingProof | None = None, **kwargs: int
 ) -> list[pa.Table]:
     manager = _manager(deletion_floor=deletion_floor, proof=proof)
     with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
@@ -679,18 +680,24 @@ class TestFloorDeletion:
 
     @parameterized.expand(
         [
-            ("listed_with_the_same_etag", {build_buffer_file_name(11, 20, 0): "etag-1"}, True),
-            ("rewritten_since_the_listing", {build_buffer_file_name(11, 20, 0): "etag-0"}, False),
-            ("not_in_the_listing", {}, False),
+            ("listed_with_the_same_etag", {build_buffer_file_name(11, 20, 0): "etag-1"}, _RECENT, True),
+            ("rewritten_since_the_listing", {build_buffer_file_name(11, 20, 0): "etag-0"}, _RECENT, False),
+            (
+                "rewritten_with_an_mtime_that_looks_old",
+                {build_buffer_file_name(11, 20, 0): "etag-0"},
+                _OLD_MTIME,
+                False,
+            ),
+            ("not_in_the_listing", {}, _RECENT, False),
         ]
     )
     async def test_a_file_written_just_before_the_listing_goes_on_the_next_run_only_if_that_listing_read_it(
-        self, _name: str, tail: dict[str, str], deleted: bool
+        self, _name: str, tail: dict[str, str], modified: dt.datetime, deleted: bool
     ) -> None:
         key = _key(11, 20)
         s3 = _FakeS3(
             {key: _parquet_bytes(_table([1], [20]))},
-            mtimes={key: _NOW - dt.timedelta(minutes=1)},
+            mtimes={key: modified},
             etags={key: "etag-1"},
         )
         await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail=tail))
@@ -714,6 +721,30 @@ class TestFloorDeletion:
             ANY,
             {build_buffer_file_name(11, 20, 0): "etag-a", build_buffer_file_name(11, 20, 1): "etag-b"},
         )
+
+    async def test_a_listed_file_that_is_gone_before_the_read_leaves_the_tail(self) -> None:
+        s3 = _FakeS3(
+            {
+                _key(11, 20, 0): _parquet_bytes(_table([2], [20])),
+                _key(11, 20, 1): _parquet_bytes(_table([3], [20])),
+            },
+            etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
+            missing_keys={_key(11, 20, 1)},
+        )
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        assert stamp.await_args_list[-1].args[1] == {build_buffer_file_name(11, 20, 0): "etag-a"}
+
+    async def test_a_tail_too_large_to_store_is_left_out(self) -> None:
+        files = {_key(11, 20, index): _parquet_bytes(_table([index], [20])) for index in range(101)}
+        s3 = _FakeS3(files, etags={key: f"etag-{key}" for key in files})
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        stamp.assert_awaited_once_with(ANY, {})
 
     async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
         s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
