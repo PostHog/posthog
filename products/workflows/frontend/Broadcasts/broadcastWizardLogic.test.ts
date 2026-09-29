@@ -22,6 +22,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         created_at: '2026-01-01T00:00:00Z',
         created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
         updated_at: overrides.updatedAt,
+        last_run: null,
         trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
         email_sending_rate_limit: null,
