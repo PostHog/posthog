@@ -2892,7 +2892,8 @@ class TaskRun(models.Model):
         never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
         `lock_attempts` is how often to wait for the per-log append lock before raising
-        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
+        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1, and a
+        caller that holds the run's row lock across every write to this log passes 0.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:

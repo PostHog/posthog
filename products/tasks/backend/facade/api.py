@@ -3601,7 +3601,9 @@ def append_imported_task_run_log(
         state = run.state or {}
         if any(state.get(key) != value for key, value in expected_state.items()):
             return False
-        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        # Every writer of an import run's log holds this row lock, so the Redis append lock adds
+        # nothing here, and one orphaned by a killed attempt would refuse every retry until it expires.
+        run.append_log(entries, ttl_days=None, lock_attempts=0, batch_id=batch_id)
         run.state = {**state, **state_updates}
         run.completed_at = completed_at
         run.save(update_fields=["state", "completed_at"])

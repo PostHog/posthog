@@ -27,6 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.models import User
+from posthog.redis import get_client
 
 from products.posthog_ai.backend.conversation_mirror import (
     LAST_MESSAGE_ID_KEY,
@@ -438,6 +439,24 @@ class TestMirrorConversation(APIBaseTest):
         assert result.appended_frames == 4
         assert len(self._log_methods()) == 4
         assert TaskRun.objects.get(id=result.run_id).state[MESSAGES_COPIED_KEY] == 2
+
+    def test_a_lock_orphaned_by_a_killed_append_does_not_block_the_retry(self) -> None:
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        first = self._mirror()
+        log_url = TaskRun.objects.get(id=first.run_id).log_url
+        lock_key = f"tasks:log_append:{log_url}"
+        assert get_client().lock(lock_key, timeout=60).acquire(blocking=False)
+        self.addCleanup(get_client().delete, lock_key)
+
+        self.state_messages = [
+            *self.state_messages,
+            HumanMessage(content="again", id="h2"),
+            AssistantMessage(content="hi again", id="a2"),
+        ]
+        second = self._mirror()
+
+        assert second.appended_frames == 3
+        assert TaskRun.objects.get(id=first.run_id).state[MESSAGES_COPIED_KEY] == 4
 
     def test_a_turn_still_in_progress_waits_for_the_next_copy(self) -> None:
         self.state_messages = [
