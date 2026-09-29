@@ -110,6 +110,26 @@ const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => [
     ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
 ]
 
+const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
+    if (
+        recalculation.status === RECALCULATION_STATUSES.pending ||
+        recalculation.status === RECALCULATION_STATUSES.in_progress
+    ) {
+        return false
+    }
+
+    const resultCount = recalculation.results?.length ?? 0
+    const metricUuids = currentMetricUuids(experiment)
+    const coveredUuids = new Set(coveredMetricUuids(recalculation))
+
+    return (
+        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
+        resultCount < recalculation.completed_metrics ||
+        resultCount < metricUuids.length ||
+        metricUuids.some((uuid) => !coveredUuids.has(uuid))
+    )
+}
+
 type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
@@ -650,40 +670,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
-                     * A run has a gap when its own resolved count fell short of its total (also after a reset and
-                     * relaunch), or when a metric was added after it finished so a current metric uuid is absent
-                     * from its results. The run's own counts look complete in the second case, so only a uuid
-                     * comparison catches it.
+                     * Heal any terminal latest (a real run, a failed run, or the timeseries fallback) that has a
+                     * gap; otherwise the uncovered metric shows a perpetual loading state, since nothing else
+                     * re-runs on page load. heal_latest_run reuses the latest run's window, so the metrics that
+                     * already have rows load from cache and only the missing ones compute. What is already shown
+                     * stays visible, dimmed, and cells update in place as the run polls.
                      */
-                    const coveredUuids = new Set(coveredMetricUuids(recalculation))
-                    const missingCurrentMetric = currentMetricUuids(props.experiment).some(
-                        (uuid) => !coveredUuids.has(uuid)
-                    )
-                    const hasGap =
-                        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
-                        missingCurrentMetric
-
-                    /**
-                     * The timeseries fallback is daily data the backend serves when no run exists yet. Accept it
-                     * as is: a cold_run only when a metric has no point (the daily workflow never computes
-                     * retention metrics, for one), so a page load does not recompute results the timeseries
-                     * already holds. The placeholder stays visible and cells update in place as the run polls.
-                     */
-                    if (recalculation.result_source === 'timeseries_fallback') {
-                        if (hasGap) {
-                            actions.triggerRecalculation('cold_run')
-                        }
-                        return
-                    }
-
-                    /**
-                     * Heal a completed run with a gap; otherwise the new metric shows a perpetual loading state,
-                     * since nothing else re-runs on page load. Advance the window with experiment_config_change
-                     * rather than reuse a cutoff that may predate the new start_date.
-                     */
-                    if (recalculation.status === RECALCULATION_STATUSES.completed && hasGap) {
-                        actions.triggerRecalculation('experiment_config_change')
-                        return
+                    if (recalculationHasGap(props.experiment, recalculation)) {
+                        actions.triggerRecalculation('heal_latest_run')
                     }
                 } catch (error: any) {
                     if (error?.status === 404) {
