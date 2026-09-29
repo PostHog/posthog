@@ -205,11 +205,29 @@ class JSONResponseCursorPaginator(BasePaginator):
             values = find_values(self.cursor_path, response.json())
         except Exception:
             values = []
-        if values and values[0]:
-            self._cursor_value = values[0]
-            self._has_next_page = True
-        else:
+        self._advance_to(values[0] if values else None)
+
+    def _advance_to(self, cursor: Optional[str]) -> None:
+        """Send ``cursor`` on the next request, or stop when there is none.
+
+        A cursor identical to the one just sent is treated as the last page, the same as a
+        repeated next URL in ``BaseNextUrlPaginator._advance_to``: following it would refetch
+        the same page until the Temporal activity timeout. ``_cursor_value`` holds the cursor
+        just sent, including one seeded by ``set_resume_state``.
+        """
+        if not cursor:
             self._has_next_page = False
+            return
+        if cursor == self._cursor_value:
+            # Do not log the cursor itself: some APIs encode filters or tokens in it.
+            logger.warning(
+                "Pagination is not advancing (repeated cursor); treating as last page",
+                extra={"paginator": str(self)},
+            )
+            self._has_next_page = False
+            return
+        self._cursor_value = cursor
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         if self._cursor_value is not None:
