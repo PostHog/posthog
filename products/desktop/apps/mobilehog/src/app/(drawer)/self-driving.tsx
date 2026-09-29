@@ -79,11 +79,24 @@ export default function SelfDrivingScreen() {
     markSeen([report.id]);
   };
 
+  // A failed action leaves the report open on the server, so put the card back
+  // in the deck for another try.
+  const restore = (report: SignalReport): void => {
+    setHandled((current) => {
+      const next = new Set(current);
+      next.delete(report.id);
+      return next;
+    });
+  };
+
   const onDismiss = (report: SignalReport): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
     finish(report);
     dismiss.mutate(report.id, {
-      onError: (error) => setNotice(error.message),
+      onError: (error) => {
+        restore(report);
+        setNotice(error.message);
+      },
     });
   };
 
@@ -95,7 +108,10 @@ export default function SelfDrivingScreen() {
     start.mutate(report, {
       onSuccess: () =>
         setNotice(`Started "${(report.title ?? "report").slice(0, 40)}"`),
-      onError: (error) => setNotice(error.message),
+      onError: (error) => {
+        restore(report);
+        setNotice(error.message);
+      },
     });
   };
 
