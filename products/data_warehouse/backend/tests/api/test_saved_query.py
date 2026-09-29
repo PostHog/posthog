@@ -1871,35 +1871,56 @@ class TestSavedQuery(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "user_safe_error",
-                CHQueryErrorTypeMismatch("Mismatched number of columns in UNION ALL", code=258),
-                False,
-                "Failed to retrieve types for view: Mismatched number of columns in UNION ALL",
-            ),
-            (
-                "unexpected_error",
-                RuntimeError("s3://internal-bucket/path"),
-                True,
-                "Failed to retrieve types for view: unexpected RuntimeError",
-            ),
+                f"{method}_{name}",
+                method,
+                error,
+                expect_captured,
+                expected_detail,
+            )
+            for method in ("create", "update")
+            for name, error, expect_captured, expected_detail in (
+                (
+                    "user_safe_error",
+                    CHQueryErrorTypeMismatch("Mismatched number of columns in UNION ALL", code=258),
+                    False,
+                    "Failed to retrieve types for view: Mismatched number of columns in UNION ALL",
+                ),
+                (
+                    "unexpected_error",
+                    RuntimeError("s3://internal-bucket/path"),
+                    True,
+                    "Failed to retrieve types for view: unexpected RuntimeError",
+                ),
+            )
         ]
     )
-    def test_create_captures_only_unexpected_column_inference_errors(
-        self, _name: str, error: Exception, expect_captured: bool, expected_detail: str
+    def test_captures_only_unexpected_column_inference_errors(
+        self, _name: str, method: str, error: Exception, expect_captured: bool, expected_detail: str
     ) -> None:
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        body: dict[str, Any] = {
+            "name": "event_view",
+            "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+        }
+        if method == "update":
+            response = self.client.post(
+                url,
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+            self.assertEqual(response.status_code, 201, response.content)
+            url = f"{url}{response.json()['id']}"
+            body["edited_history_id"] = response.json()["latest_history_id"]
+
         with (
             patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
             patch(
                 "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
             ) as mock_capture,
         ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-                {
-                    "name": "event_view",
-                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
-                },
-            )
+            response = self.client.post(url, body) if method == "create" else self.client.patch(url, body)
 
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(response.json()["detail"], expected_detail)
