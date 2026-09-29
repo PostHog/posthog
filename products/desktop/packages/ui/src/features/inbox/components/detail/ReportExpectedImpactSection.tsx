@@ -15,14 +15,14 @@ import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInb
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { inboxReportUrl } from "@posthog/ui/utils/posthogLinks";
-import { useEffect, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 
 function MeasurementPlan({
-  reportId,
   artefact,
+  chart,
 }: {
-  reportId: string;
   artefact: ImpactMeasurementPlanArtefact;
+  chart: ReactNode;
 }) {
   const plan = artefact.content;
   const goal = impactMeasurementGoalLabel(plan);
@@ -44,15 +44,7 @@ function MeasurementPlan({
         </span>
       </div>
       {plan.query ? (
-        <ReportChartCard
-          reportId={reportId}
-          chart={{
-            // Each version has its own query, so key the result by version.
-            chart_id: `impact-${artefact.id}`,
-            title: plan.title,
-            query: plan.query,
-          }}
-        />
+        chart
       ) : (
         <p className="m-0 text-muted-foreground text-xs">
           The query is not available to you.
@@ -64,6 +56,50 @@ function MeasurementPlan({
         </p>
       )}
     </div>
+  );
+}
+
+/** Pure section; the container loads the plans and runs each chart query. */
+export function ReportExpectedImpactView({
+  plans,
+  pendingCount,
+  renderChart,
+  onSaveInWeb,
+}: {
+  plans: ImpactMeasurementPlanArtefact[];
+  pendingCount: number;
+  renderChart: (artefact: ImpactMeasurementPlanArtefact) => ReactNode;
+  onSaveInWeb: (() => void) | null;
+}) {
+  return (
+    <DetailSection Icon={TargetIcon} title="Expected impact">
+      <div className="flex flex-col gap-4">
+        {plans.map((artefact) => (
+          <MeasurementPlan
+            key={artefact.content.metric_id}
+            artefact={artefact}
+            chart={renderChart(artefact)}
+          />
+        ))}
+        {pendingCount > 0 && onSaveInWeb && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-attr="report-expected-impact-open-web"
+              onClick={onSaveInWeb}
+            >
+              <ArrowSquareOutIcon size={12} />
+              Save in PostHog
+            </Button>
+            <span className="text-muted-foreground text-xs">
+              You save proposed measurements in PostHog on the web.
+            </span>
+          </div>
+        )}
+      </div>
+    </DetailSection>
   );
 }
 
@@ -102,40 +138,32 @@ export function ReportExpectedImpactSection({
   if (!hasPlans) return null;
 
   return (
-    <DetailSection Icon={TargetIcon} title="Expected impact">
-      <div className="flex flex-col gap-4">
-        {plans.map((artefact) => (
-          <MeasurementPlan
-            key={artefact.content.metric_id}
-            reportId={reportId}
-            artefact={artefact}
-          />
-        ))}
-        {pendingCount > 0 && webUrl && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-attr="report-expected-impact-open-web"
-              onClick={() => {
-                track(ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_OPENED_IN_WEB, {
-                  report_id: reportId,
-                  plan_count: plans.length,
-                  pending_count: pendingCount,
-                });
-                openExternalUrl(webUrl);
-              }}
-            >
-              <ArrowSquareOutIcon size={12} />
-              Save in PostHog
-            </Button>
-            <span className="text-muted-foreground text-xs">
-              You save proposed measurements in PostHog on the web.
-            </span>
-          </div>
-        )}
-      </div>
-    </DetailSection>
+    <ReportExpectedImpactView
+      plans={plans}
+      pendingCount={pendingCount}
+      renderChart={(artefact) => (
+        <ReportChartCard
+          reportId={reportId}
+          chart={{
+            // Each version has its own query, so key the result by version.
+            chart_id: `impact-${artefact.id}`,
+            title: artefact.content.title,
+            query: artefact.content.query,
+          }}
+        />
+      )}
+      onSaveInWeb={
+        webUrl
+          ? () => {
+              track(ANALYTICS_EVENTS.INBOX_EXPECTED_IMPACT_OPENED_IN_WEB, {
+                report_id: reportId,
+                plan_count: plans.length,
+                pending_count: pendingCount,
+              });
+              openExternalUrl(webUrl);
+            }
+          : null
+      }
+    />
   );
 }
