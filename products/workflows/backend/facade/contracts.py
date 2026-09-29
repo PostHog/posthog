@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -144,3 +144,39 @@ class EmailSendingSuspensionChange:
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+
+
+# The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint
+# returns them as JSON without a serializer, so the keys are the API response keys.
+
+EmailDomainVerificationStatus = Literal["success", "failed", "pending"]
+
+
+class EmailDomainDnsRecord(TypedDict):
+    """One DNS record the customer adds before the domain can send email."""
+
+    type: Literal["verification", "dkim", "mail_from", "dmarc"]
+    recordType: Literal["TXT", "CNAME", "MX"]
+    recordHostname: str
+    recordValue: str
+    status: Literal["success", "pending"]
+    priority: NotRequired[int]
+
+
+class EmailDomainVerification(TypedDict):
+    status: EmailDomainVerificationStatus
+    dnsRecords: list[EmailDomainDnsRecord]
+
+
+class TwilioPhoneNumber(TypedDict):
+    """The fields callers read. The Twilio payload has more keys."""
+
+    sid: str
+    phone_number: str
+    friendly_name: str
+
+
+class TwilioAccount(TypedDict, total=False):
+    """Empty when the Twilio request fails."""
+
+    sid: str
