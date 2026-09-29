@@ -136,6 +136,9 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         render(<BusinessKnowledgePlaygroundScene />)
 
         fireEvent.click(screen.getByRole('button', { name: 'Load more chats' }))
+        expect(
+            document.querySelector('[data-attr="business-knowledge-playground-load-more-chats"]')
+        ).toBeInTheDocument()
         expect(loadMoreChats).toHaveBeenCalledTimes(1)
     })
 

@@ -246,6 +246,7 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
             null as string | null,
             {
                 loadMoreChats: () => null,
+                loadChatsSuccess: () => null,
                 loadMoreChatsFailure: (_, { error, errorObject }) =>
                     errorDetail(errorObject ?? error, "Couldn't load older chats. Try again."),
             },

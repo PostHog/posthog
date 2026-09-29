@@ -341,6 +341,18 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.chats).toHaveLength(101)
         expect(logic.values.chats[0].title).toBe('Updated question')
         expect(logic.values.chats.at(-1)?.title).toBe('Older question')
+
+        silenceKeaLoadersErrors()
+        mockedList.mockRejectedValueOnce(new Error('network error'))
+        logic.actions.loadMoreChats()
+        await expectLogic(logic).toDispatchActions(['loadMoreChatsFailure'])
+        expect(logic.values.moreChatsError).toContain("Couldn't load older chats")
+        resumeKeaLoadersErrors()
+
+        mockedList.mockResolvedValueOnce(listPage(recent))
+        await expectLogic(logic, () => logic.actions.loadChats()).toDispatchActions(['loadChatsSuccess'])
+        expect(logic.values.nextChatsOffset).toBeNull()
+        expect(logic.values.moreChatsError).toBeNull()
     })
 
     it('shows a first-page failure and clears it when the retry starts', async () => {

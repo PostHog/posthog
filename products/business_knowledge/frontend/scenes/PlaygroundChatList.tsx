@@ -160,6 +160,7 @@ export function PlaygroundChatList(): JSX.Element {
                     <LemonButton
                         size="small"
                         center
+                        data-attr="business-knowledge-playground-load-more-chats"
                         loading={loadingMoreChats}
                         disabledReason={chatsLoading ? 'Wait for chats to load' : undefined}
                         onClick={() => loadMoreChats()}
