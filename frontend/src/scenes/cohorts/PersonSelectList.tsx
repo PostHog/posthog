@@ -122,8 +122,9 @@ function PastedPersonsLookupBanner({
     onClose: () => void
 }): JSX.Element {
     const { matches, unmatched, truncated } = lookupResult
-    const shownUnmatched = unmatched.slice(0, MAX_UNMATCHED_SHOWN)
-    const hiddenUnmatchedCount = unmatched.length - shownUnmatched.length
+    const shownUnmatched = unmatched.slice(0, MAX_UNMATCHED_SHOWN).join(', ')
+    const hiddenUnmatchedCount = unmatched.length - MAX_UNMATCHED_SHOWN
+    const found = matches.length === 1 ? 'Found 1 person' : `Found ${matches.length} people`
     return (
         <LemonBanner
             type={unmatched.length > 0 || truncated ? 'warning' : 'success'}
@@ -131,18 +132,15 @@ function PastedPersonsLookupBanner({
             className="mb-2"
         >
             <div data-attr="cohort-pasted-persons-result">
-                {matches.length === 1 ? 'Found 1 person' : `Found ${matches.length} people`} from your pasted list.
-                {matches.length > 0 && ' They are selected.'}
+                <div>{`${found} from your pasted list.${matches.length > 0 ? ' They are selected.' : ''}`}</div>
                 {unmatched.length > 0 && (
                     <div className="mt-1">
-                        No person matches these values: {shownUnmatched.join(', ')}
-                        {hiddenUnmatchedCount > 0 && ` and ${hiddenUnmatchedCount} more`}. Check them for typos, or
-                        search for these people by name.
+                        {`No person matches these values: ${shownUnmatched}${hiddenUnmatchedCount > 0 ? ` and ${hiddenUnmatchedCount} more` : ''}. Check them for typos, or search for these people by name.`}
                     </div>
                 )}
                 {truncated && (
                     <div className="mt-1">
-                        Only the first {MAX_PASTED_VALUES} values were checked. Upload a CSV file for longer lists.
+                        {`Only the first ${MAX_PASTED_VALUES} values were checked. Upload a CSV file for longer lists.`}
                     </div>
                 )}
             </div>
