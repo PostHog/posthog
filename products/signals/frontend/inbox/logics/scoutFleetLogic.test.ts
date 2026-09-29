@@ -799,6 +799,10 @@ describe('scoutFleetLogic', () => {
 
             expect(router.values.searchParams.scoutSearch).toEqual(written)
             expect(logic.values.scoutSearch).toEqual(typed)
+
+            // The filter controls push the URL, so a push must not trim the search either.
+            logic.actions.setScoutEnabledFilter('disabled')
+            expect(logic.values.scoutSearch).toEqual(typed)
         } finally {
             jest.useRealTimers()
         }
