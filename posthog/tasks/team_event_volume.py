@@ -30,11 +30,13 @@ def update_team_event_volumes() -> None:
     started = perf_counter()
     computed_at = timezone.now()
     tag_queries(product=Product.INTERNAL, feature=Feature.API_QUERIES_BUDGET)
+    # Timestamps are client-supplied, so a future-dated event would raise the budget until its
+    # timestamp passed. now64() rather than now(), which truncates the sub-second timestamp.
     rows = sync_execute(
         f"""
         SELECT team_id, count() AS events
         FROM {events_read_table(use_new_events_schema())}
-        WHERE timestamp >= now() - INTERVAL %(days)s DAY
+        WHERE timestamp >= now() - INTERVAL %(days)s DAY AND timestamp <= now64()
         GROUP BY team_id
         """,
         {"days": EVENT_VOLUME_DAYS},
