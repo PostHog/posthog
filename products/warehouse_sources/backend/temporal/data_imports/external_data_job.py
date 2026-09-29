@@ -893,6 +893,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                keyset_full_load_enabled = False
                 scheduled_full_refresh = False
                 repartition_needed = True
                 billing_limit_checked = False
@@ -909,6 +910,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                keyset_full_load_enabled = create_job_result.keyset_full_load_enabled
                 scheduled_full_refresh = create_job_result.scheduled_full_refresh
                 repartition_needed = create_job_result.repartition_needed
                 billing_limit_checked = create_job_result.billing_limit_checked
@@ -979,6 +981,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
                 scheduled_full_refresh=scheduled_full_refresh,
+                keyset_full_load_enabled=keyset_full_load_enabled,
             )
 
             is_resumable_source = False
@@ -989,7 +992,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # resumable allowance to every one of its runs, including the ones that restart from
                 # row 0 on each of those extra attempts.
                 is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
-                    incremental_or_append=incremental_or_append
+                    incremental_or_append=incremental_or_append,
+                    keyset_full_load_enabled=keyset_full_load_enabled,
                 )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES

@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
+from django.db.models.signals import post_save
 from django.test import TestCase
 
 from posthog.models.user import User
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import handle_hog_flow_batch_job_created
 
 
 class TestHogFlowBatchJob(TestCase):
@@ -71,11 +73,6 @@ class TestHogFlowBatchJob(TestCase):
     @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created")
     def test_hog_flow_batch_job_created_signal(self, mock_handler, mock_create_invocation):
         # Disconnect the signal temporarily to test it
-        from django.db.models.signals import post_save
-
-        from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
-            handle_hog_flow_batch_job_created,
-        )
 
         post_save.disconnect(handle_hog_flow_batch_job_created, sender=HogFlowBatchJob)
 
