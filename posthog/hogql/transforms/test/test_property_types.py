@@ -1894,12 +1894,17 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Partition Condition={partition.get('Condition')!r}"
         )
 
-    def test_hogql_compiled_query_has_partition_pruning(self):
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
+            ("date_bounds", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-04-01')"),
+        ]
+    )
+    def test_hogql_compiled_query_has_partition_pruning(self, _name, where):
         """The HogQL pipeline strips toTimeZone from WHERE comparisons to restore pruning."""
-        sql, values = self._compile_hogql(
-            "SELECT count() FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+        sql, values = self._compile_hogql(f"SELECT count() FROM events WHERE {where}", timezone="America/New_York")
         indexes = get_indexes_from_explain(sql, values)
 
         pruning_index = _get_index_by_type(indexes, "Min-Max")
@@ -1911,17 +1916,41 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert primary_key is not None
         self._assert_primary_key_uses_timestamp_range(primary_key)
 
-    def test_toTimeZone_stripped_from_where_but_kept_in_select(self):
-        """toTimeZone should be stripped from top-level WHERE range comparisons
-        but preserved in SELECT expressions and inside function calls."""
-        sql, _ = self._compile_hogql(
-            "SELECT timestamp FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("or_and_call_with_constant", "or(and(timestamp >= '2024-03-01', timestamp < '2024-04-01'), 0)"),
+            ("not_call", "not(timestamp < '2024-03-01') AND timestamp < '2024-04-01'"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
+            (
+                "comparison_calls_in_and_call",
+                "and(greaterOrEquals(timestamp, '2024-03-01'), less(timestamp, '2024-04-01'))",
+            ),
+        ]
+    )
+    def test_toTimeZone_stripped_from_where_but_kept_in_select(self, _name, where):
+        """toTimeZone should be stripped from WHERE range comparisons reached through boolean connectives
+        but preserved in SELECT expressions and inside other function calls."""
+        sql, _ = self._compile_hogql(f"SELECT timestamp FROM events WHERE {where}", timezone="America/New_York")
         where_clause = sql.split("WHERE")[1]
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone in SELECT for display, got:\n{select_clause}"
+
+    @parameterized.expand(
+        [
+            ("assume_not_null_date_bound", "assumeNotNull(toStartOfWeek(toDateTime('2024-03-03 00:00:00')))"),
+            ("computed_non_null_bound", "plus(assumeNotNull(toDateTime('2024-03-03 00:00:00')), toIntervalSecond(0))"),
+        ]
+    )
+    def test_anchored_non_null_bound_keeps_comparison_unwrapped(self, _name, bound):
+        sql, _ = self._compile_hogql(
+            f"SELECT count() FROM posthog.hog_invocation_results WHERE scheduled_at >= {bound}",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
+        assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
 
     def test_toTimeZone_not_stripped_in_join_on(self):
         """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
@@ -1959,6 +1988,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone preserved in SELECT if(), got:\n{select_clause}"
+
+        # A subquery nested in a call still strips its own WHERE
+        sql, _ = self._compile_hogql(
+            "SELECT countIf(distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= '2024-03-01')) FROM events",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\(events\.timestamp, toDateTime64", sql), (
+            f"Expected bare events.timestamp in the WHERE of the subquery inside countIf(), got:\n{sql}"
+        )
 
     def test_subquery_in_where_does_not_inherit_stripping(self):
         """A subquery's SELECT inside a WHERE should NOT inherit stripping from the outer WHERE."""
@@ -2010,6 +2048,46 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         hogql = "SELECT count() FROM events WHERE event = 'dst_test' AND timestamp >= '2024-03-10' AND timestamp < '2024-03-11'"
         self._assert_correct_results(hogql, timezone="America/New_York", expected_count=2)
+
+    @parameterized.expand(
+        [
+            ("to_date", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-03-02')"),
+            (
+                "start_of_month",
+                "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
+            ),
+            (
+                "comparison_calls",
+                "greaterOrEquals(timestamp, toDate('2024-03-01')) AND less(timestamp, toDate('2024-03-02'))",
+            ),
+            ("and_call", "and(timestamp >= toDate('2024-03-01'), timestamp < toDate('2024-03-02'))"),
+        ]
+    )
+    def test_date_bounds_use_project_timezone(self, _name, where):
+        for timestamp in (
+            datetime(2024, 2, 29, 14, 30, 0),
+            datetime(2024, 2, 29, 15, 30, 0),
+            datetime(2024, 3, 1, 14, 0, 0),
+        ):
+            _create_event(team=self.team, distinct_id="tokyo_user", event="tokyo_date_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
+        self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
+
+    @parameterized.expand(
+        [
+            ("constructor", "toDateTime64('2024-03-01 12:00:00.000000500', 9)"),
+            ("computed", "toDateTime64('2024-03-01 11:59:59.000000500', 9) + toIntervalSecond(1)"),
+        ]
+    )
+    def test_nanosecond_bound_keeps_its_precision(self, _name, bound):
+        for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
+            _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= {bound}"
+        self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
         """Asia/Tokyo (UTC+9): midnight Tokyo = 15:00 UTC the previous day."""
@@ -2105,7 +2183,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
         aliased = ast_module.Alias(alias="date_from", expr=assume_call)
 
-        result = PropertySwapper._ensure_constant_has_timezone(aliased, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(aliased, "America/New_York")
 
         assert isinstance(result, ast_module.Alias), f"Expected Alias wrapper preserved, got {type(result).__name__}"
         assert result.alias == "date_from"
@@ -2120,7 +2198,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         inner_call = ast_module.Call(name="toDateTime", args=[ast_module.Constant(value="2024-03-01")])
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
 
-        result = PropertySwapper._ensure_constant_has_timezone(assume_call, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(assume_call, "America/New_York")
 
         assert isinstance(result, ast_module.Call), f"Expected Call, got {type(result).__name__}"
         assert result.name == "assumeNotNull"
