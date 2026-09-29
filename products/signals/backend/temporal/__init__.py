@@ -96,7 +96,6 @@ from products.signals.backend.temporal.summary import (
 
 WORKFLOWS = [
     GenerateScoutRubricsWorkflow,
-    InboxRankingScoringWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
@@ -118,7 +117,6 @@ WORKFLOWS = [
 ACTIVITIES = [
     generate_scout_rubrics_activity,
     fail_scout_rubrics_activity,
-    score_inbox_reports_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
@@ -176,3 +174,7 @@ ACTIVITIES = [
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
 ]
+
+# The temporal-worker-self-driving fleet runs these, not video-export.
+SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow]
+SELF_DRIVING_ACTIVITIES = [score_inbox_reports_activity]
