@@ -5964,7 +5964,7 @@
       vector Array(Float32),
       text String,
       properties VARCHAR CODEC(ZSTD(3)),
-      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      timestamp DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC'),
       is_deleted UInt8,
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
   
@@ -13051,7 +13051,7 @@
       vector Array(Float32),
       text String,
       properties VARCHAR CODEC(ZSTD(3)),
-      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      timestamp DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC'),
       is_deleted UInt8,
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
   
