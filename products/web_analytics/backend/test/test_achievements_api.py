@@ -1,10 +1,12 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team, User
 
+from products.web_analytics.backend.achievements.tasks import team_local_today
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
     WebAnalyticsInteraction,
@@ -34,9 +36,14 @@ class TestAchievementsAPI(APIBaseTest):
         count = WebAnalyticsVisit.objects.for_team(self.team.id).filter(user=self.user).count()
         self.assertEqual(count, 1)
 
+    @parameterized.expand([("first_visit_today", False), ("repeat_visit_today", True)])
     @patch(f"{_TASKS}.recompute_web_analytics_achievements.delay")
     @patch(f"{_VIEWSET}.recompute_web_analytics_achievements_sync")
-    def test_record_visit_creates_team_rows_for_the_sweep_without_enqueueing(self, mock_recompute, mock_delay) -> None:
+    def test_record_visit_creates_team_rows_for_the_sweep_without_enqueueing(
+        self, _name: str, visited_earlier_today: bool, mock_recompute, mock_delay
+    ) -> None:
+        if visited_earlier_today:
+            WebAnalyticsVisit(team=self.team, user=self.user, visit_date=team_local_today(self.team)).save()
         response = self.client.post(self._url("record_visit"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(mock_recompute.call_args.kwargs.get("cheap_only"))

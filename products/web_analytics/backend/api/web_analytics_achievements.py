@@ -210,7 +210,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         user = cast(User, request.user)
         canonical_team_id = self.team.parent_team_id or self.team.id
         today = team_local_today(self.team)
-        _, created = WebAnalyticsVisit.objects.get_or_create(
+        WebAnalyticsVisit.objects.get_or_create(
             team_id=canonical_team_id,
             user_id=user.id,
             visit_date=today,
@@ -219,8 +219,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
         except Exception as e:
             capture_exception(e)
-        if created:
-            ensure_team_progress(self.team)
+        ensure_team_progress(self.team)
         return Response({"recorded": True})
 
     @extend_schema(
