@@ -137,6 +137,12 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+@frozen
+class ComparisonOperands:
+    left: ast.Expr
+    right: ast.Expr
+
+
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
@@ -271,7 +277,7 @@ class PropertySwapper(CloningVisitor):
         if can_move_timezone and isinstance(result, ast.Call):
             moved = self._move_timezone_to_other_side(result.args[0], result.args[1])
             if moved is not None:
-                result.args = list(moved)
+                result.args = [moved.left, moved.right]
 
         return self._maybe_extract_exception_string_array(result)
 
@@ -553,14 +559,14 @@ class PropertySwapper(CloningVisitor):
         moved = self._move_timezone_to_other_side(result.left, result.right)
         if moved is None:
             return result
-        return ast.CompareOperation(left=moved[0], right=moved[1], op=result.op)
+        return ast.CompareOperation(left=moved.left, right=moved.right, op=result.op)
 
     def _can_move_timezone(self) -> bool:
         """Only WHERE and PREWHERE gain from pruning. A comparison inside a call other than and(), or() or not()
         does not filter the rows of the scan, as in if(timestamp >= ..., 1, 0), so it keeps its toTimeZone()."""
         return self.setTimeZones and self._inside_where_depth > 0 and self._inside_call_depth == 0
 
-    def _move_timezone_to_other_side(self, left: ast.Expr, right: ast.Expr) -> tuple[ast.Expr, ast.Expr] | None:
+    def _move_timezone_to_other_side(self, left: ast.Expr, right: ast.Expr) -> ComparisonOperands | None:
         """Move toTimeZone() from the field side to the other side of a range comparison.
 
         ClickHouse DateTime values are epoch seconds internally, and toTimeZone()
@@ -579,7 +585,7 @@ class PropertySwapper(CloningVisitor):
         per granule in the timestamp skip index. The timezone on the other side
         ensures ClickHouse interprets it in the correct timezone.
 
-        Returns the new (left, right) operands, or None if neither side is toTimeZone(field, tz).
+        Returns the new operands, or None if neither side is toTimeZone(field, tz).
         """
         parts = self._extract_toTimeZone_parts(left, right)
         if parts is None:
@@ -588,8 +594,8 @@ class PropertySwapper(CloningVisitor):
         anchored = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
         if parts.swapped:
-            return anchored, parts.bare_field
-        return parts.bare_field, anchored
+            return ComparisonOperands(left=anchored, right=parts.bare_field)
+        return ComparisonOperands(left=parts.bare_field, right=anchored)
 
     @staticmethod
     def _extract_toTimeZone_parts(left: ast.Expr, right: ast.Expr) -> ToTimeZoneParts | None:
