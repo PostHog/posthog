@@ -99,11 +99,22 @@ Watch `peak_rss_mb` and pod memory against the 6Gi limit before the next region.
 
 **Move a workload to this fleet.**
 
+A running workflow stays on the task queue that it started on.
+`continue_as_new` keeps that queue, so a long-running entity workflow does not move by itself.
+Do these steps in this order, so that no run is left without a worker.
+
 1. Add its workflow and activities to `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES`.
-2. Remove them from the Signals `WORKFLOWS` and `ACTIVITIES` lists.
-3. Start the workflow or its schedule on `settings.SELF_DRIVING_TASK_QUEUE`.
-4. Update `test_module_integrity.py` and `test_start_temporal_worker.py`.
-5. Add a worker secret to the charts release if the workload needs app-specific keys.
+   Deploy, then run check 1.
+2. Change every start path of the workflow to `settings.SELF_DRIVING_TASK_QUEUE`.
+   Search `products/signals/backend` for `VIDEO_EXPORT_TASK_QUEUE`.
+   Start paths include schedules, API views, the facade, management commands, child workflow starts, and signal-with-start helpers such as `TeamSignalGroupingV2Workflow.pause_until()`.
+3. Wait until no open run of the workflow is left on `video-export-task-queue`.
+   A signal-with-start call sends the signal to the open run on the old queue, and does not start a new run.
+   Plan how to close the open runs of an entity workflow before you continue.
+4. Remove the workflow from the Signals `WORKFLOWS` list.
+   Remove an activity from `ACTIVITIES` only if no workflow that stays on video-export uses it.
+5. Update `test_module_integrity.py` and `test_start_temporal_worker.py`.
+6. Add a worker secret to the charts release if the workload needs app-specific keys.
 
 ## Troubleshooting
 
