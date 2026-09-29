@@ -108,6 +108,12 @@ class TestBuildPageUrl:
         assert "filter=open" in url
         assert "sort=" not in url
 
+    def test_selector_endpoint_omits_paging_params(self) -> None:
+        url = _build_page_url(
+            "https://acme.myfreshworks.com/crm/sales/api", FRESHSALES_ENDPOINTS["owners"], view_id=None, page=1
+        )
+        assert url == "https://acme.myfreshworks.com/crm/sales/api/selector/owners"
+
 
 class TestResolveViewId:
     def test_prefers_all_view(self) -> None:
@@ -193,6 +199,53 @@ class TestGetRows:
         assert batches == [[{"id": 1}]]
         assert "/contacts/filters" in session.get.call_args_list[0].args[0]
         assert "/contacts/view/3?" in session.get.call_args_list[1].args[0]
+
+    def test_selector_endpoint_stops_after_one_request(self) -> None:
+        # A full page must not trigger a second request: selectors ignore paging and would re-return
+        # the same rows until the page cap.
+        page = _resp(body={"users": [{"id": i} for i in range(100)]})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([page])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "owners", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert len(batches) == 1
+        assert len(batches[0]) == 100
+        assert session.get.call_count == 1
+        assert manager.saved == []
+
+    def test_selector_falls_back_to_the_only_list_in_the_envelope(self) -> None:
+        # Freshsales doesn't publish selector response bodies; an unexpected envelope key must not
+        # silently sync an empty table.
+        manager = _FakeResumeManager()
+        batches = self._run("owners", [_resp(body={"portal_users": [{"id": 1, "name": "Ann"}]})], manager)
+        assert batches == [[{"id": 1, "name": "Ann"}]]
+
+    def test_deal_stages_walks_every_pipeline(self) -> None:
+        # /selector/deal_stages covers the default pipeline only, so a single request would miss the
+        # stages that deals in every other pipeline point at.
+        pipelines = _resp(body={"deal_pipelines": [{"id": 1, "name": "Sales"}, {"id": 2, "name": "Renewals"}]})
+        stages_1 = _resp(body={"deal_stages": [{"id": 10, "name": "New", "deal_pipeline_id": 1}]})
+        stages_2 = _resp(body={"deal_stages": [{"id": 20, "name": "Due", "deal_pipeline_id": 2}]})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([pipelines, stages_1, stages_2])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "deal_stages", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert [row["id"] for batch in batches for row in batch] == [10, 20]
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list] == [
+            "selector/deal_pipelines",
+            "selector/deal_pipelines/1/deal_stages",
+            "selector/deal_pipelines/2/deal_stages",
+        ]
 
     def test_tolerates_missing_object(self) -> None:
         # leads object absent -> /filters 404 -> stream yields nothing instead of failing.

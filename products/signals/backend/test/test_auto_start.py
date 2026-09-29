@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink
+from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink, TaskRunArtefact
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -925,6 +925,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("duplicate_of_resolved", "duplicate_of"),
         ("duplicate_of_with_pr", "duplicate_of"),
         ("duplicate_chain_with_pr_midway", "duplicate_of"),
+        ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
         ("incoming_part_of", "plan_parent"),
@@ -994,11 +995,35 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             _attach_open_pr(midway, 23)
             _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
             _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
+        elif link == "later_duplicate_of_with_pr":
+            # The oldest claim holds no work, so only the later claim shows the fix is in flight.
+            oldest = _report()
+            later = _report()
+            _attach_open_pr(later, 24)
+            _link(team.id, report, oldest, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, later, ReportLinkKind.DUPLICATE_OF)
+            SignalReportArtefact.objects.filter(
+                team_id=team.id, report_id=report.id, content__contains=str(oldest.id)
+            ).update(created_at=timezone.now() - timedelta(minutes=5))
         elif link == "depends_on_without_pr":
             _link(team.id, report, _report(), ReportLinkKind.DEPENDS_ON)
         elif link == "depends_on_with_open_pr":
             dependency = _report()
             _attach_open_pr(dependency, 22)
+            dependency_task = Task.objects.create(
+                team_id=team.id, title="dependency", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            SignalReportArtefact.add_log(
+                team_id=team.id,
+                report_id=str(dependency.id),
+                content=TaskRunArtefact(
+                    product="signals",
+                    type="implementation",
+                    task_id=str(dependency_task.id),
+                    automation_branch="posthog-self-driving/dependency-abc123",
+                ),
+                attribution=ArtefactAttribution.from_task(str(dependency_task.id)),
+            )
             _link(team.id, report, dependency, ReportLinkKind.DEPENDS_ON)
         elif link == "incoming_part_of":
             _link(team.id, _report(), report, ReportLinkKind.PART_OF)
@@ -1056,6 +1081,12 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
         assert mock_create.call_count == 1
         assert skips == []
         assert skipped_events == []
+        if link == "depends_on_with_open_pr" and not link_before_lock:
+            # The stacked run starts on the dependency's head branch and keeps it as the PR base.
+            created = mock_create.call_args.kwargs
+            assert created["branch"] == "posthog-self-driving/dependency-abc123"
+            assert created["stack_base_branch"] == "posthog-self-driving/dependency-abc123"
+            assert "with `posthog-self-driving/dependency-abc123` as its base" in created["description"]
     else:
         assert outcome.status == "blocked"
         assert mock_create.call_count == 0

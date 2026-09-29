@@ -177,7 +177,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
+/// Parses JSON from the LOCAL_EVAL_RATE_LIMITS and LOCAL_EVAL_CONDITIONAL_RATE_LIMITS environment variables
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -692,6 +692,22 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Per-team rate limit for flag definitions requests with an ETag in If-None-Match
+    // (requests per minute). Most of these get a 304, which skips the payload read. They
+    // therefore get their own higher budget. A request whose ETag does not match also
+    // spends the budget for full responses.
+    #[envconfig(
+        from = "FLAG_DEFINITIONS_CONDITIONAL_RATE_PER_MINUTE",
+        default = "6000"
+    )]
+    pub flag_definitions_conditional_rate_per_minute: u32,
+
+    // Per-team overrides for the conditional budget, in the same JSON format as
+    // LOCAL_EVAL_RATE_LIMITS. Sharing LOCAL_EVAL_RATE_LIMITS would cap the revalidation polls
+    // of a team whose full-response override is below the conditional default.
+    #[envconfig(from = "LOCAL_EVAL_CONDITIONAL_RATE_LIMITS", default = "")]
+    pub flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits,
+
     // Per-credential rate limit for the remote_config endpoint (requests per minute).
     // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
     // REMOTE_CONFIG_RATE_LIMITS override is not ported: it can't apply to a per-credential
@@ -880,15 +896,6 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
-    // In-memory memo of whether a team's flag definitions, keyed by ETag, hold a
-    // billable flag, so a /flags/definitions 304 is billed without a payload read.
-    // The TTL bounds how long a wrong answer can last, so it is tunable without a deploy.
-    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_CAPACITY", default = "100000")]
-    pub definitions_billable_cache_capacity: u64,
-
-    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS", default = "3600")]
-    pub definitions_billable_cache_ttl_seconds: u64,
-
     // Write an S3 hit back into Redis so the next reader for that key is served by Redis
     // instead of paying another S3 read. Applies to the team metadata and remote config
     // hypercaches, which have no in-process cache in front of them. 0 disables.
@@ -950,12 +957,6 @@ pub struct Config {
     pub usage_ingestion_teams: TeamIdCollection,
     #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
     pub usage_ingestion_timeout_ms: u64,
-
-    // Teams whose /flags/definitions 304 responses are billed. Empty disables it, so
-    // 304 billing rolls out per team once customers have been told, and rolls back
-    // with a config change instead of a revert.
-    #[envconfig(from = "FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS", default = "")]
-    pub flag_definitions_not_modified_billing_teams: TeamIdCollection,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1149,6 +1150,8 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            flag_definitions_conditional_rate_per_minute: 6000,
+            flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits::default(),
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
@@ -1184,8 +1187,6 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
-            definitions_billable_cache_capacity: 100_000,
-            definitions_billable_cache_ttl_seconds: 3_600,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
@@ -1201,7 +1202,6 @@ impl Config {
             usage_ingestion_tls: false,
             usage_ingestion_teams: TeamIdCollection::None,
             usage_ingestion_timeout_ms: 5_000,
-            flag_definitions_not_modified_billing_teams: TeamIdCollection::All,
         }
     }
 

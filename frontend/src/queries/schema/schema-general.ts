@@ -203,6 +203,7 @@ export enum NodeKind {
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPModelBreakdownQuery = 'MCPModelBreakdownQuery',
+    MCPProtocolVersionBreakdownQuery = 'MCPProtocolVersionBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
@@ -292,6 +293,7 @@ export type AnyDataNode =
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPModelBreakdownQuery
+    | MCPProtocolVersionBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -428,6 +430,7 @@ export type QuerySchema =
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPModelBreakdownQuery
+    | MCPProtocolVersionBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -3575,6 +3578,29 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
+
+/** One MCP protocol revision's share of tool calls. */
+export interface MCPProtocolVersionBreakdownItem {
+    protocol_version: string
+    /** On the stateless 2026-07-28 revision or later, or the rolling draft. */
+    is_current: boolean
+    total_calls: integer
+}
+
+export interface MCPProtocolVersionBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPProtocolVersionBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by negotiated protocol revision. */
+export interface MCPProtocolVersionBreakdownQuery extends DataNode<MCPProtocolVersionBreakdownQueryResponse> {
+    kind: NodeKind.MCPProtocolVersionBreakdownQuery
+    dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPProtocolVersionBreakdownQueryResponse =
+    CachedQueryResponse<MCPProtocolVersionBreakdownQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
@@ -8482,6 +8508,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'AppleSearchAds',
     'OpenAIAds',
     'AmazonAds',
+    'RoktAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8681,11 +8708,21 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['amazon', 'amazon_ads'] as const,
         primarySource: 'amazon',
     },
+    RoktAds: {
+        sourceType: 'RoktAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'CampaignPerformance',
+        statsTableName: 'CampaignPerformance',
+        defaultSources: ['rokt', 'rokt_ads'] as const,
+        primarySource: 'rokt',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
 export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
@@ -8990,6 +9027,8 @@ export interface SidebarConfiguration {
     items?: SidebarItemsConfiguration
     /** Row density of the sidebar. */
     density?: SidebarDensity
+    /** True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar. */
+    starred_products_setup_completed?: boolean
     [key: string]: unknown
 }
 

@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
                               |AEOCitationCheck
                               |AEOPrompt
@@ -115,6 +116,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -500,6 +502,7 @@ rules:
                         |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -552,6 +555,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
@@ -965,6 +969,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -1041,6 +1046,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin

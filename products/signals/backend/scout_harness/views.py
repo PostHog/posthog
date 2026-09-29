@@ -1253,6 +1253,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                links=_to_report_links(data.get("links")),
                 idempotency_key=data.get("idempotency_key"),
             )
         except InvalidScoutReportError as exc:
@@ -1773,7 +1774,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "and what to establish; this call is the only thing that records the answer, so a run that "
             "investigates and says nothing leaves the check unanswered. The verdict lands on the report as a "
             "`check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a "
-            "recurring one, and `errored` retries it, so send the outcome you actually reached rather than "
+            "recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks "
+            "again later, and any other reason ends the check. Send the outcome you actually reached rather than "
             "the one that closes the loop. A run may close the check it was dispatched for, or a check on its own "
             "scout that is due or waiting on a run."
         ),
@@ -1822,6 +1824,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 outcome=data["outcome"],
                 explanation=data["explanation"],
                 observed_value=data.get("observed_value"),
+                reason=data.get("reason"),
             )
         except InvalidCheckResultError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -2056,7 +2059,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "browse every note. Expired notes are excluded unless `include_expired=true`. "
             "`date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past "
-            "the cap. Results capped at 500."
+            "the cap. Pass `text` to keep only the notes whose content contains it, "
+            "case-insensitively. Results capped at 500."
         ),
         operation_id="signals_scout_notes_list",
     )
@@ -2071,6 +2075,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
             content_max_chars=validated.get("content_max_chars"),
+            text=validated.get("text") or None,
             exclude_origins=(
                 ()
                 if _may_read_reports(request, self.team.parent_team or self.team)

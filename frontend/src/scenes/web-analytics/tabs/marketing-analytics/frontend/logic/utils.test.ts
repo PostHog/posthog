@@ -31,12 +31,14 @@ describe('marketing analytics utils', () => {
         ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
         ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
+        ['RoktAds', FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS],
     ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag) => {
         it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
             const flags: Record<string, boolean | string> = {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS]: true,
             }
             if (enabled === undefined) {
                 delete flags[flag]
@@ -298,6 +300,16 @@ describe('marketing analytics utils', () => {
                 'sales14d',
                 'campaign_budget_currency_code',
             ],
+            RoktAds: [
+                'campaign_id',
+                'datetime',
+                'currency_code',
+                'gross_cost',
+                'impressions',
+                'referrals',
+                'conversions',
+                'conversion_value',
+            ],
             AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: [
@@ -352,6 +364,7 @@ describe('marketing analytics utils', () => {
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
             AmazonAds: ['campaign_id', 'date', 'cost', 'impressions', 'clicks', 'campaign_budget_currency_code'],
+            RoktAds: ['campaign_id', 'datetime', 'currency_code', 'gross_cost', 'impressions', 'referrals'],
             AppleSearchAds: ['local_spend', 'impressions', 'taps'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
@@ -394,6 +407,48 @@ describe('marketing analytics utils', () => {
                 ],
             }
         }
+
+        it.each(['GBP', 'AUD'])('uses stored Rokt currency after the source setting changes to %s', (currency) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.source.job_inputs = { currency_code: currency }
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.math_hogql).toContain("convertCurrency(coalesce(currency_code, 'EUR'), 'EUR'")
+            expect(result?.math_hogql).not.toContain(`'${currency}'`)
+            expect(result?.math_hogql).toContain('toDate(datetime)')
+            expect(result?.math_hogql).toContain('throwIf(countIf(empty(coalesce(currency_code')
+            for (const column of [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue, 'roas'] as const) {
+                const tile = createMarketingTile(source, column, 'EUR')
+                expect(tile?.math_hogql).toContain("convertCurrency('USD', 'EUR', ifNull(toFloat(conversion_value), 0)")
+                expect(tile?.math_hogql).toContain('toDate(datetime)')
+                if (column === 'roas') {
+                    expect(tile?.math_hogql).toContain("convertCurrency(coalesce(currency_code, 'EUR'), 'EUR'")
+                } else {
+                    expect(tile?.math_hogql).not.toContain('currency_code')
+                }
+            }
+        })
+
+        it.each(['currency_code', 'datetime'])('omits Rokt monetary tiles missing %s', (field) => {
+            const source = makeMockSource(
+                'RoktAds',
+                sourceFields.RoktAds.filter((name) => name !== field)
+            )
+            for (const column of [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                'roas',
+                'cost_per_reported_conversion',
+            ] as const) {
+                expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+            }
+        })
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves RoktAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.tables[0].name = `${prefix}roktads_${MARKETING_INTEGRATION_CONFIGS.RoktAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
 
         it.each(['', 'custom_', 'warehouse.custom_'])('resolves AppleSearchAds tables with prefix %s', (prefix) => {
             const source = makeMockSource('AppleSearchAds', sourceFields.AppleSearchAds)

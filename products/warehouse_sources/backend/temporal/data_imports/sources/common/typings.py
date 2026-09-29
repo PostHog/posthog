@@ -142,6 +142,8 @@ class SourceInputs:
     history_start: Optional[datetime.datetime] = None
     # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
     last_synced_at: Optional[datetime.datetime] = None
+    # Sync history survives cursor resets and table deletion.
+    schema_has_ever_synced: bool = False
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # The schema's stored primary key and the key a full probe last proved unique. A source that
@@ -161,6 +163,9 @@ class SourceInputs:
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
     byte_bounded_extraction: bool = False
+    # True when a full load may page with keyset seeks by default, rather than only as the
+    # read-replica retry fallback. Evaluated once per run alongside `byte_bounded_extraction`.
+    keyset_full_load: bool = False
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1

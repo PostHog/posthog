@@ -191,6 +191,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Without this, a rollout where every query falls back to the live path looks identical to
         # one that works.
         self._sessions_precompute_used: bool = False
+        self._live_session_resolution_used: bool = False
         # The job set backing this query, resolved once and shared by the reach and credit sides.
         # `resolved` separates "not looked up yet" from "looked up, cannot use the precompute".
         self._sessions_precompute_resolved: bool = False
@@ -261,6 +262,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 "costs_sources_materialized": self._costs_sources_materialized,
                 "costs_grain": self._costs_grain,
                 "sessions_precompute_used": self._sessions_precompute_used,
+                "live_session_resolution_used": self._live_session_resolution_used,
             }
             if error is None:
                 props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]
