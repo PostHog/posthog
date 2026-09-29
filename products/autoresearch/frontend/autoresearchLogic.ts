@@ -40,7 +40,7 @@ export interface autoresearchLogicActions {
         id: string
         name: string
     }
-    loadPipelines: () => any
+    loadPipelines: (_: void) => void
     loadPipelinesFailure: (
         error: string,
         errorObject?: any
@@ -50,10 +50,10 @@ export interface autoresearchLogicActions {
     }
     loadPipelinesSuccess: (
         pipelines: AutoresearchPipelineApi[],
-        payload?: any
+        payload?: void
     ) => {
         pipelines: AutoresearchPipelineApi[]
-        payload?: any
+        payload?: void
     }
     pausePipeline: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
