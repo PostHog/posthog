@@ -45,7 +45,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportRun,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
-from products.workflows.backend.utils.rrule_utils import validate_rrule
+from products.workflows.backend.facade.api import validate_rrule
 
 logger = structlog.get_logger(__name__)
 

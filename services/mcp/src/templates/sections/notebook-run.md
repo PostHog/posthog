@@ -1,0 +1,1 @@
+To refresh a notebook somebody already wrote, use `notebooks-run` rather than re-running the cells one at a time. It runs every SQL and Python cell in document order and can set the notebook's variables in the same call, so a report for a new time window is one call.

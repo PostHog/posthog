@@ -37,9 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import LEGACY_CONVERTED_AT_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import IngestMode, decode_job_inputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 # Shown as latest_error on the capture job rows `_close_stranded_capture_jobs` fails.
 STRANDED_CAPTURE_JOB_MESSAGE = (

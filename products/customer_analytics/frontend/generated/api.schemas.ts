@@ -161,6 +161,57 @@ export interface ExternalAccountErrorApi {
     error: string
 }
 
+/**
+ * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+ * @nullable
+ */
+export type ExternalAccountCreateApiProperties = {
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
+} | null | null
+
+export interface ExternalAccountCreateApi {
+    /**
+     * External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID.
+     * @maxLength 400
+     */
+    external_id: string
+    /**
+     * Name for a new account. Ignored when the account already exists. Blank means no name.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.
+     * @nullable
+     */
+    properties?: ExternalAccountCreateApiProperties
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -513,6 +564,126 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
     /** @nullable */
     previous?: string | null
     results: AccountTrackRuleRunViewApi[]
+}
+
+/**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /**
+     * The single Markdown notebook node containing the account view components.
+     * @minItems 1
+     * @maxItems 1
+     */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account view. */
+    readonly name: string
+    /** Account views created through this API are private. */
+    readonly visibility: string
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+/**
+ * * `private` - Personal
+ */
+export type AccountViewUpdateVisibilityEnumApi =
+    (typeof AccountViewUpdateVisibilityEnumApi)[keyof typeof AccountViewUpdateVisibilityEnumApi]
+
+export const AccountViewUpdateVisibilityEnumApi = {
+    Private: 'private',
+} as const
+
+export interface AccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** Views can only be private.
+     *
+     * * `private` - Personal */
+    visibility?: AccountViewUpdateVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version: number
 }
 
 /**
@@ -2768,7 +2939,7 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
-    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -3007,8 +3178,8 @@ export interface PaginatedCustomPropertySourceListApi {
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface CustomPropertySourceUpdateApi {
     /**
@@ -3021,13 +3192,17 @@ export interface CustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface PatchedCustomPropertySourceUpdateApi {
     /**
@@ -3040,6 +3215,10 @@ export interface PatchedCustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3062,13 +3241,13 @@ export const CustomPropertySyncTriggerResponseStatusEnumApi = {
  * Response of the person/group-property sync/backfill trigger actions.
  */
 export interface CustomPropertySyncTriggerResponseApi {
-    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).
      *
      * * `triggered` - triggered
      * * `started` - started
      * * `already_running` - already_running */
     status: CustomPropertySyncTriggerResponseStatusEnumApi
-    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    /** Backfill only: true when a run was already in flight and this call queued its follow-up. */
     already_running?: boolean
 }
 
@@ -4411,6 +4590,8 @@ export type CustomerAnalyticsExternalAccountRetrieveParams = {
     external_id: string
 }
 
+export type CustomerAnalyticsExternalAccountCreate400 = { [key: string]: unknown }
+
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**
      * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
@@ -4486,6 +4667,13 @@ export type AccountTrackRulesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number
 }
 
 export type AccountsListParams = {

@@ -19,7 +19,7 @@ from posthog.models import PropertyDefinition, Team
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.artefact_schemas import CheckResult, Dismissal
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
@@ -54,6 +54,7 @@ from products.signals.backend.report_check_execution import (
     run_due_report_checks,
 )
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
@@ -534,6 +535,65 @@ class TestReportCheckExecution(APIBaseTest):
         )
         assert check.last_run_at is None
         assert self._results() == []
+
+    def test_awaiting_data_backs_off_without_spending_the_error_budget_then_ends_inconclusive(self) -> None:
+        check = self._check(
+            consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1, expires_at=timezone.now() + MAX_CHECK_HORIZON
+        )
+        verdict = CheckVerdict(outcome="inconclusive", reason="awaiting_data", explanation="No deploy since the fix.")
+        now = timezone.now()
+        for expected_wait in (timedelta(hours=24), timedelta(hours=72), timedelta(days=7)):
+            record_check_verdict(check, verdict, now=now)
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.next_run_at == now + expected_wait
+            assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            assert check.runs_remaining == 1
+            now = check.next_run_at
+
+        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, verdict, now=now)
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.consecutive_inconclusive == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert check.last_outcome_reason == SignalReportCheck.InconclusiveReason.AWAITING_DATA
+        results = self._results()
+        assert len(results) == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert json.loads(results[-1].content)["reason"] == "awaiting_data"
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == "inconclusive"
+        assert properties["inconclusive_reason"] == "awaiting_data"
+        assert properties["check_status"] == SignalReportCheck.Status.INCONCLUSIVE
+
+    @parameterized.expand(
+        [
+            ("unmeasurable", "unmeasurable", timedelta(days=30)),
+            ("needs_manual_verification", "needs_manual_verification", timedelta(days=30)),
+            ("no_fix_to_measure", "no_fix_to_measure", timedelta(days=30)),
+            ("awaiting_data_past_the_horizon", "awaiting_data", timedelta(hours=12)),
+        ]
+    )
+    def test_an_inconclusive_verdict_that_waiting_cannot_settle_retires_the_check(
+        self, _name, reason, expires_in
+    ) -> None:
+        check = self._check(expires_at=timezone.now() + expires_in)
+        record_check_verdict(
+            check, CheckVerdict(outcome="inconclusive", reason=reason, explanation="No denominator event.")
+        )
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+
+    def test_a_verdict_and_its_result_refuse_a_reason_that_does_not_match_the_outcome(self) -> None:
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="inconclusive", explanation="Too few samples.")
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="errored", reason="awaiting_data", explanation="The query failed.")
+        with self.assertRaises(PydanticValidationError):
+            CheckResult(check_id="c", kind="agent", title="t", outcome="inconclusive", explanation="Too few samples.")
 
     def test_an_unrun_check_past_its_horizon_expires(self) -> None:
         check = self._check(
@@ -1296,7 +1356,36 @@ class TestCheckResultTool(APIBaseTest):
         with self.assertRaises(InvalidCheckResultError):
             self._record(other_check)
 
-    @parameterized.expand([("blank_explanation", {"explanation": "  "}), ("unknown_outcome", {"outcome": "maybe"})])
+    @parameterized.expand(
+        [
+            ("awaiting_data_looks_again", "awaiting_data", SignalReportCheck.Status.ACTIVE),
+            ("unmeasurable_ends_the_check", "unmeasurable", SignalReportCheck.Status.INCONCLUSIVE),
+        ]
+    )
+    def test_an_inconclusive_verdict_records_its_reason(self, _name: str, reason: str, expected_status: str) -> None:
+        check = self._check()
+
+        result = self._record(check, outcome="inconclusive", reason=reason, explanation="No traffic since the fix.")
+
+        assert result.check_status == expected_status
+        check.refresh_from_db()
+        assert check.last_outcome == SignalReportCheck.Outcome.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+        artefact = SignalReportArtefact.objects.get(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        )
+        assert f'"reason":"{reason}"' in artefact.content
+
+    @parameterized.expand(
+        [
+            ("blank_explanation", {"explanation": "  "}),
+            ("unknown_outcome", {"outcome": "maybe"}),
+            ("inconclusive_without_a_reason", {"outcome": "inconclusive"}),
+            ("inconclusive_with_an_unknown_reason", {"outcome": "inconclusive", "reason": "tired"}),
+            ("a_reason_on_another_outcome", {"outcome": "errored", "reason": "awaiting_data"}),
+        ]
+    )
     def test_a_malformed_verdict_is_refused(self, _name, overrides) -> None:
         check = self._check()
 
