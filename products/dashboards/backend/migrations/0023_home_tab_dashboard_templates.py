@@ -154,19 +154,13 @@ def _saas_product_template() -> dict:
             "to make it yours."
         ),
         "tiles": [
-            _text_tile(
-                "# 👋 SaaS starter\n\n"
-                "Built from pageviews so it works immediately. Swap in your own signup and activation "
-                "events (see the funnel below) to track what matters for your product.",
-                y=0,
-            ),
             _bold_number_trends_tile(
                 name="Visitors (last 30 days)",
                 description="Unique visitors in the last 30 days. A quick pulse on your overall reach.",
                 series=_visitors_series("Pageview or screen"),
                 date_from="-30d",
                 x=0,
-                y=2,
+                y=0,
             ),
             _bold_number_trends_tile(
                 name="Sessions (last 7 days)",
@@ -174,7 +168,7 @@ def _saas_product_template() -> dict:
                 series=_sessions_series("$pageview"),
                 date_from="-7d",
                 x=4,
-                y=2,
+                y=0,
             ),
             _funnel_tile(
                 name="Signup to activation",
@@ -188,7 +182,7 @@ def _saas_product_template() -> dict:
                     _funnel_step("product_activated", "Activated"),
                 ],
                 date_from="-30d",
-                y=5,
+                y=3,
             ),
             _retention_tile(
                 name="Weekly retention",
@@ -198,7 +192,7 @@ def _saas_product_template() -> dict:
                 ),
                 target_entity={"id": "$pageview", "type": "events"},
                 returning_entity={"id": "$pageview", "type": "events"},
-                y=10,
+                y=8,
             ),
         ],
     }
