@@ -107,6 +107,15 @@ describe('workflowProposalsLogic', () => {
         }).toDispatchActions(['loadProposalsFailure'])
 
         expect(logic.values.pendingProposals.map((p) => p.id)).toEqual([PROPOSAL_ID])
+        // Without this the panel cannot tell a failed list from one nobody asked for, and spins forever.
+        expect(logic.values.listsUnreadable).toBe(true)
+
+        proposalsListStatus = 200
+        await expectLogic(logic, () => {
+            logic.actions.reloadLists()
+        }).toDispatchActions(['loadProposalsSuccess'])
+
+        expect(logic.values.listsUnreadable).toBe(false)
     })
 
     it('treats the flag-off 404 as an empty queue with no failure', async () => {

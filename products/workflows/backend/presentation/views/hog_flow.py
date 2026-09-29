@@ -16,8 +16,9 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -2893,6 +2894,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "with the publish endpoint or throw it away with discard_draft."
         ),
     )
+    pending_suggestions = serializers.SerializerMethodField(
+        help_text="How many suggested changes are waiting for a person on this workflow. Counted on the list only."
+    )
+    suggestions_enabled = serializers.SerializerMethodField(
+        help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
+    )
 
     class Meta:
         model = HogFlow
@@ -2921,6 +2928,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "billable_action_types",
             "user_access_level",
             "last_run",
+            "pending_suggestions",
+            "suggestions_enabled",
         ]
         read_only_fields = fields
 
@@ -2936,6 +2945,16 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             last_runs = list_workflow_last_runs(instance.team_id, user_id, [instance.id])
         last_run = last_runs.get(instance.id)
         return HogFlowLastRunSerializer(last_run).data if last_run else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_pending_suggestions(self, hog_flow: HogFlow) -> int | None:
+        # Annotated on the list queryset only; the detail serializer leaves it out.
+        return getattr(hog_flow, "pending_suggestions", None)
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_suggestions_enabled(self, hog_flow: HogFlow) -> bool | None:
+        # A workflow with suggestions on but none waiting is still worth telling apart in the list.
+        return getattr(hog_flow, "suggestions_enabled", None)
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -5036,7 +5055,29 @@ class HogFlowViewSet(
         if self.action == "list":
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id")
+
+            pending = (
+                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+                .order_by()
+                .values("hog_flow")
+                .annotate(count=Count("id"))
+                .values("count")
+            )
+            queryset = queryset.annotate(
+                pending_suggestions=Coalesce(Subquery(pending), 0),
+                suggestions_enabled=Exists(
+                    HogFlowOptimization.objects.filter(hog_flow=OuterRef("pk"), enabled=True).values("pk")
+                ),
+            )
+            # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
+            # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
+            # workflow with one suggestion would push a fresh one off their first page.
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            if self.request.GET.get("suggestions_first") in ("true", "1"):
+                queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
+            else:
+                queryset = queryset.order_by("-updated_at", "-id")
 
             created_by = self.request.GET.get("created_by")
             if created_by:

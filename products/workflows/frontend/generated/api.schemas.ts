@@ -348,6 +348,16 @@ export interface HogFlowMinimalApi {
     readonly user_access_level: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /**
+     * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+     * @nullable
+     */
+    readonly pending_suggestions: number | null
+    /**
+     * Whether someone turned suggestions on for this workflow. Read on the list only.
+     * @nullable
+     */
+    readonly suggestions_enabled: boolean | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
