@@ -334,6 +334,8 @@ The browser can close during generation and retrieve the result later without re
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Save includes checked suggestions and shows the number of new criteria it will add.
 Add selected is optional; it moves suggestions into the editable list without saving them.
+Suggested and saved criteria show their title and description first. Show details reveals the passing rules and when they apply.
+Editing a criterion shows all its fields.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
 Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.

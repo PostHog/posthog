@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPlus, IconSparkles } from '@posthog/icons'
 import {
@@ -6,6 +7,7 @@ import {
     LemonButton,
     LemonCard,
     LemonCheckbox,
+    LemonCollapse,
     LemonDialog,
     LemonModal,
     LemonSkeleton,
@@ -26,6 +28,7 @@ export function ScoutRubricsModal({
     onClose: () => void
 }): JSX.Element {
     const logic = scoutRubricsLogic({ teamId, configId })
+    const [expandedSuggestionIds, setExpandedSuggestionIds] = useState<string[]>([])
     const {
         rubricDocument,
         rubricDocumentLoading,
@@ -219,14 +222,49 @@ export function ScoutRubricsModal({
                                                     <p className="mb-0 break-words text-sm text-secondary">
                                                         {suggestion.description}
                                                     </p>
-                                                    <p className="mb-0 break-words text-sm">
-                                                        <strong>Passes when: </strong>
-                                                        <span>{suggestion.pass_condition}</span>
-                                                    </p>
-                                                    <p className="mb-0 break-words text-xs text-secondary">
-                                                        <strong>Applies: </strong>
-                                                        <span>{suggestion.applicability}</span>
-                                                    </p>
+                                                    <LemonCollapse
+                                                        embedded
+                                                        size="xsmall"
+                                                        activeKey={
+                                                            expandedSuggestionIds.includes(suggestion.id)
+                                                                ? 'details'
+                                                                : null
+                                                        }
+                                                        onChange={(key) =>
+                                                            setExpandedSuggestionIds((ids) =>
+                                                                key
+                                                                    ? [...ids, suggestion.id]
+                                                                    : ids.filter((id) => id !== suggestion.id)
+                                                            )
+                                                        }
+                                                        panels={[
+                                                            {
+                                                                key: 'details',
+                                                                dataAttr: 'scout-rubric-suggestion-details',
+                                                                header: {
+                                                                    children: expandedSuggestionIds.includes(
+                                                                        suggestion.id
+                                                                    )
+                                                                        ? 'Hide details'
+                                                                        : 'Show details',
+                                                                    'aria-label': `${expandedSuggestionIds.includes(suggestion.id) ? 'Hide details' : 'Show details'} for ${suggestion.title}`,
+                                                                },
+                                                                className: '!p-2',
+                                                                content: (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <p className="mb-0 break-words text-sm">
+                                                                            <strong>Passes when: </strong>
+                                                                            <span>{suggestion.pass_condition}</span>
+                                                                        </p>
+                                                                        <p className="mb-0 break-words text-xs text-secondary">
+                                                                            <strong>Applies: </strong>
+                                                                            <span>{suggestion.applicability}</span>
+                                                                        </p>
+                                                                    </div>
+                                                                ),
+                                                            },
+                                                        ]}
+                                                    />
                                                 </div>
                                             ))}
                                         </div>
