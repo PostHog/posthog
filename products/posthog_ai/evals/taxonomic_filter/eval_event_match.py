@@ -19,16 +19,17 @@ do not change the result. It shows at most `MAX_MATCHES` events, like the picker
 No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_API_KEY set for the decision
 model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_event_match
+Set EVENT_MATCH_PROMPT_VERSION to score an unpublished prompt version before moving its production label.
 """
 
 from __future__ import annotations
 
+import os
 import time
 import asyncio
 
 from posthog.llm.system_one_client import system_one_configured
-from posthog.taxonomic_search_intent.classify import SEARCH_INTENT_MODEL
-from posthog.taxonomic_search_intent.event_match import MAX_MATCHES, likely_core_events
+from posthog.taxonomic_search_intent.event_match import EVENT_MATCH_MODEL, MAX_MATCHES, likely_core_events
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -70,6 +71,8 @@ async def eval_event_match(ctx: EvalContext) -> None:
         raise RuntimeError(
             "eval_event_match needs AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY to reach the decision model"
         )
+    version = os.environ.get("EVENT_MATCH_PROMPT_VERSION")
+    model = await asyncio.to_thread(EVENT_MATCH_MODEL.fetch, version=int(version) if version else None)
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:
@@ -84,12 +87,13 @@ async def eval_event_match(ctx: EvalContext) -> None:
                 case.prompt,
                 use_cache=False,
                 require_complete=True,
+                model=model,
             )
         except Exception as error:
-            return {"model": SEARCH_INTENT_MODEL, "suggested": [], "error": f"{type(error).__name__}: {error}"}
+            return {"model": model, "suggested": [], "error": f"{type(error).__name__}: {error}"}
         suggested = [match.name for match in likely[:MAX_MATCHES]]
         return {
-            "model": SEARCH_INTENT_MODEL,
+            "model": model,
             "suggested": suggested,
             "probabilities": {match.name: match.probability for match in likely[:MAX_MATCHES]},
             "latency_ms": round((time.monotonic() - started) * 1000),

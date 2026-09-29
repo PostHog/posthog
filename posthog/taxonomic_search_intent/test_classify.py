@@ -49,6 +49,7 @@ class TestClassifySearchIntent(SimpleTestCase):
         build = patch(BUILD_CLIENT).start()
         patch(CURRENT_PROMPT, return_value=BUNDLED_SEARCH_INTENT_PROMPT).start()
         self.addCleanup(patch.stopall)
+        self.build = build
         self.decide = build.return_value.decide
 
     @parameterized.expand(
@@ -180,6 +181,16 @@ class TestClassifySearchIntent(SimpleTestCase):
         question = self.decide.call_args.kwargs["questions"]["tab"]
         assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
 
+    def test_managed_model_is_sent_to_the_gateway_and_separates_cached_answers(self) -> None:
+        self.decide.return_value = _answer("events", 0.9)
+        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/jeeves-0.1")
+
+        classify_search_intent(_search("checkout"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
+        classify_search_intent(_search("checkout"), prompt=managed)
+
+        assert self.decide.call_count == 2
+        assert self.build.call_args.kwargs["model"] == managed.model
+
     @parameterized.expand(
         [
             ("same_team_and_prompt", 7, BUNDLED_SEARCH_INTENT_PROMPT, 1),
@@ -253,6 +264,12 @@ class TestSearchIntentPrompt(SimpleTestCase):
         result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
 
         assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
+
+    def test_model_config_uses_the_managed_model(self) -> None:
+        model = "posthog/hogference/jeeves-0.1"
+        result = PromptResult(source="api", prompt="Which tab?", name="n", version=4, config={"model": model})
+
+        assert parse_search_intent_prompt(result).model == model
 
     def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
         managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)

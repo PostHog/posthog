@@ -38,7 +38,7 @@ import asyncio
 import dataclasses
 
 from posthog.llm.system_one_client import system_one_configured
-from posthog.taxonomic_search_intent.classify import SEARCH_INTENT_MODEL, classify_search_intent
+from posthog.taxonomic_search_intent.classify import classify_search_intent
 from posthog.taxonomic_search_intent.contracts import SearchIntentRequest
 from posthog.taxonomic_search_intent.prompt import SEARCH_INTENT_PROMPT_LABEL, fetch_search_intent_prompt
 
@@ -345,14 +345,14 @@ async def eval_search_intent(ctx: EvalContext) -> None:
             intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False, prompt=prompt)
         except Exception as error:
             return {
-                "model": SEARCH_INTENT_MODEL,
+                "model": prompt.model,
                 "prompt_version": prompt.version,
                 "intent": None,
                 "error": f"{type(error).__name__}: {error}",
             }
         answer = dataclasses.asdict(intent)
         return {
-            "model": SEARCH_INTENT_MODEL,
+            "model": prompt.model,
             "prompt_version": prompt.version,
             "intent": answer,
             "latency_ms": round((time.monotonic() - started) * 1000),

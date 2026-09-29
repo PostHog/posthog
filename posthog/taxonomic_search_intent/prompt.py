@@ -1,9 +1,9 @@
 """
-The question and the tab meanings the decision model reads for a filter picker search.
+The question, tab meanings, and model for a filter picker search.
 
 They live in PostHog's own prompt management, as `taxonomic-filter-search-intent` in the PostHog project,
 so a new wording ships by moving the `production` label and not by a deploy. The prompt text is the
-question. Its config holds the tab meanings as `options` and the `confident_threshold`. The bundled
+question. Its config holds the tab meanings as `options`, the `confident_threshold`, and `model`. The bundled
 copy below is the fallback when the managed prompt is unreachable or malformed; keep it close to the
 `production` version so a fallback answer reads the same.
 """
@@ -19,6 +19,7 @@ import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 from posthog.dataclasses import frozen
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL, model_from_config
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
@@ -35,6 +36,7 @@ class SearchIntentPrompt:
     confident_threshold: float
     # None for the bundled copy, so analysis can tell a fallback answer from a managed one.
     version: int | None
+    model: str = DEFAULT_DECISION_MODEL
 
 
 BUNDLED_SEARCH_INTENT_PROMPT = SearchIntentPrompt(
@@ -100,6 +102,7 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
         options=options if options is not None else bundled.options,
         confident_threshold=threshold if threshold is not None else bundled.confident_threshold,
         version=result.version,
+        model=model_from_config(config),
     )
 
 
