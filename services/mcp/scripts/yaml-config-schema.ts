@@ -33,7 +33,7 @@ export const ToolConfigSchema = z
          * Override the file-level `category` for this tool. Use it when a tool belongs to another
          * product than the file, so `$mcp_tool_category` groups it under that product.
          */
-        category: z.string().optional(),
+        category: z.string().trim().min(1).optional(),
         /**
          * One-line selection hint injected into the system prompt catalog.
          * Describes *when to pick this tool*, not what it does. Currently only
