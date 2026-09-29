@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
 
 from posthog.dataclasses import frozen
@@ -18,7 +18,7 @@ class FlyIoFanoutConfig:
     child_params: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@frozen
 class FlyIoEndpointConfig:
     name: str
     # Path template relative to the API base. `{org_slug}` is substituted with the configured
