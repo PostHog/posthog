@@ -20,8 +20,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
-import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
-import { BOOLEAN_OPTIONS, RulesV2RuleEditor } from './RulesV2RuleEditor'
+import { BOOLEAN_OPTIONS, featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
+import { RulesV2RuleEditor } from './RulesV2RuleEditor'
 
 export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Element {
     const logic = featureFlagRulesV2EditorLogic({ id })

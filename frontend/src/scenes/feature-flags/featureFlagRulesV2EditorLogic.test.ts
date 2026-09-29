@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -164,6 +166,16 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '8')
     })
 
+    it('blocks a create in a project that requires evaluation contexts, which a rules v2 create cannot set', () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, require_evaluation_contexts: true })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+
+        logic.actions.setDraft({ key: 'new-checkout' })
+        expect(logic.values.saveDisabledReason).toContain('requires evaluation contexts')
+    })
+
     describe('editing a stored flag', () => {
         let logic: ReturnType<typeof featureFlagRulesV2EditorLogic.build>
 
@@ -281,6 +293,12 @@ describe('featureFlagRulesV2EditorLogic', () => {
             {
                 condition: 'an exact match with every value removed',
                 operator: PropertyOperator.Exact,
+                value: [],
+                reason: 'Choose a value for every condition in rule 2.',
+            },
+            {
+                condition: 'a membership check with no values',
+                operator: PropertyOperator.In,
                 value: [],
                 reason: 'Choose a value for every condition in rule 2.',
             },

@@ -4480,11 +4480,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                     ...values.rowVersionToken,
                 })
-                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                // The write bumped the row version; a page left on the old one has its next write refused as stale.
+                const persisted = { name: savedFlag.name, version: savedFlag.version }
+                actions.setFeatureFlag({ ...flag, ...persisted })
                 if (values.originalFeatureFlag) {
-                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, name: savedFlag.name })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
-                actions.updateFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...flag, ...persisted })
                 lemonToast.success('Description saved')
             } catch {
                 lemonToast.error('Failed to save description')
@@ -4523,20 +4525,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // — the newer call owns reconciliation.
                 breakpoint()
 
-                // Reconcile with server only if the *set* of tags differs (e.g. server-side
+                // Take the server's tags only if the *set* differs (e.g. server-side
                 // normalization added/removed a tag). Avoid blindly overwriting — the
                 // server may return tags in a different order which would re-shuffle chips.
                 const localSet = new Set(tags)
                 const serverTags = savedFlag.tags ?? []
                 const serverSet = new Set(serverTags)
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
-                if (!setsEqual) {
-                    actions.setFeatureFlag({ ...flag, tags: serverTags })
-                    if (values.originalFeatureFlag) {
-                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: serverTags })
-                    }
-                    actions.updateFlag({ ...flag, tags: serverTags })
+                // The write bumped the row version; a page left on the old one has its next write refused as stale.
+                // Folding the saved tags back also undoes a refresh that repainted older ones mid-request.
+                const persisted = { tags: setsEqual ? tags : serverTags, version: savedFlag.version }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
+                actions.updateFlag({ ...values.featureFlag, ...persisted })
             } catch (error: any) {
                 // Re-throw breakpoint cancellation so kea swallows it silently.
                 if (error?.isBreakpoint) {

@@ -68,6 +68,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
+    rulesV2CreateDisabledReason,
 } from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
@@ -810,11 +811,6 @@ export function FeatureFlags(): JSX.Element {
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
     const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
     const { currentTeam } = useValues(teamLogic)
-    // The rules v2 create contract rejects `evaluation_contexts`, so a project that requires them rejects every rules v2 create.
-    const rulesV2CreateDisabledReason =
-        enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && currentTeam?.require_evaluation_contexts
-            ? "This project requires evaluation contexts on new flags, and rules v2 flags can't set them yet."
-            : undefined
 
     return (
         <SceneContent className="feature_flags">
@@ -839,7 +835,7 @@ export function FeatureFlags(): JSX.Element {
                                     type="secondary"
                                     size="small"
                                     to={urls.featureFlagNew({ format: 'rules_v2' })}
-                                    disabledReason={rulesV2CreateDisabledReason}
+                                    disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
                                     data-attr="new-rules-v2-feature-flag"
                                 >
                                     New rules v2 flag

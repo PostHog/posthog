@@ -1,4 +1,7 @@
-import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config } from '~/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
+import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config, TeamPublicType, TeamType } from '~/types'
 
 export type FeatureFlagConfigFormat = 'v1' | 'v2' | 'unsupported'
 
@@ -27,6 +30,16 @@ export function isRulesV2FeatureFlagConfig(
 export function featureFlagConfigFormatLabel(filters: FeatureFlagConfig | null | undefined): string {
     const version = filters?.version
     return featureFlagConfigFormat(filters) === 'v2' ? 'Rules v2' : `Config v${String(version)} (unsupported)`
+}
+
+/** The rules v2 create contract rejects `evaluation_contexts`, so a project that requires them rejects every rules v2 create. */
+export function rulesV2CreateDisabledReason(
+    team: TeamPublicType | TeamType | null,
+    enabledFeatures: FeatureFlagsSet
+): string | null {
+    return enabledFeatures[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && team?.require_evaluation_contexts
+        ? "This project requires evaluation contexts on new flags, and rules v2 flags can't set them yet."
+        : null
 }
 
 /** Whether the rules v2 editor can edit this document: boolean return type, person assignment, no experiment rules. */

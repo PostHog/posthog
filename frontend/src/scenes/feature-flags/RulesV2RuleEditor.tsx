@@ -11,13 +11,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { FeatureFlagRulesV2DraftRule } from '~/types'
 
 import { FeatureFlagLogicProps } from './featureFlagLogic'
-import { featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
+import { BOOLEAN_OPTIONS, featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
-
-export const BOOLEAN_OPTIONS = [
-    { value: 'true', label: 'true' },
-    { value: 'false', label: 'false' },
-]
 
 export function RulesV2RuleEditor({
     id,
@@ -119,6 +114,7 @@ export function RulesV2RuleEditor({
                                 { value: 'continue', label: 'Continue to the next rule' },
                                 { value: 'return_default', label: 'Get the default value' },
                             ]}
+                            data-attr="rules-v2-rollout-miss"
                         />
                     </LemonField.Pure>
                 </div>
@@ -129,6 +125,7 @@ export function RulesV2RuleEditor({
                     value={String(rule.value)}
                     onChange={(value) => updateRule(index, { ...rule, value: value === 'true' })}
                     options={BOOLEAN_OPTIONS}
+                    data-attr="rules-v2-rule-value"
                 />
             </LemonField.Pure>
         </div>
