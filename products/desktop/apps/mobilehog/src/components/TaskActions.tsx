@@ -1,3 +1,4 @@
+import { isTerminalStatus } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -14,6 +15,7 @@ import {
 import { GlassCircleButton } from "@/components/Glass";
 import { OptionsSheet } from "@/components/OptionsSheet";
 import { getClient } from "@/lib/client";
+import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
 export function TaskActions({
@@ -42,11 +44,17 @@ export function TaskActions({
         "Check your connection and try again.",
       ),
   });
+  const stop = useMutation({
+    mutationFn: () => useSessions.getState().stopRun(task.id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () =>
+      Alert.alert("Could not stop run", "Check your connection and try again."),
+  });
   return (
     <>
       <GlassCircleButton
         accessibilityLabel="Task options"
-        disabled={mutation.isPending}
+        disabled={mutation.isPending || stop.isPending}
         onPress={() => setMenu(true)}
       >
         <Text style={styles.more}>⋯</Text>
@@ -56,6 +64,27 @@ export function TaskActions({
           title="Task options"
           onClose={() => setMenu(false)}
           options={[
+            ...(task.latest_run && !isTerminalStatus(task.latest_run.status)
+              ? [
+                  {
+                    label: "Stop run",
+                    disabled: stop.isPending,
+                    onPress: () =>
+                      Alert.alert(
+                        "Stop this run?",
+                        "You can send another message to continue the task with a different model.",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Stop run",
+                            style: "destructive",
+                            onPress: () => stop.mutate(),
+                          },
+                        ],
+                      ),
+                  },
+                ]
+              : []),
             {
               label: "Rename",
               onPress: () => {
@@ -113,7 +142,7 @@ export function TaskActions({
             <View style={styles.actions}>
               <Pressable
                 accessibilityRole="button"
-                disabled={mutation.isPending}
+                disabled={mutation.isPending || stop.isPending}
                 onPress={() => setRenaming(false)}
                 style={styles.button}
               >

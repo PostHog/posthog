@@ -25,11 +25,7 @@ import { GlassCircleButton } from "@/components/Glass";
 import { MenuIcon, SteeringIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { OptionsSheet } from "@/components/OptionsSheet";
-import {
-  CardButton,
-  PriorityChip,
-  ReportDetail,
-} from "@/components/ReportCard";
+import { PriorityChip } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
 import { getClient } from "@/lib/client";
 import { type ReportSort, usePrefs } from "@/lib/prefs";
@@ -37,7 +33,6 @@ import {
   REPORT_SORTS,
   type ReportView,
   useDismissReport,
-  useReportDetail,
   useReports,
   useSeenReports,
   useStartReport,
@@ -59,7 +54,6 @@ export default function SelfDrivingScreen() {
       getClient().updateSignalReportState(id, { state: "potential" }),
     onSuccess: () => {
       setUndoReport(null);
-      setSelectedReportId(null);
       setHandled(new Set());
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
       setNotice("Report restored.");
@@ -77,13 +71,10 @@ export default function SelfDrivingScreen() {
   // Locally swiped ids, so a card leaves the deck before the server catches up.
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(
-    reportId ?? null,
-  );
-  const selectedDetail = useReportDetail(selectedReportId ?? "");
   useEffect(() => {
-    if (reportId) setSelectedReportId(reportId);
-  }, [reportId]);
+    if (reportId)
+      router.replace({ pathname: "/report", params: { id: reportId } });
+  }, [reportId, router]);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
@@ -109,11 +100,6 @@ export default function SelfDrivingScreen() {
         .filter((report): report is SignalReport => !!report),
     [deck, all],
   );
-  const selectedReport = selectedReportId
-    ? (all.find((report) => report.id === selectedReportId) ??
-      selectedDetail.data)
-    : undefined;
-
   // Whatever surfaces at the top of the deck counts as seen.
   const topId = deckReports[0]?.id;
   useEffect(() => {
@@ -143,7 +129,6 @@ export default function SelfDrivingScreen() {
   const dismissNow = (report: SignalReport): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
     finish(report);
-    setSelectedReportId(null);
     dismiss.mutate(report.id, {
       onSuccess: () => {
         setUndoReport(report);
@@ -181,7 +166,6 @@ export default function SelfDrivingScreen() {
       () => {},
     );
     finish(report);
-    setSelectedReportId(null);
     const tempId = `new-${Date.now()}`;
     const prompt = buildCreatePrReportPrompt({ reportId: report.id });
     const { startPending, adopt, failPending } = useSessions.getState();
@@ -235,17 +219,7 @@ export default function SelfDrivingScreen() {
   return (
     <DrawerScene>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        {selectedReport ? (
-          <GlassCircleButton
-            accessibilityLabel="Back to Self-driving"
-            onPress={() => {
-              setSelectedReportId(null);
-              if (view === "unread") void reports.refetch();
-            }}
-          >
-            <Text style={styles.headerGlyph}>‹</Text>
-          </GlassCircleButton>
-        ) : showDeck ? (
+        {showDeck ? (
           <GlassCircleButton
             accessibilityLabel="Close triage"
             onPress={() => {
@@ -263,10 +237,8 @@ export default function SelfDrivingScreen() {
             <MenuIcon />
           </GlassCircleButton>
         )}
-        <Text style={styles.title}>
-          {selectedReport ? "Report" : showDeck ? "Triage" : "Self-driving"}
-        </Text>
-        {!selectedReport && !showDeck ? (
+        <Text style={styles.title}>{showDeck ? "Triage" : "Self-driving"}</Text>
+        {!showDeck ? (
           <GlassCircleButton
             accessibilityLabel="Report options"
             onPress={() => setMenu("actions")}
@@ -278,53 +250,7 @@ export default function SelfDrivingScreen() {
         )}
       </View>
 
-      {selectedReport ? (
-        <View style={styles.reportPage}>
-          <ReportDetail report={selectedReport} />
-          <Pressable
-            accessibilityRole="button"
-            style={styles.sortButton}
-            onPress={() => {
-              void markSeen([selectedReport.id], false)
-                .then(() => {
-                  setSelectedReportId(null);
-                  setNotice("Report marked unread.");
-                })
-                .catch(() => setNotice("Could not sync read state."));
-            }}
-          >
-            <Text style={styles.actionText}>Mark unread</Text>
-          </Pressable>
-          <View
-            style={[
-              styles.reportActions,
-              { paddingBottom: insets.bottom + 12 },
-            ]}
-          >
-            <CardButton
-              label={
-                selectedReport.status === "suppressed" ? "Restore" : "Dismiss"
-              }
-              disabled={
-                dismiss.isPending ||
-                reopen.isPending ||
-                selectedReport.status === "resolved"
-              }
-              onPress={() =>
-                selectedReport.status === "suppressed"
-                  ? reopen.mutate(selectedReport.id)
-                  : onDismiss(selectedReport)
-              }
-            />
-            <CardButton
-              label="Start task"
-              primary
-              disabled={start.isPending || view === "history"}
-              onPress={() => onStart(selectedReport)}
-            />
-          </View>
-        </View>
-      ) : showDeck ? (
+      {showDeck ? (
         <Animated.View
           key="deck"
           exiting={FadeOutDown.duration(200)}
@@ -415,11 +341,7 @@ export default function SelfDrivingScreen() {
               key={report.id}
               accessibilityRole="button"
               onPress={() => {
-                setSelectedReportId(report.id);
-                if (!seen.has(report.id))
-                  markSeen([report.id]).catch(() =>
-                    setNotice("Could not mark the report as read."),
-                  );
+                router.push({ pathname: "/report", params: { id: report.id } });
               }}
               accessibilityLabel={`${seen.has(report.id) ? "" : "Unread. "}${report.title ?? "Untitled report"}`}
               style={({ pressed }) => [
@@ -562,17 +484,6 @@ export default function SelfDrivingScreen() {
 }
 
 const styles = StyleSheet.create({
-  reportPage: {
-    flex: 1,
-    paddingHorizontal: 18,
-    backgroundColor: colors.bgRaised,
-  },
-  reportActions: {
-    flexDirection: "row",
-    gap: 8,
-    paddingTop: 12,
-    backgroundColor: colors.bgRaised,
-  },
   readAction: { paddingVertical: 12 },
   actionText: {
     fontFamily: fonts.sansMedium,

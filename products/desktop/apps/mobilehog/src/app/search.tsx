@@ -192,8 +192,8 @@ export default function SearchScreen() {
                   onPress={() => {
                     saveSearch(query);
                     router.dismissTo({
-                      pathname: "/(drawer)/self-driving",
-                      params: { reportId: report.id },
+                      pathname: "/report",
+                      params: { id: report.id },
                     });
                   }}
                 >

@@ -11,7 +11,9 @@ import { clearAccountStorage } from "@/lib/storage";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
-    defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+    defaultOptions: {
+      queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 },
+    },
   });
 }
 
@@ -33,7 +35,7 @@ useAuth.subscribe((state, previous) => {
   resetEngine();
   resetClient();
   resetMcpClient();
-  useComposer.getState().reset();
+  useComposer.getState().clear();
   useRepo.setState({ repository: undefined });
   useSeenReports.setState({
     seen: new Set(),

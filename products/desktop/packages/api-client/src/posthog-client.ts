@@ -1139,6 +1139,7 @@ export interface CloudRunOptions {
 }
 
 export type CloudRunCommandMethod =
+  | "pi/rpc"
   | "user_message"
   | "permission_response"
   | "set_config_option"

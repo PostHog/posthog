@@ -13,6 +13,7 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import { currentRunConfig } from "@/lib/composer";
 import { buildPhotoPrompt, type PendingPhoto } from "@/lib/photos";
 import {
   createAndRunTask,
@@ -50,6 +51,7 @@ export default function NewChatScreen() {
     submitting.current = true;
     setSending(true);
     const identity = sessionIdentity();
+    const config = currentRunConfig();
     try {
       const wirePrompt = await buildPhotoPrompt(text, photos);
       if (sessionIdentity() !== identity)
@@ -57,6 +59,7 @@ export default function NewChatScreen() {
       const task = await createAndRunTask({
         prompt: text || "Please look at the attached image.",
         wirePrompt,
+        config,
         repository: repository.data ?? null,
         taskId: draft.taskId,
         onCreated: draft.saveTaskId,

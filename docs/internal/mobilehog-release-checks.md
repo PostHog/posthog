@@ -56,7 +56,7 @@ To check cross-device delivery, start a cloud task from Desktop, put the mobile 
 
 Self-driving lists actionable reports where the signed-in user is a suggested reviewer. Newest first is the default; the sort menu also offers Priority.
 Opening a report marks it read for the current account and syncs with Desktop. Read actions clear the new-item indicators without dismissing the reports.
-Tapping a report in the list opens its full detail directly. The options menu opens the optional triage deck.
+Tapping a report in the list opens a separate full-detail screen. Report actions stay in its options menu. The options menu opens the optional triage deck.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
 Read actions appear only when visible items are unread.
@@ -103,7 +103,7 @@ Before sharing a build:
   Confirm that the task appears. Disconnect the network and check that refresh shows an error with Retry.
 - Tap the login button twice quickly.
   Only one login flow should start.
-- Open Self-driving with reports for different suggested reviewers. Only your reports should appear, with P0 first.
+- Open Self-driving with reports for different suggested reviewers. Only your reports should appear. Select Priority and confirm that P0 appears first.
   Open a report, mark loaded reports read, and confirm that the drawer indicator clears. Restart and check read state.
   Dismiss a report and confirm it leaves the project inbox. Disconnect the network and check that failed actions permit another attempt.
 - Open Activity with no items, then with only read items. Confirm that no mark-as-read action appears.
@@ -160,3 +160,15 @@ The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup a
 - Use large text and VoiceOver to operate task menus, search tabs, the composer, and report actions. Check reduced motion and a narrow device in both appearances.
 - Install a preview build, publish a compatible test update, and use Settings to apply it. A native-module change must produce a different fingerprint and require a new build.
 - In the configured telemetry project, confirm that a test failure resolves to source code. Inspect the event payload: no prompt, image, token, search text, response body, or exception text may be present.
+
+## Model selection and loading
+
+- Open a running task, select another model from the same provider, and send a reply. Confirm the agent accepts the model and reasoning setting before it receives the reply.
+- Reject a model change and confirm the message stays unsent and the draft stays available. Repeat with a Pi task from Desktop.
+- Select different models in two tasks and a new-task draft. Move between them and confirm that each composer keeps its selection.
+- Open a task, return to the list, then open it again within one minute. Confirm the conversation remains visible and the live stream is reused.
+- Open a report from the list and Search. Confirm both open the full report screen, with triage available only from the Self-driving menu.
+- Delay report read-state requests. Confirm loaded reports appear before those requests finish.
+
+Deploy the report read-state migration and API, PR review endpoint, and task notification title before distributing the matching mobile build.
+Mobile PR footers also require the task worker and agent image update. Existing runs can retain their previous agent image.

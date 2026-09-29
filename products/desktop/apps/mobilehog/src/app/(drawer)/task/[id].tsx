@@ -1,6 +1,7 @@
+import { DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
-import { useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,7 +17,6 @@ import {
   type TranscriptRow,
   TranscriptRowView,
 } from "@/components/Transcript";
-import { useComposer } from "@/lib/composer";
 import type { PendingPhoto } from "@/lib/photos";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
@@ -37,22 +37,17 @@ export default function TaskScreen() {
   const hedgehogMode = usePrefs((s) => s.hedgehogMode);
   const { connect, disconnect, sendPrompt, cancelTurn, respondToPermission } =
     useSessions();
-  const setModel = useComposer((s) => s.setModel);
   const listRef = useRef<FlashListRef<TranscriptRow>>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const followNextMessage = useRef(false);
 
   const runId = task.data?.latest_run?.id;
-  useEffect(() => {
-    if (task.data && runId) connect(task.data);
-  }, [task.data, runId, connect]);
-
-  useEffect(() => () => disconnect(id), [id, disconnect]);
-
-  useEffect(() => {
-    const runModel = task.data?.latest_run?.model;
-    if (runModel) setModel(runModel);
-  }, [task.data?.latest_run?.model, setModel]);
+  useFocusEffect(
+    useCallback(() => {
+      if (task.data && runId) connect(task.data);
+      return () => disconnect(id);
+    }, [id, task.data, runId, connect, disconnect]),
+  );
 
   const blocks = session?.blocks;
   // Walks while thinking or using tools; stands still once text is streaming.
@@ -237,11 +232,23 @@ export default function TaskScreen() {
             <Composer
               key={id}
               draftId={id}
+              initialModel={
+                task.data
+                  ? (task.data.latest_run?.model ??
+                    (task.isPlaceholderData
+                      ? undefined
+                      : DEFAULT_GATEWAY_MODEL))
+                  : undefined
+              }
+              initialReasoning={
+                task.data?.latest_run?.reasoning_effort ?? undefined
+              }
               placeholder="Reply"
               onSend={send}
               onStop={isPending ? undefined : () => cancelTurn(id)}
               busy={session?.turnActive}
               sending={isPending}
+              disabled={!session?.runId || !task.data || task.isPlaceholderData}
             />
           </View>
         </View>

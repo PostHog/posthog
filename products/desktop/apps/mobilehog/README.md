@@ -61,6 +61,7 @@ The app cannot use permissions that your account or project does not have.
 
 - **Recent Tasks** lists your cloud tasks in the selected project, across all spaces. Pull to refresh or return to the app to load changes.
 - Use **Search** for task titles and descriptions, Self-driving report titles and summaries, or messages saved on this phone. Message search covers up to 20 opened conversations, not all server history. Select a result to open the matching message. Before you enter text, Search shows recent searches.
+- Model and reasoning selections apply to the next message. The app waits for the agent to accept them before it sends your message. If a change fails, the draft stays on the phone. A live Claude Code or Codex run can change models within its provider; use **Task options → Stop run** before changing providers. Pi runs can change providers.
 - Start a task from the main menu. Select a repository and model, then send your request.
 - New tasks use the server's Personal default. Mobile does not show space controls or labels.
 - Open an existing task to read it and send replies. Tasks from Desktop must use cloud runs and remain accessible to your account.
@@ -84,7 +85,7 @@ This is speech-to-text input, not a voice conversation with the agent.
 ## Self-driving
 
 The list shows actionable reports for which you are a suggested reviewer.
-Select a report to read its full details. Opening it marks it as read for your account.
+Select a report to open its full details on a separate screen. The report options menu contains task and report actions. Opening it marks it as read for your account.
 
 Use the sort control to choose **Newest first**, **Oldest first**, **Priority**, or **Recently updated**.
 Sorting applies on the server, including reports you have not loaded yet. Newest first is the default.
@@ -136,6 +137,16 @@ This app is iOS-first. Android and browser builds are not supported release targ
 It needs network access to send tasks or refresh reports. Saved lists and message text remain available offline; image and chart caches are not guaranteed. It does not run local repositories, local tasks, or worktrees on the phone.
 Mobile-created runs request a **Created with PostHog Mobile** PR footer; this requires the matching backend and agent deployment.
 This does not change the GitHub author or commit signature.
+
+Recently opened tasks reuse their live connection for up to one minute after you leave. The app keeps at most two inactive connections.
+Cached tasks, reports, repository choices, and model choices appear while the app refreshes them. Signing out or switching projects closes the connections and clears the in-memory cache.
+
+## Backend deployment
+
+Installing the mobile app does not deploy the server changes in this PR.
+The matching server release must include the report read-state API and database migration, the task PR review endpoint, and the task push title (`posthog`).
+The task worker and agent image must also include the Mobile PR footer support. New runs use that image; existing runs can keep the previous image.
+Deploy the server changes before distributing a build that uses the new endpoints. No manual device-token changes are required.
 
 ## Release and diagnostics
 

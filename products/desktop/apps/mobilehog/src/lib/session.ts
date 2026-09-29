@@ -1,6 +1,8 @@
 import { CloudCommandError } from "@posthog/api-client/posthog-client";
+import { sendConfiguredCloudPrompt } from "@posthog/core/sessions/cloudRunOptions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import type {
+  Adapter,
   CloudTaskUpdatePayload,
   Task,
   TaskRunStatus,
@@ -8,6 +10,7 @@ import type {
 import { deserializeCloudPrompt } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { create } from "zustand";
+import { getAccountQueryClient } from "@/lib/accountLifecycle";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { type WatchHandle, watchRun } from "@/lib/engine";
@@ -31,6 +34,8 @@ const TERMINAL: ReadonlySet<string> = new Set([
 export interface TaskSession {
   taskId: string;
   runId: string;
+  adapter: Adapter | null;
+  runtime: "acp" | "pi";
   blocks: Block[];
   runStatus: TaskRunStatus | null;
   stage: string | null;
@@ -75,13 +80,23 @@ interface SessionState {
 }
 
 const handles = new Map<string, WatchHandle>();
+const releases = new Map<string, ReturnType<typeof setTimeout>>();
 
-// A finished run answers commands with 409 "workflow has ended"; a dead
-// sandbox with 404. Both mean: start a replacement run carrying the message.
+function cancelRelease(taskId: string): void {
+  clearTimeout(releases.get(taskId));
+  releases.delete(taskId);
+}
+
+function closeConnection(taskId: string): void {
+  cancelRelease(taskId);
+  handles.get(taskId)?.stop();
+  handles.delete(taskId);
+}
+
+// Only a missing sandbox or ended workflow can resume with the unsent message.
 function runIsGone(error: CloudCommandError): boolean {
   return (
     error.isSandboxInactive() ||
-    error.status === 409 ||
     !!error.backendError?.toLowerCase().includes("workflow has ended")
   );
 }
@@ -90,6 +105,8 @@ function emptySession(taskId: string, runId: string): TaskSession {
   return {
     taskId,
     runId,
+    adapter: null,
+    runtime: "acp",
     blocks: [],
     runStatus: null,
     stage: null,
@@ -213,6 +230,7 @@ export const useSessions = create<SessionState>((set, get) => {
 
       return {
         blocks: folded.blocks,
+        resuming: isSnapshot ? false : s.resuming,
         connected: true,
         turnActive,
         awaitingInput: folded.awaitingInput,
@@ -237,7 +255,7 @@ export const useSessions = create<SessionState>((set, get) => {
 
   const watch = (taskId: string, runId: string): void => {
     const currentGeneration = generation;
-    handles.get(taskId)?.stop();
+    closeConnection(taskId);
     handles.set(
       taskId,
       watchRun(taskId, runId, (update) => {
@@ -249,7 +267,8 @@ export const useSessions = create<SessionState>((set, get) => {
   const resumeRun = async (
     taskId: string,
     prompt: string,
-    displayText: string = prompt,
+    displayText: string,
+    config: ReturnType<typeof currentRunConfig>,
   ): Promise<void> => {
     const currentGeneration = generation;
     const session = get().sessions[taskId];
@@ -261,9 +280,13 @@ export const useSessions = create<SessionState>((set, get) => {
     const task = await getClient().runTaskInCloud(taskId, undefined, {
       resumeFromRunId: session.runId,
       pendingUserMessage: prompt,
-      ...currentRunConfig(),
+      ...config,
+      ...(session.runtime === "pi"
+        ? { piRuntime: true, adapter: undefined }
+        : {}),
     });
     if (generation !== currentGeneration) return;
+    getAccountQueryClient().setQueryData(["tasks", taskId], task);
     const runId = task.latest_run?.id;
     if (!runId) throw new Error("Resume did not return a run");
     set((state) => ({
@@ -271,6 +294,8 @@ export const useSessions = create<SessionState>((set, get) => {
         ...state.sessions,
         [taskId]: {
           ...emptySession(taskId, runId),
+          adapter: task.latest_run?.runtime_adapter ?? config.adapter,
+          runtime: task.runtime ?? "acp",
           blocks: state.sessions[taskId]?.blocks ?? [],
           localEchoes: state.sessions[taskId]?.localEchoes ?? new Set(),
           turnActive: true,
@@ -300,6 +325,7 @@ export const useSessions = create<SessionState>((set, get) => {
 
     reset: () => {
       generation += 1;
+      for (const taskId of releases.keys()) cancelRelease(taskId);
       for (const handle of handles.values()) handle.stop();
       handles.clear();
       set({ sessions: {} });
@@ -333,6 +359,8 @@ export const useSessions = create<SessionState>((set, get) => {
           taskId: task.id,
           runId,
           runStatus: task.latest_run?.status ?? "queued",
+          adapter: task.latest_run?.runtime_adapter ?? null,
+          runtime: task.runtime ?? "acp",
         };
         return { sessions };
       });
@@ -344,15 +372,22 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     connect: (task) => {
+      cancelRelease(task.id);
       const runId = task.latest_run?.id;
       if (!runId) return;
       const existing = get().sessions[task.id];
-      if (existing?.runId === runId && handles.has(task.id)) return;
+      if (existing?.runId === runId && handles.has(task.id)) {
+        handles.get(task.id)?.reconnectIfDisconnected();
+        return;
+      }
       set((state) => ({
         sessions: {
           ...state.sessions,
           [task.id]: {
             ...emptySession(task.id, runId),
+            adapter: task.latest_run?.runtime_adapter ?? null,
+            runtime: task.runtime ?? "acp",
+            runStatus: task.latest_run?.status ?? null,
             blocks: existing?.blocks ?? [],
           },
         },
@@ -361,8 +396,15 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     disconnect: (taskId) => {
-      handles.get(taskId)?.stop();
-      handles.delete(taskId);
+      if (!handles.has(taskId) || releases.has(taskId)) return;
+      releases.set(
+        taskId,
+        setTimeout(() => closeConnection(taskId), 60_000),
+      );
+      while (releases.size > 2) {
+        const oldest = releases.keys().next().value;
+        if (oldest) closeConnection(oldest);
+      }
     },
 
     reconnect: () => {
@@ -378,6 +420,7 @@ export const useSessions = create<SessionState>((set, get) => {
       const currentGeneration = generation;
       const session = get().sessions[taskId];
       if (!session) throw new Error("Task is not ready. Try again.");
+      const config = currentRunConfig();
       const displayText = text || "Please look at the attached image.";
       const wirePrompt = await buildPhotoPrompt(text, photos);
       if (generation !== currentGeneration)
@@ -408,18 +451,42 @@ export const useSessions = create<SessionState>((set, get) => {
       });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       try {
-        await getClient().sendCloudRunCommand(
-          taskId,
-          session.runId,
-          "user_message",
-          { content: wirePrompt },
-        );
+        if (
+          session.runtime !== "pi" &&
+          session.adapter &&
+          session.adapter !== config.adapter
+        ) {
+          if (!session.runStatus || !TERMINAL.has(session.runStatus)) {
+            throw new Error(
+              "Stop this run before choosing a model from another provider.",
+            );
+          }
+          patch(taskId, () => ({ resuming: true }));
+          await resumeRun(taskId, wirePrompt, displayText, config);
+        } else {
+          const client = getClient();
+          await sendConfiguredCloudPrompt(
+            async (method, params) => {
+              if (generation !== currentGeneration)
+                throw new Error("Session changed. Sign in again.");
+              return client.sendCloudRunCommand(
+                taskId,
+                session.runId,
+                method,
+                params,
+              );
+            },
+            config,
+            wirePrompt,
+            session.runtime,
+          );
+        }
       } catch (error) {
         if (generation !== currentGeneration) return null;
         if (error instanceof CloudCommandError && runIsGone(error)) {
           patch(taskId, () => ({ resuming: true }));
           try {
-            await resumeRun(taskId, wirePrompt, displayText);
+            await resumeRun(taskId, wirePrompt, displayText, config);
           } catch (resumeError) {
             if (generation !== currentGeneration) return null;
             echoes.delete(displayText);
@@ -439,7 +506,8 @@ export const useSessions = create<SessionState>((set, get) => {
         echoes.delete(displayText);
         patch(taskId, (current) => ({
           blocks: current.blocks.filter((block) => block.id !== localId),
-          turnActive: false,
+          turnActive: session.turnActive,
+          resuming: false,
           error: error instanceof Error ? error.message : String(error),
         }));
         throw error;
@@ -466,7 +534,7 @@ export const useSessions = create<SessionState>((set, get) => {
     stopRun: async (taskId) => {
       const currentGeneration = generation;
       const session = get().sessions[taskId];
-      if (!session) return;
+      if (!session) throw new Error("Task is not ready. Try again.");
       await getClient().cancelTaskRun(taskId, session.runId);
       if (generation !== currentGeneration) return;
       patch(taskId, () => ({ turnActive: false, runStatus: "cancelled" }));

@@ -12,6 +12,7 @@ import type {
   SignalReportSignalsResponse,
 } from "@posthog/shared/domain-types";
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -46,13 +47,18 @@ export type ReportView = "active" | "unread" | "history";
 
 export function useReports(view: ReportView = "active", search = "") {
   const session = useAuth((s) => s.session);
+  const queryClient = useQueryClient();
   const sort = usePrefs((s) => s.reportSort);
   return useInfiniteQuery({
     queryKey: [...reportKeys.list, sort, view, search],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const client = getClient();
-      const user = await client.getCurrentUser();
+      const user = await queryClient.fetchQuery({
+        queryKey: ["current-user"],
+        queryFn: async () => ({ uuid: (await client.getCurrentUser()).uuid }),
+        staleTime: 5 * 60_000,
+      });
       if (!user.uuid)
         throw new Error("Could not identify your account. Try again.");
       const page = await client.getSignalReports({
@@ -71,7 +77,7 @@ export function useReports(view: ReportView = "active", search = "") {
         limit: 50,
         offset: pageParam,
       });
-      await useSeenReports
+      void useSeenReports
         .getState()
         .sync(page.results.map((report) => report.id))
         .catch(() => {});
@@ -98,8 +104,18 @@ export function useReports(view: ReportView = "active", search = "") {
 }
 
 export function useReportDetail(id: string) {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ["reports", id, "detail"],
+    placeholderData: () =>
+      queryClient
+        .getQueriesData<InfiniteData<{ results: SignalReport[] }>>({
+          queryKey: reportKeys.list,
+        })
+        .flatMap(
+          ([, data]) => data?.pages.flatMap((page) => page.results) ?? [],
+        )
+        .find((report) => report.id === id),
     queryFn: async () => {
       const report = await getClient().getSignalReport(id);
       if (!report) throw new Error("Report is no longer available.");
@@ -143,6 +159,7 @@ export function useStartReport() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (report: SignalReport) => {
+      const config = currentRunConfig();
       const client = getClient();
       const prompt = buildCreatePrReportPrompt({ reportId: report.id });
       // The server picks the repository from the report's repo selection.
@@ -157,7 +174,7 @@ export function useStartReport() {
         pendingUserMessage: prompt,
         runSource: "signal_report",
         signalReportId: report.id,
-        ...currentRunConfig(),
+        ...config,
       });
     },
     onSettled: () => {
