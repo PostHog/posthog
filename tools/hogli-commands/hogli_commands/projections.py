@@ -129,9 +129,10 @@ class ProjectionRunner:
             written.append(path)
         return written
 
-    def _read(self, path: str) -> bytes:
+    def _read(self, path: str) -> bytes | None:
+        # None, not b"", so a missing file never matches an empty rendered output.
         target = self.repo_root / path
-        return target.read_bytes() if target.exists() else b""
+        return target.read_bytes() if target.exists() else None
 
 
 def _select(only: tuple[str, ...]) -> tuple[Projection, ...]:

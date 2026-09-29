@@ -137,7 +137,7 @@ Ask #team-devex before you add a projection.
 
 **Wrong type shapes?** The serializer is the source of truth. Use `@extend_schema_field` for custom `SerializerMethodField` types.
 
-**CI failing?** Run `hogli build:openapi` locally and commit the regenerated files.
+**CI failing?** Run `hogli build:openapi` locally and commit the regenerated files. For a drifted projection output, run `hogli build:projections`.
 
 ### Design decisions
 
