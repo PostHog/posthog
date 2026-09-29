@@ -22,7 +22,6 @@ interface ComposerProps {
   placeholder: string;
   // Shown as a second pill when provided (null = no repository chosen).
   repository?: string | null;
-  space?: string;
   disabled?: boolean;
   onSend: (text: string) => void | Promise<void>;
   onStop?: () => void;
@@ -34,7 +33,6 @@ interface ComposerProps {
 export function Composer({
   placeholder,
   repository,
-  space,
   disabled,
   onSend,
   onStop,
@@ -61,19 +59,6 @@ export function Composer({
 
   return (
     <Glass style={styles.shell}>
-      {space !== undefined ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Choose space. Current space: ${space}`}
-          onPress={() => router.push("/space")}
-          style={({ pressed }) => [styles.space, pressed && { opacity: 0.6 }]}
-        >
-          <Text style={styles.spaceText} numberOfLines={1}>
-            Space: {space}
-          </Text>
-          <Text style={styles.pillMuted}>⌄</Text>
-        </Pressable>
-      ) : null}
       <TextInput
         value={text}
         onChangeText={setText}
@@ -155,18 +140,6 @@ const styles = StyleSheet.create({
     color: colors.ink,
     maxHeight: 140,
     paddingTop: 0,
-  },
-  space: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 6,
-  },
-  spaceText: {
-    flexShrink: 1,
-    fontFamily: fonts.sansMedium,
-    fontSize: 13,
-    color: colors.ink,
   },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   pill: {

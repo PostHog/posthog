@@ -59,7 +59,6 @@ export interface ActivityRow {
   icon: AgentIcon;
   initials: string | null;
   metadata: string;
-  space: string | null;
 }
 
 function authorName(item: TaskActivityItem): string {
@@ -73,7 +72,6 @@ function describe(
   item: TaskActivityItem,
   currentEmail?: string | null,
 ): { action: string; icon: AgentIcon } {
-  const inSpace = !!item.channelName;
   switch (item.activityKind) {
     case "awaiting_input":
       return { action: "Agent is waiting for your reply", icon: "question" };
@@ -98,10 +96,7 @@ function describe(
         icon: null,
       };
     case "created":
-      return {
-        action: inSpace ? "You created task in" : "You created",
-        icon: null,
-      };
+      return { action: "You created", icon: null };
     default:
       return { action: "Activity", icon: null };
   }
@@ -115,12 +110,6 @@ export function toRows(
   if (!page) return [];
   return toTaskActivityItems(page.results).map((item) => {
     const { action, icon } = describe(item, currentEmail);
-    const space = item.channelName
-      ? item.channelName === "personal"
-        ? "Personal"
-        : item.channelName
-      : null;
-    const suffix = space && !action.endsWith(" in") ? " in" : "";
     return {
       item,
       icon,
@@ -129,8 +118,7 @@ export function toRows(
         : (item.author?.first_name ?? currentName ?? "You")
             .slice(0, 2)
             .toUpperCase(),
-      metadata: `${formatRelativeAge(item.activityAt)} · ${action}${suffix}`,
-      space,
+      metadata: `${formatRelativeAge(item.activityAt)} · ${action}`,
     };
   });
 }

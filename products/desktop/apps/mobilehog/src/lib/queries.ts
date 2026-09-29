@@ -1,5 +1,5 @@
 import type { GatewayModel } from "@posthog/shared";
-import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   useInfiniteQuery,
   useQuery,
@@ -10,7 +10,6 @@ import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
-import { useSpace } from "@/lib/space";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -21,7 +20,6 @@ const TERMINAL: ReadonlySet<string> = new Set([
 export const keys = {
   tasks: ["tasks"] as const,
   task: (id: string) => ["tasks", id] as const,
-  channels: ["channels"] as const,
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
@@ -77,33 +75,6 @@ export function useTask(taskId: string) {
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
   });
-}
-
-export function useChannels() {
-  const session = useAuth((s) => s.session);
-  return useQuery<TaskChannel[]>({
-    queryKey: keys.channels,
-    queryFn: () => getClient().getTaskChannels(),
-    enabled: !!session,
-    staleTime: 60_000,
-  });
-}
-
-export function useSelectedSpace() {
-  const channels = useChannels();
-  const channelId = useSpace((s) => s.channelId);
-  const personal = channels.data?.find(
-    (channel) => channel.system_role === "personal",
-  );
-  const selected =
-    channelId === null
-      ? (personal ?? null)
-      : (channels.data?.find((channel) => channel.id === channelId) ?? null);
-  return {
-    ...channels,
-    selected,
-    unavailable: !!channelId && channels.isSuccess && !selected,
-  };
 }
 
 // The gateway may not be running locally, so the pill always has a default.
@@ -178,14 +149,12 @@ export function useInvalidateTasks() {
 export async function createAndRunTask(input: {
   prompt: string;
   repository: string | null;
-  channel: string | null;
 }): Promise<Task> {
   const client = getClient();
   const task = await client.createTask({
     description: input.prompt,
     title: input.prompt.slice(0, 100),
     repository: input.repository ?? undefined,
-    channel: input.channel,
   });
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.prompt,

@@ -15,7 +15,7 @@ import { Glass, GlassCircleButton } from "@/components/Glass";
 import { SearchIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { TaskListRow } from "@/components/TaskListRow";
-import { useChannels, useTasks } from "@/lib/queries";
+import { useTasks } from "@/lib/queries";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function SearchScreen() {
@@ -28,7 +28,6 @@ export default function SearchScreen() {
     return () => clearTimeout(timeout);
   }, [query]);
   const tasks = useTasks(search);
-  const channels = useChannels();
   const waiting = query.trim() !== search;
   const loading = waiting || tasks.isLoading;
 
@@ -45,9 +44,9 @@ export default function SearchScreen() {
     >
       <View style={styles.header}>
         <Text style={styles.heading}>
-          {query.trim() ? "Search results" : "Your tasks"}
+          {query.trim() ? "Search results" : "Recent Tasks"}
         </Text>
-        <Text style={styles.caption}>Your tasks across all spaces</Text>
+        <Text style={styles.caption}>Search your tasks</Text>
       </View>
       <FlatList
         data={waiting ? [] : tasks.data}
@@ -58,9 +57,6 @@ export default function SearchScreen() {
         renderItem={({ item }) => (
           <TaskListRow
             task={item}
-            space={
-              channels.data?.find((space) => space.id === item.channel)?.name
-            }
             preview={!!search}
             onPress={() => {
               Keyboard.dismiss();

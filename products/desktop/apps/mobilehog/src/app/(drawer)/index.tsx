@@ -16,7 +16,6 @@ import {
   createAndRunTask,
   useDefaultRepository,
   useInvalidateTasks,
-  useSelectedSpace,
 } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
@@ -26,7 +25,6 @@ export default function NewChatScreen() {
   const insets = useSafeAreaInsets();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const repository = useDefaultRepository();
-  const space = useSelectedSpace();
   const submitting = useRef(false);
   const [sending, setSending] = useState(false);
   const invalidateTasks = useInvalidateTasks();
@@ -57,7 +55,6 @@ export default function NewChatScreen() {
       const task = await createAndRunTask({
         prompt: text,
         repository: repository.data ?? null,
-        channel: space.selected?.id ?? null,
       });
       if (sessionIdentity() !== identity) return;
       adopt(tempId, task);
@@ -89,17 +86,7 @@ export default function NewChatScreen() {
           <Composer
             placeholder="Chat with PostHog"
             repository={repository.data ?? null}
-            space={
-              space.isError
-                ? "Could not load spaces"
-                : space.isLoading
-                  ? "Loading spaces"
-                  : space.unavailable
-                    ? "Choose a space"
-                    : (space.selected?.name ?? "Personal")
-            }
             sending={sending}
-            disabled={space.isLoading || space.isError || space.unavailable}
             onSend={send}
             autoFocus
           />

@@ -37,7 +37,7 @@ const SLIDES = [
   {
     image: require("../../assets/hoggies/coding-group.png"),
     title: "See what your team is shipping",
-    body: "Every space, every task, every finished run, in one feed you can read between meetings.",
+    body: "Your tasks and finished runs, in one feed you can read between meetings.",
   },
 ];
 
