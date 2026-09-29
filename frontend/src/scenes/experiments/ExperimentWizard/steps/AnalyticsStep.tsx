@@ -3,9 +3,11 @@ import { useState } from 'react'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconEye } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonCheckbox, LemonSwitch } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -86,7 +88,7 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
             </div>
 
-            <ReplayVisionScannerToggle />
+            <ReplayVisionScannerOption />
 
             <LemonBanner type="info">
                 You can always refine your analytics configuration and metrics after saving.
@@ -97,14 +99,79 @@ export function AnalyticsStep(): JSX.Element {
 
 /** Turning this on opts the experiment into a Replay Vision scanner, created at save. The scanner
  * endpoint refuses without org AI approval, so turning it on without consent opens the consent popover
- * instead of letting the experiment save and the scanner fail after the fact. */
-function ReplayVisionScannerToggle(): JSX.Element {
+ * instead of letting the experiment save and the scanner fail after the fact.
+ *
+ * The `test` arm of EXPERIMENT_WIZARD_REPLAY_VISION_CARD shows it as a card with a toggle, `control` keeps the
+ * checkbox. The flag is read here, at the end of the analytics step, so only people who see the option are
+ * exposed. */
+function ReplayVisionScannerOption(): JSX.Element {
     const { createReplayVisionScanner } = useValues(experimentWizardLogic)
     const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [consentRequested, setConsentRequested] = useState(false)
 
-    const card = (
+    const optionProps: ReplayVisionScannerOptionProps = {
+        checked: createReplayVisionScanner,
+        onChange: (checked) => {
+            if (checked && !dataProcessingAccepted) {
+                setConsentRequested(true)
+            } else {
+                setCreateReplayVisionScanner(checked)
+            }
+        },
+        disabledReason: getReplayVisionEditDisabledReason() ?? undefined,
+        // Per-session price only: a monthly projection needs the 30-day recording history the
+        // estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so
+        // any monthly figure computed here would be a misleading zero. The scanner page shows
+        // the projection once participant sessions exist. Priced at the model
+        // experimentScannerBody pins, so this matches the scanner the save path creates.
+        sessionPrice: formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL]),
+    }
+
+    const option =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD] === 'test' ? (
+            <ReplayVisionScannerCard {...optionProps} />
+        ) : (
+            <ReplayVisionScannerCheckbox {...optionProps} />
+        )
+
+    if (dataProcessingAccepted) {
+        return option
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="top"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                setCreateReplayVisionScanner(true)
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {option}
+        </AIConsentPopoverWrapper>
+    )
+}
+
+interface ReplayVisionScannerOptionProps {
+    checked: boolean
+    onChange: (checked: boolean) => void
+    disabledReason?: string
+    sessionPrice: string
+}
+
+function ReplayVisionScannerCard({
+    checked,
+    onChange,
+    disabledReason,
+    sessionPrice,
+}: ReplayVisionScannerOptionProps): JSX.Element {
+    return (
         <LemonCard hoverEffect={false} className="@container flex items-start gap-4 p-4">
             <HedgehogXRay className="hidden @md:block w-20 shrink-0" />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -123,27 +190,16 @@ function ReplayVisionScannerToggle(): JSX.Element {
                         </p>
                     </div>
                     <LemonSwitch
-                        checked={createReplayVisionScanner}
-                        onChange={(checked) => {
-                            if (checked && !dataProcessingAccepted) {
-                                setConsentRequested(true)
-                            } else {
-                                setCreateReplayVisionScanner(checked)
-                            }
-                        }}
-                        disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
+                        checked={checked}
+                        onChange={onChange}
+                        disabledReason={disabledReason}
                         aria-label="Watch participant behavior with Replay Vision"
                         data-attr="experiment-create-replay-vision-scanner"
                     />
                 </div>
-                {/* Per-session price only: a monthly projection needs the 30-day recording history the
-                 * estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so
-                 * any monthly figure computed here would be a misleading zero. The scanner page shows
-                 * the projection once participant sessions exist. Priced at the model
-                 * experimentScannerBody pins, so this matches the scanner the save path creates. */}
                 <p className="m-0 text-xs text-muted">
                     It's created turned off, so nothing is scanned until you turn it on. Each scanned session costs{' '}
-                    {formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL])}.
+                    {sessionPrice}.
                 </p>
                 <div className="text-sm">
                     <VisionDocsLink dataAttr="experiment-create-replay-vision-docs">
@@ -153,25 +209,37 @@ function ReplayVisionScannerToggle(): JSX.Element {
             </div>
         </LemonCard>
     )
+}
 
-    if (dataProcessingAccepted) {
-        return card
-    }
-
+function ReplayVisionScannerCheckbox({
+    checked,
+    onChange,
+    disabledReason,
+    sessionPrice,
+}: ReplayVisionScannerOptionProps): JSX.Element {
     return (
-        <AIConsentPopoverWrapper
-            placement="top"
-            showArrow
-            ignoreDismissal
-            hideTrainingDisclaimer
-            hidden={!consentRequested}
-            onApprove={() => {
-                setConsentRequested(false)
-                setCreateReplayVisionScanner(true)
-            }}
-            onDismiss={() => setConsentRequested(false)}
-        >
-            {card}
-        </AIConsentPopoverWrapper>
+        <LemonCheckbox
+            bordered
+            fullWidth
+            checked={checked}
+            onChange={onChange}
+            disabledReason={disabledReason}
+            data-attr="experiment-create-replay-vision-scanner"
+            label={
+                <div className="py-3">
+                    <div className="font-semibold">Watch participant behavior with Replay Vision</div>
+                    <div className="mt-1 font-normal text-sm text-muted">
+                        Set up a scanner that classifies what participants do after experiment exposure. It is created
+                        turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust
+                        its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so
+                        turn it off when you are done.
+                    </div>
+                    <div className="font-normal text-sm text-muted mt-1">
+                        Each scanned session costs {sessionPrice}. The scanner shows a projected monthly cost once the
+                        experiment has participants.
+                    </div>
+                </div>
+            }
+        />
     )
 }
