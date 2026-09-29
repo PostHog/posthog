@@ -82,9 +82,9 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingView,
 )
 from products.customer_analytics.backend.facade.enums import (
-    AccountPropertyPinKind,
     AccountRelationshipSource,
     TaskDigestCadence,
+    get_account_property_pin_kind_choices,
 )
 
 
@@ -2098,7 +2098,7 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=AccountPropertyPinKind.choices,
+        choices=get_account_property_pin_kind_choices(),
         help_text="Definition type for this pinned account property.",
     )
     id = serializers.UUIDField(

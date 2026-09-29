@@ -1,9 +1,18 @@
+from enum import StrEnum
+
 from django.db import models
 
 
-class AccountPropertyPinKind(models.TextChoices):
-    CUSTOM_PROPERTY = "custom_property", "Custom property"
-    RELATIONSHIP = "relationship", "Relationship"
+class AccountPropertyPinKind(StrEnum):
+    CUSTOM_PROPERTY = "custom_property"
+    RELATIONSHIP = "relationship"
+
+
+def get_account_property_pin_kind_choices() -> list[tuple[str, str]]:
+    return [
+        (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+        (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+    ]
 
 
 class TaskDigestCadence(models.TextChoices):
@@ -49,4 +58,5 @@ __all__ = [
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
+    "get_account_property_pin_kind_choices",
 ]
