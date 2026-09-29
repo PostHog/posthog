@@ -265,6 +265,18 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "search"},
             ),
             (
+                "prompts_get_with_matching_name",
+                {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "summarize"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "prompts/get", "mcp-name": "summarize"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "prompts/get", "mcp-name": "summarize"},
+            ),
+            (
+                "resources_read_with_matching_uri",
+                {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "file:///notes.txt"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "resources/read", "mcp-name": "file:///notes.txt"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "resources/read", "mcp-name": "file:///notes.txt"},
+            ),
+            (
                 "name_that_does_not_match_body",
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
                 {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "delete_all"},
