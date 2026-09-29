@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,7 +20,7 @@ import { captureFailure, captureOutcome } from "@/lib/analytics";
 import { useComposer } from "@/lib/composer";
 import { useDraft } from "@/lib/drafts";
 import { useConnectivity } from "@/lib/offline";
-import { MAX_PHOTOS, type PendingPhoto, pickPhoto } from "@/lib/photos";
+import { MAX_PHOTOS, type PendingPhoto, pickPhotos } from "@/lib/photos";
 import { useModels } from "@/lib/queries";
 import { colors, fonts } from "@/lib/theme";
 import { useDictation } from "@/lib/useDictation";
@@ -105,8 +106,8 @@ export function Composer({
     setPicking(true);
     setError(null);
     try {
-      const photo = await pickPhoto();
-      if (photo) setPhotos((current) => [...current, photo]);
+      const selected = await pickPhotos(MAX_PHOTOS - photos.length);
+      if (selected.length) setPhotos((current) => [...current, ...selected]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add photo.");
     } finally {
@@ -159,7 +160,7 @@ export function Composer({
   const photoButton = (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Add photo"
+      accessibilityLabel={`Add photos. ${MAX_PHOTOS - photos.length} remaining.`}
       onPress={() => void addPhoto()}
       disabled={
         picking ||
@@ -240,7 +241,11 @@ export function Composer({
         </Text>
       ) : null}
       {photos.length > 0 ? (
-        <View style={styles.photos}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.photos}
+        >
           {photos.map((photo) => (
             <View key={photo.id} style={styles.photo}>
               <Image source={{ uri: photo.uri }} style={styles.thumbnail} />
@@ -259,7 +264,7 @@ export function Composer({
               </Pressable>
             </View>
           ))}
-        </View>
+        </ScrollView>
       ) : null}
       <View style={styles.inputRow}>
         {!expanded ? photoButton : null}

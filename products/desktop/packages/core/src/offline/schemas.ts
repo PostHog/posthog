@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MAX_DRAFT_PHOTOS = 10;
+
 export const savedDraftSchema = z.object({
   text: z.string().max(100_000),
   taskId: z.string().optional(),
@@ -13,7 +15,7 @@ export const savedDraftSchema = z.object({
         jpegBase64: z.string().optional(),
       }),
     )
-    .max(3),
+    .max(MAX_DRAFT_PHOTOS),
 });
 
 export const savedConversationsSchema = z

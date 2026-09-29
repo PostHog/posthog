@@ -137,7 +137,7 @@ export default function ReportScreen() {
                   "Dismiss report?",
                   report.implementation_pr_url
                     ? "This dismisses the report for the project and closes its open pull request. Restoring the report will not reopen the pull request."
-                    : "This dismisses the report for everyone in this project. You can restore it from History.",
+                    : "This dismisses the report for everyone in this project. Select Dismissed in the status filter to restore it.",
                   [
                     { text: "Cancel", style: "cancel" },
                     {
