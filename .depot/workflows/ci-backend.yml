@@ -46,6 +46,11 @@
 #   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
 #   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
 #   exclusion, and the paths-filter schedule skip) are depot-exempt.
+# - Schema cache outside PRs: canonical keys scheduled and dispatched runs on their merge-base
+#   with master, adds the merge-base's recent first-parent ancestors as restore keys, and
+#   primes test_posthog from the dump on every event. This shadow keys on the PR event base
+#   and never runs the hourly schedule, so it keeps its PR-only restore and prime; a
+#   dispatched run here still migrates from scratch.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
