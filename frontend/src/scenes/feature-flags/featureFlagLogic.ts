@@ -4428,13 +4428,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                     ...values.rowVersionToken,
                 })
-                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                const persisted = { name: savedFlag.name, version: savedFlag.version }
+                actions.setFeatureFlag({ ...flag, ...persisted })
                 if (values.originalFeatureFlag) {
-                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, name: savedFlag.name })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
-                actions.updateFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...flag, ...persisted })
                 lemonToast.success('Description saved')
-            } catch {
+            } catch (error: any) {
+                if (isStaleRowVersionRejection(values.configFormat, error)) {
+                    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
+                    actions.refreshFeatureFlag()
+                    return
+                }
                 lemonToast.error('Failed to save description')
             }
         },
@@ -4478,13 +4484,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const serverTags = savedFlag.tags ?? []
                 const serverSet = new Set(serverTags)
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
-                if (!setsEqual) {
-                    actions.setFeatureFlag({ ...flag, tags: serverTags })
-                    if (values.originalFeatureFlag) {
-                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: serverTags })
-                    }
-                    actions.updateFlag({ ...flag, tags: serverTags })
+                // The write bumped the row version; a page left on the old one has its next write refused as stale.
+                const persisted = { tags: setsEqual ? tags : serverTags, version: savedFlag.version }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
+                actions.updateFlag({ ...values.featureFlag, ...persisted })
             } catch (error: any) {
                 // Re-throw breakpoint cancellation so kea swallows it silently.
                 if (error?.isBreakpoint) {
@@ -4498,6 +4504,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
                 lemonToast.error(error?.detail || 'Failed to save tags')
+                if (isStaleRowVersionRejection(values.configFormat, error)) {
+                    actions.refreshFeatureFlag()
+                }
             }
         },
         editFeatureFlag: async ({ editing }) => {
