@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -261,7 +262,12 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
             <div className="space-y-4">
                 <div className="space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm text-secondary">Include people when</span>
+                        <span className="flex items-center gap-1 text-sm text-secondary">
+                            Exposure event
+                            <Tooltip title="People count toward the results once this event happens for them. By default, that's when your code checks the experiment's feature flag.">
+                                <IconInfo className="text-base" />
+                            </Tooltip>
+                        </span>
                         <LemonSelect
                             size="small"
                             dropdownMatchSelectWidth={false}
