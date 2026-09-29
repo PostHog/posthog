@@ -419,8 +419,8 @@
                 <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
                    target="_blank">View CDC extraction schedule in Temporal</a>
                 <p class="help">
-                    For CDC schemas, the per-schema schedule above is paused once streaming starts.
-                    This source-level schedule is what drives the actual change capture.
+                    For CDC schemas, this source-level schedule captures changes into the buffer,
+                    and the per-schema schedule above loads them into the table.
                 </p>
             </div>
         {% endif %}
