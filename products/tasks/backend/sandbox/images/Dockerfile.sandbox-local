@@ -20,6 +20,7 @@ RUN --mount=type=cache,id=posthog-sandbox-local-pnpm,target=/pnpm/store,sharing=
 
 COPY local-workspace /local-workspace
 
+# pnpm installs a shell shim as .bin/agent-server; link the bundle instead, as the published install and Modal do, so capability probes can grep it.
 RUN --mount=type=cache,id=posthog-sandbox-local-pnpm,target=/pnpm/store,sharing=locked \
     cd /local-workspace && \
     pnpm --filter @posthog/agent... build && \
@@ -27,4 +28,5 @@ RUN --mount=type=cache,id=posthog-sandbox-local-pnpm,target=/pnpm/store,sharing=
     pnpm pack --pack-destination /tmp && \
     cd /scripts && \
     pnpm install /tmp/posthog-agent-*.tgz --store-dir=/pnpm/store --fetch-timeout=600000 --config.dangerouslyAllowAllBuilds=true && \
+    ln -sfn ../@posthog/agent/dist/server/bin.js /scripts/node_modules/.bin/agent-server && \
     rm -rf /tmp/posthog-agent-*.tgz /local-workspace
