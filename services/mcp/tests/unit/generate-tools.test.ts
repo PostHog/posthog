@@ -461,6 +461,32 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
     })
 
+    it('adds an `expand` param that restores the expandable fields the response omits by default', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            input_schema: 'ThingGetSchema',
+            response: { exclude: ['secret'], expandable: ['items.*.body'] },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'thing-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(".extend({ expand: z.array(z.enum(['items.*.body'])).min(1).optional()")
+        expect(result.code).toContain('const { expand: _expand, ...parsedParams } = ThingGetSchema().parse(params)')
+        expect(result.code).toContain(
+            "omitResponseFields(result, ['secret', ...(['items.*.body'] as const).filter((path) => !params.expand?.includes(path))])"
+        )
+    })
+
     it('throws when selectable is set without an include allowlist', () => {
         const config: ToolConfig = {
             operation: 'things_list',

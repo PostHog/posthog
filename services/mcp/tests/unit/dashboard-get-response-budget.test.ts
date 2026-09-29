@@ -12,7 +12,9 @@ import type { Context } from '@/tools/types'
  */
 const TOKEN_BUDGET = 10_000
 
-const TILE_COUNT = 11
+const TILE_COUNT = 42
+
+const QUERY_PATH = 'tiles.*.insight.query'
 
 /** The `UserBasic` keys an agent cannot act on. Name and email stay. */
 const STRIPPED_USER_FIELDS = ['uuid', 'distinct_id', 'is_email_verified', 'hedgehog_config']
@@ -40,7 +42,7 @@ function createUser(id: number, firstName: string, lastName: string): Record<str
  * A trends query with every optional field the serializer emits. The explicit `null`s are the
  * point of the fixture: they are what the response used to spend most of its size on.
  */
-function createTileQuery(): Record<string, unknown> {
+function createTrendsTileQuery(): Record<string, unknown> {
     return {
         kind: 'InsightVizNode',
         source: {
@@ -150,6 +152,32 @@ function createTileQuery(): Record<string, unknown> {
     }
 }
 
+/** A saved SQL insight. Its query text is the largest single field a tile carries. */
+function createHogQLTileQuery(index: number): Record<string, unknown> {
+    const columns = Array.from({ length: 12 }, (_, column) => `countIf(event = 'step ${column}') AS step_${column}`)
+    return {
+        kind: 'DataVisualizationNode',
+        source: {
+            kind: 'HogQLQuery',
+            query: [
+                `SELECT toStartOfDay(timestamp) AS day, properties.pipeline_${index} AS pipeline,`,
+                `    ${columns.join(',\n    ')}`,
+                'FROM events',
+                "WHERE timestamp >= now() - INTERVAL 30 DAY AND event LIKE 'pipeline %'",
+                'GROUP BY day, pipeline',
+                'ORDER BY day DESC, pipeline ASC',
+                'LIMIT 500',
+            ].join('\n'),
+        },
+        display: 'ActionsLineGraph',
+        chartSettings: { yAxis: [{ column: 'step_0', settings: { formatting: { prefix: '', suffix: '' } } }] },
+    }
+}
+
+function createTileQuery(index: number): Record<string, unknown> {
+    return index % 2 === 0 ? createTrendsTileQuery() : createHogQLTileQuery(index)
+}
+
 function createDashboardResponse(): Record<string, unknown> {
     const dashboardFilters = {
         properties: [{ key: 'client_name', type: 'event', value: 'is_set', operator: 'is_set' }],
@@ -174,7 +202,7 @@ function createDashboardResponse(): Record<string, unknown> {
                 short_id: `short${index}`,
                 name: `Widget metric ${index}`,
                 derived_name: null,
-                query: createTileQuery(),
+                query: createTileQuery(index),
                 description: `What widget metric ${index} measures`,
                 created_at: '2026-02-18T18:28:57.827410Z',
                 created_by: createUser(1, 'Ada', 'Lovelace'),
@@ -280,10 +308,11 @@ function createMockContext(result: Record<string, unknown>): Context {
 describe('dashboard-get response budget', () => {
     const tool = GENERATED_TOOLS['dashboard-get']!()
 
-    async function shapeDashboard(): Promise<Record<string, unknown>> {
-        return (await tool.handler(createMockContext(createDashboardResponse()), {
-            id: 42,
-        })) as unknown as Record<string, unknown>
+    async function shapeDashboard(params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+        return (await tool.handler(
+            createMockContext(createDashboardResponse()),
+            tool.schema.parse({ id: 42, ...params })
+        )) as unknown as Record<string, unknown>
     }
 
     it(`keeps a ${TILE_COUNT}-tile dashboard within the response budget`, async () => {
@@ -292,15 +321,26 @@ describe('dashboard-get response budget', () => {
         expect(estimateTokens(formatResponse(shaped))).toBeLessThan(TOKEN_BUDGET)
     })
 
-    it('keeps the tiles, queries and creators an agent needs', async () => {
+    it('omits insight queries by default and returns them when the caller expands them', async () => {
+        const compact = (await shapeDashboard()).tiles as { insight: Record<string, unknown> }[]
+        const expanded = (await shapeDashboard({ expand: [QUERY_PATH] })).tiles as {
+            insight: { query: { source: { kind: string; query?: string } } }
+        }[]
+
+        expect(compact).toHaveLength(TILE_COUNT)
+        for (const tile of compact) {
+            expect(tile.insight.short_id).toBeTruthy()
+            expect(tile.insight.name).toBeTruthy()
+            expect(tile.insight).not.toHaveProperty('query')
+        }
+        expect(expanded).toHaveLength(TILE_COUNT)
+        expect(expanded[0]!.insight.query.source.kind).toBe('TrendsQuery')
+        expect(expanded[1]!.insight.query.source.query).toContain('FROM events')
+    })
+
+    it('keeps the tiles and creators an agent needs', async () => {
         const shaped = await shapeDashboard()
         const tiles = shaped.tiles as { id: number; insight: Record<string, unknown> }[]
-
-        expect(tiles).toHaveLength(TILE_COUNT)
-        for (const tile of tiles) {
-            expect(tile.insight.short_id).toBeTruthy()
-            expect((tile.insight.query as { source: { kind: string } }).source.kind).toBe('TrendsQuery')
-        }
 
         const creator = tiles[0]!.insight.created_by as Record<string, unknown>
         expect(creator.email).toBe('ada@example.com')
@@ -336,7 +376,7 @@ describe('dashboard-get response budget', () => {
     })
 
     it('carries no null-valued keys, which the serializer emits for every unset field', async () => {
-        const shaped = await shapeDashboard()
+        const shaped = await shapeDashboard({ expand: [QUERY_PATH] })
 
         expect(JSON.stringify(shaped)).not.toContain(':null')
     })
