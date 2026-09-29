@@ -15,6 +15,7 @@ import {
 import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 
 import { DataModelingNode } from '~/types'
 
@@ -194,6 +195,7 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
 export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
+    const loadingRef = useCancelAnimationsOnUnmount<HTMLDivElement>()
 
     const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
@@ -211,6 +213,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     if (state.loading) {
         return (
             <div
+                ref={loadingRef}
                 className={clsx(
                     'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
                     state.loading === 'focus' ? 'border-border' : 'border-border/50'
