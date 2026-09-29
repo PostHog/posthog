@@ -4,6 +4,7 @@ from django.apps import apps
 from django.test import TestCase
 from django.utils import timezone
 
+from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -11,6 +12,8 @@ from posthog.models.user import User
 from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
 
 from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
+
+CLASSIFIERS = "posthog.temporal.ai.slack_app.activities.classifiers"
 
 
 class TestClassifyUntaggedFollowupActivity(TestCase):
@@ -132,6 +135,24 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
             assert self._call() is True
         mock_classify.assert_called_once()
         assert mock_classify.call_args[0][2] == []
+
+    def test_shadow_answer_is_recorded_and_decides_nothing(self):
+        with (
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
+            patch(f"{CLASSIFIERS}.classify_message_is_agent_directed", return_value=False),
+            patch(f"{CLASSIFIERS}.is_slack_app_agent_directed_shadow_enabled", return_value=True),
+            patch(f"{CLASSIFIERS}.build_system_one_client") as build,
+            patch(f"{CLASSIFIERS}.capture_slack_event") as capture,
+        ):
+            build.return_value.decide.return_value = SystemOneResult(
+                model="jevk5-0.2", answers={"agent_directed": NoulAnswer(probability=0.9)}, input_tokens=90
+            )
+            assert self._call() is False
+
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["primary_agent_directed"] is False
+        assert capture.call_args.kwargs["shadow_agent_directed"] is True
+        assert capture.call_args.kwargs["slack_user_id"] == "U_BOB"
 
 
 # The classifier itself — parsing, the pre-LLM heuristic, the bounded client, and the
