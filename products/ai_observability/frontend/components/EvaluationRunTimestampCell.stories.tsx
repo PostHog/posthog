@@ -24,17 +24,6 @@ const run: EvaluationRun = {
     status: 'completed',
 }
 
-export const LiveAndBackfill: Story = {
-    render: () => (
-        <div className="flex flex-col gap-4">
-            <div className="space-y-2">
-                <div>Live result</div>
-                <EvaluationRunTimestampCell run={run} />
-            </div>
-            <div className="space-y-2">
-                <div>Result from a backfill</div>
-                <EvaluationRunTimestampCell run={{ ...run, id: 'run-2', backfill_id: 'backfill-1' }} />
-            </div>
-        </div>
-    ),
+export const Backfill: Story = {
+    args: { run: { ...run, backfill_id: 'backfill-1' } },
 }
