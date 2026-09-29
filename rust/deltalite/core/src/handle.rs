@@ -7,6 +7,8 @@
 //! the commit, each a checkpoint read plus every commit since. This handle loads the
 //! snapshot once at open and afterwards only applies newer commits incrementally
 //! (`update_incremental`), which is one log LIST plus the handful of new commit JSONs.
+//! After its own commit it does not read the log at all: it adopts the state delta-rs
+//! derived for that commit.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,13 +21,33 @@ use deltalake::DeltaTable;
 use crate::errors::{Error, Result};
 use crate::prefetch::CheckpointCache;
 use crate::table::{open_table_prefetched, wrap_multipart, MultipartConfig};
-use crate::upsert::{upsert_cached, RelaxCache, UpsertOptions, UpsertStats};
+use crate::upsert::{upsert_cached_with_state, RelaxCache, UpsertOptions, UpsertStats};
 
 /// Conflict-retry budget for one upsert call. A concurrent writer can make delta-rs
 /// reject the commit with a "must rerun" conflict (it read data another transaction
 /// deleted); delta-rs's own commit retries re-attempt the SAME, now-stale actions and
 /// keep conflicting, so the only fix is to refresh the snapshot and re-plan.
 const CONFLICT_RETRIES: usize = 5;
+
+/// Kill switch for adopting the commit's own snapshot after an upsert; `0` (or `false`,
+/// `off`, `no`) restores the post-commit log refresh. Unset or any other value keeps
+/// the adoption on.
+pub const ADOPT_COMMIT_SNAPSHOT_ENV: &str = "DELTALITE_ADOPT_COMMIT_SNAPSHOT";
+
+/// Whether the setting `value` of [`ADOPT_COMMIT_SNAPSHOT_ENV`] keeps the adoption on.
+pub fn adopt_commit_snapshot_setting(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        ),
+        None => true,
+    }
+}
+
+fn adopt_commit_snapshot_from_env() -> bool {
+    adopt_commit_snapshot_setting(std::env::var(ADOPT_COMMIT_SNAPSHOT_ENV).ok().as_deref())
+}
 
 /// One live data file as the loaded snapshot records it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +73,7 @@ pub struct TableHandle {
     /// Checkpoint bytes the table's stores served the last load from; cleared after
     /// every load so a handle idling between upserts holds only its snapshot.
     prefetch: Arc<CheckpointCache>,
+    adopt_commit_snapshot: bool,
     initial_open_ms: u64,
     initial_open_reported: bool,
 }
@@ -67,6 +90,7 @@ impl TableHandle {
             table,
             relax_cache: RelaxCache::default(),
             prefetch,
+            adopt_commit_snapshot: adopt_commit_snapshot_from_env(),
             initial_open_ms: started.elapsed().as_millis() as u64,
             initial_open_reported: false,
         })
@@ -93,6 +117,17 @@ impl TableHandle {
     /// Wall-clock ms the full snapshot load in [`TableHandle::open`] took.
     pub fn initial_open_ms(&self) -> u64 {
         self.initial_open_ms
+    }
+
+    /// Whether an upsert adopts its commit's snapshot instead of refreshing afterwards
+    /// (see [`ADOPT_COMMIT_SNAPSHOT_ENV`]).
+    pub fn adopt_commit_snapshot(&self) -> bool {
+        self.adopt_commit_snapshot
+    }
+
+    /// Override the [`ADOPT_COMMIT_SNAPSHOT_ENV`] setting for this handle.
+    pub fn set_adopt_commit_snapshot(&mut self, adopt: bool) {
+        self.adopt_commit_snapshot = adopt;
     }
 
     /// The table id from the snapshot's metadata action.
@@ -186,7 +221,7 @@ impl TableHandle {
             // wrapping the store is free, and the handle keeps its own table untouched
             // for the refreshes below.
             let view = wrap_multipart(self.table.clone(), multipart);
-            match upsert_cached(
+            match upsert_cached_with_state(
                 &view,
                 source_batches.clone(),
                 source_schema.clone(),
@@ -204,11 +239,19 @@ impl TableHandle {
                     self.refresh().await?;
                     open_ms += t.elapsed().as_millis() as u64;
                 }
-                Ok(mut stats) => {
-                    // Pick up our own commit (and any relax/maintenance commits), so
-                    // reads through this handle observe what was just written.
+                Ok((mut stats, state)) => {
+                    // Reads through this handle must observe what was just written. The
+                    // commit already yielded the resulting state (a relax commit sits
+                    // under it; a checkpoint written by maintenance describes the same
+                    // version and the next refresh adopts it), so adopting it costs no
+                    // I/O. The refresh stays as the kill-switch path.
                     let t = Instant::now();
-                    self.refresh().await?;
+                    if self.adopt_commit_snapshot {
+                        self.table.state = Some(state);
+                        self.prefetch.clear();
+                    } else {
+                        self.refresh().await?;
+                    }
                     open_ms += t.elapsed().as_millis() as u64;
                     stats.open_ms = open_ms;
                     stats.initial_open_ms = self.take_initial_open_ms();
@@ -226,5 +269,21 @@ impl TableHandle {
         }
         self.initial_open_reported = true;
         self.initial_open_ms
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adopt_commit_snapshot_setting;
+
+    #[test]
+    fn adoption_is_on_unless_the_switch_turns_it_off() {
+        assert!(adopt_commit_snapshot_setting(None));
+        assert!(adopt_commit_snapshot_setting(Some("1")));
+        assert!(adopt_commit_snapshot_setting(Some("true")));
+        assert!(adopt_commit_snapshot_setting(Some("")));
+        for off in ["0", "false", "off", "no", " OFF ", "False"] {
+            assert!(!adopt_commit_snapshot_setting(Some(off)), "{off:?}");
+        }
     }
 }

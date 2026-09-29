@@ -2435,6 +2435,7 @@ export interface BillingProductV2AddonType {
     legacy_product?: boolean | null
 }
 export enum BillingProvider {
+    PostHog = 'posthog',
     Vercel = 'vercel',
 }
 export interface BillingType {
@@ -2624,6 +2625,7 @@ export interface DashboardWidgetInterface {
 
 export interface TextModel extends DashboardWidgetInterface {
     body: string
+    agent_context?: string | null
     last_modified_at: string
 }
 
@@ -2812,6 +2814,7 @@ export type DashboardTemplateStoredInsightTile = {
 export type DashboardTemplateStoredTextTile = {
     type: 'TEXT'
     body: string
+    agent_context?: string | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
@@ -5938,6 +5941,7 @@ export const API_SCOPE_OBJECTS = [
     'marketing_analytics',
     'mcp_builtin_agent',
     'mcp_analytics',
+    'mcp_registry',
     'metrics',
     'notebook',
     'offline_evaluation_ingestion',
@@ -5985,6 +5989,7 @@ export const API_SCOPE_OBJECTS = [
     'web_analytics',
     'webhook',
     'wizard_session',
+    'wizard_run',
 ] as const
 
 export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]
@@ -6269,6 +6274,8 @@ export interface DataWarehouseTable {
     /** Serialized columns; omitted when the table was listed with `include_columns=false`. */
     columns?: DatabaseSchemaField[]
     format: DataWarehouseTableTypes
+    created_by?: UserBasicType | null
+    created_at?: string | null
     url_pattern: string
     /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
     credential: DataWarehouseCredential | null
@@ -6308,6 +6315,8 @@ export interface DataModelingNode {
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
     lineage_issue?: LineageIssueApi | null
+    origin?: 'posthog' | 'warehouse' | null
+    warehouse_table_id?: string | null
     created_at: string
     updated_at: string
     upstream_count: number
@@ -6498,6 +6507,8 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceTypeEnumApi
     prefix: string | null
     description: string | null
+    created_by?: string | null
+    created_at?: string | null
     access_method?: 'warehouse' | 'direct'
     direct_query_enabled?: boolean
     auto_sync_new_schemas?: boolean
