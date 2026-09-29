@@ -1,8 +1,7 @@
 {
   "expo": {
-    "name": "posthog",
+    "name": "mobilehog",
     "slug": "mobilehog",
-    "owner": "posthog",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -29,19 +28,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow PostHog to attach photos to your tasks"
-        }
-      ],
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Allow PostHog to use the microphone for dictation.",
-          "speechRecognitionPermission": "Allow PostHog to turn speech into a message draft."
-        }
-      ],
       "./plugins/withSceneLifecycle",
       "./plugins/withPodfileResourceBundleFix",
       [
@@ -73,23 +59,18 @@
       ],
       "expo-status-bar",
       "expo-web-browser",
-      "expo-updates",
-      "./plugins/withPostHogSourceMaps"
+      "expo-updates"
     ],
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "d8e0731d-1107-4421-aa33-abf130eca27f"
-      }
+      "router": {}
     },
     "runtimeVersion": {
-      "policy": "fingerprint"
+      "policy": "appVersion"
     },
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/d8e0731d-1107-4421-aa33-abf130eca27f"
+      "fallbackToCacheTimeout": 0
     }
   }
 }

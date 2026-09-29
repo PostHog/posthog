@@ -1,22 +1,16 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import { AppUpdates } from "@/components/AppUpdates";
 import { GlassCircleButton } from "@/components/Glass";
 import { useAuth } from "@/lib/auth";
 import { unregisterPushToken } from "@/lib/notifications";
 import { type AppearanceMode, usePrefs } from "@/lib/prefs";
-import { loadProjects, switchProject } from "@/lib/projects";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function SettingsSheet() {
@@ -27,39 +21,11 @@ export default function SettingsSheet() {
   const appearance = usePrefs((s) => s.appearance);
   const setPrefs = usePrefs((s) => s.set);
   const initials = (session?.userName ?? "").slice(0, 2).toUpperCase();
-  const [showProjects, setShowProjects] = useState(false);
-  const [search, setSearch] = useState("");
-  const projects = useQuery({
-    queryKey: ["available-projects"],
-    queryFn: ({ signal }) => loadProjects(signal),
-    enabled: showProjects && !!session,
-  });
-  const selection = useMutation({
-    mutationFn: switchProject,
-    onSuccess: () => {
-      router.dismissAll();
-      router.replace("/(drawer)");
-    },
-  });
-  const options = projects.data?.filter((project) =>
-    `${project.name} ${project.id}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
-  );
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-    >
+    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <GlassCircleButton
-          accessibilityLabel="Close settings"
-          size={44}
-          onPress={() => router.back()}
-        >
+        <GlassCircleButton size={44} onPress={() => router.back()}>
           <Text style={styles.close}>×</Text>
         </GlassCircleButton>
         <Text style={styles.title}>Settings</Text>
@@ -85,103 +51,6 @@ export default function SettingsSheet() {
         </View>
       </View>
 
-      <Text style={styles.section}>Project</Text>
-      <View style={styles.card}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Change project. Current project: ${session?.projectName ?? ""}`}
-          accessibilityState={{
-            expanded: showProjects,
-            disabled: selection.isPending,
-          }}
-          disabled={selection.isPending}
-          onPress={() => setShowProjects(!showProjects)}
-          style={styles.projectRow}
-        >
-          <View style={styles.projectDetails}>
-            <Text style={styles.rowLabel} numberOfLines={1}>
-              {session?.projectName}
-            </Text>
-            <Text style={styles.sub}>Change project</Text>
-          </View>
-          <Text style={styles.sub}>{showProjects ? "⌃" : "⌄"}</Text>
-        </Pressable>
-        {showProjects ? (
-          <View>
-            <TextInput
-              accessibilityLabel="Search projects"
-              placeholder="Search projects"
-              placeholderTextColor={colors.inkMute}
-              value={search}
-              onChangeText={setSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.projectSearch}
-            />
-            {projects.isLoading ? (
-              <ActivityIndicator color={colors.accent} />
-            ) : null}
-            {projects.isError ? (
-              <View style={styles.projectFeedback}>
-                <Text style={styles.sub}>Could not load projects.</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={projects.isFetching}
-                  onPress={() => projects.refetch()}
-                >
-                  <Text style={styles.projectAction}>
-                    {projects.isFetching ? "Loading…" : "Try again"}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-            {selection.isError ? (
-              <Text accessibilityRole="alert" style={styles.projectError}>
-                {selection.error.message}
-              </Text>
-            ) : null}
-            {options?.map((project) => {
-              const selected = project.id === session?.projectId;
-              return (
-                <Pressable
-                  key={project.id}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    checked: selected,
-                    disabled: selection.isPending,
-                  }}
-                  disabled={selection.isPending || selected}
-                  onPress={() => selection.mutate(project.id)}
-                  style={({ pressed }) => [
-                    styles.projectRow,
-                    styles.rowDivided,
-                    pressed && { opacity: 0.5 },
-                  ]}
-                >
-                  <View style={styles.projectDetails}>
-                    <Text style={styles.rowLabel} numberOfLines={1}>
-                      {project.name}
-                    </Text>
-                    <Text style={styles.sub}>Project {project.id}</Text>
-                  </View>
-                  {selection.isPending && selection.variables === project.id ? (
-                    <ActivityIndicator color={colors.accent} />
-                  ) : selected ? (
-                    <Text style={styles.projectAction}>✓</Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-            {projects.isSuccess && options?.length === 0 ? (
-              <Text style={styles.projectFeedback}>No projects found.</Text>
-            ) : null}
-            <Text style={[styles.sub, styles.projectFeedback]}>
-              Only projects available for this sign-in are shown.
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
       <Text style={styles.section}>Appearance</Text>
       <View style={styles.card}>
         <View style={styles.modes}>
@@ -197,7 +66,6 @@ export default function SettingsSheet() {
         <View style={[styles.row, styles.rowDivided]}>
           <Text style={styles.rowLabel}>Hedgehog mode</Text>
           <Switch
-            accessibilityLabel="Hedgehog mode"
             value={hedgehogMode}
             onValueChange={(value) => setPrefs({ hedgehogMode: value })}
             trackColor={{ true: colors.accent }}
@@ -205,10 +73,7 @@ export default function SettingsSheet() {
         </View>
       </View>
 
-      <Text style={styles.section}>App</Text>
-      <AppUpdates />
       <Pressable
-        accessibilityRole="button"
         onPress={async () => {
           router.back();
           await unregisterPushToken();
@@ -270,31 +135,6 @@ const THUMB_W = 96;
 const THUMB_H = 64;
 
 const styles = StyleSheet.create({
-  projectRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-  },
-  projectDetails: { flex: 1 },
-  projectSearch: {
-    fontFamily: fonts.sans,
-    fontSize: 16,
-    color: colors.ink,
-    paddingVertical: 12,
-  },
-  projectFeedback: { paddingVertical: 12, color: colors.inkMute },
-  projectAction: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 16,
-    color: colors.accent,
-  },
-  projectError: {
-    fontFamily: fonts.sans,
-    fontSize: 14,
-    color: colors.danger,
-    paddingVertical: 12,
-  },
   modes: {
     flexDirection: "row",
     justifyContent: "space-between",

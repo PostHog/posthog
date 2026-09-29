@@ -43,21 +43,13 @@ export function Glass({
     );
   }
   return (
-    <View
-      style={[
-        styles.fallback,
-        style,
-        tint != null && { backgroundColor: tint },
-      ]}
-      onLayout={onLayout}
-    >
+    <View style={[styles.fallback, style]} onLayout={onLayout}>
       {children}
     </View>
   );
 }
 
 interface GlassButtonProps {
-  accessibilityLabel?: string;
   children: ReactNode;
   onPress: () => void;
   size?: number;
@@ -73,16 +65,9 @@ export function GlassCircleButton({
   disabled,
   tint,
   style,
-  accessibilityLabel,
 }: GlassButtonProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={8}
-    >
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={8}>
       {({ pressed }) => (
         <Glass
           interactive

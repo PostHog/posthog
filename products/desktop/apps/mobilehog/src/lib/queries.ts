@@ -1,11 +1,6 @@
 import type { GatewayModel } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
-import {
-  type InfiniteData,
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
@@ -21,40 +16,27 @@ const TERMINAL: ReadonlySet<string> = new Set([
 export const keys = {
   tasks: ["tasks"] as const,
   task: (id: string) => ["tasks", id] as const,
+  channels: ["channels"] as const,
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
 };
 
-export function useTasks(search = "", enabled = true, archived = false) {
+export function useTasks() {
   const session = useAuth((s) => s.session);
-  const query = useInfiniteQuery({
-    // Keep existing keys stable so saved task lists remain available offline.
-    queryKey: [
-      ...keys.tasks,
-      "list",
-      session?.userId,
-      search,
-      archived ? "archived" : "recent",
-    ],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      getClient().getTasksPage({
-        basic: true,
-        archived,
-        createdBy: session?.userId,
-        search: search.trim() || undefined,
-        ordering: "-last_activity_at",
-        limit: 100,
-        offset: pageParam,
-      }),
-    getNextPageParam: (page, _pages, offset) => {
-      const next = offset + page.tasks.length;
-      return page.tasks.length > 0 && next < page.count ? next : undefined;
+  return useQuery({
+    queryKey: keys.tasks,
+    queryFn: async () => {
+      const tasks = await getClient().getTasks({ basic: true });
+      return tasks.filter(
+        (task) =>
+          task.latest_run?.environment !== "local" &&
+          !task.origin_key?.startsWith("desktop_onboarding"),
+      );
     },
-    enabled: !!session && enabled,
+    enabled: !!session,
     refetchInterval: (query) => {
-      const tasks = query.state.data?.pages.flatMap((page) => page.tasks);
+      const tasks = query.state.data as Task[] | undefined;
       const anyLive = tasks?.some((task) => {
         const status = task.latest_run?.status;
         return !!status && !TERMINAL.has(status);
@@ -62,37 +44,31 @@ export function useTasks(search = "", enabled = true, archived = false) {
       return anyLive ? 5000 : 30000;
     },
   });
-  const tasks = query.data?.pages.flatMap((page) => page.tasks) ?? [];
-  return {
-    ...query,
-    data: [...new Map(tasks.map((task) => [task.id, task])).values()].filter(
-      (task) =>
-        !task.internal &&
-        task.origin_product !== "image_builder" &&
-        task.latest_run?.environment !== "local" &&
-        !task.origin_key?.startsWith("desktop_onboarding"),
-    ),
-  };
 }
 
 export function useTask(taskId: string) {
-  const queryClient = useQueryClient();
   const session = useAuth((s) => s.session);
   return useQuery({
     queryKey: keys.task(taskId),
-    placeholderData: () =>
-      queryClient
-        .getQueriesData<InfiniteData<{ tasks: Task[] }>>({
-          queryKey: [...keys.tasks, "list"],
-        })
-        .flatMap(([, data]) => data?.pages.flatMap((page) => page.tasks) ?? [])
-        .find((task) => task.id === taskId),
     queryFn: () => getClient().getTask(taskId),
     enabled: !!session && !!taskId,
     refetchInterval: (query) => {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
+  });
+}
+
+export function useChannels() {
+  const session = useAuth((s) => s.session);
+  return useQuery<TaskChannel[]>({
+    queryKey: keys.channels,
+    queryFn: () =>
+      getClient()
+        .getTaskChannels()
+        .catch(() => []),
+    enabled: !!session,
+    staleTime: 60_000,
   });
 }
 
@@ -167,25 +143,16 @@ export function useInvalidateTasks() {
 
 export async function createAndRunTask(input: {
   prompt: string;
-  wirePrompt?: string;
   repository: string | null;
-  taskId?: string;
-  onCreated?: (id: string) => Promise<void>;
-  config?: ReturnType<typeof currentRunConfig>;
 }): Promise<Task> {
-  const config = input.config ?? currentRunConfig();
   const client = getClient();
-  const task = input.taskId
-    ? await client.getTask(input.taskId)
-    : await client.createTask({
-        description: input.prompt,
-        title: input.prompt.slice(0, 100),
-        repository: input.repository ?? undefined,
-      });
-  await input.onCreated?.(task.id);
-  if (task.latest_run) return task;
+  const task = await client.createTask({
+    description: input.prompt,
+    title: input.prompt.slice(0, 100),
+    repository: input.repository ?? undefined,
+  });
   return client.runTaskInCloud(task.id, undefined, {
-    pendingUserMessage: input.wirePrompt ?? input.prompt,
-    ...config,
+    pendingUserMessage: input.prompt,
+    ...currentRunConfig(),
   });
 }

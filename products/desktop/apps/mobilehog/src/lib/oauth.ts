@@ -26,7 +26,6 @@ const SCOPES = [
   "integration:read",
   "conversation:write",
   "query:read",
-  "insight:read",
   "llm_skill:read",
 ];
 
@@ -58,15 +57,11 @@ async function tokenRequest(
   return (await response.json()) as OAuthTokens;
 }
 
-export interface SignInOptions {
-  // Open account creation first; the browser lands on the authorize page
-  // afterwards, so a new user ends up signed in to the app.
-  signup?: boolean;
-}
-
+// With `signup`, the browser opens account creation first and lands on the
+// authorize page afterwards, so a new user ends up signed in to the app.
 export async function signInWithOAuth(
   region: CloudRegion,
-  { signup = false }: SignInOptions = {},
+  signup = false,
 ): Promise<OAuthTokens> {
   const host = CLOUD_HOSTS[region];
   const request = new AuthSession.AuthRequest({
@@ -81,8 +76,6 @@ export async function signInWithOAuth(
   const next = encodeURIComponent(authUrl.slice(host.length));
   const result = await request.promptAsync(discovery, {
     url: signup ? `${host}/signup?next=${next}` : authUrl,
-    // Let users choose an account without reusing Safari's signed-in account.
-    preferEphemeralSession: true,
   });
   if (result.type !== "success" || !result.params.code) {
     throw new Error(

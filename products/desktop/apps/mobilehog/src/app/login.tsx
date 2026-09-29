@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -37,7 +37,7 @@ const SLIDES = [
   {
     image: require("../../assets/hoggies/coding-group.png"),
     title: "See what your team is shipping",
-    body: "Your tasks and finished runs, in one feed you can read between meetings.",
+    body: "Every space, every task, every finished run, in one feed you can read between meetings.",
   },
 ];
 
@@ -111,15 +111,13 @@ export default function LandingScreen() {
   const loginWithOAuth = useAuth((s) => s.loginWithOAuth);
   const [region, setRegion] = useState<CloudRegion>("us");
   const [busy, setBusy] = useState<"cloud" | "local" | null>(null);
-  const loginPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (
     kind: "cloud" | "local",
     attempt: () => Promise<void>,
   ): Promise<void> => {
-    if (loginPending.current) return;
-    loginPending.current = true;
+    if (busy) return;
     setBusy(kind);
     setError(null);
     try {
@@ -127,7 +125,6 @@ export default function LandingScreen() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      loginPending.current = false;
       setBusy(null);
     }
   };
@@ -175,7 +172,7 @@ export default function LandingScreen() {
           onPress={() => run("cloud", () => loginWithOAuth(region))}
           disabled={!!busy}
           style={({ pressed }) => [
-            busy !== null && busy !== "cloud" && { opacity: 0.4 },
+            busy === "local" && { opacity: 0.4 },
             pressed && { opacity: 0.7 },
           ]}
         >

@@ -11,31 +11,12 @@ import type {
   SignalReportArtefactsResponse,
   SignalReportSignalsResponse,
 } from "@posthog/shared/domain-types";
-import {
-  type InfiniteData,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
 import { create } from "zustand";
-import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
-import { type ReportSort, usePrefs } from "@/lib/prefs";
-import { deviceWorkspace } from "@/lib/storage";
-
-export const REPORT_SORTS: Record<
-  ReportSort,
-  { label: string; ordering: string }
-> = {
-  newest: { label: "Newest first", ordering: "-created_at,-id" },
-  oldest: { label: "Oldest first", ordering: "created_at,id" },
-  priority: { label: "Priority", ordering: "priority,-created_at,-id" },
-  updated: { label: "Recently updated", ordering: "-updated_at,-id" },
-};
 
 export const reportKeys = {
   all: ["reports"] as const,
@@ -44,109 +25,22 @@ export const reportKeys = {
   artefacts: (id: string) => ["reports", id, "artefacts"] as const,
 };
 
-export const REPORT_VIEWS = {
-  active: "All active",
-  needs_decision: "Needs attention",
-  review_and_merge: "Review PR",
-  resolved: "Resolved",
-  dismissed: "Dismissed",
-} as const;
-
-export type ReportView = keyof typeof REPORT_VIEWS | "unread";
-
-export function useReports(view: ReportView = "active", search = "") {
-  const terminal = view === "resolved" || view === "dismissed";
+// Reports a person can act on right now, highest priority first.
+export function useReports() {
   const session = useAuth((s) => s.session);
-  const queryClient = useQueryClient();
-  const sort = usePrefs((s) => s.reportSort);
-  return useInfiniteQuery({
-    queryKey: [...reportKeys.list, sort, view, search],
-    initialPageParam: 0,
-    queryFn: async ({ pageParam }) => {
-      const client = getClient();
-      const user = await queryClient.fetchQuery({
-        queryKey: ["current-user"],
-        queryFn: async () => ({ uuid: (await client.getCurrentUser()).uuid }),
-        staleTime: 5 * 60_000,
-      });
-      if (!user.uuid)
-        throw new Error("Could not identify your account. Try again.");
-      const page = await client.getSignalReports({
-        status:
-          view === "resolved"
-            ? "resolved"
-            : view === "dismissed"
-              ? "suppressed"
-              : view === "review_and_merge"
-                ? "ready"
-                : INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-        actionability:
-          view === "needs_decision"
-            ? INBOX_ACTIONABLE_ACTIONABILITY_FILTER
-            : undefined,
-        has_implementation_pr:
-          view === "needs_decision"
-            ? false
-            : view === "review_and_merge"
-              ? true
-              : undefined,
-        search: search || undefined,
-        suggested_reviewers: user.uuid,
-        ordering: (REPORT_SORTS[sort] ?? REPORT_SORTS.newest).ordering,
-        limit: 50,
-        offset: pageParam,
-      });
-      void useSeenReports
-        .getState()
-        .sync(page.results.map((report) => report.id))
-        .catch(() => {});
-      return page;
-    },
-    getNextPageParam: (lastPage, pages) => {
-      const loaded = pages.reduce(
-        (total, page) => total + page.results.length,
-        0,
-      );
-      return lastPage.results.length > 0 && loaded < lastPage.count
-        ? loaded
-        : undefined;
-    },
+  return useQuery({
+    queryKey: reportKeys.list,
+    queryFn: () =>
+      getClient().getSignalReports({
+        status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+        actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+        ordering: "status,-priority,-created_at",
+        limit: 100,
+      }),
     enabled: !!session,
     refetchInterval: 60_000,
-    select: (data) =>
-      data.pages
-        .flatMap((page) => page.results)
-        .filter(
-          (report) =>
-            terminal ||
-            (report.status === "ready" &&
-              !!report.implementation_pr_url &&
-              !report.implementation_pr_merged) ||
-            canCreateImplementationPr(report),
-        ),
-  });
-}
-
-export function useReportDetail(id: string) {
-  const queryClient = useQueryClient();
-  return useQuery({
-    queryKey: ["reports", id, "detail"],
-    placeholderData: () =>
-      queryClient
-        .getQueriesData<InfiniteData<{ results: SignalReport[] }>>({
-          queryKey: reportKeys.list,
-        })
-        .flatMap(
-          ([, data]) => data?.pages.flatMap((page) => page.results) ?? [],
-        )
-        .find((report) => report.id === id),
-    queryFn: async () => {
-      const report = await getClient().getSignalReport(id);
-      if (!report) throw new Error("Report is no longer available.");
-      return report;
-    },
-    staleTime: 60_000,
-    enabled: !!id,
+    select: (page) =>
+      page.results.filter((report) => canCreateImplementationPr(report)),
   });
 }
 
@@ -183,7 +77,6 @@ export function useStartReport() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (report: SignalReport) => {
-      const config = currentRunConfig();
       const client = getClient();
       const prompt = buildCreatePrReportPrompt({ reportId: report.id });
       // The server picks the repository from the report's repo selection.
@@ -198,7 +91,7 @@ export function useStartReport() {
         pendingUserMessage: prompt,
         runSource: "signal_report",
         signalReportId: report.id,
-        ...config,
+        ...currentRunConfig(),
       });
     },
     onSettled: () => {
@@ -208,145 +101,37 @@ export function useStartReport() {
   });
 }
 
-// Keep read changes on the device until the server acknowledges them.
+// Which reports this device has already surfaced in triage, so only new ones
+// pop the deck automatically.
 const SEEN_KEY = "mobilehog_seen_reports";
 const SEEN_CAP = 500;
-let seenWrite = Promise.resolve();
-let seenVersion = 0;
-let syncing: string | null = null;
-const queuedSyncs = new Map<string, Set<string>>();
-let retryAfter = 0;
-let retryIdentity: string | null = null;
 
-type SavedReadState = { seen: string[]; pending: Record<string, boolean> };
 interface SeenState {
   seen: Set<string>;
-  pending: Record<string, boolean>;
   hydrated: boolean;
-  syncError: boolean;
   hydrate: () => Promise<void>;
-  markSeen: (ids: string[], read?: boolean) => Promise<void>;
-  sync: (ids: string[]) => Promise<void>;
+  markSeen: (ids: string[]) => Promise<void>;
 }
 
 export const useSeenReports = create<SeenState>((set, get) => ({
   seen: new Set(),
-  pending: {},
   hydrated: false,
-  syncError: false,
   hydrate: async () => {
-    if (!useAuth.getState().session || get().hydrated) return;
-    const identity = sessionIdentity();
-    const saved = await deviceWorkspace().read<SavedReadState>(
-      "report-read-state",
-      Infinity,
-    );
-    const legacy =
-      saved || Platform.OS === "web"
-        ? null
-        : await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
-    if (sessionIdentity() !== identity || get().hydrated) return;
-    set({
-      seen: new Set(
-        saved?.seen ?? (legacy ? (JSON.parse(legacy) as string[]) : []),
-      ),
-      pending: saved?.pending ?? {},
-      hydrated: true,
-    });
-  },
-  sync: async (ids) => {
-    const identity = sessionIdentity();
-    if (
-      !useAuth.getState().session ||
-      (retryIdentity === identity && Date.now() < retryAfter)
-    )
-      return;
-    if (syncing === identity) {
-      const queued = queuedSyncs.get(identity) ?? new Set<string>();
-      for (const id of ids) queued.add(id);
-      queuedSyncs.set(identity, queued);
-      return;
-    }
-    syncing = identity;
     try {
-      await get().hydrate();
-      if (sessionIdentity() !== identity) return;
-      const version = seenVersion;
-      const pending = { ...get().pending };
-      if (!ids.length && !Object.keys(pending).length) return;
-      const client = getClient();
-      for (const read of [true, false]) {
-        const changes = Object.keys(pending).filter(
-          (id) => pending[id] === read,
-        );
-        for (let offset = 0; offset < changes.length; offset += 100)
-          await client.getReportReadStates(
-            changes.slice(offset, offset + 100),
-            read,
-          );
-      }
-      const states: Record<string, boolean> = {};
-      for (let offset = 0; offset < ids.length; offset += 100)
-        Object.assign(
-          states,
-          await client.getReportReadStates(ids.slice(offset, offset + 100)),
-        );
-      const workspace = deviceWorkspace();
-      const write = seenWrite
-        .catch(() => {})
-        .then(async () => {
-          if (sessionIdentity() !== identity || seenVersion !== version) return;
-          const next = new Set(get().seen);
-          for (const [id, read] of Object.entries(states)) {
-            if (read) next.add(id);
-            else next.delete(id);
-          }
-          const seen = [...next].slice(-SEEN_CAP);
-          await workspace.write("report-read-state", { seen, pending: {} });
-          if (sessionIdentity() === identity)
-            set({ seen: new Set(seen), pending: {}, syncError: false });
-        });
-      seenWrite = write;
-      await write;
-      retryAfter = 0;
+      const raw = await SecureStore.getItemAsync(SEEN_KEY);
+      set({
+        seen: new Set(raw ? (JSON.parse(raw) as string[]) : []),
+        hydrated: true,
+      });
     } catch {
-      if (sessionIdentity() === identity) {
-        retryIdentity = identity;
-        retryAfter = Date.now() + 60_000;
-        set({ syncError: true });
-      }
-    } finally {
-      if (syncing === identity) syncing = null;
-      const queued = queuedSyncs.get(identity);
-      queuedSyncs.delete(identity);
-      if (sessionIdentity() === identity && queued?.size)
-        void get().sync([...queued]);
+      set({ hydrated: true });
     }
   },
-  markSeen: async (ids, read = true) => {
-    const identity = sessionIdentity();
-    if (!useAuth.getState().session || !ids.length) return;
-    const workspace = deviceWorkspace();
-    const write = seenWrite
-      .catch(() => {})
-      .then(async () => {
-        await get().hydrate();
-        if (sessionIdentity() !== identity) return;
-        seenVersion++;
-        const next = new Set(get().seen);
-        const pending = { ...get().pending };
-        for (const id of ids) {
-          next.delete(id);
-          if (read) next.add(id);
-          pending[id] = read;
-        }
-        const seen = [...next].slice(-SEEN_CAP);
-        await workspace.write("report-read-state", { seen, pending });
-        if (sessionIdentity() === identity)
-          set({ seen: new Set(seen), pending });
-      });
-    seenWrite = write;
-    await write;
-    if (sessionIdentity() === identity) void get().sync(ids);
+  markSeen: async (ids) => {
+    const next = new Set(get().seen);
+    for (const id of ids) next.add(id);
+    const list = [...next].slice(-SEEN_CAP);
+    set({ seen: new Set(list) });
+    await SecureStore.setItemAsync(SEEN_KEY, JSON.stringify(list));
   },
 }));

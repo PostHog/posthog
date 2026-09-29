@@ -7,7 +7,6 @@ import {
   getProjectId,
   refreshAccessTokenOnce,
 } from "@/lib/api";
-import { sessionIdentity } from "@/lib/auth";
 
 const nativeFetch: FetchImplementation = (input, init) =>
   fetch(
@@ -16,59 +15,40 @@ const nativeFetch: FetchImplementation = (input, init) =>
       : input instanceof URL
         ? input.toString()
         : input.url,
-    {
-      ...init,
-      headers: {
-        ...Object.fromEntries(new Headers(init?.headers).entries()),
-        "X-PostHog-Client-Platform": "mobile",
-      },
-      credentials: "omit",
-    },
+    { ...init, credentials: "omit" },
   );
 
 let client: PostHogAPIClient | null = null;
-let clientIdentity: string | null = null;
+let clientHost: string | null = null;
+let clientProjectId: number | null = null;
 
 export function getClient(): PostHogAPIClient {
-  const identity = sessionIdentity();
   const projectId = getProjectId();
   const host = getBaseUrl();
-  if (!client || clientIdentity !== identity) {
-    const assertCurrent = (): void => {
-      if (sessionIdentity() !== identity)
-        throw new Error("Session changed. Sign in again.");
-    };
+  if (!client || clientHost !== host) {
     client = new PostHogAPIClient(
       host,
-      async () => {
-        assertCurrent();
-        return getAccessToken();
-      },
-      async () => {
-        assertCurrent();
-        const token = await refreshAccessTokenOnce();
-        assertCurrent();
-        return token;
-      },
+      async () => getAccessToken(),
+      () => refreshAccessTokenOnce(),
       projectId,
       {
         appVersion: "0.1.0",
-        fetch: async (input, init) => {
-          assertCurrent();
-          const response = await nativeFetch(input, init);
-          assertCurrent();
-          return response;
-        },
+        fetch: nativeFetch,
         githubConnectFrom: "posthog_mobile",
         userAgent: "posthog/mobilehog; version: 0.1.0",
       },
     );
-    clientIdentity = identity;
+    clientHost = host;
+    clientProjectId = projectId;
+  } else if (clientProjectId !== projectId) {
+    client.setTeamId(projectId);
+    clientProjectId = projectId;
   }
   return client;
 }
 
 export function resetClient(): void {
   client = null;
-  clientIdentity = null;
+  clientHost = null;
+  clientProjectId = null;
 }

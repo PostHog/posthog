@@ -5,7 +5,6 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useDerivedValue,
-  useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -34,7 +33,6 @@ interface HedgehogProps {
 // Paces back and forth while the agent thinks or runs tools, idles otherwise.
 // Everything animates on the UI thread, so the JS thread stays free for input.
 export function Hedgehog({ walking }: HedgehogProps) {
-  const reducedMotion = useReducedMotion();
   const [width, setWidth] = useState(0);
   const anim = walking ? WALK : IDLE;
   const frame = useSharedValue(0);
@@ -44,7 +42,6 @@ export function Hedgehog({ walking }: HedgehogProps) {
 
   useEffect(() => {
     frame.value = 0;
-    if (reducedMotion) return;
     frame.value = withRepeat(
       withTiming(anim.frames, {
         duration: (anim.frames / anim.fps) * 1000,
@@ -53,11 +50,11 @@ export function Hedgehog({ walking }: HedgehogProps) {
       -1,
     );
     return () => cancelAnimation(frame);
-  }, [anim, frame, reducedMotion]);
+  }, [anim, frame]);
 
   useEffect(() => {
     const max = Math.max(0, width - SIZE);
-    if (reducedMotion || !walking || max === 0) {
+    if (!walking || max === 0) {
       cancelAnimation(x);
       return;
     }
@@ -74,7 +71,7 @@ export function Hedgehog({ walking }: HedgehogProps) {
         -1,
       ),
     );
-  }, [walking, width, x, reducedMotion]);
+  }, [walking, width, x]);
 
   // Face the direction of travel; the sprites are drawn facing right.
   const facing = useDerivedValue(() => {

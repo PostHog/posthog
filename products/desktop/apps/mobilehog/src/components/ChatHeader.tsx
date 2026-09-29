@@ -1,41 +1,36 @@
-import { useNavigation } from "expo-router";
-import type { ReactNode } from "react";
+import { useNavigation, useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassCircleButton } from "@/components/Glass";
-import { MenuIcon } from "@/components/Icons";
+import { MenuIcon, NewChatIcon } from "@/components/Icons";
 
 interface ChatHeaderProps {
-  inline?: boolean;
-  actions?: ReactNode;
+  showNewChat?: boolean;
 }
 
-export function ChatHeader({ inline = false, actions }: ChatHeaderProps) {
+export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
   const navigation = useNavigation<{ openDrawer: () => void }>();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
     <View
-      style={[
-        styles.root,
-        inline && styles.inline,
-        { paddingTop: insets.top + 6 },
-      ]}
+      style={[styles.root, { paddingTop: insets.top + 6 }]}
       pointerEvents="box-none"
     >
-      <GlassCircleButton
-        accessibilityLabel="Open menu"
-        onPress={() => navigation.openDrawer()}
-      >
+      <GlassCircleButton onPress={() => navigation.openDrawer()}>
         <MenuIcon />
       </GlassCircleButton>
       <View style={{ flex: 1 }} pointerEvents="none" />
-      {actions}
+      {showNewChat ? (
+        <GlassCircleButton onPress={() => router.replace("/(drawer)")}>
+          <NewChatIcon />
+        </GlassCircleButton>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  inline: { position: "relative", paddingBottom: 12 },
   root: {
     position: "absolute",
     top: 0,

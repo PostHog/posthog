@@ -1,5 +1,3 @@
-import { captureFailure } from "@/lib/analytics";
-
 type LogFn = (message: string, ...args: unknown[]) => void;
 
 export interface Logger {
@@ -18,7 +16,7 @@ function createLogger(scope?: string): Logger {
       debug: noop,
       info: noop,
       warn: noop,
-      error: () => captureFailure(scope ?? "app"),
+      error: noop,
       scope: () => createLogger(scope),
     };
   }

@@ -1,30 +1,25 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import {
-  type ErrorBoundaryProps,
-  Stack,
-  useRouter,
-  useSegments,
-} from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { getAccountQueryClient } from "@/lib/accountLifecycle";
-import { captureFailure, identifyAnalytics } from "@/lib/analytics";
-import { sessionIdentity, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { usePushNotifications } from "@/lib/notifications";
-import { useOfflineWorkspace } from "@/lib/offline";
 import { usePrefs } from "@/lib/prefs";
-import { keys } from "@/lib/queries";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 import { colors } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+});
 
 function AuthGate() {
   const { session, hydrated, hydrate } = useAuth();
@@ -34,21 +29,13 @@ function AuthGate() {
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
   const hydrateSeen = useSeenReports((s) => s.hydrate);
-  useEffect(() => {
-    identifyAnalytics(session);
-  }, [session]);
   usePushNotifications();
-  useOfflineWorkspace();
   useEffect(() => {
     hydrate();
-    hydratePrefs();
-  }, [hydrate, hydratePrefs]);
-
-  useEffect(() => {
-    if (!useAuth.getState().session) return;
     hydrateRepo();
-    void hydrateSeen().catch(() => {});
-  }, [hydrateRepo, hydrateSeen]);
+    hydratePrefs();
+    hydrateSeen();
+  }, [hydrate, hydrateRepo, hydratePrefs, hydrateSeen]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -62,7 +49,6 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const identity = useAuth(sessionIdentity);
   const [fontsLoaded, fontError] = useFonts({
     "JetBrainsMono-Regular": require("../../assets/fonts/JetBrainsMono-Regular.ttf"),
     "JetBrainsMono-Medium": require("../../assets/fonts/JetBrainsMono-Medium.ttf"),
@@ -76,11 +62,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        reconnect();
-        const client = getAccountQueryClient();
-        void client.invalidateQueries({ queryKey: keys.tasks });
-      }
+      if (state === "active") reconnect();
     });
     return () => subscription.remove();
   }, [reconnect]);
@@ -92,7 +74,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <KeyboardProvider>
-        <QueryClientProvider key={identity} client={getAccountQueryClient()}>
+        <QueryClientProvider client={queryClient}>
           <StatusBar style="auto" />
           <AuthGate />
           <Stack
@@ -124,13 +106,6 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
-              name="search"
-              options={{
-                presentation: "fullScreenModal",
-                animation: "slide_from_bottom",
-              }}
-            />
-            <Stack.Screen
               name="settings"
               options={{
                 presentation: "modal",
@@ -141,34 +116,5 @@ export default function RootLayout() {
         </QueryClientProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>
-  );
-}
-
-export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  useEffect(() => captureFailure("render_screen", error), [error]);
-  return (
-    <View
-      style={{
-        flex: 1,
-        padding: 32,
-        gap: 20,
-        justifyContent: "center",
-        backgroundColor: colors.bg,
-      }}
-    >
-      <Text style={{ color: colors.ink, fontSize: 22 }}>
-        Could not load this screen
-      </Text>
-      <Text style={{ color: colors.inkSoft, fontSize: 16 }}>
-        Your saved draft is still on this device.
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        style={{ minHeight: 48 }}
-        onPress={retry}
-      >
-        <Text style={{ color: colors.accent, fontSize: 18 }}>Try again</Text>
-      </Pressable>
-    </View>
   );
 }

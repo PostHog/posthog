@@ -112,7 +112,6 @@ export function McpAppHost({ block }: { block: Block & { kind: "tool" } }) {
           ref={webViewRef}
           originWhitelist={["*"]}
           source={{ html: sandboxProxyHtml }}
-          onLoadStart={() => setPhase("loading")}
           onMessage={(event) => onWebViewMessage(event.nativeEvent.data)}
           javaScriptEnabled
           domStorageEnabled

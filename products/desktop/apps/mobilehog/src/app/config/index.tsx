@@ -3,7 +3,7 @@ import {
   getReasoningEffortOptions,
 } from "@posthog/shared";
 import { useRouter } from "expo-router";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { SheetHeader } from "@/components/SheetHeader";
 import { SheetRow, sheetStyles } from "@/components/SheetRow";
 import { useComposer } from "@/lib/composer";
@@ -24,10 +24,6 @@ export default function RunOptionsMenu() {
       contentContainerStyle={sheetStyles.list}
     >
       <SheetHeader title="Run options" />
-      <Text style={sheetStyles.footnote}>
-        These settings apply to your next message. Work already in progress can
-        finish with the previous model.
-      </Text>
       <View style={sheetStyles.card}>
         <SheetRow
           first
@@ -43,15 +39,13 @@ export default function RunOptionsMenu() {
           />
         ) : null}
       </View>
-      {config.contextId === "new" ? (
-        <View style={sheetStyles.card}>
-          <SheetRow
-            first
-            label="Reset to default"
-            onPress={() => config.reset()}
-          />
-        </View>
-      ) : null}
+      <View style={sheetStyles.card}>
+        <SheetRow
+          first
+          label="Reset to default"
+          onPress={() => config.reset()}
+        />
+      </View>
     </ScrollView>
   );
 }

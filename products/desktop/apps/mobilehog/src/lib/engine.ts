@@ -6,49 +6,47 @@ import {
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
 import type { CloudTaskUpdatePayload } from "@posthog/shared";
 import { fetch } from "expo/fetch";
-import { engineAnalytics } from "@/lib/analytics";
 import {
   authedFetch,
   type FetchInit,
   getBaseUrl,
   getProjectId,
 } from "@/lib/api";
-import { sessionIdentity } from "@/lib/auth";
 import { logger } from "@/lib/logger";
+
+const noopAnalytics = {
+  initialize: () => {},
+  track: () => {},
+  identify: () => {},
+  setCurrentUserId: () => {},
+  getCurrentUserId: () => null,
+  getOrCreateSessionId: () => "mobilehog",
+  resetUser: () => {},
+  captureException: () => {},
+  flush: async () => {},
+  shutdown: async () => {},
+};
 
 let engine: CloudTaskEngine | null = null;
 
 function getEngine(): CloudTaskEngine {
   if (engine) return engine;
-  const identity = sessionIdentity();
-  const assertCurrent = (): void => {
-    if (sessionIdentity() !== identity)
-      throw new Error("Session changed. Sign in again.");
-  };
   engine = createCloudTaskEngine({
     auth: {
-      authenticatedFetch: (url, init) => {
-        assertCurrent();
-        return authedFetch(url, init as FetchInit | undefined);
-      },
-      getCloudContext: async () => {
-        assertCurrent();
-        return { apiHost: getBaseUrl(), teamId: getProjectId() };
-      },
+      authenticatedFetch: (url, init) =>
+        authedFetch(url, init as FetchInit | undefined),
+      getCloudContext: async () => ({
+        apiHost: getBaseUrl(),
+        teamId: getProjectId(),
+      }),
     },
-    transcriptTailWindow: 200,
-    analytics: engineAnalytics,
+    analytics: noopAnalytics,
     logger,
     // React Native's global fetch cannot stream a body; expo/fetch can.
     streamFetch: ((url, init) =>
       fetch(url, { ...init, credentials: "omit" })) as CloudTaskFetch,
   });
   return engine;
-}
-
-export function resetEngine(): void {
-  engine?.unwatchAll();
-  engine = null;
 }
 
 export interface WatchHandle {

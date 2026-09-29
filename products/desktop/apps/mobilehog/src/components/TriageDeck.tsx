@@ -1,7 +1,13 @@
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   FadeInDown,
@@ -33,7 +39,8 @@ interface TriageDeckProps {
   onDismiss: (report: SignalReport) => void;
   onStart: (report: SignalReport) => void;
   starting?: boolean;
-  dismissing?: boolean;
+  // Height of the screen header the deck sits under; the frame starts below it.
+  headerHeight: number;
 }
 
 // Tinder-style stack: swipe left to dismiss, right to start a task, or open
@@ -43,9 +50,9 @@ export function TriageDeck({
   onDismiss,
   onStart,
   starting,
-  dismissing,
+  headerHeight,
 }: TriageDeckProps) {
-  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [expanded, setExpanded] = useState(false);
   const [frame, setFrame] = useState({ x: 0, y: 0, w: 0, h: 0 });
@@ -71,7 +78,7 @@ export function TriageDeck({
   };
 
   const pan = Gesture.Pan()
-    .enabled(!expanded && !!top && !starting && !dismissing)
+    .enabled(!expanded && !!top)
     .activeOffsetX([-12, 12])
     .failOffsetY([-16, 16])
     .onChange((event) => {
@@ -132,14 +139,10 @@ export function TriageDeck({
   }));
 
   return (
-    <View
-      style={styles.root}
-      pointerEvents="box-none"
-      onLayout={(event) => setSize(event.nativeEvent.layout)}
-    >
+    <View style={styles.root} pointerEvents="box-none">
       <Animated.View
         entering={FadeInDown.duration(280)}
-        style={styles.frame}
+        style={[styles.frame, { marginTop: headerHeight + 8 }]}
         onLayout={(event) => {
           const {
             x: fx,
@@ -181,12 +184,7 @@ export function TriageDeck({
               style={[styles.face, faceStyle]}
               pointerEvents={expanded ? "none" : "auto"}
             >
-              <ScrollView
-                style={{ flex: 1 }}
-                showsVerticalScrollIndicator={false}
-              >
-                <ReportSummary report={top} withEvidence />
-              </ScrollView>
+              <ReportSummary report={top} withEvidence />
               <View style={styles.actions}>
                 <CardButton label="Open report" onPress={toggleExpanded} />
               </View>
@@ -204,12 +202,12 @@ export function TriageDeck({
                 style={[
                   StyleSheet.absoluteFill,
                   styles.detail,
-                  { paddingTop: 64 },
+                  { paddingTop: insets.top + 64 },
                   detailStyle,
                 ]}
               >
                 <ReportDetail report={top} />
-                <View style={[styles.detailHeader, { top: 6 }]}>
+                <View style={[styles.detailHeader, { top: insets.top + 6 }]}>
                   <GlassCircleButton
                     onPress={toggleExpanded}
                     tint={colors.glassTint}
@@ -229,7 +227,6 @@ export function TriageDeck({
                   >
                     <CardButton
                       label="Dismiss"
-                      disabled={starting || dismissing}
                       onPress={() => {
                         toggleExpanded();
                         setTimeout(() => flyOut(-1, top), 250);
@@ -238,7 +235,7 @@ export function TriageDeck({
                     <CardButton
                       label="Start task"
                       primary
-                      disabled={starting || dismissing}
+                      disabled={starting}
                       onPress={() => {
                         toggleExpanded();
                         setTimeout(() => flyOut(1, top), 250);
@@ -259,8 +256,7 @@ export function TriageDeck({
           <View style={styles.verdict}>
             <GlassCircleButton
               size={64}
-              accessibilityLabel="Dismiss report"
-              disabled={!top || starting || dismissing}
+              disabled={!top}
               onPress={() => swipe(-1)}
             >
               <BinIcon />
@@ -271,8 +267,7 @@ export function TriageDeck({
           <View style={styles.verdict}>
             <GlassCircleButton
               size={64}
-              accessibilityLabel="Start task"
-              disabled={!top || starting || dismissing}
+              disabled={!top || starting}
               onPress={() => swipe(1)}
             >
               <View style={styles.goClip}>
@@ -291,8 +286,8 @@ export function TriageDeck({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  frame: { flex: 1, marginTop: 8, marginHorizontal: 16, marginBottom: 12 },
+  root: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  frame: { flex: 1, marginHorizontal: 16, marginBottom: 12 },
   card: {
     backgroundColor: colors.bgRaised,
     borderRadius: CARD_RADIUS,

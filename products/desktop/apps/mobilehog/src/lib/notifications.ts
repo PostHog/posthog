@@ -1,10 +1,11 @@
 import Constants from "expo-constants";
+import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import { useEffect } from "react";
-import { AppState, Platform } from "react-native";
+import { Platform } from "react-native";
 import { authedFetch, getBaseUrl } from "@/lib/api";
-import { sessionIdentity, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -27,64 +28,36 @@ function pathFromNotification(
   return null;
 }
 
+// Expo issues push tokens only on a physical device with an EAS project id.
 async function fetchPushToken(): Promise<string | null> {
-  const projectId =
-    Constants.easConfig?.projectId ??
-    Constants.expoConfig?.extra?.eas?.projectId;
-  if (Platform.OS === "web" || !projectId) {
-    if (Platform.OS !== "web")
-      console.warn("Push registration unavailable: missing Expo project ID");
-    return null;
-  }
+  if (!Device.isDevice) return null;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return null;
   const { status } = await Notifications.getPermissionsAsync();
   const granted =
     status === "granted" ||
     (await Notifications.requestPermissionsAsync()).status === "granted";
-  if (!granted) {
-    return null;
-  }
+  if (!granted) return null;
   return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 }
 
 let registeredToken: string | null = null;
-let pendingRegistration: { identity: string; promise: Promise<void> } | null =
-  null;
 
-export function registerPushToken(): Promise<void> {
-  if (!useAuth.getState().session) return Promise.resolve();
-  const identity = sessionIdentity();
-  if (pendingRegistration?.identity === identity)
-    return pendingRegistration.promise;
-  const promise = (async () => {
-    try {
-      const token = await fetchPushToken();
-      if (sessionIdentity() !== identity || !token) return;
-      const response = await authedFetch(
-        `${getBaseUrl()}/api/users/@me/push_tokens/`,
-        {
-          method: "POST",
-          body: JSON.stringify({ token, platform: Platform.OS }),
-        },
-      );
-      if (sessionIdentity() !== identity) return;
-      if (!response.ok) {
-        console.warn("Push token registration failed", response.status);
-        return;
-      }
-      registeredToken = token;
-    } catch {
-      if (sessionIdentity() === identity)
-        console.warn("Push registration failed on this device");
-    }
-  })().finally(() => {
-    if (pendingRegistration?.promise === promise) pendingRegistration = null;
-  });
-  pendingRegistration = { identity, promise };
-  return promise;
+async function registerPushToken(): Promise<void> {
+  const token = await fetchPushToken().catch(() => null);
+  if (!token || token === registeredToken) return;
+  const response = await authedFetch(
+    `${getBaseUrl()}/api/users/@me/push_tokens/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, platform: Platform.OS }),
+    },
+  );
+  if (response.ok) registeredToken = token;
 }
 
 export async function unregisterPushToken(): Promise<void> {
-  await pendingRegistration?.promise;
   const token = registeredToken;
   registeredToken = null;
   if (!token) return;
@@ -101,16 +74,10 @@ export function usePushNotifications(): void {
   const router = useRouter();
 
   useEffect(() => {
-    if (!session) return;
-    void registerPushToken();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void registerPushToken();
-    });
-    return () => subscription.remove();
+    if (session) registerPushToken().catch(() => {});
   }, [session]);
 
   useEffect(() => {
-    if (Platform.OS === "web") return;
     const open = (response: Notifications.NotificationResponse): void => {
       const path = pathFromNotification(response.notification);
       if (path) router.push(path as never);

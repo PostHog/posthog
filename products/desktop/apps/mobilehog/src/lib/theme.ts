@@ -1,14 +1,9 @@
 import { colors as brand } from "@posthog/brand/colors";
-import { Appearance, DynamicColorIOS, Platform } from "react-native";
+import { DynamicColorIOS } from "react-native";
 
 // Every token resolves per trait collection, so static stylesheets follow the
 // scheme without re-rendering. Light is posthog.com's tan and ink; dark inverts.
-const dyn = (light: string, dark: string) =>
-  Platform.OS === "ios"
-    ? DynamicColorIOS({ light, dark })
-    : Appearance.getColorScheme() === "dark"
-      ? dark
-      : light;
+const dyn = (light: string, dark: string) => DynamicColorIOS({ light, dark });
 
 export const colors = {
   bg: dyn("#EEEFE9", "#151515"),
@@ -26,10 +21,7 @@ export const colors = {
   glassTint: dyn("rgba(255, 255, 255, 0.75)", "rgba(34, 34, 34, 0.75)"),
   sceneTint: dyn("rgba(238, 239, 233, 0.72)", "rgba(21, 21, 21, 0.72)"),
   accent: brand.tangerine.core,
-  unread: "#F7C325",
-  unreadInk: "#151515",
   danger: brand.coral.core,
-  dangerText: dyn("#B42318", brand.coral.lighter),
   ok: brand.green.core,
   // High-contrast buttons: ink on tan, tan on ink.
   dark: dyn("#151515", "#EEEFE9"),
@@ -52,7 +44,6 @@ export const fonts = {
 export const drawer = {
   widthFraction: 0.82,
   sceneRadius: 44,
-  swipeEdgeWidth: 60,
 };
 
 export const radius = {
