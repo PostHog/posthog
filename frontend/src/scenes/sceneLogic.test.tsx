@@ -425,11 +425,25 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
         })
 
-        it('stays on the launchpad at /home when no homepage is configured', async () => {
-            logic.actions.setHomepage(null)
+        // A launchpad homepage saved with a trailing slash never matched the slash-free router
+        // location, so `/home` replaced itself until Safari threw a SecurityError.
+        it.each([
+            ['no homepage is configured', null],
+            [
+                'the homepage is the launchpad with a trailing slash',
+                {
+                    ...dashboardHomepage,
+                    pathname: `/project/${MOCK_DEFAULT_TEAM.id}${urls.projectHomepage()}/`,
+                    sceneId: Scene.ProjectHomepage,
+                },
+            ],
+        ])('stays on the launchpad at /home when %s', async (_, homepage) => {
+            logic.actions.setHomepage(homepage)
+            const replace = jest.spyOn(router.actions, 'replace')
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(replace.mock.calls.length).toBeLessThanOrEqual(1)
         })
 
         it('bootstraps the homepage from APP_CONTEXT so a direct /home visit redirects on first paint', async () => {

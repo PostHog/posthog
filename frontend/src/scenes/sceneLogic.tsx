@@ -23,7 +23,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    getProjectIdentifierInPath,
+    removeProjectIdIfPresent,
+    stripTrailingSlash,
+} from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -112,8 +117,10 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
+// The router drops a trailing slash from its location, so the target drops it too. Otherwise the
+// "already there" check never matches and the redirect calls `replaceState` without end.
 const homepageTargetPathname = (homepage: SceneTab): string => {
-    const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+    const targetPathname = stripTrailingSlash(addProjectIdIfMissing(homepage.pathname || urls.projectHomepage()))
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
         : targetPathname
