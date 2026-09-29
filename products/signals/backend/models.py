@@ -2160,8 +2160,8 @@ class SignalReportCheck(UUIDModel):
     transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
     fix, including the ones that never had a pull request.
 
-    Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
-    is never rescheduled; the author writes a new check instead, so a result artefact always refers
+    Terminal statuses are final. A check that passed, failed, errored out, ended inconclusive,
+    expired, or was cancelled is never rescheduled; the author writes a new check instead, so a result artefact always refers
     to a row whose state explains it.
     """
 
@@ -2182,6 +2182,8 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        # The runs worked but could not settle the claim. `last_outcome_reason` says why.
+        INCONCLUSIVE = "inconclusive"
         EXPIRED = "expired"
         CANCELLED = "cancelled"
 
@@ -2193,6 +2195,17 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        INCONCLUSIVE = "inconclusive"
+
+    class InconclusiveReason(models.TextChoices):
+        # The data can arrive later: a rollout lag, a soak not complete, too few samples so far.
+        AWAITING_DATA = "awaiting_data"
+        # The data the check needs is not captured, so waiting does not help.
+        UNMEASURABLE = "unmeasurable"
+        # Only a person or another environment can do it: a device, SSH, staging, a test suite.
+        NEEDS_MANUAL_VERIFICATION = "needs_manual_verification"
+        # No merged fix or deploy time defines a post-fix window.
+        NO_FIX_TO_MEASURE = "no_fix_to_measure"
 
     # Environment-scoped, not project-scoped. `SignalReport` stores the environment's own team, and a
     # check has to sit on the same team as its report or the report's reads never find it and its
@@ -2226,8 +2239,13 @@ class SignalReportCheck(UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
+    # Consecutive `awaiting_data` verdicts. Kept apart from `consecutive_errors`, because a run that
+    # waits on data did its job and must not spend the error budget.
+    consecutive_inconclusive = models.PositiveIntegerField(default=0, db_default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
+    # Set only when `last_outcome` is `inconclusive`.
+    last_outcome_reason = models.CharField(max_length=30, choices=InconclusiveReason, null=True, blank=True)
     # When an `agent` check's scout run was dispatched, cleared as soon as a verdict is recorded.
     # It is what makes the dispatch closable: `scout-check-record-result` refuses a check no run is
     # waiting on, and the coordinator reads a stale value as a run that ended without answering.

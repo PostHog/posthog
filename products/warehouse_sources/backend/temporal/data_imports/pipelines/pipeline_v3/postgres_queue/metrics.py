@@ -264,12 +264,34 @@ class ConsumerMetrics:
     active_groups: Gauge
     recovery_sweeps_total: Counter
     coalesced_sets_total: Counter
+    coalesced_set_batches: Histogram
+    coalesced_set_runs: Histogram
+    coalesced_set_rows: Histogram
 
+
+COALESCED_SET_BATCHES_BUCKETS = (1, 2, 4, 8, 16, 32, 64, 128, 256)
+COALESCED_SET_RUNS_BUCKETS = (1, 2, 3, 4, 6, 8, 12, 16)
+COALESCED_SET_ROWS_BUCKETS = (100, 1_000, 10_000, 50_000, 100_000, 250_000, 500_000, 1_000_000)
 
 COALESCED_SETS_TOTAL = Counter(
     "warehouse_pg_consumer_coalesced_sets_total",
-    "Sets of consecutive batches of one run loaded as a single write, by outcome",
+    "Sets of consecutive batches loaded as a single write, by outcome",
     labelnames=["outcome"],
+)
+COALESCED_SET_BATCHES = Histogram(
+    "warehouse_pg_consumer_coalesced_set_batches",
+    "Batches per set loaded as a single write",
+    buckets=COALESCED_SET_BATCHES_BUCKETS,
+)
+COALESCED_SET_RUNS = Histogram(
+    "warehouse_pg_consumer_coalesced_set_runs",
+    "Runs per set loaded as a single write",
+    buckets=COALESCED_SET_RUNS_BUCKETS,
+)
+COALESCED_SET_ROWS = Histogram(
+    "warehouse_pg_consumer_coalesced_set_rows",
+    "Rows per set loaded as a single write",
+    buckets=COALESCED_SET_ROWS_BUCKETS,
 )
 
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
@@ -283,6 +305,9 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     active_groups=ACTIVE_GROUPS,
     recovery_sweeps_total=RECOVERY_SWEEPS_TOTAL,
     coalesced_sets_total=COALESCED_SETS_TOTAL,
+    coalesced_set_batches=COALESCED_SET_BATCHES,
+    coalesced_set_runs=COALESCED_SET_RUNS,
+    coalesced_set_rows=COALESCED_SET_ROWS,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -342,8 +367,23 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
         ),
         coalesced_sets_total=Counter(
             f"{p}_coalesced_sets_total",
-            "Sets of consecutive batches of one run loaded as a single write, by outcome",
+            "Sets of consecutive batches loaded as a single write, by outcome",
             labelnames=["outcome"],
+        ),
+        coalesced_set_batches=Histogram(
+            f"{p}_coalesced_set_batches",
+            "Batches per set loaded as a single write",
+            buckets=COALESCED_SET_BATCHES_BUCKETS,
+        ),
+        coalesced_set_runs=Histogram(
+            f"{p}_coalesced_set_runs",
+            "Runs per set loaded as a single write",
+            buckets=COALESCED_SET_RUNS_BUCKETS,
+        ),
+        coalesced_set_rows=Histogram(
+            f"{p}_coalesced_set_rows",
+            "Rows per set loaded as a single write",
+            buckets=COALESCED_SET_ROWS_BUCKETS,
         ),
     )
     _metrics_by_prefix[prefix] = metrics
