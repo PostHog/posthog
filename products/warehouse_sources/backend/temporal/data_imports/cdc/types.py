@@ -108,6 +108,10 @@ class ChangeEvent:
     # still hold their previous value — downstream must fill them from the last known
     # row state instead of writing NULL.
     omitted_columns: frozenset[str] = frozenset()
+    # Old values of the columns an UPDATE changed, where the change stream reports them (Postgres:
+    # the old key tuple, or the whole old row under REPLICA IDENTITY FULL). Capture compares them
+    # with the merge key, because an update that changes the key must also remove the old key.
+    previous_values: Mapping[str, Any] | None = None
 
 
 class CDCStreamReader(Protocol):

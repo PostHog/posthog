@@ -652,6 +652,34 @@ class CDCExtractActivity:
             omitted_columns=filtered_omitted,
         )
 
+    def _split_key_change(self, event: ChangeEvent) -> tuple[ChangeEvent, ...]:
+        """Turn an update that changes the merge key into a delete of the old key and an insert of the new one.
+
+        Merged on its new key alone, the update leaves the old key's row live in the consolidated
+        table and open in the history table. The delete carries only the old key, like a Postgres
+        delete under the default replica identity, so delete enrichment fills the rest of the row.
+
+        A key swap inside one transaction needs a deferrable constraint, and this does not model it:
+        the second row's delete removes the key that the first row's insert took.
+        """
+        if event.previous_values is None:
+            return (event,)
+        # The batcher neither writes the previous values nor counts them toward its flush size.
+        current = dataclasses.replace(event, previous_values=None)
+        key_columns = self.pk_columns_by_table.get(event.table_name, [])
+        if not any(column in event.previous_values for column in key_columns):
+            return (current,)
+        old_key = {column: event.previous_values.get(column, event.columns.get(column)) for column in key_columns}
+        removed = ChangeEvent(
+            operation="D",
+            table_name=event.table_name,
+            position_serialized=event.position_serialized,
+            timestamp=event.timestamp,
+            columns=old_key,
+            column_types=event.column_types,
+        )
+        return (removed, dataclasses.replace(current, operation="I"))
+
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
         return cdc_qualified_table_name(schema, default_schema)
@@ -731,8 +759,8 @@ class CDCExtractActivity:
                 if canonical_name != event.table_name:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
-                event = self._project_event_columns(event)
-                self.batcher.add(event)
+                for change in self._split_key_change(event):
+                    self.batcher.add(self._project_event_columns(change))
 
                 # A change in position_serialized proves the previous transaction fully
                 # yielded — all of its events are now buffered or flushed. Record its end LSN

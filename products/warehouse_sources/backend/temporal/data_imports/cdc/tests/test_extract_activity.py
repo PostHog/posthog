@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cleanup_orphan_slots_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
     ChangeEventBatcher,
@@ -53,6 +54,7 @@ def _make_event(
     table: str = "users",
     position: str = "0/100",
     columns: dict | None = None,
+    previous_values: dict | None = None,
 ) -> ChangeEvent:
     return ChangeEvent(
         operation=op,
@@ -60,6 +62,7 @@ def _make_event(
         position_serialized=position,
         timestamp=datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC),
         columns=columns or {"id": 1, "name": "Alice"},
+        previous_values=previous_values,
     )
 
 
@@ -1777,6 +1780,34 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         capture.reader.confirm_position.assert_called_once_with("0/200")
         assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
+
+    @parameterized.expand(
+        [
+            ("key_changed", ["id"], {"id": 1}, [("D", 1, None), ("I", 2, 7)]),
+            ("one_column_of_a_composite_key_changed", ["id", "tenant_id"], {"id": 1}, [("D", 1, 7), ("I", 2, 7)]),
+            ("other_column_changed", ["id"], {"name": "Alice"}, [("U", 2, 7)]),
+        ]
+    )
+    def test_an_update_that_changes_the_key_removes_the_old_key(
+        self, _name, primary_key, previous_values, expected_rows
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = primary_key
+        update = _make_event(
+            op="U",
+            position="0/200",
+            columns={"id": 2, "tenant_id": 7, "name": "Bob"},
+            previous_values=previous_values,
+        )
+
+        with _capture_harness(source, [schema], [update]) as capture:
+            capture.extract()
+
+        buffered = capture.buffer.write_batch.call_args.kwargs["table"]
+        rows = zip(*(buffered.column(name).to_pylist() for name in (CDC_OP_COLUMN, "id", "tenant_id")))
+        assert list(rows) == expected_rows
+        assert set(buffered.column(CDC_SEQ_COLUMN).to_pylist()) == {0x200}
 
     def test_wal_events_reach_the_schema_they_belong_to(self):
         # WAL events are always schema-qualified, but a schema's `name` may be stored bare. An exact

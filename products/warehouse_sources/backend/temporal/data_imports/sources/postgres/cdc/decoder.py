@@ -151,7 +151,7 @@ class RelationColumn:
     type_modifier: int
 
 
-_REPLICA_IDENTITY_FULL = 2
+_REPLICA_IDENTITY_FULL = ord("f")
 
 
 @dataclass
@@ -161,7 +161,8 @@ class Relation:
     relation_id: int
     schema_name: str
     table_name: str
-    replica_identity: int  # 0=default, 1=nothing, 2=full, 3=index
+    # pg_class.relreplident sent as one character: d=default, n=nothing, f=full, i=index.
+    replica_identity: int
     columns: list[RelationColumn] = field(default_factory=list)
     # Arrow type per column, derived once from the column OIDs. Stamped onto every
     # ChangeEvent so the batcher types all-null micro-batches consistently.
@@ -411,6 +412,11 @@ class PgOutputDecoder:
         if marker in ("K", "O"):
             offset += 1
             old_columns, offset = _skip_tuple(payload, offset, relation)
+            if marker == "K":
+                # The old key tuple sends every column outside the replica identity as NULL, and
+                # those NULLs are not the old values.
+                key_names = {col.name for col in relation.columns if col.flags & 1}
+                old_columns = {name: value for name, value in old_columns.items() if name in key_names}
 
         # New tuple starts with 'N'
         if chr(payload[offset]) != "N":
@@ -427,6 +433,9 @@ class PgOutputDecoder:
                 columns[col_name] = old_columns[col_name]
                 omitted.discard(col_name)
 
+        previous_values = {
+            name: value for name, value in old_columns.items() if name in columns and columns[name] != value
+        }
         self._buffer_event(
             ChangeEvent(
                 operation="U",
@@ -436,6 +445,7 @@ class PgOutputDecoder:
                 columns=columns,
                 column_types=relation.column_arrow_types,
                 omitted_columns=frozenset(omitted),
+                previous_values=previous_values or None,
             )
         )
 
@@ -501,7 +511,7 @@ class PgOutputDecoder:
         relation = self._find_relation_by_name(table_name)
         if relation is None:
             return []
-        # replica_identity 2 = FULL, which flags every column as part of the key. That names no key:
+        # REPLICA IDENTITY FULL flags every column as part of the key. That names no key:
         # merging on every column makes each row version its own key, so updates accumulate instead
         # of replacing. Checked by identity rather than by "all columns flagged", so a table whose
         # declared PK genuinely covers every column still works.
@@ -565,6 +575,7 @@ class PgOutputDecoder:
                         event.columns,
                         sorted(event.omitted_columns),
                         type_index[key],
+                        event.previous_values,
                     ],
                     ensure_ascii=False,
                     separators=(",", ":"),
@@ -589,7 +600,7 @@ def _replay_spilled_transaction(
     try:
         spill.file.seek(0)
         for line in spill.file:
-            operation, table_name, timestamp, columns, omitted, type_index = json.loads(line)
+            operation, table_name, timestamp, columns, omitted, type_index, previous_values = json.loads(line)
             yield ChangeEvent(
                 operation=operation,
                 table_name=table_name,
@@ -598,6 +609,7 @@ def _replay_spilled_transaction(
                 columns=columns,
                 column_types=types[type_index],
                 omitted_columns=frozenset(omitted),
+                previous_values=previous_values,
             )
         for event in tail:
             yield dataclass_replace(event, position_serialized=end_lsn)
