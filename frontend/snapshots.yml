@@ -5424,6 +5424,10 @@ snapshots:
         hash: v1.k794b7964.62481a20890d8d9702570d58b69f47580c91399daa635cab23d9e8da75d2636f.4zz_BsbTTGbjpB2UW_cLkBiMwGDI54MGoQlD9_b9hV8
     lemon-ui-object-tags--default--light:
         hash: v1.k794b7964.1a69b09d2bc7612599daf0a1228b103250debc4afa2224fb8005e3c9b7f63326.bYCI4pCGFv3tFdGcQfIkfzDcOnpuLhD10S33l9BYIYg
+    lemon-ui-object-tags--editable-tags-in-narrow-container--dark:
+        hash: v1.k794b7964.6538590671c5bcd8feb77e0400c8532705932f4f55856dd6a99a6abcdc00b6e3.ca3qOKbmxmRDrNfdNRCEg9I9Wvnkrs7PHzA0tvpXTIM
+    lemon-ui-object-tags--editable-tags-in-narrow-container--light:
+        hash: v1.k794b7964.8b8f244a4387d0d1165067851b5758f5ad5429fae2b4a4e87eb7c53cdfdd4e18.MekQJYDe11n-5XnhJV5phxqMh5OqTw36CTFCk_BZNnw
     lemon-ui-object-tags--static-only--dark:
         hash: v1.k794b7964.62481a20890d8d9702570d58b69f47580c91399daa635cab23d9e8da75d2636f.oAaWHdceTRTQOchqDXvZ7-ym0DB_CpRpPyXnqlKugwo
     lemon-ui-object-tags--static-only--light:
@@ -7987,9 +7991,9 @@ snapshots:
     scenes-app-customer-analytics-account-detail--narrow--light:
         hash: v1.k794b7964.d268860af68579ee5a269b8b20f22d1643a6791bf677851ae760569635b22d27.6D3Xn7IFqBI9s8rz5SeHqMQNJieJm07ToJRX8yvpa64
     scenes-app-customer-analytics-account-detail--pinned-properties--dark:
-        hash: v1.k794b7964.ef654a37e6f8aab56b8d5cb6f0fbf1614f0c1c59f6855a7347710cf59287adea.hzNtB-SSQHwp0BNHGJsvYDZHHEQVW91cngCSiukAqMM
+        hash: v1.k794b7964.e8c6dfd9b14aaebdef6509e0b1c9cb79104edcb601540b3281389f970994a42f.ZCIo29eW7hUVoJSQM5domMOzZJxQ7xTLHbyglkVTwZQ
     scenes-app-customer-analytics-account-detail--pinned-properties--light:
-        hash: v1.k794b7964.e7b7b4e265fe28f3bd822693b3fc35e64f7ee0db9834861f540fdb8e2c440563.Eyc9Eq58hs4tYm6RxMyIbumFmT3gOV1IvYd8v8qgUlE
+        hash: v1.k794b7964.26baa4906be5a0a6e80ee162f3caada163d5606ed6fbd0d322c1b63495f208e9.1vU97twfzIg__VzQeKQxh1b7Qmks9-7ugaL8Zf2bXJY
     scenes-app-customer-analytics-account-detail--pinned-properties-narrow--dark:
         hash: v1.k794b7964.de33855f1c17a82c55e0faec33846783e220077115f4b517f8d020ae9a3db08c.dw3swEPrHa8inmBHh5AfcyVobSGqctlmpctsHlqkWpg
     scenes-app-customer-analytics-account-detail--pinned-properties-narrow--light:
