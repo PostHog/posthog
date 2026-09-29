@@ -198,11 +198,11 @@ class TestScoutTrialEvaluation(BaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",), ("8",)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        assert snapshot.judge_prompt_version == "7"
-        if prompt_version not in {"5", "6", "7"}:
+        assert snapshot.judge_prompt_version == "8"
+        if prompt_version not in {"5", "6", "7", "8"}:
             self.request = self.request.model_copy(update={"rubric_source": "mock"})
             snapshot = snapshot.model_copy(
                 update={
@@ -230,7 +230,7 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         assert snapshot.runs[0].input_tokens == 120
         assert snapshot.criteria
-        if prompt_version in {"5", "6", "7"}:
+        if prompt_version in {"5", "6", "7", "8"}:
             assert snapshot.rubric_reference_context == self.reference
         changed = self.request.model_copy(
             update={"variants": [self.request.variants[0].model_copy(update={"label": "Changed"})]}
@@ -238,7 +238,7 @@ class TestScoutTrialEvaluation(BaseTest):
         with self.assertRaisesMessage(TrialEvaluationError, "different request"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
 
-    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",)])
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",), ("5",), ("6",), ("7",), ("8",)])
     def test_saved_report_remains_readable_when_launches_are_disabled(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})

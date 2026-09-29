@@ -101,10 +101,11 @@ It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
 Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
 When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
-Versions 6 and 7 distinguish missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
-New evaluations record judge version 7. It uses the same prompt as version 6: count claims must follow the query and observed identifiers, so an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text from the corresponding source.
-Version 7 allows at most 16,000 completion tokens per run; versions 1 through 6 retain their 8,000-token limit. A version 7 response that reaches the limit produces a judge error with guidance to review the rubric size before starting a new evaluation. It retains token usage but no partial verdicts and makes no automatic retry. The 64,000-character verdict-document limit is unchanged.
-Pending versions 1 through 6 retain their original prompts, evidence envelopes, citation normalization and request limits. Versions 5 and 6 continue to use their separate, fixed reference context; previously saved snapshots and reports remain unchanged.
+Versions 6 through 8 distinguish missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
+New evaluations record judge version 8. A pass needs evidence for every applicable mandatory requirement and material claim. Explicit scope violations fail even when the returned counts look plausible; missing proof produces unknown. Lower confidence or a causal disclaimer cannot substitute for that proof. Supported composite record descriptions can identify sources, and incidental details do not defeat a criterion about material claims.
+Count claims must follow the query and observed identifiers: an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs and exact text, decoding only the outer input envelope when copying embedded JSON or escaped strings.
+Version 8 uses high reasoning effort, at most 24,000 completion tokens per run, and a 240-second request timeout. It disables retries both in the caller and in the gateway's native OpenAI provider transport. Version 7 retains its 16,000-token limit and versions 1 through 6 retain their 8,000-token limit. Limit failures retain usage but no partial verdicts; versions 7 and 8 explain that the rubric size may need review. The 64,000-character verdict-document limit is unchanged.
+Pending versions 1 through 7 retain their original prompts, evidence envelopes, citation normalization and request limits. Versions 5 through 7 continue to use their separate, fixed reference context; previously saved snapshots and reports remain unchanged.
 Missing evidence is unknown; not applicable means the criterion does not apply to that run.
 The judge assesses the saved text and does not independently verify external sources or measure recall.
 
@@ -122,6 +123,7 @@ Scoring uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/tri
 Read the saved outcome with `GET /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation_result/?evaluation_id=...`.
 Reuse an evaluation ID only for the same request; a different request with that ID is rejected.
 Retries reuse saved work and do not repeat an attempted judge call automatically.
+Rate-limited judge calls retain an error with guidance to wait or check usage limits before starting a new evaluation. Scoring credentials remain bound to the scout task, so repeated evaluations also consume that task's gateway allowance.
 Polling reads the saved status or report without starting model calls.
 Every read remains restricted to the operator's current project and skill access.
 
