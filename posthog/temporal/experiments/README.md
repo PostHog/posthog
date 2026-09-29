@@ -48,6 +48,8 @@ The experiment page reads results through `GET /metrics_recalculation/latest`, w
 
 Each metric stamps its own `query_to` at the moment its activity runs, so the points of one run are seconds to minutes apart. The copies present them as one window; that approximation is deliberate.
 
+Each run ends by emitting the `experiment_timeseries_publish_runs` Prometheus counter (labels: `workflow_type`, `status`), skipped when the run computed nothing. `status="missing"` means the run computed metrics but published zero recalculation rows - the silent-failure mode where results exist yet never reach users. One `missing` run can be legitimate (every row already covered by another run or a manual recalculation), so the Grafana alert thresholds over a window instead of firing per run.
+
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                    ExperimentRegularMetricsWorkflow                        │
