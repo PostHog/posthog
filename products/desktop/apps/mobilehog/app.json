@@ -29,6 +29,19 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PostHog to attach photos to your tasks"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PostHog to use the microphone for dictation.",
+          "speechRecognitionPermission": "Allow PostHog to turn speech into a message draft."
+        }
+      ],
       "./plugins/withSceneLifecycle",
       "./plugins/withPodfileResourceBundleFix",
       [
