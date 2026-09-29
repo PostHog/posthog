@@ -314,11 +314,12 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
 			return err
 		}
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
 
 		metrics.NotificationSubs.Inc()
 		defer metrics.NotificationSubs.Dec()
 
-		ctx := c.Request().Context()
 		channel := fmt.Sprintf("notifications:%s", claims.OrganizationID)
 
 		// Absorbs publish-rate bursts; drops on overflow to avoid blocking rueidis.
@@ -346,6 +347,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		heartbeat := time.NewTicker(15 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
+		accessErrors := periodicAccessChecks(ctx, c.Request().Header.Clone(), 15*time.Second)
 
 		for {
 			select {
@@ -357,6 +359,9 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				if err != nil {
 					log.Printf("Redis subscription error: %v", err)
 				}
+				return nil
+			case err := <-accessErrors:
+				log.Printf("Live stream authorization check failed: %v", err)
 				return nil
 			case msg := <-msgCh:
 				cleaned, ok, reason := filterNotificationForUser(msg, claims.UserID)
@@ -371,10 +376,6 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				w.Flush()
 				metrics.NotificationMessagesDeliveredTotal.Inc()
 			case <-heartbeat.C:
-				if err := auth.CheckAccess(ctx, c.Request().Header); err != nil {
-					log.Printf("Live stream authorization check failed: %v", err)
-					return nil
-				}
 				event := Event{Comment: []byte("heartbeat")}
 				if err := event.WriteTo(w); err != nil {
 					return err
