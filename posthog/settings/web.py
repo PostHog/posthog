@@ -596,8 +596,6 @@ SPECTACULAR_SETTINGS = {
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # BatchExport.Model and BatchExportOnDemand.Model are identical.
-            "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
@@ -652,6 +650,11 @@ SPECTACULAR_SETTINGS = {
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
             "WizardTaskStatusEnum": "products.wizard.backend.facade.enums.WIZARD_TASK_STATUS_CHOICES",
+            "DestinationTypeEnum": "products.batch_exports.backend.facade.enums.DESTINATION_TYPE_CHOICES",
+            "BatchExportModelEnum": "products.batch_exports.backend.facade.enums.BATCH_EXPORT_MODEL_CHOICES",
+            "BatchExportRunStatusEnum": "products.batch_exports.backend.facade.enums.BATCH_EXPORT_RUN_STATUS_CHOICES",
+            "BatchExportBackfillStatusEnum": "products.batch_exports.backend.facade.enums.BATCH_EXPORT_BACKFILL_STATUS_CHOICES",
+            "BatchExportIntervalEnum": "products.batch_exports.backend.facade.enums.BATCH_EXPORT_INTERVALS",
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
             "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",

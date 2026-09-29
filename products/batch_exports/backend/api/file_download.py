@@ -39,6 +39,7 @@ from products.batch_exports.backend.api.utils import (
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
 )
+from products.batch_exports.backend.facade.enums import BATCH_EXPORT_RUN_STATUS_CHOICES
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     find_interval_placeholders,
@@ -417,7 +418,7 @@ class ListOutputSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="ID of the file download batch export run.")
     status = serializers.ChoiceField(
-        choices=BatchExportRun.Status.choices,
+        choices=BATCH_EXPORT_RUN_STATUS_CHOICES,
         help_text="Current status of the file download batch export run.",
     )
 
@@ -453,7 +454,7 @@ class RetrieveOutputSerializer(serializers.Serializer):
     @extend_schema. This serializer exists as a runtime/fallback type.
     """
 
-    status = serializers.ChoiceField(choices=BatchExportRun.Status.choices)
+    status = serializers.ChoiceField(choices=BATCH_EXPORT_RUN_STATUS_CHOICES)
     error = serializers.CharField(required=False)
     files = serializers.ListField(
         child=serializers.UUIDField(),

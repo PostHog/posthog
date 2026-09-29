@@ -13786,10 +13786,10 @@ export namespace Schemas {
      * * `sessions` - Sessions
      * * `hogql` - Hogql
      */
-    export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
+    export type BatchExportModelEnum = typeof BatchExportModelEnum[keyof typeof BatchExportModelEnum];
 
 
-    export const ModelEnum = {
+    export const BatchExportModelEnum = {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
@@ -13810,10 +13810,10 @@ export namespace Schemas {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download
      */
-    export type BatchExportDestinationDestinationEnum = typeof BatchExportDestinationDestinationEnum[keyof typeof BatchExportDestinationDestinationEnum];
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
 
 
-    export const BatchExportDestinationDestinationEnum = {
+    export const DestinationTypeEnum = {
       AwsS3: 'AwsS3',
       S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
@@ -14106,7 +14106,7 @@ export namespace Schemas {
        * * `HTTP` - Http
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
-      type: BatchExportDestinationDestinationEnum;
+      type: DestinationTypeEnum;
       /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
@@ -14271,7 +14271,7 @@ export namespace Schemas {
        * * `persons` - Persons
        * * `sessions` - Sessions
        * * `hogql` - Hogql */
-      model?: ModelEnum | BlankEnum | null;
+      model?: BatchExportModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
       /** How often the batch export should run.
@@ -15141,7 +15141,7 @@ export namespace Schemas {
        * * `persons` - Persons
        * * `sessions` - Sessions
        * * `hogql` - Hogql */
-      model?: ModelEnum;
+      model?: BatchExportModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
       /** How often the batch export should run.
@@ -71835,7 +71835,7 @@ export namespace Schemas {
        * * `persons` - Persons
        * * `sessions` - Sessions
        * * `hogql` - Hogql */
-      model?: ModelEnum;
+      model?: BatchExportModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
       /** How often the batch export should run.

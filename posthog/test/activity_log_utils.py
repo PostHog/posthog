@@ -494,7 +494,7 @@ class ActivityLogTestHelper(APILicensedTest):
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
         """Create a batch export directly, without the API."""
         from products.batch_exports.backend.facade import testing as batch_exports_testing
-        from products.batch_exports.backend.facade.contracts import DestinationType
+        from products.batch_exports.backend.facade.enums import DestinationType
 
         batch_export_id = batch_exports_testing.create_batch_export(
             self.team.id,

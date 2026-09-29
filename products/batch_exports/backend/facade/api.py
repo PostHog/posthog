@@ -30,8 +30,8 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.facade.enums import BATCH_EXPORT_INTERVALS
 from products.batch_exports.backend.models.batch_export import (
-    BATCH_EXPORT_INTERVALS,
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,

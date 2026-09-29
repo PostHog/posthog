@@ -7,11 +7,8 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.models import Team
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import (
-    BatchExportBackfillSummary,
-    BatchExportDetail,
-    DestinationType,
-)
+from products.batch_exports.backend.facade.contracts import BatchExportBackfillSummary, BatchExportDetail
+from products.batch_exports.backend.facade.enums import DestinationType
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

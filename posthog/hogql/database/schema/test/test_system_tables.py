@@ -46,11 +46,7 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.contracts import (
-    BatchExportBackfillStatus,
-    BatchExportRunStatus,
-    DestinationType,
-)
+from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus, BatchExportRunStatus, DestinationType
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
