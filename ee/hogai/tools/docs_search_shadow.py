@@ -47,11 +47,15 @@ class DocsShadowComparison:
 
 def normalize_doc_url(url: str) -> str:
     """Lowercase the host, drop www, and strip the query, fragment, and trailing slash."""
-    parsed = urlsplit(url.strip())
+    try:
+        parsed = urlsplit(url.strip())
+        # Out-of-range ports raise ValueError. Drop the URL instead of failing the comparison.
+        port = parsed.port
+    except ValueError:
+        return ""
     host = (parsed.hostname or "").lower()
     if host.startswith("www."):
         host = host[4:]
-    port = parsed.port
     default_port = (parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443)
     netloc = host if port is None or default_port else f"{host}:{port}"
     path = parsed.path.rstrip("/")

@@ -240,6 +240,18 @@ class TestDocsShadowOverlap(SimpleTestCase):
                 1,
                 1.0,
             ),
+            (
+                "skips_url_with_invalid_port",
+                _docs_payload(
+                    ("document", "https://posthog.com:99999/docs/other"),
+                    ("document", "https://posthog.com/docs/flags"),
+                ),
+                ["https://posthog.com/docs/flags"],
+                1,
+                True,
+                1,
+                1.0,
+            ),
         ]
     )
     def test_overlap(

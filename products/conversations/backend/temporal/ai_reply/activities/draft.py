@@ -9,6 +9,7 @@ import structlog
 from pydantic import ValidationError
 from temporalio import activity
 
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -169,8 +170,11 @@ def format_knowledge_chunks(chunks: list[dict[str, Any]]) -> str:
             f"({chunk['document_title']} > {chunk['heading_path']})"
         )
         url = chunk.get("url")
-        if url:
-            header = f"{header}\nURL: {url}"
+        if isinstance(url, str):
+            # Document.url is varchar(2048). Collapse it to one line so a crawled URL cannot open a new prompt section.
+            safe_url = sanitize_user_text(url, 2048)
+            if safe_url:
+                header = f"{header}\nURL: {safe_url}"
         rendered_chunks.append(f"{header}\n{chunk['content']}")
     rendered = "\n\n".join(rendered_chunks)
     if any(c.get("is_generated") for c in visible):
