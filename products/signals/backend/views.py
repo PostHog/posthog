@@ -79,6 +79,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    ImpactMeasurementPlan,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
@@ -100,6 +101,7 @@ from products.signals.backend.billing import (
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.impact_measurement_plans import can_append_measurement_plan, latest_measurement_plans
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -1107,6 +1109,7 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
             qs = self._apply_signal_report_status_filter(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._prefetch_signal_report_ranking_score(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
@@ -1144,6 +1147,7 @@ class SignalReportViewSet(
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
             # ordering that reads this value does not apply to it either.
             qs = self._annotate_is_suggested_reviewer(qs)
+            qs = self._prefetch_signal_report_ranking_score(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
             # This correlated subquery costs one walk per matching row. Multi-row actions do
             # without it: `list` serves the value from a batched page lookup, and `bulk_state`
@@ -1160,6 +1164,7 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),
@@ -1705,6 +1710,20 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
+            ),
+        )
+
+    def _prefetch_signal_report_ranking_score(self, queryset):
+        # Scores are internal model output, so only staff requests pay for the lookup.
+        if not self.request.user.is_staff:
+            return queryset
+        return queryset.prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_ranking_score_artefacts",
             ),
         )
 
@@ -4667,10 +4686,14 @@ class SignalReportArtefactViewSet(
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
         # its artefacts must be too (otherwise a known UUID would bypass deletion).
-        return queryset.filter(
+        queryset = queryset.filter(
             report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
+        # Scoring rows are staff-only on every artefact route, not only in the log.
+        if not self.request.user.is_staff:
+            queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -4714,6 +4737,11 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_reviewer_history": [
+                    artefact
+                    for artefact in real_artefacts
+                    if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+                ],
             },
         )
         if page is not None:
@@ -4843,10 +4871,21 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(parsed_content, ImpactMeasurementPlan) and parsed_content.activated:
+            return Response(
+                {"error": "Activate a measurement with its approval action."}, status=status.HTTP_400_BAD_REQUEST
+            )
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            if isinstance(parsed_content, ImpactMeasurementPlan) and not can_append_measurement_plan(
+                latest_measurement_plans(report), parsed_content
+            ):
+                return Response(
+                    {"error": "This report already has the maximum number of active impact measurements."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             import_report_pull_requests(report)
             claim_id = request.validated_data.get("claim_id")
             if claim_id:
@@ -4949,6 +4988,11 @@ class SignalReportArtefactViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type == SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+            return Response(
+                {"error": "Append a new measurement version instead of editing one."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
             # Legacy read-only types (e.g. video_segment) can't be created via the API, so they
             # can't be edited through it either.
@@ -4972,6 +5016,45 @@ class SignalReportArtefactViewSet(
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
+        request=None,
+        responses={200: SignalReportArtefactWriteResponseSerializer},
+        summary="Activate a proposed impact measurement",
+    )
+    @action(detail=True, methods=["post"], url_path="activate")
+    def activate(self, request: Request, *args, **kwargs) -> Response:
+        attribution = resolve_request_attribution(request, self.team.id)
+        if attribution.kind != "user" or not isinstance(request.successful_authenticator, SessionAuthentication):
+            return Response({"error": "A person must approve this measurement."}, status=status.HTTP_403_FORBIDDEN)
+        with transaction.atomic():
+            artefact = cast(SignalReportArtefact, self.get_object())
+            if artefact.type != SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+                return Response({"error": "Not a measurement plan."}, status=status.HTTP_400_BAD_REQUEST)
+            report = SignalReport.objects.select_for_update().get(id=artefact.report_id, team_id=self.team.id)
+            plan = parse_artefact_content(artefact.type, artefact.content)
+            assert isinstance(plan, ImpactMeasurementPlan)
+            current = latest_measurement_plans(report).get(plan.metric_id)
+            if current is None or current[0].id != artefact.id or plan.retired:
+                return Response(
+                    {"error": "This proposal has changed. Review its latest version."}, status=status.HTTP_409_CONFLICT
+                )
+            policy = ReportMetricAccessPolicy(request=request, team=self.team)
+            if not policy.may_read_query(plan.model_dump()) or (
+                plan.eligibility_query is not None and not policy.may_read_query({"query": plan.eligibility_query})
+            ):
+                return Response(
+                    {"error": "The measurement query is not available to you."}, status=status.HTTP_403_FORBIDDEN
+                )
+            if plan.activated:
+                return Response(self._write_response_data(artefact))
+            approved = SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=plan.model_copy(update={"activated": True}),
+                attribution=attribution,
+            )
+        return Response(self._write_response_data(approved))
+
+    @extend_schema(
         responses={
             204: OpenApiResponse(description="Artefact deleted."),
             400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
@@ -4993,6 +5076,7 @@ class SignalReportArtefactViewSet(
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type in {
             SignalReportArtefact.ArtefactType.TASK_RUN,
+            SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN,
             SignalReportArtefact.ArtefactType.WORK_CLAIM,
             SignalReportArtefact.ArtefactType.WORK_RELEASE,
             SignalReportArtefact.ArtefactType.PULL_REQUEST,

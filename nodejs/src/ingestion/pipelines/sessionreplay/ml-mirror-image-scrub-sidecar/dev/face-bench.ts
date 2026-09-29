@@ -6,16 +6,19 @@
  *   tsx dev/face-bench.ts --setup                 # models, WIDER FACE val, portraits, composites
  *   tsx dev/face-bench.ts --dump-calibration      # int8 calibration inputs, in out/face-calibration
  *   uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
- *       models/candidates/yunet_2026may.onnx out/face-calibration models/candidates/yunet_2026may_int8.onnx
+ *       models/yunet.onnx out/face-calibration models/candidates/yunet_2026may_int8.onnx
  *   uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
  *       models/candidates/yunet_n_dynamic.onnx out/face-calibration models/candidates/yunet_n_dynamic_int8.onnx
  *   ORT_THREADS=1 tsx dev/face-bench.ts [--detectors a,b] [--sets a,b] [--limit N] [--label name]
  *
- * Production letterboxes every frame into YuNet's fixed 640x640 input, so a frame smaller than 640
- * is upscaled and a 16:9 frame is padded with black to a square. The plan counts the face stage's
- * scale as min(1, 640 / long side), so neither the upscale nor the padding buys anything towards the
- * ratio guarantee. The "native" variants use the dynamic-shape YuNet export at that same scale on a
- * canvas that only pads to the model's stride.
+ * Production reads each frame at min(1, 640 / long side) with the dynamic-shape YuNet export, on a
+ * canvas that pads only to the model's stride, which is the scale the plan counts for the face stage.
+ * The fixed-shape builds take only a 640x640 input, so their "fixed" entries letterbox: a frame
+ * smaller than 640 is enlarged and a 16:9 frame is padded with black to a square, and neither buys
+ * anything towards the ratio guarantee.
+ *
+ * The int8 builds calibrate on WIDER FACE, which is CC BY-NC-ND, and on portrait sets that declare no
+ * licence, so they show what int8 would buy and cannot ship.
  *
  * Two sets: a fixed subset of WIDER FACE val (real faces with its own boxes), and composites that
  * paste portrait photos into web-shaped frames at controlled sizes, whose boxes come from the
@@ -33,7 +36,7 @@ import sharp, { type OverlayOptions } from 'sharp'
 import { numFromEnv } from '../src/env.ts'
 import { FACE_FLOOR } from '../src/floors.ts'
 import { type Box } from '../src/geometry.ts'
-import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { FACE_INPUT_SIDE, limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc, probeDims, srcSharp } from '../src/src-image.ts'
 import { type YunetModel, detectFacesYunet, detectionWindowsForTest, loadYunet } from '../src/yunet.ts'
 import { coverage, mulberry32 } from './bench-common.ts'
@@ -53,9 +56,9 @@ const DOWNLOADS: { file: string; url: string; sha256: string }[] = [
         sha256: '321aa5a6afabf7ecc46a3d06bfab2b579dc96eb5c3be7edd365fa04502ad9294',
     },
     {
-        file: 'models/candidates/yunet_2026may.onnx',
-        url: `${ZOO}/face_detection_yunet_2026may.onnx`,
-        sha256: 'ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0',
+        file: 'models/candidates/yunet_2023mar.onnx',
+        url: `${ZOO}/face_detection_yunet_2023mar.onnx`,
+        sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
     },
     {
         file: 'models/candidates/yunet_n_dynamic.onnx',
@@ -93,22 +96,22 @@ interface GtImage {
 interface DetectorSpec {
     name: string
     file: string
-    /** fixed: production's 640x640 letterbox. native: frame aspect at min(1, 640/long), stride-padded. */
+    /** native: production's input, the frame at min(1, 640/long), stride-padded. fixed: the 640x640 letterbox. */
     input: 'fixed' | 'native'
 }
 
 const DETECTORS: DetectorSpec[] = [
-    { name: 'yunet (prod)', file: 'models/yunet.onnx', input: 'fixed' },
-    { name: 'yunet-int8', file: 'models/candidates/yunet_2023mar_int8.onnx', input: 'fixed' },
-    { name: 'yunet-2026 fixed', file: 'models/candidates/yunet_2026may.onnx', input: 'fixed' },
-    { name: 'yunet-2026 native', file: 'models/candidates/yunet_2026may.onnx', input: 'native' },
-    { name: 'yunet-2026-int8 native', file: 'models/candidates/yunet_2026may_int8.onnx', input: 'native' },
+    { name: 'yunet (prod)', file: 'models/yunet.onnx', input: 'native' },
+    { name: 'yunet fixed', file: 'models/yunet.onnx', input: 'fixed' },
+    { name: 'yunet-int8 native', file: 'models/candidates/yunet_2026may_int8.onnx', input: 'native' },
+    { name: 'yunet-2023mar fixed', file: 'models/candidates/yunet_2023mar.onnx', input: 'fixed' },
+    { name: 'yunet-2023mar-int8 fixed', file: 'models/candidates/yunet_2023mar_int8.onnx', input: 'fixed' },
     // YuNet-n is the larger of the two released YuNet sizes; production and the 2026 export are YuNet-s.
     { name: 'yunet-n native', file: 'models/candidates/yunet_n_dynamic.onnx', input: 'native' },
     { name: 'yunet-n-int8 native', file: 'models/candidates/yunet_n_dynamic_int8.onnx', input: 'native' },
 ]
 
-const YUNET_SIDE = 640
+const FIXED_SIDE = 640
 const STRIDE = 32
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
@@ -348,16 +351,22 @@ function iou(a: Box, b: Box): number {
     return inter === 0 ? 0 : inter / (a.width * a.height + b.width * b.height - inter)
 }
 
+function inputScale(input: DetectorSpec['input'], win: Box): number {
+    const long = Math.max(win.width, win.height)
+    return input === 'fixed' ? FIXED_SIDE / long : Math.min(1, FACE_INPUT_SIDE / long)
+}
+
 // --dump-calibration builds its tensors here too, so that the int8 builds calibrate on the inputs the native variants see.
-async function nativeInput(
+async function modelInput(
     src: Src,
-    win: Box
+    win: Box,
+    input: DetectorSpec['input']
 ): Promise<{ chw: Float32Array; dw: number; dh: number; cw: number; ch: number }> {
-    const scale = Math.min(1, YUNET_SIDE / Math.max(win.width, win.height))
+    const scale = inputScale(input, win)
     const dw = Math.max(1, Math.round(win.width * scale))
     const dh = Math.max(1, Math.round(win.height * scale))
-    const cw = upToStride(dw)
-    const ch = upToStride(dh)
+    const cw = input === 'fixed' ? FIXED_SIDE : upToStride(dw)
+    const ch = input === 'fixed' ? FIXED_SIDE : upToStride(dh)
     const whole = win.width === src.W && win.height === src.H
     const { data } = await (whole ? srcSharp(src) : srcSharp(src).extract(win))
         .resize(dw, dh, { fit: 'fill' })
@@ -374,12 +383,12 @@ async function nativeInput(
     return { chw, dw, dh, cw, ch }
 }
 
-/** The native canvas: src/yunet.ts's windows and decode, without the upscale or the square padding. */
-async function detectNative(model: YunetModel, src: Src): Promise<Box[]> {
+/** The fixed-shape builds: src/yunet.ts's windows and decode, on the 640x640 letterbox those builds require. */
+async function detectFixed(model: YunetModel, src: Src): Promise<Box[]> {
     const { W, H } = src
     const cand: { b: Box; s: number }[] = []
     for (const win of detectionWindowsForTest(W, H)) {
-        const { chw, dw, dh, cw, ch } = await nativeInput(src, win)
+        const { chw, dw, dh, cw, ch } = await modelInput(src, win, 'fixed')
         const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, ch, cw]) })
         const sx = win.width / dw
         const sy = win.height / dh
@@ -426,9 +435,11 @@ async function detectNative(model: YunetModel, src: Src): Promise<Box[]> {
 
 /** How much the face stage enlarges or shrinks the frame, which is what a face's size at the model depends on. */
 function modelScale(spec: DetectorSpec, W: number, H: number): number {
-    const windows = detectionWindowsForTest(W, H)
-    const long = Math.max(windows[0].width, windows[0].height)
-    return spec.input === 'fixed' ? YUNET_SIDE / long : Math.min(1, YUNET_SIDE / long)
+    return inputScale(spec.input, detectionWindowsForTest(W, H)[0])
+}
+
+function detect(d: Loaded, src: Src): Promise<Box[]> {
+    return d.spec.input === 'native' ? detectFacesYunet(d.model, src, src.W, src.H) : detectFixed(d.model, src)
 }
 
 interface FaceResult {
@@ -492,17 +503,13 @@ async function evaluate(): Promise<void> {
         const storedOverSource = plan.stored.height / gt.height
         if (!warmed) {
             for (const d of detectors) {
-                await (d.spec.input === 'fixed'
-                    ? detectFacesYunet(d.model, src, src.W, src.H)
-                    : detectNative(d.model, src))
+                await detect(d, src)
             }
             warmed = true
         }
         for (const d of detectors) {
             const t0 = performance.now()
-            const boxes = await (d.spec.input === 'fixed'
-                ? detectFacesYunet(d.model, src, src.W, src.H)
-                : detectNative(d.model, src))
+            const boxes = await detect(d, src)
             const ms = performance.now() - t0
             let filled = 0
             const mask = new Uint8Array(src.W * src.H)
@@ -602,7 +609,7 @@ async function dumpCalibration(): Promise<void> {
     for (const [n, { gt }] of images.entries()) {
         const buf = await readFile(join(DATA, gt.file))
         const src = await decodeSrc(buf, planScales({ width: gt.width, height: gt.height }, limits).frame)
-        const { chw, cw, ch } = await nativeInput(src, detectionWindowsForTest(src.W, src.H)[0])
+        const { chw, cw, ch } = await modelInput(src, detectionWindowsForTest(src.W, src.H)[0], 'native')
         const file = `face_${n}.bin`
         await writeFile(join(dir, file), Buffer.from(chw.buffer))
         index.push({ file, shape: [1, 3, ch, cw] })
