@@ -39,13 +39,13 @@ class TestGetSchemas:
     @parameterized.expand(
         [("machine_events", "machine_id"), ("machine_versions", "machine_id"), ("volume_snapshots", "volume_id")]
     )
-    def test_fanout_children_key_on_their_parent(self, endpoint: str, parent_column: str) -> None:
-        # Fly.io scopes these ids to their parent resource, so a key without the parent column
-        # collides across parents: duplicate rows seed the table and every later merge multi-matches.
+    def test_fanout_children_key_on_their_app_and_parent(self, endpoint: str, parent_column: str) -> None:
         schema = FlyIoSource().get_schemas(_config(), team_id=1, names=[endpoint])[0]
         assert schema.detected_primary_keys is not None
-        assert parent_column in schema.detected_primary_keys
-        assert parent_column in FLY_IO_ENDPOINTS[endpoint].fanout.parent_fields.values()  # type: ignore[union-attr]
+        assert {"app_name", parent_column} <= set(schema.detected_primary_keys)
+        assert {"app_name", parent_column} <= set(
+            FLY_IO_ENDPOINTS[endpoint].fanout.parent_fields.values()  # type: ignore[union-attr]
+        )
 
     def test_names_filter(self) -> None:
         schemas = FlyIoSource().get_schemas(_config(), team_id=1, names=["machines"])

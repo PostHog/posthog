@@ -94,8 +94,8 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         name="machine_events",
         path="/apps/{app_name}/machines/{machine_id}/events",
         response_data_path=None,
-        # Nothing documents the event id as globally unique, so key on the machine too.
-        primary_keys=["machine_id", "id"],
+        # Neither machine nor event ids are documented as globally unique across apps.
+        primary_keys=["app_name", "machine_id", "id"],
         # The only time field is `timestamp`, epoch milliseconds rather than the RFC 3339 string
         # datetime partitioning needs.
         partition_key=None,
@@ -115,8 +115,8 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         name="machine_versions",
         path="/apps/{app_name}/machines/{machine_id}/versions",
         response_data_path=None,
-        # A version row carries no id — `version` identifies the config within its machine.
-        primary_keys=["machine_id", "version"],
+        # A version row carries no id; its app, machine, and version identify the config.
+        primary_keys=["app_name", "machine_id", "version"],
         # Version rows carry no timestamp.
         partition_key=None,
         paginated=False,
@@ -132,8 +132,8 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         name="volume_snapshots",
         path="/apps/{app_name}/volumes/{volume_id}/snapshots",
         response_data_path=None,
-        # Nothing documents the snapshot id as globally unique, so key on the volume too.
-        primary_keys=["volume_id", "id"],
+        # Neither volume nor snapshot ids are documented as globally unique across apps.
+        primary_keys=["app_name", "volume_id", "id"],
         partition_key="created_at",
         paginated=False,
         fanout=FlyIoFanoutConfig(
