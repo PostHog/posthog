@@ -1,5 +1,7 @@
 from enum import StrEnum
 
+from django.db import models
+
 
 class EmailTrackingConsentMode(StrEnum):
     # No consent enforcement: tracking follows the email step's own setting only.
@@ -15,3 +17,18 @@ class EmailTrackingConsentMode(StrEnum):
 EMAIL_TRACKING_CONSENT_MODE_CHOICES = [
     (mode.value, mode.name.replace("_", " ").title()) for mode in EmailTrackingConsentMode
 ]
+
+
+class HogFlowTemplateScope(models.TextChoices):
+    """Visibility of the workflow template"""
+
+    ONLY_TEAM = "team", "Only team"
+    ORGANIZATION = "organization", "Organization"
+    GLOBAL = "global", "Global"
+
+
+class HogFlowTemplateExitCondition(models.TextChoices):
+    CONVERSION = "exit_on_conversion"
+    TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
+    TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
+    ONLY_AT_END = "exit_only_at_end"

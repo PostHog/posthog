@@ -142,28 +142,52 @@ export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface HogFlowTemplateApi {
+    /** ID of the template. */
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at: string
     /** @nullable */
     readonly created_by: HogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */
@@ -195,28 +219,52 @@ export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface PatchedHogFlowTemplateApi {
+    /** ID of the template. */
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name?: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope?: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: PatchedHogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at?: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions?: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */

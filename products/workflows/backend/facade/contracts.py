@@ -5,8 +5,11 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 
 @frozen
@@ -114,3 +117,31 @@ class EmailSendingSuspensionChange:
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+
+
+@frozen
+class WorkflowTemplate:
+    """A workflow template stored in the database, owned by one team.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer``.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    image_url: str | None
+    tags: list[str]
+    scope: HogFlowTemplateScope
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: dict[str, Any]
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: HogFlowTemplateExitCondition
+    edges: list[dict[str, Any]]
+    actions: list[dict[str, Any]]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
