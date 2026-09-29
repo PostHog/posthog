@@ -1,6 +1,6 @@
 import type { StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { transcriptFrom } from "./transcript";
+import { transcriptFrom, withPending } from "./transcript";
 
 const at = (second: number): string =>
   new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
@@ -118,5 +118,33 @@ describe("transcriptFrom", () => {
       (line) => line.kind === "user",
     );
     expect(echoed).toHaveLength(1);
+  });
+});
+
+describe("withPending", () => {
+  const user = (text: string) => ({ kind: "user" as const, id: text, text });
+  const reply = { kind: "assistant" as const, id: "a", text: "Done" };
+
+  it.each([
+    ["nothing is pending", [user("hi"), reply], null, ["hi", "Done"]],
+    [
+      "a sent message has not come back yet",
+      [user("hi"), reply],
+      "and then?",
+      ["hi", "Done", "and then?"],
+    ],
+    [
+      "the run has echoed it",
+      [user("hi"), reply, user("and then?")],
+      "and then?",
+      ["hi", "Done", "and then?"],
+    ],
+    ["a new chat has no log yet", [], "Fix it", ["Fix it"]],
+  ])("when %s", (_, lines, pending, expected) => {
+    expect(
+      withPending(lines, pending).map((line) =>
+        "text" in line ? line.text : "",
+      ),
+    ).toEqual(expected);
   });
 });

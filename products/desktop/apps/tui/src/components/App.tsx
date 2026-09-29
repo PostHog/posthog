@@ -92,6 +92,7 @@ export function App({
   const [known, setKnown] = useState<Map<string, Task>>(new Map());
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
+  const [pending, setPending] = useState<Map<string, string>>(new Map());
   const [selected, setSelected] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
@@ -212,7 +213,7 @@ export function App({
       .flatMap((w) => panes(w.root))
       .find((candidate) => candidate.id === paneId);
     const current = taskOf(pane?.taskId ?? null);
-    setNotice(current ? "Sending…" : "Starting a cloud run…");
+    setPending((messages) => new Map(messages).set(paneId, text));
     (current ? chats.reply(current, text) : chats.start(text)).then(
       (task) => {
         setFresh((tasks) => new Map(tasks).set(task.id, task));
@@ -220,9 +221,13 @@ export function App({
           const title = task.title || text.slice(0, 80);
           setLayout((state) => assignTask(state, paneId, task.id, title));
         }
-        setNotice(null);
       },
       (error: unknown) => {
+        setPending((messages) => {
+          const next = new Map(messages);
+          next.delete(paneId);
+          return next;
+        });
         setNotice(
           `Couldn't send: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -392,6 +397,7 @@ export function App({
           runs={runs}
           chat={chatFor(`${node.id}:${node.taskId}`)}
           composer={composerFor(node.id)}
+          pending={pending.get(node.id) ?? null}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />
       </Box>
