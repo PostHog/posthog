@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     InvalidDeployKeyError,
     InvalidDeployUrlError,
     InvalidWindowError,
+    SchemaDiscoveryRejectedError,
     StreamingExportNotEnabledError,
     _convex_get,
     convex_source,
@@ -141,6 +142,19 @@ class TestValidateDeployUrl:
         assert err == (
             "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade."
         )
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_surfaces_convex_rejection_reason(self, mock_get):
+        mock_get.return_value.get.return_value = _make_response(
+            {"code": "SomeConvexCode", "message": "Example rejection reason"}, status_code=400
+        )
+
+        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+
+        assert not ok
+        assert err is not None
+        assert "SomeConvexCode" in err
+        assert "Example rejection reason" in err
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
@@ -586,6 +600,25 @@ class TestConvexNonRetryableErrors:
         error_msg = str(exc_info.value)
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_other_schema_discovery_400_keeps_convex_reason_and_is_non_retryable(self, mock_get: Mock) -> None:
+        mock_get.return_value.get.return_value = _make_response(
+            {"code": "SomeConvexCode", "message": "Example rejection reason"}, status_code=400
+        )
+
+        with pytest.raises(SchemaDiscoveryRejectedError) as exc_info:
+            get_json_schemas("https://x.convex.cloud", "key")
+
+        error_msg = str(exc_info.value)
+        assert "SomeConvexCode" in error_msg
+        assert "Example rejection reason" in error_msg
+        matches = [
+            friendly
+            for key, friendly in ConvexSource().get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
+        assert matches and matches[0] is not None, error_msg
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self, mock_get: Mock) -> None:

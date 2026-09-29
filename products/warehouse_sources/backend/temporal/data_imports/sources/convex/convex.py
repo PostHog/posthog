@@ -168,6 +168,12 @@ class StreamingExportNotEnabledError(Exception):
     pass
 
 
+class SchemaDiscoveryRejectedError(Exception):
+    """Raised when Convex rejects the schema discovery request with a 400 that carries an error body."""
+
+    pass
+
+
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
     # byComponent=true groups the response by component so non-default components are discoverable.
@@ -185,6 +191,13 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
         if error_data.get("code") == "StreamingExportNotEnabled":
             raise StreamingExportNotEnabledError(
                 "StreamingExportNotEnabled: streaming export requires the Convex Professional plan."
+            )
+        # Keep the Convex code and message: the plain HTTPError drops them, so neither the user
+        # nor error tracking could tell what the deployment rejected.
+        if isinstance(error_data, dict) and (error_data.get("code") or error_data.get("message")):
+            raise SchemaDiscoveryRejectedError(
+                f"Convex rejected schema discovery (code: {error_data.get('code') or 'unknown'}): "
+                f"{error_data.get('message') or 'no message'}"
             )
     response.raise_for_status()
     return response.json()
@@ -371,6 +384,8 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
             False,
             "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
         )
+    except SchemaDiscoveryRejectedError as e:
+        return False, f"{e}. Check your Convex deployment settings, then try again."
     except HTTPError as e:
         if e.response is not None:
             if e.response.status_code in (401, 403):
