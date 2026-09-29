@@ -52,6 +52,23 @@ describe('traceAiEventsLogic', () => {
         expect(logic.values.hasMoreAiEvents).toBe(true)
     })
 
+    // The run-linked calls are found only inside the trace's range, which arrives with the spans.
+    it('fetches again with the trace range once the spans load', async () => {
+        await mount()
+
+        traceAiEventsLogic({
+            ...PROPS,
+            traceStart: '2026-06-02T08:00:00.000Z',
+            traceEnd: '2026-06-02T08:10:00.000Z',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAiEventsRetrieve.mock.calls.map((call) => call[2])).toEqual([
+            undefined,
+            { date_from: '2026-06-02T08:00:00.000Z', date_to: '2026-06-02T08:10:00.000Z' },
+        ])
+    })
+
     // On a cold page load the flag can arrive from posthog-js after the trace has loaded.
     it('fetches once the flag turns on after mount', async () => {
         await mount({}, false)

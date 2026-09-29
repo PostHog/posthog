@@ -28,6 +28,7 @@ function aiEvent(overrides: Partial<TraceAiEvent> & { uuid: string; started_at: 
         output_tokens: 5,
         total_cost_usd: 0.01,
         is_error: false,
+        run_span_id: null,
         ...overrides,
     }
 }
@@ -69,6 +70,8 @@ describe('buildAiEventSpans', () => {
         // An OTel-sourced event names its parent, which wins over time containment.
         ['a named parent that is loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'tool' }, 'TOOL'],
         ['a named parent that is not loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'gone' }, 'TURN'],
+        // A run-linked event names the run span, in the lowercase form the agent stamps.
+        ['a named run span that is loaded', { started_at: '2026-06-02T08:00:03.000Z', run_span_id: 'tool' }, 'TOOL'],
         // A call that ran past the turn's end is only contained by the root.
         ['a call the turn does not contain', { started_at: '2026-06-02T08:00:45.000Z', latency_seconds: 10 }, 'ROOT'],
         ['a call nothing contains', { started_at: '2026-06-02T08:02:00.000Z' }, ''],
