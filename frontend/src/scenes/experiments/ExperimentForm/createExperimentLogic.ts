@@ -551,12 +551,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 },
                             }
                         )
-                    } else {
+                    } else if (openExperiment) {
+                        // When the page stays open, it confirms the save itself (the wizard's implementation step),
+                        // and this toast would cover the footer's "Go to experiment" button
                         lemonToast.success('Experiment created successfully!')
                     }
-                    tryShowMCPHint('experiments.create', {
-                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
-                    })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()
@@ -575,6 +574,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             if (experiment.id === 'new') {
                 return
             }
+            // Shown once the experiment opens rather than at save, so on the wizard's implementation step it doesn't
+            // cover the footer's "Go to experiment" button
+            tryShowMCPHint('experiments.create', {
+                derivedPrompt: experiment.name ? `Create an A/B experiment called ${experiment.name}` : undefined,
+            })
             const sceneLogicInstance = experimentSceneLogic.findMounted()
             if (sceneLogicInstance) {
                 sceneLogicInstance.actions.setSceneState(experiment.id, FORM_MODES.update)

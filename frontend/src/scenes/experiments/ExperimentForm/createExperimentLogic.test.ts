@@ -304,6 +304,27 @@ describe('createExperimentLogic', () => {
             expect(routerPushSpy).toHaveBeenCalledTimes(1)
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
+
+        it('stays on the page without the success toast when asked not to open the experiment', async () => {
+            routerPushSpy.mockClear()
+            jest.mocked(lemonToast.success).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Test Experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
+                })
+                logic.actions.saveExperiment(false)
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toNotHaveDispatchedActions(['openSavedExperiment'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.success).not.toHaveBeenCalled()
+            expect(routerPushSpy).not.toHaveBeenCalled()
+        })
     })
 
     describe('state management', () => {
