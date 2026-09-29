@@ -46,7 +46,7 @@ from products.alerts.backend.facade.lifecycle import (
     NotificationAction,
     Outcome,
     apply_broken_config,
-    decide_firing_started_at,
+    decide_firing_episode,
     evaluate_alert_check,
 )
 from products.alerts.backend.facade.platform_alerts import due_checks
@@ -232,9 +232,7 @@ def _recorded(
         new_state=outcome.new_state.value,
         notified=notified,
         consecutive_failures=outcome.consecutive_failures,
-        firing_started_at=decide_firing_started_at(
-            _snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY
-        ),
+        firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
         disable=disable,
     )
 

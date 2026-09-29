@@ -157,7 +157,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
-            alert.firing_started_at = outcome.firing_started_at
+            episode = outcome.firing_episode
+            # The row holds the firing the alert is in, so a check that ended one clears it. The
+            # ended firing stays on the history row instead.
+            alert.firing_started_at = episode.started_at if episode and not episode.ended else None
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now

@@ -25,6 +25,8 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
 
+from products.alerts.backend.facade.contracts import FiringEpisode
+
 MAX_CONSECUTIVE_FAILURES = 5
 
 
@@ -212,29 +214,35 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
     )
 
 
-def decide_firing_started_at(
+def decide_firing_episode(
     snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
-) -> datetime | None:
-    """When the firing an outcome leaves the alert in began, or None when it leaves it clear.
+) -> FiringEpisode | None:
+    """The firing this check concerns, or None when no firing is involved at all.
 
     A check that leaves the state where it found it keeps the same firing, so an alert rides
     through a failed or inconclusive check without starting a second one.
 
-    The rule lives here rather than in a product's persistence layer, because whether two states
-    belong to one firing is a policy question. Under `clear_check_ends_snooze` a breached alert
-    parks in SNOOZED and resumes firing afterwards, which is one firing rather than two, and a
-    caller reading only the two state strings cannot tell.
+    The rule lives here rather than in a product's persistence layer, because only a policy says
+    whether two states belong to one firing. Under `clear_check_ends_snooze` a breached alert
+    parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
+    two state strings cannot tell that state from a resolve.
     """
-    held_firing = policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
+    was_firing = snapshot.state in FIRING_STATES or (
+        policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
+    )
     if outcome.new_state == AlertState.SNOOZED:
-        return snapshot.firing_started_at if policy.clear_check_ends_snooze else None
-    if outcome.new_state not in FIRING_STATES:
+        if not (policy.clear_check_ends_snooze and was_firing):
+            return None
+        return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
+    if outcome.new_state in FIRING_STATES:
+        # A firing that began before the platform recorded starts keeps an unknown one rather
+        # than taking `now`, because a start later than `last_notified_at` would read as never
+        # announced.
+        started_at = snapshot.firing_started_at if was_firing else now
+        return FiringEpisode(started_at=started_at, ended=False)
+    if not was_firing:
         return None
-    if snapshot.state not in FIRING_STATES and not held_firing:
-        return now
-    # A firing that began before this field existed keeps an unknown start rather than taking
-    # `now`, because a start later than `last_notified_at` would read as never announced.
-    return snapshot.firing_started_at
+    return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
 
 
 def evaluate_alert_check(

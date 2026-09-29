@@ -10,8 +10,9 @@ from products.alerts.backend.facade.lifecycle import (
     AlertSnapshot,
     AlertState,
     CheckInput,
+    FiringEpisode,
     NotificationAction,
-    decide_firing_started_at,
+    decide_firing_episode,
     evaluate_alert_check,
 )
 
@@ -363,45 +364,92 @@ def outcome(state: AlertState) -> AlertCheckOutcome:
     )
 
 
-class TestFiringStart:
+def episode(started_at: datetime | None, *, ended: bool = False) -> FiringEpisode:
+    return FiringEpisode(started_at=started_at, ended=ended)
+
+
+class TestFiringEpisode:
     @parameterized.expand(
         [
-            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, NOW),
-            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.FIRING, STARTED),
-            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.NOT_FIRING, None),
-            ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, None),
-            # A firing older than the field keeps an unknown start: `now` would be later than the
-            # announcement it already sent, which reads as never announced.
-            ("firing_without_a_start", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.FIRING, None),
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, episode(NOW)),
+            (
+                "same_firing",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            # A resolve keeps the firing it ended, which is what a history row and a thread key name.
+            (
+                "resolved",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.NOT_FIRING,
+                episode(STARTED, ended=True),
+            ),
+            (
+                "errored",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.ERRORED,
+                episode(STARTED, ended=True),
+            ),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
+            (
+                "firing_without_a_start",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                None,
+                AlertState.FIRING,
+                episode(None),
+            ),
             # clear_check_ends_snooze parks a breached alert in SNOOZED, so the firing continues
             # underneath the mute and resumes as the same one.
-            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, STARTED),
-            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, STARTED, AlertState.FIRING, STARTED),
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, episode(STARTED)),
+            (
+                "resumed",
+                SNOOZE_UNTIL_CLEAR,
+                AlertState.SNOOZED,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
             ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
             # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
             # not announced yet, so neither leaving nor entering it starts a second firing.
-            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.PENDING_RESOLVE, STARTED),
+            (
+                "awaiting_resolve",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.PENDING_RESOLVE,
+                episode(STARTED),
+            ),
             (
                 "refired_while_awaiting",
                 LOGS_ALERT_POLICY,
                 AlertState.PENDING_RESOLVE,
                 STARTED,
                 AlertState.FIRING,
-                STARTED,
+                episode(STARTED),
             ),
         ]
     )
-    def test_when_a_firing_starts_and_ends(
+    def test_which_firing_a_check_concerns(
         self,
         _name: str,
         policy: AlertPolicy,
         state: AlertState,
         started_at: datetime | None,
         new_state: AlertState,
-        expected: datetime | None,
+        expected: FiringEpisode | None,
     ) -> None:
         assert (
-            decide_firing_started_at(
+            decide_firing_episode(
                 snapshot(state=state, firing_started_at=started_at), outcome(new_state), NOW, policy=policy
             )
             == expected
