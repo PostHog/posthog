@@ -170,11 +170,11 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className="left-nav" />
+                    <PanelLayout className="left-nav print:hidden" />
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
+                            '@container/main-content-container main-content-container flex overflow-hidden print:overflow-visible lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
                             {
                                 'rounded-r-none': sidePanelOpen,
                             }
@@ -186,7 +186,7 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none flex flex-col',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden print:overflow-visible show-scrollbar-on-hover p-4 pb-0 h-full print:h-auto print:max-w-none flex-1 rounded-t focus-visible:outline-none flex flex-col',
                                 {
                                     'p-0': noPaddingScene,
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
@@ -247,7 +247,7 @@ export function Navigation({
                             <>
                                 <div
                                     className={cn(
-                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                                        'scene-layout__content-panel print:hidden starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
                                         'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
                                         {
                                             hidden: !scenePanelOpenManual,
