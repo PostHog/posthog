@@ -7,6 +7,7 @@ import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/s
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
+import { scorerFiltersFromSearchParams } from './frontend/scoreDefinitions/scoreDefinitionNavigation'
 
 export const manifest: ProductManifest = {
     name: 'AI observability',
@@ -64,7 +65,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_datasets',
         },
         AIObservabilityEvaluations: {
-            import: () => import('./frontend/evaluations/AIObservabilityEvaluationsScene'),
+            import: () => import('./frontend/evaluations/EvaluationsScene'),
             projectBased: true,
             name: 'Evaluations',
             description: 'Configure and monitor automated LLM output evaluations.',
@@ -72,6 +73,34 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_evaluations',
             docsHref: 'https://posthog.com/docs/ai-evals',
+        },
+        AIObservabilityScorers: {
+            import: () => import('./frontend/scoreDefinitions/AIObservabilityScorersScene'),
+            projectBased: true,
+            name: 'Scorers',
+            layout: 'app-container',
+            iconType: 'llm_evaluations',
+        },
+        AIObservabilityOfflineExperiments: {
+            import: () => import('./frontend/offline-evaluations/OfflineExperimentsScene'),
+            projectBased: true,
+            name: 'Offline experiments',
+            layout: 'app-container',
+            iconType: 'llm_evaluations',
+        },
+        AIObservabilityOfflineExperiment: {
+            import: () => import('./frontend/offline-evaluations/OfflineExperimentScene'),
+            projectBased: true,
+            name: 'Offline experiment',
+            layout: 'app-container',
+            iconType: 'llm_evaluations',
+        },
+        AIObservabilityOfflineScorerHistory: {
+            import: () => import('./frontend/offline-evaluations/OfflineScorerHistoryScene'),
+            projectBased: true,
+            name: 'Scorer history',
+            layout: 'app-container',
+            iconType: 'llm_evaluations',
         },
         AIObservabilityEvaluation: {
             import: () => import('./frontend/evaluations/AIObservabilityEvaluation'),
@@ -163,12 +192,17 @@ export const manifest: ProductManifest = {
         '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
         '/ai-evals/evaluations/offline/experiments': [
-            'AIObservabilityEvaluations',
+            'AIObservabilityOfflineExperiments',
             'aiObservabilityOfflineEvaluations',
         ],
         '/ai-evals/evaluations/offline/experiments/:experimentId': [
-            'AIObservabilityEvaluations',
+            'AIObservabilityOfflineExperiment',
             'aiObservabilityOfflineEvaluationExperiment',
+        ],
+        '/ai-evals/evaluations/scorers': ['AIObservabilityScorers', 'aiObservabilityScorers'],
+        '/ai-evals/evaluations/scorers/:scorerId/offline': [
+            'AIObservabilityOfflineScorerHistory',
+            'aiObservabilityOfflineScorerHistory',
         ],
         '/ai-evals/evaluations/templates': ['AIObservabilityEvaluationTemplates', 'aiObservabilityEvaluationTemplates'],
         '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
@@ -227,7 +261,9 @@ export const manifest: ProductManifest = {
         '/llm-analytics/generations': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
         '/llm-analytics/reviews': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+            searchParams.human_reviews_tab === 'scorers'
+                ? combineUrl(urls.aiObservabilityScorers(), scorerFiltersFromSearchParams(searchParams)).url
+                : combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
         '/llm-analytics/traces': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
         '/llm-analytics/traces/:id': (params, searchParams, hashParams) =>
@@ -284,7 +320,9 @@ export const manifest: ProductManifest = {
         '/llm-observability/generations': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
         '/llm-observability/reviews': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+            searchParams.human_reviews_tab === 'scorers'
+                ? combineUrl(urls.aiObservabilityScorers(), scorerFiltersFromSearchParams(searchParams)).url
+                : combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
         '/llm-observability/traces': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
         '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -365,6 +403,9 @@ export const manifest: ProductManifest = {
         aiObservabilityTags: (): string => '/ai-evals/taggers',
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
+        aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
+        aiObservabilityOfflineScorerHistory: (scorerId: string): string =>
+            `/ai-evals/evaluations/scorers/${encodeURIComponent(scorerId)}/offline`,
         aiObservabilityOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',
         aiObservabilityOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
             `/ai-evals/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,

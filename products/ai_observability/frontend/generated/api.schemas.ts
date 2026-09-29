@@ -956,6 +956,13 @@ export interface OfflineResultPageApi {
     results: OfflineResultReadApi[]
 }
 
+export interface OfflineResultCellsApi {
+    /** Selected authorized versions, including versions with no results for these items. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+    /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+    results: OfflineResultCellApi[]
+}
+
 /**
  * @nullable
  */
@@ -4673,6 +4680,21 @@ export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
      * @maxLength 739
      */
     scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string
 }
 
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {

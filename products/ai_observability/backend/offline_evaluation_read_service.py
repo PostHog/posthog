@@ -30,6 +30,8 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineItemRead,
     OfflinePayloadRead,
     OfflineReadQuery,
+    OfflineResultCellQuery,
+    OfflineResultCells,
     OfflineResultRead,
     OfflineScorerSummary,
     OfflineScorerVersionRead,
@@ -428,6 +430,27 @@ class OfflineEvaluationReadService:
 
     def get_item(self, experiment_id: UUID, item_id: UUID) -> OfflineItemRead:
         return self._item_read(self._require_item(experiment_id, item_id))
+
+    def result_cells(self, experiment_id: UUID, query: OfflineResultCellQuery) -> OfflineResultCells:
+        self._require_experiment(experiment_id)
+        items = self._items().filter(experiment_id=experiment_id, id__in=query.item_ids)
+        if items.count() != len(query.item_ids):
+            raise OfflineEvaluationNotFound
+        versions = list(
+            self._versions().filter(id__in=query.scorer_version_ids).select_related("definition").order_by("id")
+        )
+        if len(versions) != len(query.scorer_version_ids):
+            raise OfflineEvaluationNotFound
+        scorers = {version.id: self._version_read(version) for version in versions}
+        results = (
+            self._results()
+            .filter(item__in=items, scorer_version_id__in=scorers)
+            .order_by("item_id", "scorer_version_id")
+        )
+        return OfflineResultCells(
+            scorer_versions=list(scorers.values()),
+            results=[self._result_read(result, scorer=scorers[result.scorer_version_id]) for result in results],
+        )
 
     def list_item_results(
         self, experiment_id: UUID, item_id: UUID, query: OfflineReadQuery

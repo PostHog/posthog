@@ -10,12 +10,18 @@ import {
     LemonTableColumn,
     LemonTableColumns,
     LemonTag,
+    Link,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -28,6 +34,7 @@ import {
     aiObservabilityScoreDefinitionsLogic,
     SCORE_DEFINITIONS_PER_PAGE,
 } from './aiObservabilityScoreDefinitionsLogic'
+import { ScoreDefinitionActions } from './ScoreDefinitionActions'
 import { scoreDefinitionModalLogic } from './scoreDefinitionModalLogic'
 import {
     CATEGORICAL_SELECTION_MODE_OPTIONS,
@@ -54,10 +61,15 @@ const ARCHIVED_OPTIONS: { label: string; value: '' | 'false' | 'true' }[] = [
 
 export function AIObservabilityScoreDefinitions(): JSX.Element {
     const logic = useMountedLogic(aiObservabilityScoreDefinitionsLogic())
-    const { setFilters, openModal, closeModal, toggleArchive } = useActions(logic)
+    const { setFilters, openModal, closeModal, toggleArchive, loadScoreDefinitions } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showHistory =
+        !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] &&
+        !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
     const {
         scoreDefinitions,
         scoreDefinitionsLoading,
+        scoreDefinitionsError,
         sorting,
         pagination,
         filters,
@@ -83,9 +95,19 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="space-y-1">
-                        <div className="font-semibold">{scoreDefinition.name}</div>
+                        <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 truncate">
+                            {showHistory ? (
+                                <Link to={urls.aiObservabilityOfflineScorerHistory(scoreDefinition.id)}>
+                                    {scoreDefinition.name}
+                                </Link>
+                            ) : (
+                                scoreDefinition.name
+                            )}
+                        </div>
                         {scoreDefinition.description ? (
-                            <div className="max-w-xl truncate text-muted-alt">{scoreDefinition.description}</div>
+                            <div className="max-w-64 @max-[50rem]/scorers:max-w-32 truncate text-muted-alt">
+                                {scoreDefinition.description}
+                            </div>
                         ) : (
                             <div className="text-muted">No description</div>
                         )}
@@ -105,8 +127,18 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Version',
             dataIndex: 'current_version',
             key: 'current_version',
-            render: function renderVersion(version) {
-                return <span className="font-mono text-xs">v{String(version)}</span>
+            render: function renderVersion(version, scoreDefinition) {
+                return scoreDefinition.current_version_id ? (
+                    <CopyToClipboardInline
+                        description="scorer version ID"
+                        explicitValue={scoreDefinition.current_version_id}
+                        tooltipMessage="Copy exact version ID"
+                    >
+                        <span className="font-mono text-xs">v{String(version)}</span>
+                    </CopyToClipboardInline>
+                ) : (
+                    <span className="font-mono text-xs">v{String(version)}</span>
+                )
             },
         },
         {
@@ -121,59 +153,31 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 )
             },
         },
-        updatedAtColumn<ScoreDefinition>() as LemonTableColumn<ScoreDefinition, keyof ScoreDefinition | undefined>,
+        {
+            ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
+                ScoreDefinition,
+                keyof ScoreDefinition | undefined
+            >),
+            className: '@max-[50rem]/scorers:hidden',
+        },
         {
             width: 0,
             render: function renderActions(_, scoreDefinition) {
                 return (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('metadata', scoreDefinition)}
-                                        data-attr="llma-scorer-edit-metadata"
-                                    >
-                                        Edit metadata
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('config', scoreDefinition)}
-                                        data-attr="llma-scorer-edit-config"
-                                    >
-                                        Edit config
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('duplicate', scoreDefinition)}
-                                        data-attr="llma-scorer-duplicate"
-                                    >
-                                        Duplicate
-                                    </LemonButton>
-                                    <LemonButton
-                                        status={scoreDefinition.archived ? 'default' : 'danger'}
-                                        fullWidth
-                                        onClick={() => toggleArchive(scoreDefinition)}
-                                        disabled={isArchivingDefinition(scoreDefinition.id)}
-                                        data-attr="llma-scorer-archive-toggle"
-                                    >
-                                        {scoreDefinition.archived ? 'Unarchive' : 'Archive'}
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-                    </AccessControlAction>
+                    <ScoreDefinitionActions
+                        definition={scoreDefinition}
+                        archiving={isArchivingDefinition(scoreDefinition.id)}
+                        openModal={openModal}
+                        toggleArchive={toggleArchive}
+                        onVersionCreated={() => loadScoreDefinitions(false)}
+                    />
                 )
             },
         },
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 @container/scorers">
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 mb-4 border-b justify-between">
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonInput
@@ -216,24 +220,34 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
-                loading={scoreDefinitionsLoading}
-                columns={columns}
-                dataSource={scoreDefinitions.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={SCORE_DEFINITIONS_PER_PAGE}
-                nouns={['scorer', 'scorers']}
-            />
+            {scoreDefinitionsError && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => loadScoreDefinitions(false) }}
+                >
+                    Could not load scorers. Try again.
+                </LemonBanner>
+            )}
+            {!scoreDefinitionsError && (
+                <LemonTable
+                    loading={scoreDefinitionsLoading}
+                    columns={columns}
+                    dataSource={scoreDefinitions.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={SCORE_DEFINITIONS_PER_PAGE}
+                    nouns={['scorer', 'scorers']}
+                />
+            )}
 
             {modalProps && (
                 <ScoreDefinitionModal

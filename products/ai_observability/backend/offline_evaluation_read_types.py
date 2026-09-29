@@ -40,6 +40,20 @@ class OfflineReadQuery:
 
 
 @frozen
+class OfflineResultCellQuery:
+    item_ids: tuple[UUID, ...]
+    scorer_version_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        for name, values, limit in (
+            ("item_ids", self.item_ids, 50),
+            ("scorer_version_ids", self.scorer_version_ids, 20),
+        ):
+            if not 1 <= len(values) <= limit or len(set(values)) != len(values):
+                raise OfflineEvaluationValidationError(name, f"Select between 1 and {limit} distinct UUIDs.")
+
+
+@frozen
 class OfflineExperimentRead:
     id: UUID
     name: str
@@ -90,6 +104,12 @@ class OfflineResultRead:
     accepted_at: datetime
     payload_state: str
     payload_expires_at: datetime | None
+
+
+@frozen
+class OfflineResultCells:
+    scorer_versions: list[OfflineScorerVersionRead]
+    results: list[OfflineResultRead]
 
 
 @frozen

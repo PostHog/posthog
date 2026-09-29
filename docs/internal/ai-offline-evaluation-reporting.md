@@ -120,7 +120,7 @@ Automatic payload deletion and usage billing are not enabled by these endpoints.
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The existing event-based offline UI and harness remain separate until they switch to these APIs.
+The offline UI uses these APIs. The harness above still reports through event capture until its producer migration.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 
@@ -129,6 +129,7 @@ The following GET paths are relative to `/api/projects/{project_id}/ai_observabi
 | `offline_experiments/`                                             | Experiments, run context, lifecycle state, and counts.                               |
 | `offline_experiments/{experiment_id}/`                             | One experiment, regardless of list date filters.                                     |
 | `offline_experiments/{experiment_id}/items/`                       | Item metadata, payload availability, and optionally selected scorer-version results. |
+| `offline_experiments/{experiment_id}/result_cells/`                | Result cells for fixed item and scorer-version identities.                           |
 | `offline_experiments/{experiment_id}/items/{item_id}/`             | One item's metadata and payload availability.                                        |
 | `offline_experiments/{experiment_id}/items/{item_id}/results/`     | The item's results with pinned scorer configurations.                                |
 | `offline_experiments/{experiment_id}/items/{item_id}/payload/`     | Shared input, output, expected output, and item metadata.                            |
@@ -168,6 +169,12 @@ Filters use retained identifiers and continue to work after linked resources are
 Item pages can include result cells for up to 20 comma-separated `scorer_version_ids`.
 The page's `scorer_versions` list contains each selected, accessible version's metadata and configuration once, including versions with no results on the page.
 Item result cells link to that list with `scorer_version_id`.
+
+For a matrix with more than 20 scorer versions, fetch an item page once, then call `result_cells/` with its fixed `item_ids` and batches of `scorer_version_ids`.
+Both lists are required; requests allow up to 50 distinct item UUIDs and 20 distinct scorer-version UUIDs.
+The response includes scorer metadata and existing result cells, without payloads.
+An absent cell is a missing result only after its batch resolves successfully.
+Items must belong to the requested experiment and versions must be visible to the caller in the same environment.
 Version selection preserves unscored items, which have missing cells.
 Use the paginated item results endpoint to inspect additional versions; it includes full scorer metadata and configuration on each result.
 List and summary endpoints do not load input/output or reasoning payloads.
@@ -207,3 +214,33 @@ A deadline alone does not mean a cleanup worker has removed the payload.
 Automatic deletion remains separate work.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
+
+## Inspecting offline results
+
+Open **Evaluations → Offline experiments** to see the newest experiments and chosen score trends.
+A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
+The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
+Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
+Datasets, suites, and traces are optional context and are not required to display an experiment.
+
+**Choose scores** selects and orders recurring scorer definitions above the experiment list.
+These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
+Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
+The shared date picker supports presets, custom ranges, and all time.
+History pages are bounded; coverage labels show how many matching points are loaded.
+Different scorer versions retain their pinned configurations and are not averaged together.
+
+An experiment shows whole-run scorer summaries and a horizontally scrollable item table with every observed scorer version.
+Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+These larger payloads load only when the inspector requests them.
+Upload completion is separate from score quality. **Mark as completed** checks declared expected counts on the server; it cannot force a mismatched upload to complete.
+
+Manage scorer definitions and versions under **Evaluations → Scorers**.
+The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
+Scorer management remains available for manual reviews when offline evaluations are disabled.
+With the offline feature enabled, **View history** opens a dedicated scorer timeline with an exact version selector and comparison against a previous or custom period.
+Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
+Version creation copies the current stored configuration unchanged and requires refreshing after a concurrent version change.
+
+The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
+The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.
