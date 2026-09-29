@@ -1,6 +1,6 @@
 import { savedDraftSchema } from "@posthog/core/offline/schemas";
 import { useEffect, useRef, useState } from "react";
-import { sessionIdentity } from "@/lib/auth";
+import { sessionIdentity, useAuth } from "@/lib/auth";
 import { deletePhotos, type PendingPhoto } from "@/lib/photos";
 import { deviceWorkspace, WEEK } from "@/lib/storage";
 
@@ -12,22 +12,30 @@ interface Draft {
 const EMPTY: Draft = { text: "", photos: [] };
 
 export function useDraft(id: string) {
-  const identity = sessionIdentity();
+  const identity = useAuth(sessionIdentity);
   const activeKey = useRef(`${identity}/${id}`);
   activeKey.current = `${identity}/${id}`;
   const key = activeKey.current;
-  const workspace = deviceWorkspace();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const current = useRef(draft);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity re-runs the load once the session hydrates and when the account changes
   useEffect(() => {
     let active = true;
     setReady(false);
     setError(null);
     setDraft(EMPTY);
     current.current = EMPTY;
-    workspace
+    // deviceWorkspace() needs a session to derive the account storage scope,
+    // and on a cold launch this screen renders before auth hydration lands.
+    // Skip the read until then; the identity dependency re-runs this effect
+    // once the session arrives.
+    if (!useAuth.getState().session) {
+      setReady(true);
+      return;
+    }
+    deviceWorkspace()
       .read<Draft>(`draft-${id}`, WEEK)
       .then((saved) => {
         if (!active) return;
@@ -46,11 +54,12 @@ export function useDraft(id: string) {
     return () => {
       active = false;
     };
-  }, [id, workspace]);
+  }, [id, identity]);
 
   const save = async (change: Partial<Draft>): Promise<void> => {
     if (activeKey.current !== key || sessionIdentity() !== identity)
       throw new Error("Account changed. Open the task again.");
+    const workspace = deviceWorkspace();
     const next = { ...current.current, ...change };
     const removed = current.current.photos.filter(
       (photo) => !next.photos.some((item) => item.id === photo.id),
@@ -78,7 +87,7 @@ export function useDraft(id: string) {
       current.current = EMPTY;
       setDraft(EMPTY);
     }
-    await workspace.remove(`draft-${id}`);
+    await deviceWorkspace().remove(`draft-${id}`);
     void deletePhotos(photos);
   };
   return { ...draft, ready, error, update, save, clear };
