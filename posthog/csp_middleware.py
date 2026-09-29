@@ -274,8 +274,11 @@ class CSPMiddleware:
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            js_url = urlsplit(settings.JS_URL)
+            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
-                resource_url = "http://localhost:8234"
+                # A devbox serves Vite from its Coder host, not localhost, so JS_URL names it.
+                resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
                 # The posthog.com dev server frames the dev app.
@@ -283,8 +286,6 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
-            js_url = urlsplit(settings.JS_URL)
-            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
