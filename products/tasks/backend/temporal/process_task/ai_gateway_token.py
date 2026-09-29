@@ -36,6 +36,7 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
+    "onboarding_audit": "onboarding",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -113,6 +114,9 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
+    if origin_product == "onboarding_audit" and not internal:
+        logger.warning("onboarding_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"

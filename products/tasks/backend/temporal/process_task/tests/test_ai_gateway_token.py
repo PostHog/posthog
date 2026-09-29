@@ -64,6 +64,10 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
+    def test_onboarding_audit_requires_the_server_stamped_internal_flag(self):
+        assert resolve_sandbox_ai_product("onboarding_audit", None, internal=True) == "onboarding"
+        assert resolve_sandbox_ai_product("onboarding_audit", None, internal=False) == "posthog_code"
+
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
 

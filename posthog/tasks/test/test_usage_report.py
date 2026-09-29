@@ -5036,6 +5036,22 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_onboarding_audit",
+            timestamp=period.start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_onboarding_audit",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "task_origin_product": "onboarding_audit",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
         flush_persons_and_events()
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)

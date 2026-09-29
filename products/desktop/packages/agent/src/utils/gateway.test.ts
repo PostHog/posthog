@@ -95,6 +95,16 @@ describe("resolveGatewayProduct", () => {
     },
     {
       isInternal: true,
+      originProduct: "onboarding_audit",
+      expected: "onboarding",
+    },
+    {
+      isInternal: false,
+      originProduct: "onboarding_audit",
+      expected: "posthog_code",
+    },
+    {
+      isInternal: true,
       originProduct: "loop",
       expected: "posthog_code",
     },

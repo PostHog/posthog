@@ -1764,7 +1764,7 @@ POSTHOG_AI_PRODUCTS = [
 ]
 
 # ai_product values billed as PostHog Desktop credits.
-UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
+UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "onboarding_audit")
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
