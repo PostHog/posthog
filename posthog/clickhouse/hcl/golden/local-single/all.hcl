@@ -8667,7 +8667,7 @@ SQL
     }
     column "timestamp" {
       type    = "DateTime64(6, 'UTC')"
-      default = "now('UTC')"
+      default = "now64(6, 'UTC')"
     }
     column "is_deleted" {
       type = "UInt8"

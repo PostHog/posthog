@@ -634,7 +634,7 @@ CREATE TABLE posthog.pg_embeddings (
   vector Array(Float32),
   text String,
   properties String CODEC(ZSTD(3)),
-  timestamp DateTime64(6, 'UTC') DEFAULT now('UTC'),
+  timestamp DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC'),
   is_deleted UInt8
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted) ORDER BY (team_id, domain, id) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.plugin_log_entries (

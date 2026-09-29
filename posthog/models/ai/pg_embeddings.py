@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     vector Array(Float32),
     text String,
     properties VARCHAR CODEC(ZSTD(3)),
-    timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+    timestamp DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC'),
     is_deleted UInt8,
 ) ENGINE = {engine}
 """
