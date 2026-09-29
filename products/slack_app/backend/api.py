@@ -151,6 +151,14 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 
+# How long after a message is posted an edit of it can still start a run. A person who adds
+# the tag by editing does it within minutes, and a bounded window bounds how long the cache
+# must remember that a message was handled.
+EDITED_MENTION_WINDOW_SECONDS = 60 * 60
+# Longer than the window, so that a handled message keeps its marker for as long as an edit
+# of it can be accepted. An expired marker would let the edit start a second run.
+MESSAGE_HANDLED_MARKER_TTL_SECONDS = 2 * EDITED_MENTION_WINDOW_SECONDS
+
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
 ROUTE_PROXY_FAILED = "proxy_failed"
@@ -1323,7 +1331,8 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
 
     - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
       mention is edited. The new event_id bypasses Temporal workflow dedup, so without
-      this guard the edit spawns a duplicate task alongside the original.
+      this guard the edit spawns a duplicate task alongside the original. The caller
+      lifts it for an edit that ``_edited_mention_ignore_cause`` clears.
     - "bot_author" / "app_authored": see ``_app_authorship_ignore_reason``. Foreign bots
       that quote `<@PostHog>` in their text (incident bots, alert relays, our own
       notifications integration) would trigger reply loops on every re-post.
@@ -1336,6 +1345,58 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
         return authorship
     if _every_mention_is_a_path_segment(event):
         return "path_mention"
+    return None
+
+
+def _message_handled_cache_key(slack_team_id: str, event: dict[str, Any]) -> str | None:
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    if not isinstance(channel, str) or not channel or not isinstance(message_ts, str) or not message_ts:
+        return None
+    return f"slack_app:message_handled:v1:{slack_team_id}:{channel}:{message_ts}"
+
+
+def _mark_message_handled(slack_team_id: str, event: dict[str, Any], handled_as: str) -> None:
+    """Record that the pipeline acted on this message, so that a later edit of it starts nothing.
+
+    ``handled_as`` names what the message was when the pipeline acted on it. An ignored edit
+    reports it, which shows how often an edit is refused because of each kind.
+    """
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is not None:
+        cache.set(cache_key, handled_as, timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS)
+
+
+def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> str | None:
+    """Why an edited ``app_mention`` must start nothing, or None when it must start a run.
+
+    An edit starts a run when the pipeline never acted on the message. That is a person who
+    posted without the tag and then added it: no run exists, so ignoring the edit answers
+    them with silence.
+
+    Claiming the marker is the last check, and it is atomic. A second edit of the same
+    message, or an original that races its own edit, finds the marker and stops.
+    """
+    # ``message_changed`` nests the message under ``message`` and carries the ts of the change
+    # itself, so the pipeline would read the wrong ts, user and text from the envelope.
+    if event.get("subtype") == "message_changed":
+        return "message_changed_envelope"
+    authorship = _app_authorship_ignore_reason(event)
+    if authorship:
+        return authorship
+    if _every_mention_is_a_path_segment(event):
+        return "path_mention"
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is None:
+        return "no_message_ts"
+    try:
+        posted_at = float(event["ts"])
+    except ValueError:
+        return "no_message_ts"
+    if time.time() - posted_at > EDITED_MENTION_WINDOW_SECONDS:
+        return "too_old"
+    if not cache.add(cache_key, "edited_mention", timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS):
+        return f"handled_as_{cache.get(cache_key) or 'unknown'}"
     return None
 
 
@@ -2265,10 +2326,26 @@ def route_posthog_code_event_to_relevant_region(
 
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
+            drop_context: dict[str, Any] = {}
+            if ignore_reason == "edit":
+                edit_ignore_cause = _edited_mention_ignore_cause(event, slack_team_id)
+                if edit_ignore_cause is None:
+                    ignore_reason = None
+                    logger.info(
+                        "slack_app_edited_mention_accepted",
+                        slack_team_id=slack_team_id,
+                        channel=event.get("channel"),
+                        message_ts=event.get("ts"),
+                    )
+                else:
+                    drop_context = {"edit_ignore_cause": edit_ignore_cause}
+            elif ignore_reason == "path_mention":
+                drop_context = _path_mention_drop_properties(event)
+            elif ignore_reason is None:
+                # Marked before any later gate can refuse the mention. A refused mention got
+                # its explanation, so an edit of it must not raise the explanation again.
+                _mark_message_handled(slack_team_id, event, "mention")
             if ignore_reason:
-                drop_context: dict[str, Any] = (
-                    _path_mention_drop_properties(event) if ignore_reason == "path_mention" else {}
-                )
                 logger.info(
                     "slack_app_event_app_mention_ignored",
                     reason=ignore_reason,
@@ -2557,6 +2634,11 @@ def route_posthog_code_event_to_relevant_region(
             posthog_user=posthog_user,
         ):
             return ROUTE_HANDLED_LOCALLY
+
+        if untagged_followup_mapping is not None:
+            # The workflow decides whether this reply starts a run. An edit that adds the tag
+            # must not start a second one next to it.
+            _mark_message_handled(slack_team_id, event, "untagged_followup")
 
         return _start_mention_workflow(
             event,
@@ -3504,6 +3586,8 @@ def _report_slack_mention_received(
             # ``posthog code slack mention dropped`` reports the same field, so the two sides
             # add up to a funnel.
             "slack_event_type": event.get("type"),
+            # An accepted mention that is an edit is a person who added the tag after posting.
+            "slack_message_edited": bool(event.get("edited")),
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
