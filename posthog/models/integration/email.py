@@ -127,6 +127,7 @@ class EmailIntegration:
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
 
+        verification_result: EmailDomainVerification
         # Use the appropriate provider for verification
         if provider == "ses":
             from products.workflows.backend.facade.api import (
