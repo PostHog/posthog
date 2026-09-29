@@ -106,7 +106,7 @@ export default function TaskScreen() {
 
   return (
     <DrawerScene>
-      <ChatHeader />
+      <ChatHeader task={task.data} />
       <FlashList
         ref={listRef}
         data={rows}

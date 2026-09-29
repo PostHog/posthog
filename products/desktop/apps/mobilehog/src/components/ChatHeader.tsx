@@ -1,17 +1,27 @@
+import { Button, Host, Image, Menu } from "@expo/ui/swift-ui";
+import { frame } from "@expo/ui/swift-ui/modifiers";
+import type { Task } from "@posthog/shared/domain-types";
 import { useNavigation, useRouter } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GlassCircleButton } from "@/components/Glass";
-import { MenuIcon, NewChatIcon } from "@/components/Icons";
+import { Glass, GlassCircleButton } from "@/components/Glass";
+import { MenuIcon } from "@/components/Icons";
+import { useTaskActions } from "@/components/TaskRow";
+import { colors } from "@/lib/theme";
+
+const BUTTON = 46;
 
 interface ChatHeaderProps {
   showNewChat?: boolean;
+  // The open chat's task, for the options menu beside new chat.
+  task?: Task;
 }
 
-export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
+export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { rename, setArchived } = useTaskActions(task);
   return (
     <View
       style={[styles.root, { paddingTop: insets.top + 6 }]}
@@ -22,9 +32,50 @@ export function ChatHeader({ showNewChat = true }: ChatHeaderProps) {
       </GlassCircleButton>
       <View style={{ flex: 1 }} pointerEvents="none" />
       {showNewChat ? (
-        <GlassCircleButton onPress={() => router.replace("/(drawer)")}>
-          <NewChatIcon />
-        </GlassCircleButton>
+        <Glass interactive style={styles.pair}>
+          {task ? (
+            <>
+              <Host matchContents>
+                <Menu
+                  label={
+                    <Image systemName="ellipsis" size={18} color={colors.ink} />
+                  }
+                  modifiers={[frame({ width: BUTTON, height: BUTTON })]}
+                >
+                  <Button
+                    label="Rename"
+                    systemImage="pencil"
+                    onPress={rename}
+                  />
+                  <Button
+                    label="Archive"
+                    systemImage="archivebox"
+                    onPress={() =>
+                      setArchived(true, () => router.replace("/(drawer)"))
+                    }
+                  />
+                </Menu>
+              </Host>
+              <View style={styles.divider} />
+            </>
+          ) : null}
+          <Pressable
+            onPress={() => router.replace("/(drawer)")}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.pairButton,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Host matchContents>
+              <Image
+                systemName="square.and.pencil"
+                size={18}
+                color={colors.ink}
+              />
+            </Host>
+          </Pressable>
+        </Glass>
       ) : null}
     </View>
   );
@@ -40,5 +91,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
+  },
+  pair: {
+    height: BUTTON,
+    borderRadius: BUTTON / 2,
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  pairButton: {
+    width: BUTTON,
+    height: BUTTON,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    height: 20,
+    backgroundColor: colors.line,
   },
 });

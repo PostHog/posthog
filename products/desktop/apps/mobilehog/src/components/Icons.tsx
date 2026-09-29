@@ -100,54 +100,7 @@ export function BinIcon({ color = colors.ink }: { color?: ColorValue }) {
   );
 }
 
-// A speech bubble with a plus inside: start a new chat.
-export function NewChatIcon({ color = colors.ink }: { color?: ColorValue }) {
-  return (
-    <View style={styles.bubbleWrap}>
-      <View style={[styles.bubble, { borderColor: color }]}>
-        <View style={[styles.plusBar, { backgroundColor: color }]} />
-        <View
-          style={[
-            styles.plusBar,
-            { backgroundColor: color, transform: [{ rotate: "90deg" }] },
-          ]}
-        />
-      </View>
-      <View style={styles.bubbleTailClip}>
-        <View style={[styles.bubbleTail, { backgroundColor: color }]} />
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  bubbleWrap: { width: 24, height: 24 },
-  bubble: {
-    width: 22,
-    height: 19,
-    borderWidth: 2.2,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  plusBar: { position: "absolute", width: 9, height: 2.2, borderRadius: 1 },
-  // The tail is the bottom half of a rotated square, clipped below the bubble.
-  bubbleTailClip: {
-    position: "absolute",
-    left: 4,
-    top: 17,
-    width: 10,
-    height: 6,
-    overflow: "hidden",
-  },
-  bubbleTail: {
-    position: "absolute",
-    left: 1,
-    top: -5,
-    width: 7,
-    height: 7,
-    transform: [{ rotate: "45deg" }],
-  },
   bin: { alignItems: "center" },
   binHandle: {
     width: 10,
