@@ -34,17 +34,21 @@ Always compute the cutoff in UTC and keep the user's local interpretation in you
 
 ### 2. Enumerate soft-deleted flags via SQL
 
-Query `system.feature_flags` for `deleted = true` in the active project, ordered by `created_at DESC`:
+Query `system.feature_flags` for deleted flags in the active project whose `updated_at` is on or after the window's cutoff, ordered by `updated_at DESC`:
 
 ```sql
-SELECT id, key, created_at
+SELECT id, key, created_at, updated_at
 FROM system.feature_flags
-WHERE team_id = <team_id> AND deleted = true
-ORDER BY created_at DESC
+WHERE team_id = <team_id>
+  AND deleted = 1
+  AND updated_at >= toDateTime('<cutoff_utc>') - INTERVAL 1 HOUR
+ORDER BY updated_at DESC
 LIMIT 100
 ```
 
-Order by `created_at DESC` because deletions empirically cluster near creation — most flags get deleted within a few days of being created — so walking the most-recently-created candidates first finds recent deletions fastest. **But** this is a heuristic, not a guarantee: an older flag deleted recently won't be at the top of this list. Be explicit about that limitation when you report.
+Every soft-delete path writes `updated_at`, and later writes only move it forward. So this filter returns every flag deleted inside the window, including old flags. It can also return a flag deleted earlier and edited again inside the window. Step 4 drops those. The one-hour margin keeps borderline deletions (see Watch-outs) in the list.
+
+If the query returns 100 rows, page with `OFFSET` until a page returns fewer, so that no candidate drops out.
 
 `team_id` defaults to the active project, but include it explicitly for clarity.
 
@@ -56,13 +60,9 @@ For each candidate id, call `posthog:feature-flags-activity-retrieve` with `limi
 call feature-flags-activity-retrieve {"id": <flag_id>, "limit": 5, "page": 1}
 ```
 
-Reasonable batch sizes:
+Look up every candidate from step 2, because the `updated_at` filter already limits the list to the window. Send the calls in batches of about 25 per message.
 
-- "last 7 days" → top 20–25 candidates
-- "last 30 days" → top 50
-- "last 90 days" → walk the full ~100
-
-If you sample fewer than the full set, say so in the report and offer to walk the rest as a follow-up.
+If you stop before the last batch, say so in the report and offer to check the rest as a follow-up.
 
 ### 4. Extract the deletion event from each response
 
@@ -86,22 +86,22 @@ Filter the collected deletion events to those whose `created_at` falls inside th
 
 | Flag ID | Key | Deleted at (UTC) | Deleted by |
 
-State your methodology in the report (how many candidates you walked vs. how many soft-deleted flags exist total), so the user knows what was and wasn't checked.
+State your methodology in the report (how many candidates the `updated_at` filter returned vs. how many you checked), so the user knows what was and wasn't checked.
 
 ## Watch-outs
 
 - **Borderline cases**: if a deletion is within ~1 hour of the window cutoff, surface it as borderline rather than silently dropping it.
 - **Don't trust `created_at` as a proxy for deletion time**: a flag created in 2024 can still have been deleted last week. The activity log is the only authority.
 - **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo` — see step 5 for how to recover it.
-- **Walking all candidates is possible but slow**: ~100 parallel activity-log calls is doable. Offer it as a follow-up rather than the default for short windows.
+- **Long windows can return many candidates**: page through them and check them in batches. Don't cut the list short to save calls.
 
 ## Example interaction
 
 User: "what flags got deleted in the last week?"
 
 1. Clarify if needed, or note both interpretations: "rolling 7 days ending now (UTC), in the active project"
-2. Run the SQL enumeration to get up to 100 soft-deleted candidates ordered by `created_at DESC`
-3. Fan out activity-log lookups in parallel across the top ~25 candidates
+2. Run the SQL enumeration to get the soft-deleted candidates with `updated_at` inside the window, ordered by `updated_at DESC`
+3. Fan out activity-log lookups in parallel across every candidate
 4. Extract `activity: deleted` entries; filter to those whose `created_at >= now - 7 days`
 5. Recover original keys with `scripts/strip_deleted_suffix.py` and report:
 
@@ -113,9 +113,9 @@ User: "what flags got deleted in the last week?"
    | 687432  | high_frequency_alerts                     | 2026-05-22 17:23     | Matt P.     |
    | 676665  | tasks-sendblue-prewarmed-sandbox-pool     | 2026-05-15 13:45     | Alessandro  |
 
-   Methodology: walked the activity log for the 25 most-recently-created soft-deleted
-   flags. Team 2 has ~100 soft-deleted flags total; the remaining ~75 were created
-   before mid-March 2026 and were not checked. Want me to walk the rest?
+   Methodology: 3 soft-deleted flags had updated_at inside the window. I checked the
+   activity log for all 3. One was deleted earlier and edited again this week, so it
+   is not in the table.
    ```
 
 ## Related tools
