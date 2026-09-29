@@ -233,10 +233,21 @@ jobs:
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
         steps:
+            # Depot hands out ambient tokens from more than one installation, and one can be spent
+            # for the hour. A spent token answers 403, and the wait would decline a real hand-off.
+            - name: Mint hand-off read token
+              id: handoff-token
+              if: github.event.pull_request.head.repo.fork != true
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: read
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.handoff-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
                   EVENT: ${{ github.event_name }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
