@@ -7,6 +7,7 @@ import { resetMcpClient } from "@/lib/mcp/client";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
+import { useSpace } from "@/lib/space";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -26,6 +27,7 @@ useAuth.subscribe((state, previous) => {
   resetMcpClient();
   useComposer.getState().reset();
   useRepo.setState({ repository: undefined });
+  useSpace.setState({ channelId: null });
   useSeenReports.setState({ seen: new Set(), hydrated: false });
 });
 

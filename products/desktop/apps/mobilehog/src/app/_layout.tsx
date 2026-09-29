@@ -11,6 +11,7 @@ import { getAccountQueryClient } from "@/lib/accountLifecycle";
 import { sessionIdentity, useAuth } from "@/lib/auth";
 import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
+import { keys } from "@/lib/queries";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
@@ -64,7 +65,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") reconnect();
+      if (state === "active") {
+        reconnect();
+        const client = getAccountQueryClient();
+        void client.invalidateQueries({ queryKey: keys.tasks });
+        void client.invalidateQueries({ queryKey: keys.channels });
+      }
     });
     return () => subscription.remove();
   }, [reconnect]);
@@ -99,6 +105,16 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="picker"
+              options={{
+                presentation: "formSheet",
+                sheetAllowedDetents: [0.55, 1],
+                sheetGrabberVisible: true,
+                sheetCornerRadius: 32,
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
+            <Stack.Screen
+              name="space"
               options={{
                 presentation: "formSheet",
                 sheetAllowedDetents: [0.55, 1],

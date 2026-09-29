@@ -22,6 +22,8 @@ interface ComposerProps {
   placeholder: string;
   // Shown as a second pill when provided (null = no repository chosen).
   repository?: string | null;
+  space?: string;
+  disabled?: boolean;
   onSend: (text: string) => void | Promise<void>;
   onStop?: () => void;
   busy?: boolean;
@@ -32,6 +34,8 @@ interface ComposerProps {
 export function Composer({
   placeholder,
   repository,
+  space,
+  disabled,
   onSend,
   onStop,
   busy,
@@ -46,17 +50,30 @@ export function Composer({
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
   )?.name;
-  const canSend = text.trim().length > 0 && !sending;
+  const canSend = text.trim().length > 0 && !sending && !disabled;
 
   const submit = async (): Promise<void> => {
     const value = text.trim();
-    if (!value || sending) return;
+    if (!value || sending || disabled) return;
     setText("");
     await onSend(value);
   };
 
   return (
     <Glass style={styles.shell}>
+      {space !== undefined ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Choose space. Current space: ${space}`}
+          onPress={() => router.push("/space")}
+          style={({ pressed }) => [styles.space, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={styles.spaceText} numberOfLines={1}>
+            Space: {space}
+          </Text>
+          <Text style={styles.pillMuted}>⌄</Text>
+        </Pressable>
+      ) : null}
       <TextInput
         value={text}
         onChangeText={setText}
@@ -138,6 +155,18 @@ const styles = StyleSheet.create({
     color: colors.ink,
     maxHeight: 140,
     paddingTop: 0,
+  },
+  space: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 6,
+  },
+  spaceText: {
+    flexShrink: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: colors.ink,
   },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   pill: {

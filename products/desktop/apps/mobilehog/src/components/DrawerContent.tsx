@@ -1,12 +1,14 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import {
   type ColorValue,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -94,8 +96,27 @@ function taskTitle(task: Task): string {
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const tasks = useTasks();
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [allUsers, setAllUsers] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+  const tasks = useTasks(debouncedSearch, allUsers);
+  const searching = search.trim().length > 0;
+  const waitingForSearch = search.trim() !== debouncedSearch;
   const channels = useChannels();
+  const refresh = async (): Promise<void> => {
+    if (refreshing || tasks.isFetching || channels.isFetching) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([tasks.refetch(), channels.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
   const reports = useReports().data ?? [];
@@ -103,14 +124,17 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const newReports = reports.filter(
     (report) => !seenReports.has(report.id),
   ).length;
-  // Starred spaces open by default, the rest closed; a toggle flips that.
+  // Open spaces by default so existing tasks are visible after sign-in.
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupsClosed, setGroupsClosed] = useState<Set<string>>(new Set());
 
   const spaces = useMemo(
-    () => groupSpaces(tasks.data ?? [], channels.data ?? []),
-    [tasks.data, channels.data],
+    () =>
+      groupSpaces(tasks.data, channels.data ?? []).filter(
+        (space) => !searching || space.tasks.length > 0,
+      ),
+    [tasks.data, channels.data, searching],
   );
   const starred = spaces.filter((space) => space.starred);
   const rest = spaces.filter((space) => !space.starred);
@@ -132,8 +156,8 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   };
 
   const renderSpace = (space: Space): ReactElement => {
-    const isOpen = space.starred !== toggled.has(space.key);
-    const isExpanded = expanded.has(space.key);
+    const isOpen = searching || !toggled.has(space.key);
+    const isExpanded = searching || expanded.has(space.key);
     const visible = isExpanded
       ? space.tasks
       : space.tasks.slice(0, PREVIEW_COUNT);
@@ -177,7 +201,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             {space.tasks.length === 0 ? (
               <Text style={styles.empty}>Nothing here yet</Text>
             ) : null}
-            {hidden > 0 || isExpanded ? (
+            {!searching && (hidden > 0 || isExpanded) ? (
               <Pressable
                 onPress={() => flip(expanded, setExpanded, space.key)}
                 style={({ pressed }) => [
@@ -206,7 +230,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     list: Space[],
   ): ReactElement | null => {
     if (list.length === 0) return null;
-    const closed = groupsClosed.has(key);
+    const closed = !searching && groupsClosed.has(key);
     return (
       <View style={styles.group}>
         <Pressable
@@ -228,7 +252,43 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     <View style={[styles.root, { paddingTop: insets.top + 18 }]}>
       <DrawerEdgeShadow />
       <Text style={styles.wordmark}>PostHog</Text>
+      <TextInput
+        accessibilityLabel="Search tasks"
+        value={search}
+        onChangeText={setSearch}
+        placeholder="Search tasks"
+        placeholderTextColor={colors.inkMute}
+        autoCapitalize="none"
+        autoCorrect={false}
+        clearButtonMode="while-editing"
+        returnKeyType="search"
+        style={styles.search}
+      />
+      <View style={styles.filters}>
+        {[false, true].map((all) => (
+          <Pressable
+            key={String(all)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: allUsers === all }}
+            onPress={() => setAllUsers(all)}
+            style={[styles.filter, allUsers === all && styles.filterSelected]}
+          >
+            <Text style={styles.filterText}>
+              {all ? "All tasks" : "My tasks"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
       <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+            tintColor={colors.inkMute}
+          />
+        }
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: FOOTER_HEIGHT + insets.bottom + 24 },
@@ -265,11 +325,57 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             </View>
           ) : null}
         </Pressable>
-        {tasks.isLoading && spaces.length === 0 ? (
-          <Text style={styles.empty}>Loading</Text>
+        {tasks.isLoading || waitingForSearch ? (
+          <Text style={styles.empty}>
+            {searching ? "Searching" : "Loading tasks"}
+          </Text>
         ) : null}
-        {renderGroup("starred", "Starred", starred)}
-        {renderGroup("spaces", "Spaces", rest)}
+        {tasks.isError || channels.isError ? (
+          <View>
+            <Text style={styles.empty}>
+              {tasks.isError
+                ? "Could not load tasks. Try again."
+                : "Could not load spaces. Try again."}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={tasks.isFetching || channels.isFetching}
+              onPress={() => {
+                void tasks.refetch();
+                void channels.refetch();
+              }}
+            >
+              <Text style={styles.viewAll}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {!waitingForSearch ? (
+          <>
+            {renderGroup("starred", "Starred", starred)}
+            {renderGroup("spaces", "Spaces", rest)}
+          </>
+        ) : null}
+        {tasks.isSuccess && !waitingForSearch && tasks.data.length === 0 ? (
+          <Text style={styles.empty}>
+            {tasks.hasNextPage
+              ? "No cloud tasks in the loaded results. Load more tasks to continue."
+              : searching
+                ? "No matching cloud tasks. Try another search."
+                : "No cloud tasks here yet. Check your project in Settings or start a new task."}
+          </Text>
+        ) : null}
+        {tasks.hasNextPage && !waitingForSearch ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={tasks.isFetching}
+            onPress={() => void tasks.fetchNextPage()}
+            style={styles.loadMore}
+          >
+            <Text style={styles.viewAll}>
+              {tasks.isFetchingNextPage ? "Loading" : "Load more tasks"}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
       <View
         style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}
@@ -317,6 +423,25 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     marginLeft: 4,
   },
+  search: {
+    backgroundColor: colors.fill,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    color: colors.ink,
+    marginBottom: 10,
+  },
+  filters: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  filter: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+  },
+  filterSelected: { backgroundColor: colors.fill },
+  filterText: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.ink },
+  loadMore: { paddingVertical: 12 },
   scroll: { paddingBottom: 24, gap: 18 },
   navRow: {
     flexDirection: "row",

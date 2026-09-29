@@ -1,11 +1,16 @@
 import type { GatewayModel } from "@posthog/shared";
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
+import { useSpace } from "@/lib/space";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -22,21 +27,27 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks() {
+export function useTasks(search = "", allUsers = false) {
   const session = useAuth((s) => s.session);
-  return useQuery({
-    queryKey: keys.tasks,
-    queryFn: async () => {
-      const tasks = await getClient().getTasks({ basic: true });
-      return tasks.filter(
-        (task) =>
-          task.latest_run?.environment !== "local" &&
-          !task.origin_key?.startsWith("desktop_onboarding"),
-      );
+  const query = useInfiniteQuery({
+    queryKey: [...keys.tasks, "list", session?.userId, allUsers, search],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      getClient().getTasksPage({
+        basic: true,
+        createdBy: allUsers ? undefined : session?.userId,
+        search: search.trim() || undefined,
+        ordering: "-last_activity_at",
+        limit: 100,
+        offset: pageParam,
+      }),
+    getNextPageParam: (page, _pages, offset) => {
+      const next = offset + page.tasks.length;
+      return page.tasks.length > 0 && next < page.count ? next : undefined;
     },
     enabled: !!session,
     refetchInterval: (query) => {
-      const tasks = query.state.data as Task[] | undefined;
+      const tasks = query.state.data?.pages.flatMap((page) => page.tasks);
       const anyLive = tasks?.some((task) => {
         const status = task.latest_run?.status;
         return !!status && !TERMINAL.has(status);
@@ -44,6 +55,15 @@ export function useTasks() {
       return anyLive ? 5000 : 30000;
     },
   });
+  const tasks = query.data?.pages.flatMap((page) => page.tasks) ?? [];
+  return {
+    ...query,
+    data: [...new Map(tasks.map((task) => [task.id, task])).values()].filter(
+      (task) =>
+        task.latest_run?.environment !== "local" &&
+        !task.origin_key?.startsWith("desktop_onboarding"),
+    ),
+  };
 }
 
 export function useTask(taskId: string) {
@@ -63,13 +83,27 @@ export function useChannels() {
   const session = useAuth((s) => s.session);
   return useQuery<TaskChannel[]>({
     queryKey: keys.channels,
-    queryFn: () =>
-      getClient()
-        .getTaskChannels()
-        .catch(() => []),
+    queryFn: () => getClient().getTaskChannels(),
     enabled: !!session,
     staleTime: 60_000,
   });
+}
+
+export function useSelectedSpace() {
+  const channels = useChannels();
+  const channelId = useSpace((s) => s.channelId);
+  const personal = channels.data?.find(
+    (channel) => channel.system_role === "personal",
+  );
+  const selected =
+    channelId === null
+      ? (personal ?? null)
+      : (channels.data?.find((channel) => channel.id === channelId) ?? null);
+  return {
+    ...channels,
+    selected,
+    unavailable: !!channelId && channels.isSuccess && !selected,
+  };
 }
 
 // The gateway may not be running locally, so the pill always has a default.
@@ -144,12 +178,14 @@ export function useInvalidateTasks() {
 export async function createAndRunTask(input: {
   prompt: string;
   repository: string | null;
+  channel: string | null;
 }): Promise<Task> {
   const client = getClient();
   const task = await client.createTask({
     description: input.prompt,
     title: input.prompt.slice(0, 100),
     repository: input.repository ?? undefined,
+    channel: input.channel,
   });
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.prompt,
