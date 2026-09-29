@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -16,6 +17,18 @@ import { selectExistingFeatureFlagModalLogic } from 'products/experiments/fronte
 import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
 import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
+
+/** Marks a required field with a small asterisk. Screen readers hear "(required)" instead. */
+function RequiredMark(): JSX.Element {
+    return (
+        <>
+            <span className="text-accent ml-0.5" aria-hidden="true">
+                *
+            </span>
+            <span className="sr-only">(required)</span>
+        </>
+    )
+}
 
 export function AboutStep(): JSX.Element {
     const { experiment, linkedFeatureFlag, featureFlagKeyValidation, featureFlagKeyValidationLoading, departedSteps } =
@@ -62,9 +75,19 @@ export function AboutStep(): JSX.Element {
         <div className="space-y-6">
             <h3 className="text-lg font-semibold">What are we testing?</h3>
 
-            <LemonField.Pure label="Experiment name" error={nameError}>
+            <LemonField.Pure
+                label={
+                    <span className="whitespace-nowrap">
+                        Experiment name
+                        <RequiredMark />
+                    </span>
+                }
+                error={nameError}
+                htmlFor="experiment-wizard-name"
+            >
                 <LemonInput
-                    placeholder="e.g., New checkout flow test"
+                    id="experiment-wizard-name"
+                    placeholder="e.g. New checkout flow test"
                     value={experiment.name}
                     onChange={(value) => {
                         setExperimentValue('name', value)
@@ -82,8 +105,14 @@ export function AboutStep(): JSX.Element {
                 />
             </LemonField.Pure>
 
-            <LemonField.Pure label="Hypothesis" info="Describe what you expect to happen and why.">
+            <LemonField.Pure
+                label="Hypothesis"
+                info="Describe what you expect to happen and why."
+                showOptional
+                htmlFor="experiment-wizard-hypothesis"
+            >
                 <LemonTextArea
+                    id="experiment-wizard-hypothesis"
                     placeholder="We believe that ... will result in ... because ..."
                     value={experiment.description ?? ''}
                     onChange={(value) => setExperimentValue('description', value)}
@@ -106,8 +135,16 @@ export function AboutStep(): JSX.Element {
             ) : (
                 <LemonField.Pure
                     label={
-                        <div className="flex items-center justify-between w-full">
-                            <span>Feature flag key</span>
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 w-full">
+                            <span className="flex items-center gap-1 whitespace-nowrap">
+                                <span>
+                                    Feature flag key
+                                    <RequiredMark />
+                                </span>
+                                <Tooltip title="The experiment uses this flag to decide which variant each person sees. Your code checks it to show them that variant.">
+                                    <IconInfo className="text-xl text-secondary shrink-0" />
+                                </Tooltip>
+                            </span>
                             <span className="text-muted text-sm font-normal">
                                 Do you have a feature flag already?{' '}
                                 <Link
@@ -121,6 +158,7 @@ export function AboutStep(): JSX.Element {
                         </div>
                     }
                     error={featureFlagKeyError}
+                    htmlFor="experiment-wizard-flag-key"
                     renderError={
                         existingFlag
                             ? (error) => (
@@ -141,7 +179,10 @@ export function AboutStep(): JSX.Element {
                     }
                 >
                     <LemonInput
-                        placeholder="e.g., new-checkout-flow-test"
+                        id="experiment-wizard-flag-key"
+                        // The label also holds the "Select existing flag" prompt, so name the input on its own
+                        aria-label="Feature flag key (required)"
+                        placeholder="e.g. new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
                             const normalizedValue = slugifyFeatureFlagKey(value)

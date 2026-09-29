@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,6 +38,9 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** Runs instead of navigating to project settings when the gear is clicked. Surfaces that hold
      * unsaved state, such as a wizard step, use this to configure the filters without leaving. */
     onConfigure?: () => void
+    /** Show the settings link as a new-tab icon instead of a gear, like other links that open in a new tab.
+     * Only applies when the icon navigates to settings (no `onConfigure`). */
+    settingsLinkIcon?: 'gear' | 'new-tab'
 }
 
 export function TestAccountFilterSwitch({
@@ -45,12 +48,14 @@ export function TestAccountFilterSwitch({
     onChange,
     applicableFilterTypes,
     onConfigure,
+    settingsLinkIcon = 'gear',
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const filters = currentTeam?.test_account_filters || []
     const hasFilters = filters.length > 0
     const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
+    const showNewTabIcon = settingsLinkIcon === 'new-tab' && !onConfigure
     return (
         <LemonSwitch
             id="test-account-filter"
@@ -58,7 +63,7 @@ export function TestAccountFilterSwitch({
             {...props}
             disabledReason={
                 !hasFilters
-                    ? "You haven't set any internal test filters. Click the gear icon to configure."
+                    ? `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
                     : (unusedReason ?? props.disabledReason)
             }
             checked={checked}
@@ -71,7 +76,7 @@ export function TestAccountFilterSwitch({
                         disabledReason below actively sends people here when no filters are set up.
                         Callers that can configure the filters in place pass onConfigure instead. */}
                     <LemonButton
-                        icon={<IconGear />}
+                        icon={showNewTabIcon ? <IconExternal className="size-3.5" /> : <IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"

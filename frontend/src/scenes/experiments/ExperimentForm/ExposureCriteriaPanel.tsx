@@ -231,6 +231,7 @@ function ExposureCriteriaFields({
                     }}
                     bordered={false}
                     fullWidth
+                    settingsLinkIcon="new-tab"
                     className="p-0"
                 />
             </div>
@@ -375,16 +376,22 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     />
                 </div>
 
-                <TestAccountFilterSwitch
-                    checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
-                    onChange={(checked: boolean) => {
-                        onChange({ filterTestAccounts: checked })
-                    }}
-                    bordered={false}
-                    fullWidth
-                    labelClassName="text-secondary font-normal"
-                    className="p-0"
-                />
+                {/* As tall as the small selects above, so the three labels are evenly spaced */}
+                <div className="flex min-h-[2.0625rem] items-center">
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
+                        onChange={(checked: boolean) => {
+                            onChange({ filterTestAccounts: checked })
+                        }}
+                        bordered={false}
+                        fullWidth
+                        settingsLinkIcon="new-tab"
+                        // The label would otherwise stretch across the row, making the whole row a click target.
+                        // Keep it to its text and push the switch to the right, level with the selects above.
+                        labelClassName="text-secondary font-normal !flex-none"
+                        className="p-0 justify-between"
+                    />
+                </div>
             </div>
         )
     }
