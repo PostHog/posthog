@@ -1,4 +1,4 @@
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -53,7 +53,8 @@ def manager(inputs: SourceInputs) -> Iterator[ResumableSourceManager[GivebutterR
 
 
 def pages(response: SourceResponse) -> Generator[list[dict[str, Any]]]:
-    return cast(Generator[list[dict[str, Any]]], iter(response.items()))
+    items = cast(Iterable[list[dict[str, Any]]], response.items())
+    return cast(Generator[list[dict[str, Any]]], iter(items))
 
 
 def test_pagination_and_resume_after_yield(
