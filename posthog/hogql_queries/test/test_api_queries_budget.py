@@ -1,3 +1,5 @@
+import contextlib
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -8,7 +10,8 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQuery
 
-from posthog.api_queries_budget import budget_spec_for, debit, refill_and_read
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, budget_spec_for, debit, refill_and_read
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -63,6 +66,44 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
                 self._runner()._enforce_api_queries_budget()
         assert API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome)._value.get() == before + 1
 
+    @parameterized.expand([("observed", False), ("enforced", True)])
+    def test_over_budget_reports_one_event_per_team_hour(self, outcome, enforced):
+        self._drain()
+        tag_queries(access_method="personal_api_key", product=Product.API)
+        try:
+            with (
+                patch(
+                    "posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=enforced
+                ),
+                patch("posthog.hogql_queries.query_runner.report_team_action") as report,
+            ):
+                for _ in range(2):
+                    with contextlib.suppress(APIQueriesBudgetExceeded):
+                        self._runner()._enforce_api_queries_budget()
+        finally:
+            reset_query_tags()
+        report.assert_called_once()
+        team, event, properties = report.call_args.args
+        assert team == self.team
+        assert event == "api queries budget limited"
+        assert properties["outcome"] == outcome
+        assert properties["team_id"] == self.team.pk
+        assert properties["bytes_per_hour"] == 3600
+        assert properties["remaining_bytes"] <= 0
+        assert properties["retry_after_seconds"] >= 1
+        assert properties["access_method"] == "personal_api_key"
+        assert properties["product"] == "api"
+
+    def test_event_reporting_failure_does_not_affect_admission(self):
+        self._drain()
+        before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
+        with (
+            patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=False),
+            patch("posthog.hogql_queries.query_runner.report_team_action", side_effect=RuntimeError("analytics down")),
+        ):
+            self._runner()._enforce_api_queries_budget()
+        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get() == before + 1
+
     def test_under_budget_admits_without_touching_the_counter_even_when_enforced(self):
         refill_and_read(str(self.team.pk), budget_spec_for(self.organization))
         before = API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome="enforced")._value.get()
@@ -80,20 +121,37 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         ):
             self._runner()._enforce_api_queries_budget()
 
-    @parameterized.expand([("api_key_query_refused", True), ("app_query_admitted", False)])
-    def test_call_with_rate_limits_enforces_the_budget_for_api_key_queries_only(self, _name, is_query_service):
+    @parameterized.expand([("api_key_query_unbudgeted", True), ("app_query", False)])
+    def test_call_with_rate_limits_admits_unbudgeted_queries(self, _name, is_query_service):
         self._drain()
         runner = self._runner(is_query_service=is_query_service)
         with (
             patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
             patch.object(runner, "calculate", return_value="stub result"),
         ):
-            if is_query_service:
-                with pytest.raises(APIQueriesBudgetExceeded):
-                    runner._call_with_rate_limits(dashboard_id=None)
-            else:
-                result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
-                assert result == "stub result"
+            result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
+        assert result == "stub result"
+
+    @parameterized.expand(
+        [
+            ("budgeted", {}),
+            ("caller_supplied_endpoints_product_tag", {"product": Product.ENDPOINTS}),
+            ("caller_supplied_data_catalog_product_tag", {"product": Product.DATA_CATALOG}),
+        ]
+    )
+    def test_call_with_rate_limits_enforces_the_budget_for_budgeted_queries(self, _name, tags):
+        self._drain()
+        runner = self._runner(is_query_service=True)
+        tag_queries(api_queries_budgeted=True, **tags)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
+                patch.object(runner, "calculate", return_value="stub result"),
+                pytest.raises(APIQueriesBudgetExceeded),
+            ):
+                runner._call_with_rate_limits(dashboard_id=None)
+        finally:
+            reset_query_tags()
 
     def test_concurrency_limit_ignores_billing_quota_limited_teams(self):
         # get_api_queries_concurrency_limit reads the plain `posthog.settings` module

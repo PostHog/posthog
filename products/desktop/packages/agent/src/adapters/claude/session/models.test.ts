@@ -64,15 +64,15 @@ describe("model capability flags", () => {
     {
       modelId: "claude-opus-4-5",
       oneMContext: false,
-      effort: false,
+      effort: true,
       xhighEffort: false,
       mcpInjection: true,
     },
     {
       modelId: "claude-opus-4-6",
       oneMContext: false,
-      effort: false,
-      xhighEffort: false,
+      effort: true,
+      xhighEffort: true,
       mcpInjection: true,
     },
     {
@@ -178,9 +178,10 @@ describe("resolveEffortForModel", () => {
     ["claude-sonnet-5", undefined, "high"],
     ["@cf/zai-org/glm-5.2", undefined, "high"],
     ["zai-org/glm-5.3", undefined, "high"],
+    ["claude-opus-4-6", undefined, "high"],
     // Models without effort support stay unset (SDK disables thinking).
     ["claude-haiku-4-5", undefined, undefined],
-    ["claude-opus-4-6", undefined, undefined],
+    ["moonshotai/kimi-k3", undefined, undefined],
     // An explicit choice is always honored, including on adaptive-only models.
     ["claude-opus-4-8", "low", "low"],
     ["claude-fable-5", "max", "max"],
@@ -196,15 +197,19 @@ describe("resolveEffortForModel", () => {
 describe("getEffortOptions", () => {
   it("returns null for models without effort support", () => {
     expect(getEffortOptions("claude-haiku-4-5")).toBeNull();
-    expect(getEffortOptions("claude-opus-4-6")).toBeNull();
+    // Named by the catalog, but with no effort control at all.
+    expect(getEffortOptions("moonshotai/kimi-k3")).toBeNull();
   });
 
   it.each([
     ["claude-sonnet-4-6", ["low", "medium", "high"]],
+    ["claude-opus-4-6", ["low", "medium", "high", "xhigh", "max"]],
     ["claude-opus-4-7", ["low", "medium", "high", "xhigh", "max", "ultracode"]],
     ["@cf/zai-org/glm-5.2", ["high", "max"]],
     ["zai-org/glm-5.3", ["high", "max"]],
     ["zai-org/glm-5.3-flash", ["high", "max"]],
+    // A provider-qualified id resolves to the same model as the bare one.
+    ["anthropic/claude-sonnet-4-6", ["low", "medium", "high"]],
   ])("returns the exact effort levels for %s", (modelId, expected) => {
     expect(getEffortOptions(modelId)?.map((o) => o.value)).toEqual(expected);
   });

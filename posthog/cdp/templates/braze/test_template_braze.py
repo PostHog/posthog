@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 
 from posthog.cdp.templates.braze.template_braze import template as template_braze
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
@@ -7,7 +7,7 @@ from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 class TestTemplateBraze(BaseHogFunctionTemplateTest):
     template = template_braze
 
-    @freeze_time("2024-04-16T12:34:51Z")
+    @time_machine.travel("2024-04-16T12:34:51Z", tick=False)
     def test_function_works(self):
         res = self.run_function(
             inputs={

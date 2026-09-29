@@ -140,6 +140,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "defaultValueOfTypeName": HogQLFunctionMeta("defaultValueOfTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
+    "MD5": HogQLFunctionMeta("MD5", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
 

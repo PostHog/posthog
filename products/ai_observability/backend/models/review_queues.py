@@ -9,7 +9,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     objects: models.Manager["ReviewQueue"]
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
 
     class Meta:
@@ -45,7 +45,7 @@ class ReviewQueue(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
 class ReviewQueueItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
     objects: models.Manager["ReviewQueueItem"]
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     queue = models.ForeignKey(ReviewQueue, on_delete=models.CASCADE, related_name="items")
     trace_id = models.CharField(max_length=255)
 

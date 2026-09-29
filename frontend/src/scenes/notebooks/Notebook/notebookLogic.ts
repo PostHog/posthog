@@ -68,11 +68,13 @@ import {
 import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import type { Node } from '../../../queries/schema/schema-general'
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
     collectNodeIndices,
     collectNotebookFrameNodes,
+    collectRunnableCellNodeIds,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
@@ -308,7 +310,7 @@ export interface notebookLogicValues {
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -341,6 +343,7 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
+    runnableCellNodeIds: string[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -684,6 +687,7 @@ export interface notebookLogicMeta {
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        runnableCellNodeIds: (content: JSONContent) => string[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
@@ -703,8 +707,8 @@ export interface notebookLogicMeta {
         cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
         getSharedCachedInsight: (
             isShared: boolean,
-            cachedInsightsByShortId: Record<string, InsightModel>
-        ) => (shortId: string | null | undefined) => InsightModel | null
+            cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
+        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
@@ -1443,6 +1447,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        runnableCellNodeIds: [(s) => [s.content], (content: JSONContent) => collectRunnableCellNodeIds(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [
             // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.

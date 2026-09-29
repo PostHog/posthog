@@ -1,8 +1,12 @@
 Return per-value counts for a single facet — the distribution of a log dimension across a filter set, ordered by count descending. This is the cheap way to see the _shape_ of a log stream (e.g. "which services produce the errors?") without pulling raw rows.
 
-Counts are cross-filtered: every active filter is applied _except the faceted field's own filter_, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: ["api"]` still returns every service, not just `api`.
+All parameters go inside `query` — top-level fields are rejected. Provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither:
 
-All parameters must be nested inside a `query` object. You must provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither.
+```json
+{ "query": { "facetField": "service_name", "dateRange": { "date_from": "-1h" } } }
+```
+
+Counts are cross-filtered: every active filter is applied _except the faceted field's own filter_, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: ["api"]` still returns every service, not just `api`.
 
 # When to use
 

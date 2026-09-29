@@ -8,6 +8,8 @@ export interface GoalLineConfig {
     color?: string
     labelPosition?: 'start' | 'end'
     displayIfCrossed?: boolean
+    /** Forwarded to {@link ReferenceLineProps.showValueOnHover}; defaults to true. */
+    showValueOnHover?: boolean
 }
 
 export function computeSeriesNonZeroMax(series: Series[]): number {
@@ -47,6 +49,7 @@ export function buildGoalLineReferenceLines(
             labelPosition: line.labelPosition ?? 'end',
             variant: 'goal',
             style: line.color ? { color: line.color } : undefined,
+            showValueOnHover: line.showValueOnHover,
         }))
 }
 

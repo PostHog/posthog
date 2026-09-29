@@ -9,6 +9,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -29,6 +30,21 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
+
+/** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
+ *  space — using `textContent` on the whole cell would both smush visually-separated children
+ *  (e.g. a label plus a tag) together and lose nothing to `text-overflow` clipping, since
+ *  `textContent` always reflects the full DOM value regardless of CSS. Exported for testing. */
+export function extractCellText(cell: HTMLElement): string {
+    const parts: string[] = []
+    cell.childNodes.forEach((node) => {
+        const text = node.textContent?.trim()
+        if (text) {
+            parts.push(text)
+        }
+    })
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
 
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -111,6 +127,15 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
+    /**
+     * Whether the header row stays visible while the page scrolls. The header pins to the scene's scroll
+     * container from the `@2xl/main-content` breakpoint up, the same as `SceneStickyBar`. Set the
+     * `--lemon-table-sticky-header-top` CSS variable on an ancestor to pin it below other sticky content.
+     * The header only pins while the table fits its container: a table that must scroll horizontally
+     * keeps its scroll container, which stops the header from pinning to the page.
+     * Has no effect together with `allowContentScroll`.
+     */
+    stickyHeader?: boolean
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -118,6 +143,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
      *  action bar above the table whenever any rows are selected. */
     bulkSelection?: BulkSelectionConfig<T, K>
+    /** Enable a right-click "Copy cell contents" affordance on each data cell. Off by default —
+     *  only opt in on data-result tables (query/insight/SQL result tables) where cells are scalar
+     *  values. Not for entity-list tables, where composed cells (dates, tags, avatars) would copy
+     *  a misleading rendered string. */
+    enableCellCopy?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
@@ -159,9 +189,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
+    stickyHeader = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
+    enableCellCopy = false,
 }: LemonTableProps<T, K>): JSX.Element {
     if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
         throw new Error(
@@ -212,6 +244,23 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     const baseColumns = useMemo(() => baseColumnGroups.flatMap((group) => group.children), [baseColumnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
+
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
+    // reference (no extra components or DOM), so this stays cheap even on very large tables.
+    const handleCellContextMenu = useCallback(
+        (event: React.MouseEvent<HTMLTableCellElement>) => {
+            const text = extractCellText(event.currentTarget)
+            if (!text) {
+                closeCopyMenu() // Nothing to copy — close any open menu and fall back to the native one
+                return
+            }
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
@@ -273,6 +322,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         getKey: resolveRowKey,
         isRowSelectable: bulkSelection?.isRowSelectable,
         initialSelectedKeys: bulkSelection?.initialSelectedKeys,
+        clearSelectionKey: bulkSelection?.clearSelectionKey,
     })
 
     const effectiveNoun = bulkSelection?.noun ?? nouns
@@ -332,6 +382,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }, [baseColumnGroups, selectionColumn])
 
     const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
+    const canStickHeader = stickyHeader && !allowContentScroll
+    const tableFitsContainer = useTableFitsContainer(canStickHeader, scrollRef, tableRef)
     const previousPageRef = useRef<number | null>(null)
 
     useEffect(() => {
@@ -408,6 +460,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
+                    canStickHeader && tableFitsContainer && 'LemonTable--sticky-header',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -428,7 +481,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
-                                        <col style={{ width: '1%' }} />
+                                        <col style={{ width: tableLayout === 'fixed' ? '3rem' : '1%' }} />
                                     ) /* Expand/collapse column */
                                 }
                                 {columns
@@ -744,6 +797,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
+                                                onCellContextMenu={enableCellCopy ? handleCellContextMenu : undefined}
                                             />
                                         )
                                     })
@@ -785,6 +839,38 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
+            {enableCellCopy && copyMenu}
         </>
     )
+}
+
+/**
+ * Whether the table is no wider than its scroll viewport, so the viewport can stop scrolling horizontally.
+ * Only measures when `enabled` is true.
+ */
+function useTableFitsContainer(
+    enabled: boolean,
+    viewportRef: React.RefObject<HTMLDivElement>,
+    tableRef: React.RefObject<HTMLTableElement>
+): boolean {
+    const [fits, setFits] = useState(false)
+
+    useEffect(() => {
+        const viewport = viewportRef.current
+        const table = tableRef.current
+        if (!enabled || !viewport || !table || typeof ResizeObserver === 'undefined') {
+            setFits(false)
+            return
+        }
+        // Compare the table's own width with the viewport. This stays correct while the viewport clips
+        // instead of scrolls, so the result cannot flap between the two modes.
+        const update = (): void => setFits(table.offsetWidth <= viewport.clientWidth)
+        const observer = new ResizeObserver(update)
+        observer.observe(viewport)
+        observer.observe(table)
+        update()
+        return () => observer.disconnect()
+    }, [enabled, viewportRef, tableRef])
+
+    return fits
 }

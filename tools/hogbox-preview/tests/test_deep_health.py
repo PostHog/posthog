@@ -41,6 +41,7 @@ class _RecordingBackend:
 
     def __init__(self, *, probe_result: ExecResult | None = None):
         self.web_port = 8000
+        self.web_url = "https://pen-test.boxes.example.dev"
         self.files: dict[str, str] = {}
         self.execs: list[str] = []
         self.long_runs: list[str] = []

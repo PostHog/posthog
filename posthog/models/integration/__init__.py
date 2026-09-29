@@ -32,6 +32,11 @@ from .clickup import ClickUpIntegration
 from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
 from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
+from .external_issues import (
+    SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
+    external_issue_url,
+    is_supported_external_issue_provider,
+)
 from .github import (
     GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -75,6 +80,7 @@ from .oauth import (
     OauthConfig,
     OauthIntegration,
     posthog_connect_base_url,
+    resolve_aliased_oauth_kind,
 )
 from .postgres import (
     MISSING_CERT_PATH,
@@ -117,9 +123,9 @@ from .refresh_tracking import (
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
-    SLACK_CHANNELS_MAX_PAGES,
     SLACK_CHANNELS_PAGE_SIZE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_REQUESTS,
     SlackIntegration,
     SlackIntegrationError,
     SlackRequestSignature,
@@ -178,12 +184,13 @@ __all__ = [
     "POSTHOG_CONNECT_IDENTITY_SCOPES",
     "POSTHOG_CONNECT_GRANTABLE_SCOPES",
     "posthog_connect_base_url",
+    "resolve_aliased_oauth_kind",
     "OauthIntegration",
     "PRIVATE_CHANNEL_WITHOUT_ACCESS",
     "SlackIntegrationError",
     "SLACK_INTEGRATION_KINDS",
     "SLACK_CHANNELS_PAGE_SIZE",
-    "SLACK_CHANNELS_MAX_PAGES",
+    "SLACK_LISTING_MAX_REQUESTS",
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",
@@ -198,6 +205,9 @@ __all__ = [
     "EmailIntegration",
     "cleanup_ses_identity_on_integration_delete",
     "LinearIntegration",
+    "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
+    "external_issue_url",
+    "is_supported_external_issue_provider",
     "JiraIntegration",
     "GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS",
     "GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS",

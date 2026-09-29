@@ -14,9 +14,16 @@ from products.tasks.backend.presentation.desktop_serializers import DesktopBetaT
 
 
 class DesktopBetaTermsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "organization"
+    scope_object = "project"
     permission_classes = [OrganizationAdminWritePermissions]
     pagination_class = None
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if self.action == "create":
+            return ["organization:write"]
+        if self.action == "list" or request.method == "OPTIONS":
+            return ["organization:read"]
+        return None
 
     @extend_schema(responses={200: DesktopBetaTermsAcceptanceSerializer})
     def list(self, request: Request, **kwargs) -> Response:

@@ -4,14 +4,14 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { desktopBetaTermsLogic } from './desktopBetaTermsLogic'
 import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
 export function OrganizationDesktopBetaTerms(): JSX.Element {
-    const { currentOrganization } = useValues(organizationLogic)
-    const logic = desktopBetaTermsLogic({ organizationId: currentOrganization?.id ?? '@current' })
+    const { currentProjectId } = useValues(projectLogic)
+    const logic = desktopBetaTermsLogic({ projectId: String(currentProjectId ?? '@current') })
     const { desktopBetaTermsAccepted, desktopBetaTermsAcceptedLoading } = useValues(logic)
     const { acceptDesktopBetaTerms } = useActions(logic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })

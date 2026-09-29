@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -147,7 +147,7 @@ class TestHelpers:
 
 
 class TestGetRows:
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_single_window_rows_tagged_with_station_and_state_saved_after_yield(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": [{"date": "2026-07-18", "tavg": 20.5}]})
@@ -165,7 +165,7 @@ class TestGetRows:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [MeteostatResumeConfig(station_index=0, next_start="2026-07-22")]
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_multiple_stations_are_each_queried_across_the_full_range(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": [{"date": "2026-07-18", "tavg": 5.0}]})
@@ -176,7 +176,7 @@ class TestGetRows:
         assert [p["station"] for p in params] == ["10637", "71508"]
         assert [batch[0]["station_id"] for batch in batches] == ["10637", "71508"]
 
-    @freeze_time("2026-08-15")
+    @time_machine.travel("2026-08-15", tick=False)
     def test_long_range_is_chunked_into_contiguous_windows_within_the_vendor_cap(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -193,7 +193,7 @@ class TestGetRows:
             assert date.fromisoformat(current["start"]) == date.fromisoformat(previous["end"]) + timedelta(days=1)
         assert date.fromisoformat(params[-1]["end"]) == date(2026, 8, 15)
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_incremental_start_uses_overlap_window(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -210,7 +210,7 @@ class TestGetRows:
         # Re-fetches a 7 day trailing overlap so late corrections get picked up; merge dedupes.
         assert params == [{"station": "10637", "start": "2026-07-08", "end": "2026-07-21"}]
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_resume_state_skips_completed_stations_and_resumes_the_current_one(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -227,7 +227,7 @@ class TestGetRows:
         with pytest.raises(ValueError, match=NO_STATIONS_ERROR):
             _run(DAILY_ENDPOINT, mock.MagicMock(spec=requests.Session), station_ids="  ,  ")
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_station_count_is_capped_at_runtime(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -244,7 +244,7 @@ class TestGetRows:
             ("scientific_includes_units_param", "scientific", True),
         ]
     )
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_units_param_only_sent_for_non_default_unit_system(self, _name, units, expect_param):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -256,7 +256,7 @@ class TestGetRows:
         if expect_param:
             assert params[0]["units"] == units
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_non_ok_status_raises(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(status=500)
@@ -264,7 +264,7 @@ class TestGetRows:
         with pytest.raises(requests.HTTPError):
             _run(DAILY_ENDPOINT, session, station_ids="10637", start_date="2026-07-20")
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_start_date_before_floor_is_clamped(self):
         # A too-old start_date is re-checked (not just rejected at credential validation) so a
         # previously stored configuration can't schedule a runaway backfill either.

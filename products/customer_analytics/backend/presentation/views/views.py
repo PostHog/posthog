@@ -38,7 +38,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -61,15 +61,20 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceListRequestSerializer,
+    AccountPresenceSerializer,
+    AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
@@ -78,6 +83,12 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunRequestSerializer,
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
+    AccountViewCreateSerializer,
+    AccountViewDeleteQuerySerializer,
+    AccountViewSerializer,
+    AccountViewUpdateSerializer,
+    CalendarSyncBackfillSerializer,
+    CalendarSyncIntervalSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -100,6 +111,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestEvidenceCreateSerializer,
     FeatureRequestEvidenceDeleteSerializer,
     FeatureRequestEvidenceUpdateSerializer,
+    FeatureRequestGitHubLinkSerializerInput,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -114,8 +126,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigSerializer,
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
-
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -617,6 +629,82 @@ class FeatureRequestViewSet(
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(request=FeatureRequestGitHubLinkSerializerInput, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def link_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestGitHubLinkSerializerInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.link_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.LinkFeatureRequestGitHubInput(**serializer.validated_data),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"issue_url": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    def _set_github_sync(self, request: Request, *, enabled: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_github_sync(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                enabled=enabled,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"github_link": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def pause_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=False)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def resume_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def unlink_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.unlink_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
@@ -784,6 +872,106 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    serializer_class = AccountViewSerializer
+    lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    queryset = None
+    pagination_class = None
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+
+    @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        views = api.list_account_views(team_id=self.team_id, user_id=cast(User, request.user).id)
+        return Response(AccountViewSerializer(instance=views, many=True).data)
+
+    @extend_schema(responses={200: AccountViewSerializer}, summary="Get an account view")
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        view = api.get_account_view(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            view_id=UUID(self.kwargs["pk"]),
+        )
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @validated_request(
+        request_serializer=AccountViewCreateSerializer,
+        responses={201: AccountViewSerializer, 400: OpenApiResponse(description="The content is invalid.")},
+        summary="Create a private account view",
+    )
+    def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.create_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                name=request.validated_data["name"],
+                content=request.validated_data["content"],
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=AccountViewUpdateSerializer,
+        responses={
+            200: AccountViewSerializer,
+            400: OpenApiResponse(description="The request is invalid."),
+            404: OpenApiResponse(description="The view was not found."),
+            409: OpenApiResponse(description="The view changed since the supplied version."),
+        },
+        summary="Update an account view",
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.update_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=request.validated_data["version"],
+                name=request.validated_data.get("name"),
+                content=request.validated_data.get("content"),
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Version returned by the last read.",
+            )
+        ],
+        responses={204: None, 404: OpenApiResponse(), 409: OpenApiResponse()},
+        summary="Delete an account view",
+    )
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = AccountViewDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            deleted = api.delete_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=query.validated_data["version"],
+            )
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class UserConfigCanonicalTeamAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
@@ -832,12 +1020,12 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(
                 response=UserCustomerAnalyticsConfigSerializer,
-                description="The requesting user's account sidebar configuration.",
+                description="The requesting user's account sidebar and notification configuration.",
             )
         },
         summary="Get account sidebar configuration",
         description=(
-            "Get the requesting user's account sidebar configuration for this project. "
+            "Get the requesting user's account sidebar and task digest configuration for this project. "
             "The first read creates an empty configuration row."
         ),
     )
@@ -859,26 +1047,42 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         },
         summary="Update account sidebar configuration",
         description=(
-            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
-            "Omitting pinned_properties leaves the configuration unchanged. "
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "and change the task digest email preferences when task_digest is provided. "
+            "Anything omitted keeps its current value. "
             "At most 50 account custom properties and relationships can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if "pinned_properties" not in request.validated_data:
-            return self.retrieve(request, *args, **kwargs)
-        pinned_properties = [
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-            for reference in request.validated_data["pinned_properties"]
-        ]
-        try:
-            config = api.update_user_customer_analytics_config(
+        user_id = cast(User, request.user).id
+        config: contracts.UserCustomerAnalyticsConfig | None = None
+
+        if "pinned_properties" in request.validated_data:
+            pinned_properties = [
+                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                for reference in request.validated_data["pinned_properties"]
+            ]
+            try:
+                config = api.update_user_customer_analytics_config(
+                    team_id=self.team_id,
+                    user_id=user_id,
+                    pinned_properties=pinned_properties,
+                )
+            except api.InvalidPinnedAccountProperties as error:
+                raise ValidationError({"pinned_properties": error.errors})
+
+        if "task_digest" in request.validated_data:
+            task_digest = request.validated_data["task_digest"]
+            config = api.update_user_task_digest_preferences(
                 team_id=self.team_id,
-                user_id=cast(User, request.user).id,
-                pinned_properties=pinned_properties,
+                user_id=user_id,
+                enabled=task_digest.get("enabled"),
+                send_time=task_digest.get("send_time"),
+                cadence=task_digest.get("cadence"),
             )
-        except api.InvalidPinnedAccountProperties as error:
-            raise ValidationError({"pinned_properties": error.errors})
+
+        if config is None:
+            return self.retrieve(request, *args, **kwargs)
         return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 
@@ -1210,6 +1414,8 @@ class AccountRelationshipDefinitionViewSet(
             )
         except api.AccountRelationshipDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and must stay single-holder.")
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -1219,7 +1425,11 @@ class AccountRelationshipDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+        try:
+            deleted = api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"])
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and can't be deleted while it is.")
+        if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1357,6 +1567,8 @@ class CustomPropertySourceViewSet(
                 fields=write.validated_data,
                 user_access_control=_warehouse_scoped_uac(self),
             )
+        except api.CustomPropertySourceValidationError as e:
+            raise ValidationError(str(e))
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         if source is None:
@@ -1421,8 +1633,8 @@ class CustomPropertySourceViewSet(
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person and group sources only: start a backfill that reads the whole warehouse table and
-        populates person or group properties for historical rows. Coalesces if one is already running
-        for the table."""
+        populates person or group properties for historical rows. If one is already running for the
+        table, queue a follow-up that observes the latest mapping."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(
@@ -1721,6 +1933,74 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @validated_request(
+        query_serializer=AccountByExternalIdQuerySerializer,
+        operation_id="accounts_by_external_id_retrieve",
+        responses={200: OpenApiResponse(response=AccountSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def by_external_id(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        try:
+            account = api.get_account_for_view_by_external_id(
+                team_id=self.team_id,
+                external_id=request.validated_query_data["external_id"],
+                user_access_control=self.user_access_control,
+                required_level=_object_required_level(request, write=False),
+            )
+        except api.Account_DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except api.ResourceForbiddenError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountSerializer(instance=account).data)
+
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        request=None,
+        responses={200: AccountPresenceViewerSerializer(many=True)},
+    )
+    @action(methods=["POST"], detail=True, pagination_class=None, required_scopes=["account:read"])
+    def presence(self, request: Request, *args, **kwargs) -> Response:
+        if is_service_auth(request):
+            if api.get_account(self.team_id, self.kwargs["pk"]) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response([])
+        viewers = api.list_account_presence_viewers(
+            self.team_id,
+            self.kwargs["pk"],
+            self.user_access_control,
+            cast(User, request.user),
+        )
+        if viewers is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
+
+    @validated_request(
+        request_serializer=AccountPresenceListRequestSerializer,
+        operation_id="accounts_presence_list",
+        responses={200: AccountPresenceSerializer(many=True)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def presence_list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        account_ids = [str(account_id) for account_id in request.validated_data["account_ids"]]
+        viewer_user_id = None if is_service_auth(request) else cast(User, request.user).id
+        presence = api.list_accounts_presence(
+            self.team_id,
+            account_ids,
+            self.user_access_control,
+            viewer_user_id=viewer_user_id,
+        )
+        return Response(AccountPresenceSerializer(instance=presence, many=True).data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
@@ -2010,6 +2290,11 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
             raise PermissionDenied()
+        except api.AccountOwnershipManagedError:
+            raise Conflict(
+                "This account has a controlled relationship, or history under one, so it can't be deleted. "
+                "Ignore the account to hide it instead."
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2097,19 +2382,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        notebook = api.create_account_notebook(
-            team_id=self.team_id,
-            team=self.team,
-            account_id=self.parents_query_dict["account_id"],
-            input=contracts.CreateAccountNotebookInput(
-                title=data.title,
-                content=data.content,
-                text_content=data.text_content,
-                synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-            ),
-            user=cast(User, request.user),
-            user_access_control=self.user_access_control,
-        )
+        try:
+            notebook = api.create_account_notebook(
+                team_id=self.team_id,
+                team=self.team,
+                account_id=self.parents_query_dict["account_id"],
+                input=contracts.CreateAccountNotebookInput(
+                    title=data.title,
+                    content=data.content,
+                    text_content=data.text_content,
+                    synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
+                ),
+                user=cast(User, request.user),
+                user_access_control=self.user_access_control,
+            )
+        except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
+            raise ValidationError({"content": str(err)})
         if notebook is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)
@@ -2128,18 +2416,18 @@ class AccountNotebookViewSet(
 
 def _synthesize_notebook_content(text_content, existing_content):
     """When the caller passed Markdown ``text_content`` but no usable ProseMirror ``content``
-    tree, build one from the Markdown. Agents calling the MCP notebook-create tool typically
-    send ``text_content`` only (hand-writing ProseMirror is awkward), and NotebookScene only
-    renders ``content`` — so without this the result is a blank page. The tiptap helper lives
-    in ``ee.hogai`` and stays in the view so it never reaches the facade import path. Returns
-    ``None`` when the caller already supplied usable content (or no markdown)."""
+    tree, build a markdown notebook document from the Markdown. Agents calling the MCP
+    notebook-create tool typically send ``text_content`` only, because hand-writing ProseMirror
+    is awkward, and NotebookScene renders ``content`` only, so without this the result is a
+    blank page. Returns ``None`` when the caller already supplied usable content (or no
+    markdown)."""
     has_usable_content = (
         isinstance(existing_content, dict)
         and existing_content.get("type") == "doc"
         and isinstance(existing_content.get("content"), list)
     )
     if text_content and not has_usable_content:
-        return {"type": "doc", "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}]}
+        return build_markdown_notebook_content(text_content)
     return None
 
 
@@ -2314,6 +2602,11 @@ class AccountRelationshipDeletePermission(BasePermission):
         return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
 
 
+_AGENT_ROLE_MANAGED = (
+    "This relationship is controlled here and can't be changed by an agent. Change it from the account page."
+)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2373,6 +2666,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 definition_id=write.validated_data["definition"],
                 user_id=write.validated_data["user"],
                 created_by=cast(User, request.user),
+                via_agent=is_mcp_request(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2380,6 +2674,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise ValidationError({"definition": "Relationship definition not found."})
         except api.AccountRelationshipAssigneeNotInOrganization:
             raise ValidationError({"user": "User is not a member of this organization."})
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
@@ -2388,12 +2684,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        relationship = api.end_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            relationship = api.end_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
@@ -2405,12 +2705,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        deleted = api.delete_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            deleted = api.delete_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipProtectedError:
+            raise Conflict("The history of a controlled relationship can't be deleted. End the assignment instead.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -2602,6 +2906,59 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def list(self, request: Request, *args, **kwargs) -> Response:
         statuses = api.list_calendar_sync_statuses(self.team_id)
         return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncIntervalSerializer,
+        responses={200: CalendarSyncIntervalSerializer},
+        summary="Set Google account sync interval",
+    )
+    @action(methods=["POST"], detail=False, url_path="interval")
+    def interval(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only project admins can change Google account sync intervals.")
+        integration_id = request.validated_data["integration_id"]
+        interval_minutes = request.validated_data["sync_interval_minutes"]
+        if not api.update_calendar_sync_interval(self.team_id, integration_id, interval_minutes):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CalendarSyncIntervalSerializer(instance=request.validated_data).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncBackfillSerializer,
+        responses={200: OpenApiResponse(response=CalendarSyncTriggerResponseSerializer)},
+        summary="Backfill a connected Google account",
+        description="Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.",
+    )
+    @action(methods=["POST"], detail=False, url_path="backfill")
+    def backfill(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_google_account_backfill(
+                self.team_id,
+                request.validated_data["integration_id"],
+                start_date=request.validated_data["start_date"],
+                end_date=request.validated_data["end_date"],
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only project admins can backfill Google accounts.")
+        except api.GoogleAccountBackfillUnavailable:
+            raise ValidationError(
+                {"integration_id": "This Google account cannot sync email. Ask its owner to reconnect it."}
+            )
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        report_user_action(
+            cast(User, request.user),
+            "google account backfill triggered",
+            {
+                "range_days": (request.validated_data["end_date"] - request.validated_data["start_date"]).days + 1,
+                "already_running": result == "already_running",
+            },
+            team=self.team,
+        )
+        return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)
 
     @validated_request(
         request_serializer=CalendarSyncTriggerSerializer,

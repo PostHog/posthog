@@ -1,0 +1,105 @@
+import time
+import threading
+import contextvars
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Optional, ParamSpec, TypeVar
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+# Fallback hold when a 429 carries no Retry-After, and the quiet window the rate doubles back over.
+# No vendor documents it: it is a conservative guess, kept at the value the Stripe invoice walker
+# shipped with. A vendor whose limit is per second clears far sooner than this, so pass a shorter
+# hold rather than inheriting one sized for a header that vendor never sends.
+RATE_LIMIT_HOLD_SECONDS = 30.0
+
+
+def submit_with_context(
+    pool: ThreadPoolExecutor, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+) -> Future[_T]:
+    """Run `fn` on the pool inside a copy of the caller's context.
+
+    Pool threads start with an empty context, which would strip the team and job labels that the
+    HTTP observer and structlog read from contextvars.
+    """
+    ctx = contextvars.copy_context()
+    return pool.submit(lambda: ctx.run(fn, *args, **kwargs))
+
+
+class RequestPacer:
+    """Spaces request starts across threads and slows the whole pool after a rate limit.
+
+    Every worker calls wait_turn() before a request, so the pool never starts more than
+    `per_second` requests in any second. A 429 halves the rate for the hold window and, when
+    the vendor sends Retry-After, holds every worker until it passes, including workers already
+    waiting for a slot. Each quiet window after that doubles the rate back until the base rate
+    is restored.
+
+    The budget being protected belongs to the customer's own account on the vendor, so this is a
+    caller-side courtesy rather than a shared PostHog budget. An API whose credential PostHog owns
+    belongs in `posthog/egress/` instead.
+    """
+
+    def __init__(
+        self,
+        per_second: float,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        hold_seconds: float = RATE_LIMIT_HOLD_SECONDS,
+    ) -> None:
+        self._base_interval = 1.0 / per_second
+        self._interval = self._base_interval
+        self._clock = clock
+        self._sleep = sleep
+        self._hold_seconds = hold_seconds
+        self._lock = threading.Lock()
+        self._next_start = 0.0
+        self._hold_until = 0.0
+        self._recover_at: Optional[float] = None
+
+    def wait_turn(self) -> None:
+        start = self._reserve_slot()
+        while True:
+            delay = start - self._clock()
+            if delay > 0:
+                self._sleep(delay)
+            with self._lock:
+                if self._hold_until <= start:
+                    return
+            # A throttle arrived during the sleep and its hold covers this slot: take a later one.
+            start = self._reserve_slot()
+
+    def _reserve_slot(self) -> float:
+        with self._lock:
+            now = self._clock()
+            if self._recover_at is not None and now >= self._recover_at:
+                self._interval = max(self._interval / 2, self._base_interval)
+                self._recover_at = None if self._interval == self._base_interval else now + self._hold_seconds
+            start = max(now, self._next_start)
+            self._next_start = start + self._interval
+            return start
+
+    def throttled(self, retry_after: Optional[float]) -> None:
+        with self._lock:
+            now = self._clock()
+            if now < self._hold_until:
+                # Requests already in flight when the first 429 landed report the same throttle, so
+                # a repeat changes nothing by itself. A vendor naming a deadline past the hold
+                # already running is not a repeat: honouring only the first would resume early and
+                # earn the next 429. A missing or shorter header still says nothing new.
+                if retry_after is not None and retry_after > 0:
+                    deadline = now + retry_after
+                    if deadline > self._hold_until:
+                        self._hold_until = deadline
+                        self._next_start = max(self._next_start, deadline)
+                        self._recover_at = deadline if self._recover_at is None else max(self._recover_at, deadline)
+                return
+            hold = retry_after if retry_after is not None and retry_after > 0 else self._hold_seconds
+            self._interval = min(self._interval * 2, self._base_interval * 16)
+            # The hold applies whether or not the vendor named one. Reducing the rate alone lets a
+            # worker start again immediately, which is the opposite of standing down, and a vendor
+            # that documents no Retry-After would never be held at all.
+            self._hold_until = now + hold
+            self._next_start = max(self._next_start, self._hold_until)
+            self._recover_at = now + hold

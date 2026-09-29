@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import * as scientistPng from '@posthog/brand/hoggies/png/scientist'
-import { IconChevronRight, IconEllipsis } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconGear } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -9,22 +8,31 @@ import {
     LemonInput,
     LemonMenu,
     LemonSegmentedButton,
+    LemonSkeleton,
     LemonTable,
     LemonTag,
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { CheckEditorModal } from '../CheckEditorModal'
 import { CheckRunsTable } from '../CheckRunsTable'
-import { HEALTH_TAG_TYPES, SUBJECT_TYPE_TAGS, checkDisplayName, checkTypeLabel } from '../checksConstants'
+import {
+    HEALTH_LABELS,
+    HEALTH_TAG_TYPES,
+    SUBJECT_TYPE_TAGS,
+    checkDisplayName,
+    checkTypeLabel,
+} from '../checksConstants'
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
+import { DataQualitySchedule } from '../DataQualitySchedule'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
-import { DataQualityGateToggle } from './DataQualityGateToggle'
+import { SubjectTypeEnumApi } from '../generated/api.schemas'
+import { DataQualityEmptyState } from './DataQualityEmptyState'
 import {
     NEW_CHECK_ACTION_ID,
     OverviewStatusFilter,
@@ -41,8 +49,6 @@ const STATUS_FILTERS: { value: OverviewStatusFilter; label: string }[] = [
     { value: 'failing', label: 'Failing' },
     { value: 'never_run', label: 'Not run yet' },
 ]
-
-const HedgehogScientist = pngHoggie(scientistPng)
 
 function focusFirstAvailable(elementIds: string[]): void {
     // Runs after the removed row has left the DOM, so the first id that still resolves wins.
@@ -100,9 +106,39 @@ export function DataQualityOverview(): JSX.Element {
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
     const anyRunActive = startingRun || isRunning
+    const settingsButton = (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconGear />}
+            to={urls.settings('environment-data-quality')}
+            tooltip="Data quality settings"
+            aria-label="Data quality settings"
+            data-attr="data-quality-overview-settings"
+        />
+    )
+    const newCheckButton = (
+        <LemonButton
+            id={NEW_CHECK_ACTION_ID}
+            type="primary"
+            size="small"
+            onClick={addCheck}
+            data-attr="data-quality-overview-new-check"
+        >
+            New check
+        </LemonButton>
+    )
 
     if (!snapshotLoaded && overviewLoading) {
-        return <LemonTable dataSource={[]} loading columns={[{ title: 'Check', key: 'name' }]} />
+        return (
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonSkeleton className="h-8 w-64 max-w-full" />
+                    <LemonSkeleton className="h-8 w-48" />
+                </div>
+                <LemonSkeleton.Row repeat={3} fade />
+            </div>
+        )
     }
 
     if (!snapshotLoaded && overviewError) {
@@ -116,50 +152,45 @@ export function DataQualityOverview(): JSX.Element {
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-3">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search checks"
-                            value={filters.search}
-                            onChange={(search) => setFilters({ search })}
-                            className="w-full md:w-64"
-                        />
-                        <LemonSegmentedButton
-                            size="small"
-                            value={filters.status}
-                            onChange={(status) => setFilters({ status })}
-                            options={STATUS_FILTERS}
-                            className="w-full md:w-auto"
-                        />
+                {checks.length === 0 ? (
+                    <div className="flex justify-end gap-2">
+                        {settingsButton}
+                        {newCheckButton}
                     </div>
+                ) : (
                     <div className="flex flex-wrap items-center gap-2">
-                        <DataQualityGateToggle />
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => runChecks({ kind: 'all' })}
-                            loading={runningAll}
-                            disabledReason={
-                                checks.length === 0
-                                    ? 'There are no checks to run'
-                                    : anyRunActive && !runningAll
-                                      ? 'Checks are already running'
-                                      : undefined
-                            }
-                            data-attr="data-quality-overview-run-all"
-                        >
-                            Run all checks
-                        </LemonButton>
-                        <LemonButton
-                            id={NEW_CHECK_ACTION_ID}
-                            type="primary"
-                            onClick={addCheck}
-                            data-attr="data-quality-overview-new-check"
-                        >
-                            New check
-                        </LemonButton>
+                        <div className="flex flex-wrap items-center gap-2 grow basis-full @2xl/main-content:basis-0">
+                            <LemonInput
+                                type="search"
+                                size="small"
+                                placeholder="Search checks"
+                                value={filters.search}
+                                onChange={(search) => setFilters({ search })}
+                                className="flex-1 min-w-40 max-w-64"
+                            />
+                            <LemonSegmentedButton
+                                size="small"
+                                value={filters.status}
+                                onChange={(status) => setFilters({ status })}
+                                options={STATUS_FILTERS}
+                            />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 ml-auto">
+                            {settingsButton}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => runChecks({ kind: 'all' })}
+                                loading={runningAll}
+                                disabledReason={anyRunActive && !runningAll ? 'Checks are already running' : undefined}
+                                data-attr="data-quality-overview-run-all"
+                            >
+                                Run all checks
+                            </LemonButton>
+                            {newCheckButton}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}
 
@@ -185,7 +216,7 @@ export function DataQualityOverview(): JSX.Element {
                 )}
 
                 {checks.length === 0 ? (
-                    <NoChecksYet onAddCheck={addCheck} />
+                    <DataQualityEmptyState onAddCheck={addCheck} />
                 ) : subjectGroups.length === 0 ? (
                     <div className="flex items-center gap-2">
                         <span className="text-secondary">No checks match these filters.</span>
@@ -208,27 +239,20 @@ export function DataQualityOverview(): JSX.Element {
     )
 }
 
-function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
-    return (
-        <div
-            data-attr="data-quality-overview-empty-state"
-            className="border rounded px-4 py-8 flex flex-col items-center text-center mx-auto"
-        >
-            <HedgehogScientist width="128" height="128" className="mb-4" />
-            <h2 className="text-xl leading-tight">No checks yet</h2>
-            <p className="mb-4 text-sm text-balance text-tertiary">
-                Create a check to spot issues in your data before they affect your analysis.
-            </p>
-            <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-overview-first-check">
-                Add your first check
-            </LemonButton>
-        </div>
-    )
-}
+const SCHEDULED_SUBJECT_TYPES: string[] = [SubjectTypeEnumApi.Metric, SubjectTypeEnumApi.PosthogTable]
 
 function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
-    const { expandedSubjectKeys, startingRun, isRunning, runningSubjectKey, runTarget, runError, pollTimedOut } =
-        useValues(dataQualityOverviewLogic)
+    const {
+        expandedSubjectKeys,
+        startingRun,
+        isRunning,
+        runningSubjectKey,
+        runTarget,
+        runError,
+        pollTimedOut,
+        scheduleBySubjectKey,
+        subjectSchedulesLoading,
+    } = useValues(dataQualityOverviewLogic)
     const { toggleSubjectExpanded, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const subjectType = SUBJECT_TYPE_TAGS[group.subjectType]
@@ -260,15 +284,17 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                         <Link
                             to={group.detailUrl}
                             target="_blank"
-                            className="font-semibold"
+                            className="font-semibold truncate max-w-full"
                             tooltip={`Open ${group.subjectName} in a new tab`}
                         >
                             {group.subjectName}
                         </Link>
                     ) : (
-                        <span className="font-semibold">{group.subjectName}</span>
+                        <span className="font-semibold truncate max-w-full">{group.subjectName}</span>
                     )}
-                    <LemonTag type={HEALTH_TAG_TYPES[group.health] ?? 'default'}>{group.health}</LemonTag>
+                    <LemonTag type={HEALTH_TAG_TYPES[group.health] ?? 'default'}>
+                        {HEALTH_LABELS[group.health] ?? group.health}
+                    </LemonTag>
                     {subjectType && <LemonTag type={subjectType.type}>{subjectType.label}</LemonTag>}
                     <span className="text-secondary text-sm">
                         {group.checksFailing > 0
@@ -293,9 +319,6 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 </LemonButton>
             </div>
 
-            {scopedToThisSubject && running && (
-                <p className="px-2 pb-2 mb-0 text-secondary text-sm">Running checks...</p>
-            )}
             {scopedToThisSubject && pollTimedOut && (
                 <div className="px-2 pb-2">
                     <LemonBanner type="warning" action={{ children: 'Refresh', onClick: loadOverview }}>
@@ -325,6 +348,19 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 check's controls in the tab order of a panel nobody can see. */}
             {expanded && (
                 <div id={regionId} className="overflow-x-auto">
+                    {SCHEDULED_SUBJECT_TYPES.includes(group.subjectType) && group.subjectUuid ? (
+                        <div className="px-2 pt-2">
+                            <DataQualitySchedule
+                                subjectType={group.subjectType}
+                                subjectId={group.subjectUuid}
+                                initialSchedule={
+                                    scheduleBySubjectKey[group.subjectKey] ??
+                                    (subjectSchedulesLoading ? null : undefined)
+                                }
+                                poll={false}
+                            />
+                        </div>
+                    ) : null}
                     <SubjectChecks group={group} />
                 </div>
             )}

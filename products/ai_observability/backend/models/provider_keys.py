@@ -22,6 +22,7 @@ class LLMProvider(models.TextChoices):
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
+    OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
 
 
 def llm_provider_choices() -> list[tuple[str, str | Promise]]:
@@ -36,14 +37,14 @@ class LLMProviderKey(UUIDTModel):
         INVALID = "invalid"
         ERROR = "error"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     provider = models.CharField(max_length=50, choices=llm_provider_choices)
     name = models.CharField(max_length=255)
     state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -67,6 +68,8 @@ class LLMProviderKey(UUIDTModel):
                 "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),
                 "api_version": self.encrypted_config.get("api_version", ""),
             }
+        if self.provider == LLMProvider.OPENAI_COMPATIBLE:
+            return {"base_url": self.encrypted_config.get("base_url", "")}
         return {}
 
 

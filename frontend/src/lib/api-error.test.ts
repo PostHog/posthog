@@ -1,4 +1,11 @@
-import { ApiError, NetworkError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import {
+    ApiError,
+    NetworkError,
+    ResponseBodyReadError,
+    isScopeNotFoundError,
+    isTransientServerError,
+    shouldReportApiFailure,
+} from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -103,6 +110,11 @@ describe('api-error', () => {
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],
             ['a 405', { status: 405 }, true],
+            // The exception is a 404 that names a dead scope: retrying it can never succeed, so it
+            // is excused globally rather than per caller.
+            ['a project-not-found 404', { status: 404, detail: 'Project not found.' }, false],
+            ['an organization-not-found 404', { status: 404, detail: 'Organization not found.' }, false],
+            ['a 404 for some other missing resource', { status: 404, detail: 'Not found.' }, true],
             // A request the browser never sent. Nothing of ours failed, and grouping is stack-based,
             // so reporting these opens one issue per loader that met the same connectivity blip.
             ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
@@ -122,6 +134,19 @@ describe('api-error', () => {
             // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
             // stays reportable rather than being folded into the suppression above.
             ['a classified NetworkError', new NetworkError('network'), true],
+            // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
+            // stack-based, so one flaky connection would otherwise open an issue per endpoint.
+            [
+                'a body-read failure on a 2xx',
+                new ResponseBodyReadError('Failed to read response body [GET /api/foo] (status 200)'),
+                false,
+            ],
+            // A body that arrived whole but would not parse can be a real backend bug, so it stays.
+            [
+                'a malformed JSON body on a 2xx',
+                new ApiError('Malformed JSON response [GET /api/foo] (status 200)'),
+                true,
+            ],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
@@ -137,6 +162,27 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('isScopeNotFoundError', () => {
+        it.each([
+            ['a project-not-found 404 via detail', { status: 404, detail: 'Project not found.' }, true],
+            ['an org-not-found 404 via detail', { status: 404, detail: 'Organization not found.' }, true],
+            ['a 404 with the detail nested under data', { status: 404, data: { detail: 'Project not found.' } }, true],
+            ['a 404 for another resource', { status: 404, detail: 'Not found.' }, false],
+            ['a 404 with no detail', { status: 404 }, false],
+            ['a 403 that names the project', { status: 403, detail: 'Project not found.' }, false],
+            ['null', null, false],
+        ])('decides whether %s is a scope-not-found error', (_, error, expected) => {
+            expect(isScopeNotFoundError(error)).toBe(expected)
+        })
+
+        it('reads the detail off a constructed ApiError', async () => {
+            const error = await ApiError.fromResponse(
+                new Response(JSON.stringify({ detail: 'Project not found.' }), { status: 404 })
+            )
+            expect(isScopeNotFoundError(error)).toBe(true)
         })
     })
 })

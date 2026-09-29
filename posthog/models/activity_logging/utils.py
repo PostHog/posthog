@@ -1,5 +1,6 @@
 import traceback
-from typing import TYPE_CHECKING, Any, Optional, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -11,11 +12,96 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
+    from posthog.models.oauth import OAuthAccessToken
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
-ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# The MCP server forwards the same intent it sends to analytics as `$mcp_intent`. It is the
+# caller's own claim and does not establish a verified sandbox task binding.
+ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
+ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
+# Sized for a server-derived tag, which is the long case: `scout:` plus the longest name a scout
+# row can hold (`SignalScoutRun.skill_name`, 200 characters). A tag cut mid-name would both
+# misname the scout and split one scout across two values of the audit log client filter.
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 256
+# A self-reported header names an SDK or an integration, so it needs far less room than a derived
+# tag, and the activity log renders it as it arrived. Capping it separately keeps a caller from
+# filling the wider column.
+ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH = 32
+# Set by `OAuthAccessTokenAuthentication` from the scout run bound to a sandbox token.
+SCOUT_CLIENT_PREFIX = "scout:"
+# Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
+# them comes from the authenticated request rather than from the client, so the two kinds of tag
+# must not share a name.
+SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
+
+
+CredentialType = Literal[
+    "session",
+    "personal_api_key",
+    "oauth",
+    "project_secret_key",
+    "team_secret_token",
+    "id_jag",
+    "internal_jwt",
+    "service_jwt",
+    "internal_api_secret",
+    "scim",
+    "vercel",
+    "partner",
+    "unattributed",
+]
+# Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
+# ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
+ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
+
+
+@frozen
+class ActivityCredential:
+    """The credential that authenticated a request, recorded on every activity row it writes.
+
+    Only `ActivityLoggingMiddleware` and the authentication classes set it, from the objects
+    they authenticated, so no request header can change it.
+    """
+
+    type: CredentialType
+    # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
+    # SCIM identity provider config id, the service JWT audience, the Vercel installation id, the
+    # partner application UUID, or `session_public_id` for a session. None when the credential has
+    # no id of its own.
+    id: str | None = None
+    impersonated_by_id: int | None = None
+
+
+def client_from_header(value: str) -> Optional[str]:
+    """The client to store for a self-reported header, or None when the value cannot be stored.
+
+    A header that claims a server-derived prefix is dropped whole rather than trimmed down,
+    because a trimmed value would still read as the client that made the change.
+    """
+    client = value.strip()[:ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH]
+    if not client or client.lower().startswith(SERVER_DERIVED_CLIENT_PREFIXES):
+        return None
+    return client
+
+
+def record_agent_intent(request: Any) -> None:
+    """Store the reason an authenticated caller states for the writes it is about to make.
+
+    The intent is the caller's own claim, so it never supplies a task id: only a token binding
+    the server wrote can do that. Attribution is extra detail on an audit row, so a failure here
+    must not fail the request.
+    """
+    try:
+        if not activity_storage.is_request_scoped():
+            return
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
+        if intent:
+            activity_storage.set_agent_intent(intent)
+    except Exception:
+        logger.warning("activity_log.agent_intent_failed", exc_info=True)
 
 
 @frozen
@@ -70,12 +156,56 @@ class ActivityLoggingStorage:
     def set_client(self, client: Optional[str]) -> None:
         self._local.client = client
 
+    def set_client_resolver(self, resolver: Callable[[], Optional[str]]) -> None:
+        """Hand over a server-derived client to look up when one is first needed.
+
+        `log_activity` is the only reader, so a request that writes no activity row never pays
+        for the lookup. A resolved client replaces whatever the client header reported.
+        """
+        self._local.client_resolver = resolver
+
     def get_client(self) -> Optional[str]:
+        """The client for this request, running a pending resolver the first time it is needed."""
+        resolver = getattr(self._local, "client_resolver", None)
+        if resolver is not None:
+            # Drop the resolver before running it, so one lookup covers every later read and a
+            # failing lookup is not retried for each activity row in the request.
+            delattr(self._local, "client_resolver")
+            try:
+                resolved = resolver()
+            except Exception:
+                # Attribution is not worth failing a write for: the row keeps the reported client.
+                logger.warning("activity_log.client_resolver_failed", exc_info=True)
+                resolved = None
+            if resolved:
+                self._local.client = resolved[:ACTIVITY_LOG_CLIENT_MAX_LENGTH]
         return getattr(self._local, "client", None)
 
     def clear_client(self) -> None:
         if hasattr(self._local, "client"):
             delattr(self._local, "client")
+        if hasattr(self._local, "client_resolver"):
+            delattr(self._local, "client_resolver")
+
+    def set_agent_intent(self, intent: Optional[str]) -> None:
+        self._local.agent_intent = intent
+
+    def get_agent_intent(self) -> Optional[str]:
+        return getattr(self._local, "agent_intent", None)
+
+    def clear_agent_intent(self) -> None:
+        if hasattr(self._local, "agent_intent"):
+            delattr(self._local, "agent_intent")
+
+    def set_agent_task_id(self, task_id: Optional[str]) -> None:
+        self._local.agent_task_id = task_id
+
+    def get_agent_task_id(self) -> Optional[str]:
+        return getattr(self._local, "agent_task_id", None)
+
+    def clear_agent_task_id(self) -> None:
+        if hasattr(self._local, "agent_task_id"):
+            delattr(self._local, "agent_task_id")
 
     def set_ip_address(self, ip_address: Optional[str]) -> None:
         self._local.ip_address = ip_address
@@ -86,6 +216,33 @@ class ActivityLoggingStorage:
     def clear_ip_address(self) -> None:
         if hasattr(self._local, "ip_address"):
             delattr(self._local, "ip_address")
+
+    def set_credential(self, credential: ActivityCredential) -> None:
+        self.set_credential_resolver(lambda: credential)
+
+    def set_credential_resolver(self, resolver: Callable[[], Optional[ActivityCredential]]) -> None:
+        """Hand over a credential to resolve again for each row. The last one set wins.
+
+        `ActivityLoggingMiddleware` sets a resolver for the session because it runs before the view,
+        so it cannot know yet whether the session authenticates the request, or whether the view
+        rotates the session key. An authentication class that succeeds later replaces it.
+        """
+        self._local.credential_resolver = resolver
+
+    def get_credential(self) -> Optional[ActivityCredential]:
+        resolver = getattr(self._local, "credential_resolver", None)
+        if resolver is None:
+            return None
+        try:
+            return resolver()
+        except Exception:
+            # Attribution is not worth failing a write for.
+            logger.warning("activity_log.credential_resolver_failed", exc_info=True)
+            return None
+
+    def clear_credential(self) -> None:
+        if hasattr(self._local, "credential_resolver"):
+            delattr(self._local, "credential_resolver")
 
     def set_trigger(self, trigger: Optional["Trigger"]) -> None:
         self._local.trigger = trigger
@@ -102,11 +259,39 @@ class ActivityLoggingStorage:
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()
+        self.clear_agent_intent()
+        self.clear_agent_task_id()
         self.clear_ip_address()
+        self.clear_credential()
         self.clear_trigger()
 
 
 activity_storage = ActivityLoggingStorage()
+
+
+def record_activity_actor(user: "User | None", credential: ActivityCredential) -> None:
+    """Attribute the request's activity rows to the credential an authentication class verified,
+    and to its user.
+
+    ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
+    impersonation flag and a session credential from a cookie on the same request. Replace all
+    three, so that a row never pairs this credential with the session's user or flag. Pass
+    `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
+    outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+    """
+    if not activity_storage.is_request_scoped():
+        return
+    activity_storage.set_user(user)
+    activity_storage.set_was_impersonated(credential.impersonated_by_id is not None)
+    activity_storage.set_credential(credential)
+
+
+def oauth_activity_credential(access_token: "OAuthAccessToken") -> ActivityCredential:
+    return ActivityCredential(
+        type="oauth",
+        id=str(access_token.application_id),
+        impersonated_by_id=access_token.impersonated_by_id,
+    )
 
 
 class ActivityLogVisibilityManager:

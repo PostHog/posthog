@@ -22,6 +22,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useReviewViewedStore } from "@posthog/ui/features/code-review/reviewViewedStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { useFocusStore } from "@posthog/ui/features/focus/focusStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { pinnedTasksApi } from "@posthog/ui/features/sidebar/taskMetaApi";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { destroyTaskTerminals } from "@posthog/ui/features/terminal/destroyTaskTerminals";
@@ -227,21 +228,30 @@ export function useArchiveTask(options?: {
   const { restore } = useUnarchiveTask();
 
   const archiveTask = async ({ taskId }: { taskId: string }) => {
-    await archiveTaskImperative(taskId, queryClient, keys, {
-      navigateUnscoped: options?.navigateUnscoped,
-    });
-    const toastId = `archive-undo-${taskId}`;
-    toast.success("Task archived", {
-      id: toastId,
-      duration: UNDO_TOAST_DURATION_MS,
-      action: {
-        label: "Undo",
-        onClick: () => {
-          toast.dismiss(toastId);
-          void undoArchive(taskId, restore);
+    const store = useArchivingTasksStore.getState();
+    if (store.isArchiving(taskId)) return;
+
+    store.startArchiving(taskId);
+    try {
+      await archiveTaskImperative(taskId, queryClient, keys, {
+        optimistic: false,
+        navigateUnscoped: options?.navigateUnscoped,
+      });
+      const toastId = `archive-undo-${taskId}`;
+      toast.success("Task archived", {
+        id: toastId,
+        duration: UNDO_TOAST_DURATION_MS,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            toast.dismiss(toastId);
+            void undoArchive(taskId, restore);
+          },
         },
-      },
-    });
+      });
+    } finally {
+      useArchivingTasksStore.getState().stopArchiving(taskId);
+    }
   };
 
   return { archiveTask };

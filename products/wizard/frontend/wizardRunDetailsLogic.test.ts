@@ -1,12 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { wizardRunsRetrieve } from './generated/api'
+import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
 import type { WizardRunApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
 import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
@@ -43,6 +45,7 @@ function makeRun(): WizardRunApi {
         id: 'run-1',
         team_id: 1,
         created_by_id: 1,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
         environment: 'cloud',
         workspace: { type: 'git_repository', repository: 'posthog/posthog' },
         program: {
@@ -72,6 +75,7 @@ describe('wizardRunDetailsLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        jest.spyOn(posthog, 'capture').mockClear()
         mockWizardRunsRetrieve.mockReset()
         mockLoadWizardRunArtifactContent.mockReset()
         mockLoadWizardRunArtifacts.mockReset()
@@ -89,7 +93,7 @@ describe('wizardRunDetailsLogic', () => {
     })
 
     it('loads run details and artifacts through separate endpoints', async () => {
-        logic.actions.selectRun(makeRun())
+        logic.actions.selectRun(makeRun(), 'wizard_datatable')
 
         await expectLogic(logic)
             .toFinishAllListeners()
@@ -102,6 +106,22 @@ describe('wizardRunDetailsLogic', () => {
         expect(mockWizardRunsRetrieve).toHaveBeenCalledWith(expect.any(String), 'run-1')
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledWith(expect.any(String), 'run-1')
         expect(mockLoadWizardRunArtifactContent).not.toHaveBeenCalled()
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run detail dialog opened',
+            expect.objectContaining({
+                wizard_run_id: 'run-1',
+                task_run_id: 'run-1',
+                run_surface: 'cloud',
+                version: '2.6.0',
+                source: 'wizard_datatable',
+            })
+        )
+
+        logic.actions.selectRun(null)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run detail dialog closed',
+            expect.objectContaining({ wizard_run_id: 'run-1' })
+        )
     })
 
     it('loads git diff content only after the artifact is opened', async () => {
@@ -119,6 +139,15 @@ describe('wizardRunDetailsLogic', () => {
             runDiffLoading: false,
         })
         expect(mockLoadWizardRunArtifactContent).toHaveBeenCalledWith(expect.any(String), 'run-1', 'artifact-1')
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'artifact clicked',
+            expect.objectContaining({
+                wizard_run_id: 'run-1',
+                type: 'diff',
+                source: 'artifacts_section',
+            })
+        )
+        expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('diff content')
     })
 
     it('reuses downloaded diff content when the same artifact is reopened', async () => {
@@ -154,6 +183,9 @@ describe('wizardRunDetailsLogic', () => {
         logic.actions.loadRunDetails({ runId: 'run-1' })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledTimes(2)
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'wizard run detail dialog opened')
+        ).toHaveLength(1)
     })
 
     it('does not download a diff that is too large to render', async () => {
@@ -177,6 +209,33 @@ describe('wizardRunDetailsLogic', () => {
                 primaryButton: expect.objectContaining({ children: 'Cancel run', status: 'danger' }),
             })
         )
+        expect(posthog.capture).not.toHaveBeenCalledWith('wizard run cancel requested', expect.anything())
+    })
+
+    it.each([true, false])('tracks the confirmed cancellation outcome: %s', async (succeeded) => {
+        jest.spyOn(console, 'error').mockImplementation()
+        if (succeeded) {
+            jest.mocked(wizardRunsPartialUpdate).mockResolvedValue({ ...makeRun(), status: 'cancelled' })
+        } else {
+            jest.mocked(wizardRunsPartialUpdate).mockRejectedValue(new ApiError('private response content', 503))
+        }
+
+        logic.actions.cancelRunRequest({ runId: 'run-1' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const events = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([event]) => event.startsWith('wizard run cancel'))
+        expect(events.map(([event]) => event)).toEqual([
+            'wizard run cancel requested',
+            succeeded ? 'wizard run cancel succeeded' : 'wizard run cancel failed',
+        ])
+        expect(events[1][1]).toEqual(expect.objectContaining({ wizard_run_id: 'run-1' }))
+        if (!succeeded) {
+            expect(events[1][1]).toEqual(expect.objectContaining({ http_status: 503 }))
+        }
+        expect(JSON.stringify(events)).not.toContain('private response content')
+        expect(posthog.capture).not.toHaveBeenCalledWith('setup wizard finished', expect.anything())
     })
 
     it('prefers a newer run summary over stale cached details', async () => {

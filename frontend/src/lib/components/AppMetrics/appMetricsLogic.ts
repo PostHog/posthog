@@ -35,7 +35,7 @@ export type AppMetricsCommonParams = {
     instanceId?: string
     metricName?: string | string[]
     metricKind?: string | string[]
-    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id'
+    breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
     interval?: 'day' | 'hour' | 'minute'
     dateFrom?: string
     dateTo?: string
@@ -48,12 +48,16 @@ export type AppMetricsLogicProps = {
     loadOnChanges?: boolean
     /** If true, loads data immediately when logic mounts. Default: false */
     loadOnMount?: boolean
+    /** Set false when the caller never shows the previous-period comparison. Default: true */
+    loadPreviousPeriod?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
 
 export type AppMetricsTimeSeriesResponse = {
     labels: string[]
+    interval: NonNullable<AppMetricsCommonParams['interval']>
+    timezone: string
     series: {
         name: string
         values: number[]
@@ -152,7 +156,7 @@ ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
     return res
 }
 
-const loadAppMetricsTimeSeries = async (
+export const loadAppMetricsTimeSeries = async (
     request: AppMetricsTimeSeriesRequest,
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
@@ -256,19 +260,10 @@ const loadAppMetricsTimeSeries = async (
         { refresh: 'force_blocking' }
     )
 
-    const labels = response.results?.[0]?.[0].map((label: string) => {
-        switch (interval) {
-            case 'day':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD')
-            case 'hour':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-            case 'minute':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-        }
-    })
-
     return {
-        labels: labels || [],
+        labels: (response.results?.[0]?.[0] as string[] | undefined) ?? [],
+        interval,
+        timezone,
         series:
             response.results?.map((result) => ({
                 name: result[1],
@@ -464,7 +459,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     }
 
                     return {
-                        labels: targetTrend.labels,
+                        ...targetTrend,
                         series: [series],
                     }
                 },
@@ -529,7 +524,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         // Auto-load data immediately on mount if explicitly requested
         if (props.loadOnMount) {
             actions.loadAppMetricsTrends()
-            actions.loadAppMetricsTrendsPreviousPeriod()
+            if (props.loadPreviousPeriod ?? true) {
+                actions.loadAppMetricsTrendsPreviousPeriod()
+            }
         }
     }),
 
@@ -546,7 +543,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
-                    actions.loadAppMetricsTrendsPreviousPeriod()
+                    if (props.loadPreviousPeriod ?? true) {
+                        actions.loadAppMetricsTrendsPreviousPeriod()
+                    }
                 }
             }
         },

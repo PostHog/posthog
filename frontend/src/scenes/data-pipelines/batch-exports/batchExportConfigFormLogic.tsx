@@ -113,7 +113,6 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 
     if (definition?.usesIntegration) {
-        // Only the integration-backed destinations (Databricks, AzureBlob, BigQuery) carry this field.
         config.integration_id = (batchExportConfig.destination as { integration?: number }).integration
     }
 
@@ -1198,7 +1197,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             try {
                 await api.batchExports.delete(batchExportId)
                 lemonToast.success('Batch export deleted successfully')
-                router.actions.replace(urls.destinations())
+                router.actions.replace(urls.destinations('batch'))
             } catch (error: any) {
                 // Show error toast with the error message from the API
                 const errorMessage = error.detail || error.message || 'Failed to delete'

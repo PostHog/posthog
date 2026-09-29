@@ -11,7 +11,9 @@ from typing import Any
 
 from .constants import MISSING_TOOL_OUTPUT_NOTE
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
+    RenderBudgetExceeded,
     add_line_numbers,
     extract_payload_text,
     format_messages_array,
@@ -167,6 +169,8 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
         lines.append(str(state))
         return lines
+    except RenderBudgetExceeded:
+        raise
     except Exception:
         lines.append(str(state))
         return lines
@@ -174,7 +178,7 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
 def format_span_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """Generate complete text representation of a span event."""
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = event.get("properties", {})
 
     # Span name/title

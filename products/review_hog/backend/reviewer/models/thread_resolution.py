@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -11,6 +11,17 @@ class ThreadOutcome(str, Enum):
     ALREADY_FIXED = "already_fixed"
     OBSOLETE = "obsolete"
     ESCALATE = "escalate"
+
+
+class CommitHold(StrEnum):
+    """Why the stage must not commit to the PR branch. The threads stay open for a person."""
+
+    # Trunk removes a queued PR on any push and resets every PR testing behind it. A person
+    # submitted the PR, so it ships as it is.
+    MERGE_QUEUE = "pr_in_merge_queue"
+    # The stage commits to the head branch only, so a fix here leaves every PR stacked on top
+    # behind its base until someone restacks.
+    STACKED = "pr_has_stacked_pull_requests"
 
 
 class ThreadResolution(BaseModel):
@@ -39,8 +50,9 @@ class ThreadResolution(BaseModel):
     )
     reply: str = Field(
         description=(
-            "The reply to post on the thread: plain, self-contained language a reader can act on "
-            "without opening the code — what was done (or why not) and what happens next."
+            "The reply to post on the thread, exactly as written. Shape: one verdict sentence, a blank "
+            "line, `---`, then at most 3 short lines (5 for escalate) in plain language a reader can act "
+            "on without opening the code. No test or lint results here; they go in verification."
         )
     )
     commit_sha: str | None = Field(
@@ -52,7 +64,11 @@ class ThreadResolution(BaseModel):
     )
     verification: str | None = Field(
         default=None,
-        description="What was run to verify a fix (lint, tests) and the honest result, failures included.",
+        description=(
+            "A short summary of what was run to verify a fix (lint, tests) and the honest result, failures "
+            "included. Posted under the reply as a collapsed block on a public thread: never raw command "
+            "output, environment values, or URLs that carry a token."
+        ),
     )
 
     @field_validator("thread_id", "reasoning", "reply")

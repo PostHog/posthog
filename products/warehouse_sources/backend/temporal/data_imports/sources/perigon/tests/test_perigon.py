@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -93,7 +93,7 @@ class TestClampFutureValueToNow:
             ("future_iso_string", "2030-01-01T00:00:00Z", datetime(2026, 6, 15, 12, tzinfo=UTC)),
         ]
     )
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_clamp(self, _name: str, value: Any, expected: Any) -> None:
         assert _clamp_future_value_to_now(value) == expected
 

@@ -82,6 +82,7 @@ export const RemindersCreateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
+    deleted: zod.boolean().optional(),
 })
 
 export const RemindersRetrieveParams = () => zod.object({
@@ -165,6 +166,7 @@ export const RemindersPartialUpdateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
+    deleted: zod.boolean().optional(),
 })
 
 export const RemindersDestroyParams = () => zod.object({

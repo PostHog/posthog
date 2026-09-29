@@ -1,7 +1,8 @@
 """Canonical, documentation-sourced descriptions for Amplitude endpoints and columns.
 
 Sourced from the official Amplitude HTTP API reference (https://amplitude.com/docs/apis), covering the
-Export API (events) and the Dashboard REST APIs (cohorts, annotations). Keyed by the endpoint names in
+Export API (events), the Dashboard REST APIs (cohorts, annotations), and the Taxonomy API (event types,
+event properties, user properties, event categories). Keyed by the endpoint names in
 `settings.py` `AMPLITUDE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced Amplitude
 table. Columns absent here fall back to LLM enrichment.
 """
@@ -61,6 +62,62 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "date": "Date the annotation is placed on.",
             "label": "Short label shown for the annotation.",
             "details": "Longer description of the annotation.",
+        },
+    },
+    "event_types": {
+        "description": "An event type in the project's tracking plan, naming and describing one kind of tracked event.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/taxonomy",
+        "columns": {
+            "event_type": "Name of the event as sent by your instrumentation — joins to `event_type` on the events table.",
+            "display_name": "Human-readable name shown for the event in the Amplitude UI.",
+            "description": "Description of what the event means, from the tracking plan.",
+            "category": "Event category the event belongs to, as an object carrying the category name.",
+            "is_active": "Whether the event is active in the tracking plan.",
+            "is_hidden_from_dropdowns": "Whether the event is hidden from event pickers in the Amplitude UI.",
+            "is_hidden_from_persona_results": "Whether the event is excluded from persona results.",
+            "is_hidden_from_pathfinder": "Whether the event is excluded from Pathfinder charts.",
+            "is_hidden_from_timeline": "Whether the event is excluded from the user timeline.",
+            "tags": "Tags applied to the event in the tracking plan.",
+            "owner": "User who owns the event definition.",
+        },
+    },
+    "event_properties": {
+        "description": "An event property definition from the tracking plan, describing one property carried by an event type.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/taxonomy",
+        "columns": {
+            "event_type": "Event type the property belongs to — joins to `event_type` on the event_types and events tables.",
+            "event_property": "Name of the property as it appears inside the event's `event_properties`.",
+            "description": "Description of what the property means, from the tracking plan.",
+            "type": "Declared value type of the property (for example string, number, boolean, enum).",
+            "regex": "Regular expression the property value must match, if one is set.",
+            "enum_values": "Allowed values when the property is declared as an enum.",
+            "is_array_type": "Whether the property holds an array of values.",
+            "is_required": "Whether the tracking plan requires the property on this event.",
+            "is_hidden": "Whether the property is hidden from pickers in the Amplitude UI.",
+            "classifications": "Data classification labels applied to the property.",
+        },
+    },
+    "user_properties": {
+        "description": "A user property definition from the tracking plan, describing one property carried on users.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/taxonomy",
+        "columns": {
+            "user_property": "Name of the property as it appears inside an event's `user_properties`. Custom group properties carry a `gp:` prefix.",
+            "description": "Description of what the property means, from the tracking plan.",
+            "type": "Declared value type of the property (for example string, number, boolean, enum).",
+            "regex": "Regular expression the property value must match, if one is set.",
+            "enum_values": "Allowed values when the property is declared as an enum.",
+            "is_array_type": "Whether the property holds an array of values.",
+            "is_hidden": "Whether the property is hidden from pickers in the Amplitude UI.",
+            "classifications": "Data classification labels applied to the property.",
+            "deleted": "Whether the property has been deleted from the tracking plan.",
+        },
+    },
+    "event_categories": {
+        "description": "An event category in the tracking plan, used to group event types.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/taxonomy",
+        "columns": {
+            "id": "Unique identifier for the category.",
+            "name": "Name of the category — matches the category name carried on event types.",
         },
     },
 }

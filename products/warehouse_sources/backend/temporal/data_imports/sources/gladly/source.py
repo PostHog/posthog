@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -67,12 +65,21 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
-            # Raised by `_report_rows` when a report header is missing the columns the stream is
-            # keyed on. Gladly returns the same body for that window on a retry, so stop and tell
-            # the customer rather than replaying it.
+            # Raised by `_report_rows` when a CSV report lacks a keyed column. The same window returns
+            # the same header on a retry, so neither the sync nor the incremental-field picker can
+            # fix it. The copy names Gladly first and PostHog support as the fallback for the
+            # renamed-column case, where the report exists.
             "Gladly report is missing required columns": (
-                "Gladly returned a report without the columns this table syncs on, so there was no "
-                "data to sync. Re-enable the sync to try again, and contact support if it keeps happening."
+                "Gladly returned data that doesn't match the report this table needs, so there was "
+                "no data to sync. This usually means Gladly could not build the report for your "
+                "account. Ask Gladly support to check the report is available for your account. If "
+                "Gladly confirms it is, contact PostHog support."
+            ),
+            "Gladly report unavailable for this account": (
+                "Gladly returned an error every time PostHog asked for the report this table syncs "
+                "from, and the table has never synced. Ask Gladly support to make the report "
+                "available for your account, then re-enable this table. If Gladly confirms it is "
+                "available, contact PostHog support."
             ),
         }
 
@@ -84,12 +91,26 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         # regenerates the report and re-streams it; the resumable window state means only the
         # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
         # tracked-exception-worthy failure.
-        return {"Read timed out"}
+        #
+        # `GladlyRetryableError` (429/5xx from Gladly, raised by both `fetch` and `generate_report`)
+        # is itself retried with backoff inside gladly.py before it can ever reach here; if that
+        # budget still exhausts, Temporal's activity retry re-issues the same request or report
+        # window, so the same self-recovering reasoning applies.
+        return {"Read timed out", "Gladly returned no report", "Gladly API error (retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Gladly returned no report": (
+                "Gladly returned an error instead of the report this table syncs from, so this run "
+                "did not finish. This is usually a short problem in Gladly's report generation. The "
+                "sync will run again on its next schedule."
+            ),
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
@@ -195,4 +216,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )

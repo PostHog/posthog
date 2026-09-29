@@ -49,6 +49,13 @@ export const NOTIFICATION_CONCEPTS: NotificationConcept[] = [
         perProject: true,
     },
     {
+        setting: 'data_catalog_weekly_digest',
+        label: 'Data catalog weekly digest',
+        description: 'A weekly summary of the catalog items waiting for review.',
+        perProject: false,
+        note: NO_PROJECT_NOTE,
+    },
+    {
         setting: 'error_tracking_issue_assigned',
         label: 'Issue assigned',
         description: 'An email when an error tracking issue is assigned to them.',
@@ -79,7 +86,7 @@ export const NOTIFICATION_CONCEPTS: NotificationConcept[] = [
     {
         setting: 'materialized_view_sync_failed_daily',
         label: 'Materialized view failures, daily digest',
-        description: 'One email a day listing every failing view. Applies to people receiving the failures.',
+        description: 'One email a day summarizing failing views. Applies to people receiving the failures.',
         perProject: false,
     },
     {

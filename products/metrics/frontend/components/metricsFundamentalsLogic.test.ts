@@ -96,4 +96,18 @@ describe('metricsFundamentalsLogic', () => {
         expect(metricsExplainCreate).not.toHaveBeenCalled()
         expect(logic.values.checkResult).toBeNull()
     })
+
+    it('explainMetric prefills the name and aggregation, then runs the check', async () => {
+        // The viewer's "explain this number" hands over a metric the user is already
+        // looking at, so the check must not make them retype it.
+        jest.mocked(metricsQueryCreate).mockResolvedValue(queryResponse([{ time: '2026-01-01T00:05:00Z', value: 2 }]))
+
+        await expectLogic(logic, () =>
+            logic.actions.explainMetric({ metricName: 'cache_size', aggregation: 'avg' })
+        ).toFinishAllListeners()
+
+        expect(logic.values.metricName).toBe('cache_size')
+        expect(logic.values.aggregation).toBe('avg')
+        expect(metricsExplainCreate).toHaveBeenCalled()
+    })
 })

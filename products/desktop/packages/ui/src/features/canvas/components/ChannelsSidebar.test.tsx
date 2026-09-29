@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   historyTabId: undefined as string | undefined,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
@@ -98,13 +101,14 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       matches: { fullPath: string }[];
-      location: { pathname: string; state: { tabId?: string } };
+      location: { pathname: string; href: string; state: { tabId?: string } };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath }],
       location: {
         pathname: mocks.fullPath,
+        href: mocks.fullPath,
         state: { tabId: mocks.historyTabId },
       },
     }),

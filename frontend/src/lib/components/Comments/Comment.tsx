@@ -1,4 +1,3 @@
-import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -16,11 +15,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import {
-    DEFAULT_EXTENSIONS,
-    LemonRichContentEditor,
-    serializationOptions,
-} from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -29,7 +24,7 @@ import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
-import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
+import { getCommentText, getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 
 // Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
@@ -299,7 +294,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const isHighlighted = selectedCommentId === comment.id || isEditing
     const threadId = comment.source_comment ?? comment.id
     // Rendering markdown from tiptap JSON is not free - skip it on unrelated re-renders
-    const text = useMemo(() => getText(comment), [comment])
+    const text = useMemo(() => getCommentText(comment), [comment])
 
     useEffect(() => {
         if (isHighlighted) {
@@ -499,28 +494,4 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
             ) : null}
         </div>
     )
-}
-
-export function getText(comment: CommentType): string {
-    // This is only temporary until all comments are backfilled to rich content
-    const content = comment.rich_content
-        ? comment.rich_content
-        : {
-              type: 'doc',
-              content: [
-                  {
-                      type: 'paragraph',
-                      content: comment.content
-                          ? [
-                                {
-                                    type: 'text',
-                                    text: comment.content,
-                                },
-                            ]
-                          : [],
-                  },
-              ],
-          }
-
-    return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
 }

@@ -33,6 +33,8 @@
  *   media-uploads          User uploaded media
  *   exports                Exported assets (CSV, PNG, PDF, videos)
  *   source-maps            Error tracking source maps
+ *   ai-blobs               Offloaded AI payloads (separate bucket)
+ *   general-storage        The whole posthog bucket, minus session recordings and query cache
  */
 
 const {
@@ -89,6 +91,28 @@ const SERVICES = {
         prefix: 'symbolsets/',
         description: 'Error tracking source maps',
         bidirectional: true,
+        conflictResolution: 'newest',
+        critical: true,
+    },
+    'ai-blobs': {
+        bucket: 'ai-blobs',
+        prefix: 'aio/',
+        description: 'Offloaded AI payloads',
+        bidirectional: true,
+        conflictResolution: 'newest',
+        critical: true,
+    },
+    // The posthog bucket holds far more prefixes than the named services above
+    // (tasks, legal documents, notebook frames, identity matching, and every prefix a
+    // product adds later), so a salvage that copies only those loses the rest. This
+    // service covers the bucket and carves out what belongs elsewhere: session
+    // recordings live in the SeaweedFS replay store, and PostHog rebuilds the query cache.
+    'general-storage': {
+        bucket: 'posthog',
+        prefix: '',
+        excludePrefixes: ['session_recordings/', 'session_recordings_lts/', 'query_cache/'],
+        description: 'The whole posthog bucket, minus session recordings and query cache',
+        bidirectional: false,
         conflictResolution: 'newest',
         critical: true,
     },
@@ -453,6 +477,13 @@ async function listAllObjectsWithMetadata(client, bucket, prefix) {
     return allObjects
 }
 
+function excludeByPrefix(objects, config) {
+    if (!config.excludePrefixes || config.excludePrefixes.length === 0) {
+        return objects
+    }
+    return objects.filter((obj) => !config.excludePrefixes.some((prefix) => obj.Key.startsWith(prefix)))
+}
+
 function needsSync(objA, objB) {
     // Different size = different content
     if (objA.Size !== objB.Size) return true
@@ -578,6 +609,8 @@ async function migrateService(serviceName, config, options, checkpoint) {
         continuationToken = response.NextContinuationToken
     } while (continuationToken)
 
+    allObjects = excludeByPrefix(allObjects, config)
+
     console.log(`✅ Found ${allObjects.length} objects`)
 
     if (allObjects.length === 0) {
@@ -678,6 +711,9 @@ async function migrateService(serviceName, config, options, checkpoint) {
             console.log(`   ... and ${failedObjects.length - 10} more`)
         }
         console.log(`\n💡 Run with --resume to retry failed objects`)
+        // A caller that deletes the source after this has to be able to tell a clean copy
+        // from a partial one, and the summary above is the only other signal.
+        throw new Error(`${failedObjects.length} of ${objectsToProcess.length} objects failed to copy`)
     }
 }
 
@@ -712,10 +748,12 @@ async function syncService(serviceName, config, options, checkpoint) {
 
     // List objects from both sides
     console.log(`📋 Listing objects from both storages...`)
-    const [minioObjects, seaweedfsObjects] = await Promise.all([
+    const [allMinioObjects, allSeaweedfsObjects] = await Promise.all([
         listAllObjectsWithMetadata(minioClient, config.bucket, config.prefix),
         listAllObjectsWithMetadata(seaweedfsClient, config.bucket, config.prefix),
     ])
+    const minioObjects = excludeByPrefix(allMinioObjects, config)
+    const seaweedfsObjects = excludeByPrefix(allSeaweedfsObjects, config)
 
     console.log(`✅ MinIO: ${minioObjects.length} objects`)
     console.log(`✅ SeaweedFS: ${seaweedfsObjects.length} objects`)

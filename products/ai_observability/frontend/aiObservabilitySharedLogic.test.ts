@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { runInThisContext } from 'node:vm'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -106,6 +110,40 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    // A DataTable `person` cell mounts this logic on any scene, so a URL write on mount lands there.
+    describe('test-account default and the URL', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            mockHasRecentAIEvents.mockResolvedValue(false)
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+        })
+
+        it("leaves another scene's URL alone when mounted there", async () => {
+            const drillDown = { kind: 'DataTableNode', source: { kind: 'ActorsQuery', select: ['person'] } }
+            router.actions.push(urls.insightNew({ query: drillDown as any }))
+            const { pathname, search, hash } = router.values.location
+
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(false)
+            expect(router.values.location).toMatchObject({ pathname, search, hash })
+        })
+
+        it('applies the default on its own route without dropping the hash', async () => {
+            router.actions.push(urls.aiObservabilityTraces(), {}, { panel: 'max' })
+
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+            expect(router.values.searchParams.filter_test_accounts).toBe(true)
+            expect(router.values.hashParams.panel).toBe('max')
+        })
+    })
+
     // Guards the connect + mapping into the app-wide setup-status layer: if either
     // breaks, the scene empty-state gate strands users on its spinner, or shows the
     // setup screen to teams that already have AI events.
@@ -118,6 +156,7 @@ describe('aiObservabilitySharedLogic', () => {
         it.each([
             [true, 'has-data'],
             [false, 'needs-setup'],
+            [null, 'unknown'],
         ])('pushes hasSentAiEvent=%s into productSetupStatusLogic as %s', async (hasEvents, expected) => {
             mockHasRecentAIEvents.mockResolvedValue(hasEvents)
             const logic = aiObservabilitySharedLogic()
@@ -137,15 +176,44 @@ describe('aiObservabilitySharedLogic', () => {
             expect(productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }).values.status).toBe('unknown')
         })
 
-        it('a failing re-check never downgrades an existing answer', async () => {
+        it.each([
+            ['rejects', (): void => void mockHasRecentAIEvents.mockRejectedValue(new Error('query failed'))],
+            ['cannot answer', (): void => void mockHasRecentAIEvents.mockResolvedValue(null)],
+        ])('a re-check that %s never downgrades an existing answer', async (_, breakTheCheck) => {
             mockHasRecentAIEvents.mockResolvedValue(true)
             const logic = aiObservabilitySharedLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            mockHasRecentAIEvents.mockRejectedValue(new Error('query failed'))
+            breakTheCheck()
             logic.actions.loadAIEventDefinition()
             await expectLogic(logic).toFinishAllListeners()
             expect(productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }).values.status).toBe('has-data')
+        })
+
+        it('doubles the re-check delay while the check cannot answer, and restores it once it can', async () => {
+            mockHasRecentAIEvents.mockResolvedValue(null)
+            jest.useFakeTimers()
+            try {
+                const logic = aiObservabilitySharedLogic()
+                logic.mount()
+                // `toFinishAllListeners` waits on a real timer, so it never settles here.
+                await jest.advanceTimersByTimeAsync(0)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(2)
+
+                mockHasRecentAIEvents.mockResolvedValue(false)
+                await jest.advanceTimersByTimeAsync(80000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(3)
+
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(4)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

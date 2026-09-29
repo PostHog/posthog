@@ -31,6 +31,7 @@ import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { useReportImpressions } from '../useReportImpressions'
+import { useSelectableReportList } from '../useSelectableReportList'
 
 /**
  * The states that make up "the inbox" for the `Inbox viewed` event. Not actionable is left out: it
@@ -228,6 +229,8 @@ export function ReportsTab(): JSX.Element {
     >
     const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
     useReportImpressions(rows, selectedSections)
+    // Multi-select ranges over this order, and drops any id the merged list no longer holds.
+    useSelectableReportList(rows.map(({ report }) => report.id))
 
     // Rows are fetched once a state is part of the rendered list — a deselected state costs one
     // count request only. `ensureLoaded` no-ops on states that already loaded or are in flight.
@@ -325,7 +328,7 @@ export function ReportsTab(): JSX.Element {
                     <InboxScopeFilter />
                 </div>
             </div>
-            <InboxBulkSelectionBar />
+            <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
 
             {inboxIsEmpty ? (
                 <ReportsEmptyState />
@@ -358,6 +361,7 @@ export function ReportsTab(): JSX.Element {
                             <ReportCard
                                 report={report}
                                 sectionKey={sectionKey}
+                                selectable
                                 onRestore={() =>
                                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
                                         report.id,

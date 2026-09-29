@@ -1,7 +1,7 @@
 {
     "id": "019cd31c-d834-0000-f997-6b771682bce7",
     "name": "Heavy usage levels detected",
-    "description": "Notify users when they are close to their usage limit so they can upgrade or adjust usage before hitting the limit.",
+    "description": "Warn someone when they get close to their usage limit, so they can upgrade or cut back in time.",
     "version": 1,
     "created_at": "2026-03-09T15:00:08.884504Z",
     "created_by": {

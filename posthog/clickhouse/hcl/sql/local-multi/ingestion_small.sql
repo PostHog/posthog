@@ -91,6 +91,15 @@ CREATE TABLE posthog.kafka_ingestion_warnings (
   details String CODEC(ZSTD(3)),
   timestamp DateTime64(6, 'UTC')
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_ingestion_warnings';
+CREATE TABLE posthog.kafka_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_aux', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_log_entries_v3 (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -288,7 +297,10 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
 CREATE TABLE posthog.writable_app_metrics (
   team_id Int64,
@@ -430,6 +442,17 @@ CREATE TABLE posthog.writable_log_entries (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_log_entries', rand());
+CREATE TABLE posthog.writable_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -528,9 +551,9 @@ CREATE TABLE posthog.writable_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
   retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
@@ -664,6 +687,18 @@ CREATE MATERIALIZED VIEW posthog.ingestion_warnings_mv TO posthog.writable_inges
   _offset,
   _partition
 FROM posthog.kafka_ingestion_warnings;
+CREATE MATERIALIZED VIEW posthog.log_entries_aux_mv TO posthog.writable_log_entries_aux (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp DateTime, _offset UInt64) AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM kafka_log_entries_aux
+WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   team_id,
   log_source,
@@ -750,7 +785,7 @@ CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_kafka_to_buffer_mv 
   _offset,
   _partition
 FROM posthog.kafka_posthog_document_embeddings;
-CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,
   any(distinct_id) AS distinct_id,
@@ -771,7 +806,7 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
   sum(size) AS size,
   sum(message_count) AS message_count,
   sum(event_count) AS event_count,
-  argMinState(snapshot_source, first_timestamp) AS snapshot_source,
+  argMinState(replay.snapshot_source, first_timestamp) AS snapshot_source,
   argMinState(snapshot_library, first_timestamp) AS snapshot_library,
   max(_timestamp) AS _timestamp,
   max(retention_period_days) AS retention_period_days,
@@ -780,8 +815,8 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
   max(surfacing_score) AS surfacing_score,
-  argMinState(snapshot_mode, first_timestamp) AS snapshot_mode
-FROM posthog.kafka_session_replay_events
+  argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
+FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
   session_id, team_id;
 CREATE MATERIALIZED VIEW posthog.usage_report_events_preagg_mv TO posthog.writable_usage_report_events_preagg (date Date, team_id Int64, person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), lib String, event String, distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)), event_count AggregateFunction(sum, UInt64)) AS SELECT

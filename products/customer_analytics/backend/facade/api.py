@@ -17,9 +17,9 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
@@ -84,6 +84,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackNotConfigured,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
+    can_sync_google_account_email,
     list_account_email_thread_messages,
     list_account_email_threads,
     list_account_ticket_messages,
@@ -96,14 +97,22 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 from products.customer_analytics.backend.logic import (
+    account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
+    account_views as _account_views_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     customer_tasks as _customer_tasks_logic,
+    feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
+    ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
@@ -137,7 +146,9 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountChannelSummary,
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
+    AccountView as AccountViewModel,
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
@@ -178,11 +189,11 @@ from products.notebooks.backend.facade import (
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
-from products.workflows.backend.services.template_input_usage import (
-    HogFlowReference,
+from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
 )
+from products.workflows.backend.facade.contracts import HogFlowReference
 
 from . import contracts
 
@@ -197,7 +208,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.customer_analytics.backend.models import CustomPropertyValue
-    from products.workflows.backend.services.account_audience import AccountAudienceFilters
+    from products.workflows.backend.facade.contracts import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
@@ -245,7 +256,7 @@ def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAc
 
 
 def _account_tags(account: Account) -> list[str]:
-    return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+    return sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True))
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
@@ -439,11 +450,20 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ``custom_properties`` includes every team definition keyed by name, with the
     account's active value (scalar) or ``None`` when unset, so workflow result
     paths are deterministic regardless of whether the property has been set.
+
+    ``relationships`` lists active assignments to current members of the team's
+    organization, as the list route does, so a holder who left is not named here
+    while the ``ownership`` block withholds their email.
     """
     relationships: dict[str, list[dict]] = {}
     for relationship in (
         AccountRelationship.objects.for_team(account.team_id)
-        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .filter(
+            account=account,
+            ended_at__isnull=True,
+            user__isnull=False,
+            user__organization_membership__organization_id=account.team.organization_id,
+        )
         .select_related("definition", "user")
         .order_by("definition__name", "user__email")
     ):
@@ -471,6 +491,7 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         churned_at=account.churned_at,
         ignored_at=account.ignored_at,
         properties=account.properties.model_dump(mode="json"),
+        ownership=_ownership.ownership_for_account(account),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
         custom_properties=custom_properties,
@@ -561,11 +582,17 @@ def list_account_external_ids_for_audience(
 
 
 def create_external_account(
-    team: Team, *, external_id: str, workflow_id: str | None = None
+    team: Team,
+    *,
+    external_id: str,
+    name: str | None = None,
+    properties: dict | None = None,
+    workflow_id: str | None = None,
 ) -> tuple[contracts.ExternalAccount, bool]:
     """Get-or-create an account by external id for the external API. Returns the account and
-    whether it was created; an existing account is returned untouched. The name comes from the
-    matching group's ``name`` property (fallback: the external id). Attribution goes to the
+    whether it was created; an existing account is returned untouched, so a supplied ``name``
+    or ``properties`` never overwrite it. Without a ``name``, the name comes from the matching group's ``name``
+    property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
     On workflow-originated creates, warehouse-backed custom properties are synced inline
     (best-effort) so the response already carries them.
@@ -575,7 +602,11 @@ def create_external_account(
         return _to_external_account(existing), False
     trigger = Trigger(job_type="hog_flow", job_id=workflow_id, payload={}) if workflow_id else None
     account = create_account(
-        team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
+        team=team,
+        name=name or _account_name_from_group(team, external_id),
+        external_id=external_id,
+        properties=properties,
+        trigger=trigger,
     )
     if workflow_id is not None:
         # Synchronous so the workflow can read the values in its next step; best-effort inside —
@@ -593,6 +624,8 @@ def list_external_accounts(
     limit: int = 100,
     assigned_only: bool = False,
     include_ignored: bool = False,
+    managed_only: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
@@ -601,26 +634,40 @@ def list_external_accounts(
     it. Only active relationship assignments to current members of the team's
     organization are exposed. With ``assigned_only``, only accounts holding at
     least one such assignment are returned; a consumer reconciling by absence
-    still sees the complete assigned set. Assignments mirror the single-account
-    endpoint's ``relationships`` shape (keyed by definition name), with the
-    user's current display name added.
+    still sees the complete assigned set. With ``managed_only``, only accounts
+    where customer analytics holds authority over at least one controlled
+    relationship are returned, cleared ones and ignored accounts included, so
+    an ownership poller reads its whole cohort without paging through unmanaged
+    accounts and never mistakes an ignored account for a missing one.
+    Assignments mirror the single-account endpoint's ``relationships`` shape
+    (keyed by definition name), with the user's current display name added.
     """
     active_relationships = AccountRelationship.objects.for_team(team_id).filter(
         ended_at__isnull=True,
         user__isnull=False,
         user__organization_membership__organization_id=organization_id,
     )
-    queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
-    if not include_ignored:
+    queryset: QuerySet[Account] = (
+        _accounts_queryset(team_id, user_access_control)
+        if user_access_control is not None
+        else Account.objects.for_team(team_id)
+    )
+    queryset = queryset.filter(external_id__isnull=False).exclude(external_id="")
+    if not include_ignored and not managed_only:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.order_by("id")
     if assigned_only:
         queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
+    if managed_only:
+        queryset = queryset.filter(
+            Exists(AccountRelationshipControl.objects.for_team(team_id).filter(account=OuterRef("pk")))
+        )
     if cursor:
         queryset = queryset.filter(id__gt=cursor)
 
     page_accounts = list(queryset[: limit + 1])
     accounts = page_accounts[:limit]
+    ownership_by_account = _ownership.ownership_for_accounts(team_id, organization_id, accounts)
 
     relationships_by_account: dict[UUID, dict[str, list[contracts.ExternalAccountAssignment]]] = {}
     for relationship in (
@@ -646,6 +693,7 @@ def list_external_accounts(
             name=account.name,
             churned_at=account.churned_at,
             ignored_at=account.ignored_at,
+            ownership=ownership_by_account[account.id],
             relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
@@ -682,7 +730,9 @@ def _apply_external_relationship_assignments(
     active assignment). Each non-None user id is resolved against an
     ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
-    returns (commits) on an error result rather than rolling back.
+    returns (commits) on an error result rather than rolling back. A workflow is an
+    autonomous writer, so a controlled relationship the account manages raises
+    ``ManagedRolePolicyError`` from the relationship service and rolls the block back.
     """
     keys_to_ids: dict[str, UUID] = {}
     for key in assignments:
@@ -724,22 +774,15 @@ def _apply_external_relationship_assignments(
             )
         resolved.append((definition, membership.user))
 
+    actor = _relationships_logic.Actor(source=AccountRelationshipSource.WORKFLOW, workflow_id=workflow_id)
     for definition, assignee in resolved:
         if assignee is None:
             _relationships_logic.end_active(
-                team_id=account.team_id,
-                account=account,
-                definition=definition,
-                workflow_id=workflow_id,
+                team_id=account.team_id, account=account, definition=definition, actor=actor
             )
         else:
             _relationships_logic.assign(
-                team_id=account.team_id,
-                account=account,
-                definition=definition,
-                user=assignee,
-                created_by=None,
-                workflow_id=workflow_id,
+                team_id=account.team_id, account=account, definition=definition, user=assignee, actor=actor
             )
     return None
 
@@ -785,6 +828,8 @@ def update_external_account(
                 _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
             if churned_at_provided:
                 update_account(account, churned_at=churned_at)
+    except _relationships_logic.ManagedRolePolicyError:
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.ROLE_MANAGED)
     except Exception as e:
         capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
@@ -897,6 +942,10 @@ class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
     matching the ``AccessControlPermission.has_object_permission`` path it replaces."""
+
+
+class GoogleAccountBackfillUnavailable(Exception):
+    pass
 
 
 class WarehouseSyncPausedError(Exception):
@@ -1166,6 +1215,74 @@ def delete_customer_profile_config(
     return True
 
 
+# --- AccountView ---
+
+
+InvalidAccountViewContent = _account_views_logic.InvalidAccountViewContent
+AccountViewVersionConflict = _account_views_logic.AccountViewVersionConflict
+
+
+def _to_account_view(view: AccountViewModel) -> contracts.AccountView:
+    return contracts.AccountView(
+        id=view.id,
+        name=view.name,
+        visibility=cast(Literal["private"], view.visibility),
+        content=view.content,
+        text_content=view.text_content,
+        version=view.version,
+        created_by=view.created_by_id,
+        last_modified_by=view.last_modified_by_id,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+    )
+
+
+def list_account_views(*, team_id: int, user_id: int) -> list[contracts.AccountView]:
+    return [
+        _to_account_view(view) for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
+    ]
+
+
+def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> contracts.AccountView | None:
+    view = _account_views_logic.get_account_view(team_id=team_id, user_id=user_id, view_id=view_id)
+    return _to_account_view(view) if view is not None else None
+
+
+def create_account_view(*, team_id: int, user_id: int, name: str, content: dict[str, Any]) -> contracts.AccountView:
+    return _to_account_view(
+        _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    )
+
+
+def update_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    expected_version: int,
+    name: str | None = None,
+    content: dict[str, Any] | None = None,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.update_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        name=name,
+        content=content,
+    )
+    return _to_account_view(view) if view is not None else None
+
+
+def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_version: int) -> bool:
+    return _account_views_logic.delete_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+    )
+
+
 # --- UserCustomerAnalyticsConfig ---
 
 
@@ -1180,7 +1297,8 @@ def _to_user_customer_analytics_config(
         pinned_properties=[
             contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
             for reference in raw_references
-        ]
+        ],
+        task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
     )
 
 
@@ -1196,6 +1314,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_task_digest_preferences(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: str | None = None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_task_digest(
+        team_id=team_id,
+        user_id=user_id,
+        enabled=enabled,
+        send_time=send_time,
+        cadence=TaskDigestCadence(cadence) if cadence is not None else None,
     )
     return _to_user_customer_analytics_config(config)
 
@@ -1291,15 +1427,19 @@ def list_custom_property_definitions(
     *,
     user_access_control: "UserAccessControl",
     exclude_group_targets: bool = False,
+    target_type: str | None = None,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization."""
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
     queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
+    if target_type is not None:
+        queryset = queryset.filter(target_type=target_type)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     workflow_references = _custom_property_references_by_definition_id(team_id)
@@ -1944,10 +2084,10 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
 def _create_running_runs(team_id: int, binding: "WarehouseBinding", trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the binding that isn't already
     running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
-    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
-    that already have a running run makes this a no-op when a run for the table is already in flight
-    (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
-    to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
+    backfill activities reconcile them to their terminal state (see record_sync_run). An existing row
+    suppresses only a duplicate placeholder; the binding workflow still receives a signal and opens a
+    new row when its follow-up starts. Returns the source ids a placeholder was created for, so the
+    caller can reconcile them to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     # A source and a run name the same binding through different columns: a source's schema binding is
     # the `external_data_schema` FK, a run's is the plain `schema_id`.
     source_field = "saved_query_id" if binding.is_saved_query else "external_data_schema_id"
@@ -2029,12 +2169,42 @@ def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> 
 def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
     """Auto-start a backfill after a person/group source is created/enabled so historical rows populate
     immediately rather than waiting for the next warehouse run. Profile sources only (an account source
-    has its own Celery sync); deduped per table by the workflow id."""
+    has its own Celery sync); serialized per table by the workflow id."""
     binding = _profile_binding(source)
     if not source.is_enabled or binding is None:
         return
     team_id = source.team_id
     transaction.on_commit(lambda: _start_backfill(team_id, binding, "backfill"))
+
+
+def _stamp_profile_source_provenance(source: CustomPropertySource, binding: "WarehouseBinding") -> None:
+    """Apply the source's current mapping metadata without waiting for a value-hash change."""
+    from products.warehouse_sources.backend.facade.person_property_provenance import (  # noqa: PLC0415
+        stamp_person_property_provenance,
+    )
+
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    property_descriptions = {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }
+    # Property definitions are keyed by effective project, not team.
+    project_id = Team.objects.filter(pk=source.team_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        return
+    stamp_person_property_provenance(
+        team_id=source.team_id,
+        project_id=project_id,
+        binding=binding,
+        source_id=str(source.id),
+        definition_id=str(source.definition_id),
+        target=source.definition.target_type,
+        group_type_index=source.definition.group_type_index,
+        property_names=column_property_map.values(),
+        property_descriptions=property_descriptions,
+    )
 
 
 def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBinding | None":
@@ -2143,22 +2313,27 @@ def trigger_person_property_sync(
 def trigger_person_property_backfill(
     *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
 ) -> bool | None:
-    """Start a backfill for a profile source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400). Requires editor access to the warehouse object
-    (→ 403)."""
+    """Request a backfill for a profile source's table. Returns True when a new visible run starts,
+    False when an existing run receives a guaranteed latest-state follow-up, or None for an invalid
+    source (→ 400). Requires editor access to the warehouse object (→ 403)."""
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return None
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
+    # `created_source_ids` covers every enabled source on the binding, not just the one requested —
+    # a sibling source can pick up a fresh placeholder while this source's own run was already in
+    # flight and merely coalesced. Report 'started' only when the requested source is among them.
+    started_new_run = str(source_id) in {str(created_id) for created_id in created_source_ids}
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         WarehouseBindingMissingError,
         start_person_property_backfill,
     )
 
     try:
-        return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        return started_new_run
     except WarehouseBindingMissingError:
         # The warehouse table or view was deleted after the placeholders were created; reconcile them
         # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
@@ -2310,27 +2485,60 @@ def create_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control)
 
 
+@transaction.atomic
 def update_custom_property_source(
     *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
-    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
-    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
-    when no source matches."""
-    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
+    """Apply writable fields to a team-scoped source. Re-enabling (is_enabled False→True) resets the
+    failure streak and clears the last error. Returns None (→ 404) when no source matches."""
+    source = (
+        CustomPropertySource.objects.for_team(team_id)
+        .select_for_update(of=("self",))
+        .select_related("definition")
+        .filter(id=source_id)
+        .first()
+    )
     if source is None:
         return None
+    fields = dict(fields)
+    profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
+    if profile_mapping_fields:
+        if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
+            if any(fields[field] is not None for field in profile_mapping_fields):
+                raise CustomPropertySourceValidationError(
+                    "An account property source uses saved_query + source_column, not external_data_schema."
+                )
+            # Account GET responses include these profile-only fields as null. Treating those nulls as
+            # absent keeps the writable representation compatible with a GET/PATCH round trip.
+            for field in profile_mapping_fields:
+                fields.pop(field)
+            profile_mapping_fields.clear()
+        else:
+            validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
+            if "column_property_map" in fields:
+                fields["column_property_map"] = validated_map
+            if "column_descriptions" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    fields["column_descriptions"], set(validated_map)
+                )
+            elif "column_property_map" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    source.column_descriptions, set(validated_map)
+                )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    mapping_changed = "column_property_map" in fields and fields["column_property_map"] != source.column_property_map
+    descriptions_changed = (
+        "column_descriptions" in fields and fields["column_descriptions"] != source.column_descriptions
+    )
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )
-    # A profile source's backfill drives a real warehouse run, so any change that will trigger one —
-    # re-enabling, or changing the mapped columns while it stays enabled — requires the caller's editor
-    # access on the warehouse object, not account-scope editor alone (matching create). Both routes reach
-    # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
-    # the post-update state that decides whether that helper actually starts a backfill.
+    columns_changed = columns_changed or mapping_changed
+    # Profile mapping fields always require editor access to the bound warehouse object, including while
+    # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
-    if binding is not None and will_be_enabled and (reenabling or columns_changed):
+    if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)
@@ -2338,10 +2546,15 @@ def update_custom_property_source(
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
+    # Provenance names the source that writes a property, so only a source that will write claims it.
+    # Re-enabling runs a backfill, and that stamps the mapping the source has by then.
+    if binding is not None and will_be_enabled and (mapping_changed or descriptions_changed):
+        _stamp_profile_source_provenance(source, binding)
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_initial_account_property_sync(source)
-        _start_person_backfill_if_enabled(source)
+        if will_be_enabled:
+            _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
 
@@ -2401,6 +2614,7 @@ def list_custom_property_sync_runs(
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
 FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
 FeatureRequestConflictError = _feature_requests_logic.FeatureRequestConflictError
+GitHubLinkUnavailableError = _feature_request_github_logic.GitHubLinkUnavailableError
 
 
 def list_feature_request_product_areas(
@@ -2496,6 +2710,89 @@ def update_feature_request(
         actor_id=actor_id,
         user_access_control=user_access_control,
     )
+
+
+def link_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.LinkFeatureRequestGitHubInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.link_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def set_feature_request_github_sync(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    enabled: bool,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.set_feature_request_github_sync(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        enabled=enabled,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def unlink_feature_request_github(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_request_github_logic.unlink_feature_request_github(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def process_feature_request_github_delivery(
+    *,
+    installation_id: str,
+    repository: str,
+    issue_number: int,
+    issue_title: str,
+    issue_state: str,
+    issue_state_reason: str,
+    github_updated_at: datetime,
+    github_delivery_id: str | None = None,
+    github_received_at: str | None = None,
+) -> str:
+    from products.customer_analytics.backend.tasks.tasks import (
+        process_feature_request_github_issue,  # noqa: PLC0415 — Celery task registration must stay off the facade import path
+    )
+
+    task = process_feature_request_github_issue.delay(
+        installation_id=installation_id,
+        repository=repository,
+        issue_number=issue_number,
+        issue_title=issue_title,
+        issue_state=issue_state,
+        issue_state_reason=issue_state_reason,
+        github_updated_at=github_updated_at.isoformat(),
+        github_delivery_id=github_delivery_id,
+        github_received_at=github_received_at,
+    )
+    return task.id
 
 
 def add_feature_request_account(
@@ -2754,8 +3051,8 @@ def _account_view_notebooks(account: Account) -> list[str]:
     return [link.notebook.short_id for link in account.notebooks.all()]
 
 
-def _to_account_view(account: Account) -> contracts.AccountView:
-    return contracts.AccountView(
+def _to_account_details(account: Account) -> contracts.AccountDetails:
+    return contracts.AccountDetails(
         id=account.id,
         name=account.name,
         external_id=account.external_id,
@@ -2948,8 +3245,9 @@ def _apply_account_table_sort(
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
         tag_values = (
-            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
-            .values("account_id")
+            TaggedItem.objects.matching_outer(Account)
+            .filter(tag__team_id=team_id)
+            .values("object_uuid")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3156,9 +3454,9 @@ def query_accounts_table(
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
         for account_id, tag_name in (
-            TaggedItem.objects.filter(account_id__in=account_ids)
+            TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("account_id", "tag__name")
+            .values_list("object_uuid", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 
@@ -3269,7 +3567,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
-) -> tuple[list[contracts.AccountView], int]:
+) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
@@ -3303,17 +3601,25 @@ def list_accounts_for_view(
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    return [_to_account_view(a) for a in page], total_count
+    return [_to_account_details(a) for a in page], total_count
 
 
 def get_account_for_view(
     *, team_id: int, account_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
     Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
+
+
+def get_account_for_view_by_external_id(
+    *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
+) -> contracts.AccountDetails:
+    account = _account_detail_queryset(team_id).get(external_id=external_id)
+    _enforce_object_access(account, user_access_control, required_level)
+    return _to_account_details(account)
 
 
 class _Unset(Enum):
@@ -3432,7 +3738,6 @@ def create_account(
         was_impersonated=was_impersonated,
         trigger=trigger,
     )
-    schedule_email_thread_link_recalculation(team.pk)
     return account
 
 
@@ -3442,7 +3747,7 @@ def create_account_for_view(
     input: contracts.CreateAccountInput,
     user: "User",
     was_impersonated: bool,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = create_account(
         team=team,
         created_by=user,
@@ -3454,7 +3759,7 @@ def create_account_for_view(
         churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def update_account_for_view(
@@ -3468,7 +3773,7 @@ def update_account_for_view(
     user: "User",
     was_impersonated: bool,
     allow_matching_updates: bool = False,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     previous = Account.objects.unscoped().get(pk=account.pk)
@@ -3514,7 +3819,7 @@ def update_account_for_view(
     # and one backfill per switch is LLM spend nobody asked for.
     if not previous.slack_summary_cadence and account.slack_summary_cadence:
         _dispatch_initial_channel_summary(account)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 # Roughly 70 accounts opting into a daily cadence in one day, far above real use.
@@ -3592,17 +3897,29 @@ def delete_account_for_view(
 ) -> None:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    _log_activity_swallowing(
-        instance=account,
-        scope="Account",
-        activity="deleted",
-        name=account.name,
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-    )
     with transaction.atomic():
+        # Authority is checked under the same account lock enrollment and claims take, so an account
+        # that became managed a moment ago cannot be deleted on a stale read. The definitions its rows
+        # sit under are locked too, so none can become controlled before the cascade runs.
+        locked, definitions = _relationships_logic.lock_account_and_its_definitions(team_id, account.id)
+        if locked is None:
+            raise Account.DoesNotExist
+        is_managed = AccountRelationshipControl.objects.for_team(team_id).filter(account=locked).exists()
+        # The cascade would take relationship rows with it, so rows under a controlled definition
+        # refuse the account's deletion the way they refuse their own.
+        has_controlled_history = any(definition.is_controlled for definition in definitions)
+        if is_managed or has_controlled_history:
+            raise AccountOwnershipManagedError(account_id)
+        _log_activity_swallowing(
+            instance=account,
+            scope="Account",
+            activity="deleted",
+            name=account.name,
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+        )
         # Streams referencing this account must be captured before the delete cascades
         # their membership rows away, then resynced so the account's group key doesn't
         # linger in a Slack destination filter.
@@ -3615,20 +3932,19 @@ def delete_account_for_view(
             sync_event_stream_destination(stream, team=team, user=user)
 
 
+def _account_detail_queryset(team_id: int) -> QuerySet[Account]:
+    return Account.objects.for_team(team_id).prefetch_related(
+        Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
+        Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
+    )
+
+
 def _get_account_for_detail(team_id: int, account_id: str) -> Account:
     """Team-scoped account fetch for detail/write paths (object-level access is enforced
     separately). Prefetches notebooks + tags so the returned view renders without extra
     queries, matching the old viewset's ``safely_get_queryset`` + tag-mixin prefetch.
     Raises ``Account.DoesNotExist`` when not found in the team."""
-    queryset = (
-        Account.objects.unscoped()
-        .filter(team_id=team_id)
-        .prefetch_related(
-            Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
-            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
-        )
-    )
-    return _get_object_or_raise(queryset, account_id, Account)
+    return _get_object_or_raise(_account_detail_queryset(team_id), account_id, Account)
 
 
 # --- AccountNotebook (nested under an account) ---
@@ -3694,6 +4010,49 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     except (ValidationError, ValueError):
         return None
     return str(account.id) if account is not None else None
+
+
+def list_account_presence_viewers(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    user: "User",
+) -> list[contracts.AccountPresenceViewer] | None:
+    accessible_account_id = get_accessible_account_id(team_id, account_id, user_access_control)
+    if accessible_account_id is None:
+        return None
+    display_name = user.get_full_name().strip() or user.first_name.strip() or "A teammate"
+    return _account_presence_logic.heartbeat_account_presence(
+        team_id=team_id,
+        account_id=accessible_account_id,
+        viewer=contracts.AccountPresenceViewer(user_id=user.id, display_name=display_name),
+    )
+
+
+def list_accounts_presence(
+    team_id: int,
+    account_ids: list[str],
+    user_access_control: "UserAccessControl",
+    *,
+    viewer_user_id: int | None,
+) -> list[contracts.AccountPresence]:
+    accessible_account_ids = list(
+        user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=team_id, id__in=account_ids)
+        ).values_list("id", flat=True)
+    )
+    viewers_by_account_id = _account_presence_logic.list_account_presence(
+        team_id=team_id, account_ids=[str(account_id) for account_id in accessible_account_ids]
+    )
+    return [
+        contracts.AccountPresence(
+            account_id=account_id,
+            viewers=[
+                viewer for viewer in viewers_by_account_id.get(str(account_id), []) if viewer.user_id != viewer_user_id
+            ],
+        )
+        for account_id in accessible_account_ids
+    ]
 
 
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
@@ -4027,8 +4386,10 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
     activity's timeout — a run past it is considered dead, not running)."""
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
         LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_RETRY_AT_CONFIG_KEY,
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
+        get_calendar_sync_interval,
     )
 
     statuses = []
@@ -4036,19 +4397,38 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
         config = integration.config or {}
         last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        retry_at = _parse_datetime(config.get(SYNC_RETRY_AT_CONFIG_KEY))
+        now = timezone.now()
         is_syncing = bool(
-            started_at
-            and (last_synced_at is None or started_at > last_synced_at)
-            and started_at > timezone.now() - SYNC_STALE_AFTER
+            (retry_at and retry_at > now)
+            or (
+                started_at
+                and (last_synced_at is None or started_at > last_synced_at)
+                and started_at > now - SYNC_STALE_AFTER
+            )
         )
         statuses.append(
             contracts.CalendarSyncStatus(
                 integration_id=integration.id,
                 last_synced_at=last_synced_at,
                 is_syncing=is_syncing,
+                sync_interval_minutes=get_calendar_sync_interval(config),
             )
         )
     return statuses
+
+
+def update_calendar_sync_interval(team_id: int, integration_id: int, interval_minutes: int) -> bool:
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
+        SYNC_INTERVAL_CONFIG_KEY,
+        update_calendar_sync_config,
+    )
+
+    try:
+        update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
+    except Integration.DoesNotExist:
+        return False
+    return True
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -4094,6 +4474,55 @@ def trigger_calendar_sync(
             client.start_workflow(
                 CalendarSyncWorkflow.run,
                 CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
+
+
+def trigger_google_account_backfill(
+    team_id: int,
+    integration_id: int,
+    *,
+    start_date: date,
+    end_date: date,
+    has_management_access: bool,
+) -> str | None:
+    integration = (
+        Integration.objects.only("id")
+        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
+        .first()
+    )
+    if integration is None:
+        return None
+    if not has_management_access:
+        raise ResourceForbiddenError
+    if not can_sync_google_account_email(integration_id, team_id):
+        raise GoogleAccountBackfillUnavailable
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        GoogleAccountBackfillInput,
+        GoogleAccountBackfillWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                GoogleAccountBackfillWorkflow.run,
+                GoogleAccountBackfillInput(
+                    integration_id=integration_id,
+                    team_id=team_id,
+                    start_at=datetime.combine(start_date, time.min, tzinfo=UTC).isoformat(),
+                    end_at=datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC).isoformat(),
+                ),
                 id=f"google-calendar-sync-{integration_id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -4444,6 +4873,33 @@ class AccountRelationshipDefinitionConflictError(Exception):
     """Raised when a relationship definition violates the per-team unique name constraint."""
 
 
+class AccountRelationshipDefinitionControlledError(Exception):
+    """The definition is controlled, so it can be neither deleted nor made multi-holder until control
+    ends."""
+
+
+class AccountRelationshipProtectedError(Exception):
+    """The relationship row belongs to a controlled definition's history and cannot be hard-deleted."""
+
+
+class AccountOwnershipManagedError(Exception):
+    """The account manages a controlled relationship or carries relationship rows under a controlled
+    definition, so it cannot be deleted."""
+
+
+class AccountRelationshipRoleManagedError(Exception):
+    """An agent acting for a person reached a controlled relationship the account manages; only the
+    person may change it."""
+
+
+def _project_api_actor(user: "User | None", via_agent: bool) -> _relationships_logic.Actor:
+    """A person's own request, or an agent acting for them through the MCP server. An agent counts
+    as an autonomous writer, like the in-app AI tool, so it cannot transfer or clear a managed
+    relationship."""
+    source = AccountRelationshipSource.AI if via_agent else AccountRelationshipSource.HUMAN
+    return _relationships_logic.Actor(source=source, user=user)
+
+
 def _to_account_relationship_definition(
     definition: AccountRelationshipDefinition,
 ) -> contracts.AccountRelationshipDefinition:
@@ -4452,6 +4908,7 @@ def _to_account_relationship_definition(
         name=definition.name,
         description=definition.description,
         is_single_holder=definition.is_single_holder,
+        is_controlled=definition.is_controlled,
     )
 
 
@@ -4463,6 +4920,7 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
         user=contracts.AccountAssignment(id=user.id, email=user.email) if user is not None else None,
         started_at=relationship.started_at,
         ended_at=relationship.ended_at,
+        source=cast(contracts.RelationshipSourceValue | None, relationship.source),
     )
 
 
@@ -4507,28 +4965,47 @@ def get_account_relationship_definition(
     return _to_account_relationship_definition(definition)
 
 
+_DEFINITION_EDITABLE_FIELDS = frozenset({"name", "description", "is_single_holder"})
+
+
 def update_account_relationship_definition(
     *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
 ) -> contracts.AccountRelationshipDefinition | None:
-    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
-    if definition is None:
-        return None
-    for attr, value in fields.items():
-        setattr(definition, attr, value)
-    try:
-        definition.save()
-    except IntegrityError:
-        raise AccountRelationshipDefinitionConflictError(
-            "A relationship definition with this name already exists for this team."
-        )
+    """Rename or describe a definition, or change its cardinality. Whether it is controlled is not an
+    edit: it changes only through ``ownership.set_controlled``, which holds the guards."""
+    unexpected = set(fields) - _DEFINITION_EDITABLE_FIELDS
+    if unexpected:
+        raise ValueError(f"Fields cannot be edited here: {', '.join(sorted(unexpected))}")
+    with transaction.atomic():
+        # The definition lock keeps control from starting between this check and the save.
+        definition = _ownership.lock_definition(team_id, definition_id)
+        if definition is None:
+            return None
+        if fields.get("is_single_holder") is False and definition.is_controlled:
+            raise AccountRelationshipDefinitionControlledError(str(definition_id))
+        for attr, value in fields.items():
+            setattr(definition, attr, value)
+        try:
+            definition.save(update_fields=[*fields, "updated_at"])
+        except IntegrityError:
+            raise AccountRelationshipDefinitionConflictError(
+                "A relationship definition with this name already exists for this team."
+            )
     return _to_account_relationship_definition(definition)
 
 
 def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
     """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
-    no definition matches the id for this team (→ 404)."""
-    deleted, _ = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).delete()
-    return deleted > 0
+    no definition matches the id for this team (→ 404). A controlled definition raises instead."""
+    with transaction.atomic():
+        # Locked, so control cannot start between the check and the delete.
+        definition = _ownership.lock_definition(team_id, definition_id)
+        if definition is None:
+            return False
+        if definition.is_controlled:
+            raise AccountRelationshipDefinitionControlledError(str(definition_id))
+        definition.delete()
+    return True
 
 
 def list_account_relationships(
@@ -4555,14 +5032,21 @@ class AccountRelationshipAssigneeNotInOrganization(Exception):
 
 
 def assign_account_relationship(
-    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    user_id: int,
+    created_by: "User",
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship:
     """Assign a user to an account relationship. Single-holder definitions hand off — the
     previous active assignment is ended in the same transaction. Idempotent when the user
     already actively holds the relationship.
 
     Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
-    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400), and ``AccountRelationshipRoleManagedError``
+    (→ 409) when an agent acting for the user reaches a controlled relationship the account manages.
     """
     account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
     definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
@@ -4575,9 +5059,16 @@ def assign_account_relationship(
     )
     if membership is None:
         raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
-    relationship = _relationships_logic.assign(
-        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
-    )
+    try:
+        relationship = _relationships_logic.assign(
+            team_id=team_id,
+            account=account,
+            definition=definition,
+            user=membership.user,
+            actor=_project_api_actor(created_by, via_agent),
+        )
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(definition_id))
     return _to_account_relationship(relationship)
 
 
@@ -4587,6 +5078,7 @@ def end_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship | None:
     """End an active assignment. Returns None when no active assignment matches this account
     (missing, another account's, or already ended) — mapped to 404."""
@@ -4595,10 +5087,12 @@ def end_account_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=actor,
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return None
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(relationship_id))
     return _to_account_relationship(relationship)
 
 
@@ -4608,16 +5102,19 @@ def delete_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> bool:
     try:
         _relationships_logic.delete_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=actor,
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return False
+    except _relationships_logic.ProtectedRelationshipHistoryError:
+        raise AccountRelationshipProtectedError(str(relationship_id))
     return True
 
 

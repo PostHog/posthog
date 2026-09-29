@@ -1,6 +1,11 @@
+from datetime import timedelta
+from itertools import count
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -11,10 +16,10 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
 
-from common.hogvm.python.utils import HogVMException
+from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 
-class TestParser(BaseTest):
+class TestParser(SimpleTestCase):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar.bah}")
         self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))
@@ -25,8 +30,14 @@ class TestParser(BaseTest):
         expr = parse_expr("{filters(a AS timestamp, b AS 'plan')} and {foo} and {1 + 2}")
         finder = find_placeholders(expr)
         self.assertTrue(finder.has_filters)
+        self.assertTrue(finder.has_date_filters)
         self.assertEqual(finder.placeholder_fields, [["foo"]])
         self.assertEqual(len(finder.placeholder_expressions), 1)
+
+    def test_find_placeholders_chain_filters(self):
+        finder = find_placeholders(parse_select("select 1 from events where {filters}"))
+        self.assertTrue(finder.has_filters)
+        self.assertTrue(finder.has_date_filters)
 
     def test_find_placeholders_dotted_filters_calls(self):
         # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.
@@ -34,6 +45,8 @@ class TestParser(BaseTest):
         expr = parse_expr("{filters.interval('week')} and {filters.breakdown(a AS 'plan')} and {other.call(1)}")
         finder = find_placeholders(expr)
         self.assertTrue(finder.has_filters)
+        # They substitute a value rather than a predicate, so no date range reaches the query.
+        self.assertFalse(finder.has_date_filters)
         self.assertEqual(finder.placeholder_fields, [])
         self.assertEqual(len(finder.placeholder_expressions), 1)
 
@@ -63,6 +76,43 @@ class TestParser(BaseTest):
             "Global variable not found: foo",
             str(context.exception),
         )
+
+    @patch("posthog.hogql.placeholders.MAX_PLACEHOLDER_EXPANSIONS", 3)
+    def test_replace_placeholders_caps_expansion_count(self):
+        # A low cap keeps the case away from the shared time budget: at the cap it resolves, one past
+        # it is rejected.
+        at_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(3)])
+        resolved = replace_placeholders(at_cap, {})
+        self.assertEqual(len(cast(ast.Array, resolved).exprs), 3)
+
+        over_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(4)])
+        with self.assertRaises(QueryError):
+            replace_placeholders(over_cap, {})
+
+    @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=0.01))
+    def test_replace_placeholders_charges_compilation_to_the_time_budget(self):
+        expr = ast.Placeholder(expr=ast.Constant(value=1))
+        with patch("posthog.hogql.placeholders.time.monotonic", side_effect=[0.0, 0.05]):
+            with self.assertRaises(QueryError) as context:
+                replace_placeholders(expr, {})
+        self.assertIn("took too long", str(context.exception))
+
+    @parameterized.expand([(100, "{length(range(7))}", 1), (16, "{1}", 2)])
+    def test_replace_placeholders_shares_memory(self, budget: int, expression: str, allowed_count: int) -> None:
+        allowed = parse_select("SELECT " + ", ".join([expression] * allowed_count))
+        oversized = parse_select("SELECT " + ", ".join([expression] * (allowed_count + 1)))
+        with patch("posthog.hogql.placeholders.MAX_MEMORY", budget):
+            self.assertEqual(len(cast(ast.SelectQuery, replace_placeholders(allowed, {})).select), allowed_count)
+            with self.assertRaises(HogVMMemoryExceededException):
+                replace_placeholders(oversized, {})
+            self.assertEqual(len(cast(ast.SelectQuery, replace_placeholders(allowed, {})).select), allowed_count)
+
+    @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=1))
+    def test_replace_placeholders_shares_deadline(self) -> None:
+        query = parse_select("SELECT " + ", ".join(["{1}"] * 100))
+        with patch("posthog.hogql.placeholders.time.monotonic", side_effect=count(0.0, 0.01)):
+            with self.assertRaises((QueryError, HogVMRuntimeExceededException)):
+                replace_placeholders(query, {})
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))

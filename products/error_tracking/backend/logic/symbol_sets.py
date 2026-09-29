@@ -8,7 +8,7 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 
 import hashlib
 import datetime
-from dataclasses import dataclass
+from collections import Counter
 from typing import Any
 
 from django.conf import settings
@@ -20,10 +20,12 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
+from posthog.uuidt import UUIDT
 
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 
@@ -38,16 +40,31 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
+# The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
+# The reference is unique within a team, so it does not need a tiebreak.
+SYMBOL_SET_ORDERINGS: dict[str, tuple[str, ...]] = {
+    "created_at": ("created_at", "id"),
+    "-created_at": ("-created_at", "-id"),
+    "last_used": ("last_used", "id"),
+    "-last_used": ("-last_used", "-id"),
+    "ref": ("ref",),
+    "-ref": ("-ref",),
+}
+
+DEFAULT_SYMBOL_SET_ORDERING = SYMBOL_SET_ORDERINGS["-created_at"]
+
 
 class SymbolSetNotFoundError(Exception):
     pass
 
 
-@dataclass
+@frozen
 class SymbolSetUpload:
     chunk_id: str
     release_id: str | None
     content_hash: str | None
+    # Declaring the byte count earns a presigned PUT signed for exactly that length.
+    content_length: int | None = None
 
 
 def _extract_failure_code(error_codes: object) -> str | None:
@@ -80,7 +97,7 @@ def generate_symbol_set_file_key() -> str:
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
+def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int | None = None) -> dict[str, Any]:
     pair = object_storage.get_presigned_post_pair(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
@@ -92,6 +109,20 @@ def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
         # transfer-acceleration domain while regular S3 works, so the CLI needs a
         # standard-endpoint presigned POST to retry against.
         urls["fallback_presigned_url"] = pair.fallback
+
+    if content_length is not None:
+        # Presigned POST is an AWS S3 extension, and a store without it (Cloudflare R2 answers
+        # `501 NotImplemented`) can never receive a symbol set. Every store implements PUT, whose
+        # signed `content-length` stands in for the POST policy's `content-length-range`.
+        put_pair = object_storage.get_presigned_put_pair(
+            file_key=file_key,
+            content_length=content_length,
+            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+        )
+        if put_pair.primary is not None:
+            urls["presigned_put_url"] = put_pair.primary
+            if put_pair.fallback is not None:
+                urls["fallback_presigned_put_url"] = put_pair.fallback
     return urls
 
 
@@ -168,25 +199,25 @@ def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
     ).update(last_used=now)
 
 
-@posthoganalytics.scoped()
-def bulk_create_symbol_sets(
-    new_symbol_sets: list[SymbolSetUpload],
-    team: Team,
-    force: bool = False,
-    skip_on_conflict: bool = False,
-) -> dict[str, dict[str, Any]]:
+def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> None:
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
-
-    # Check for dupes
-    duplicates = [x for x in chunk_ids if chunk_ids.count(x) > 1]
+    duplicates = sorted(chunk_id for chunk_id, count in Counter(chunk_ids).items() if count > 1)
     if duplicates:
         raise ValidationError(
             code="invalid_chunk_ids",
             detail=f"Duplicate chunk IDs provided: {', '.join(duplicates)}",
         )
 
-    # Check we're using all valid release IDs
     release_ids = {ss.release_id for ss in new_symbol_sets if ss.release_id}
+    # A release ID that is not a UUID makes the `pk__in` lookup below raise before it reaches the
+    # database, and that error leaves as a 500 instead of telling the client what to correct.
+    malformed = sorted(release_id for release_id in release_ids if not UUIDT.is_valid_uuid(release_id))
+    if malformed:
+        raise ValidationError(
+            code="invalid_release_id",
+            detail=f"Invalid release ID provided: {', '.join(malformed)}",
+        )
+
     fetched_releases = {str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids)}
     for release_id in release_ids:
         if release_id not in fetched_releases:
@@ -195,16 +226,138 @@ def bulk_create_symbol_sets(
                 detail=f"Unknown release ID provided: {release_id}",
             )
 
+    # Refuse an oversized chunk before the client spends the bandwidth and `bulk_finish_upload`
+    # deletes the row it already created.
+    oversized = sorted(
+        ss.chunk_id
+        for ss in new_symbol_sets
+        if ss.content_length is not None and ss.content_length > ONE_HUNDRED_MEGABYTES
+    )
+    if oversized:
+        raise ValidationError(
+            code="file_too_large",
+            detail=f"Symbol sets larger than 100MB cannot be uploaded: {', '.join(oversized)}",
+        )
+
+
+def _binds_release(existing: ErrorTrackingSymbolSet, upload: SymbolSetUpload) -> bool:
+    """Whether the upload binds a release to a symbol set that has none.
+
+    An orphan symbol set may join a release, but a bound one never moves between releases.
+    """
+    if not upload.release_id:
+        return False
+    if existing.release_id is None:
+        return True
+    if str(existing.release_id) != upload.release_id:
+        raise ValidationError(
+            code="release_id_mismatch",
+            detail=f"Symbol set {existing.ref} already has a release ID",
+        )
+    return False
+
+
+def _needs_upload(
+    existing: ErrorTrackingSymbolSet,
+    upload: SymbolSetUpload,
+    team_id: int,
+    force: bool,
+    skip_on_conflict: bool,
+) -> bool:
+    if upload.content_hash is None:
+        if existing.content_hash is not None:
+            # Old CLI (no content hash) trying to re-upload a symbol set
+            # that was already fully uploaded. We can't determine safety,
+            # so reject rather than silently overwrite production data.
+            raise ValidationError(
+                code="content_hash_required",
+                detail=f"Symbol set {existing.ref} already has content; provide a content_hash to update it.",
+            )
+        # Both sides have no hash: this is a pending upload being restarted.
+        return True
+    if existing.content_hash is None:
+        # Existing record has no hash (pending upload or uploaded by old CLI
+        # without hash support). Allow the new upload to supply one.
+        return True
+    if existing.content_hash == upload.content_hash:
+        return False
+    if force:
+        return True
+    if skip_on_conflict:
+        # Content has changed, but the caller explicitly asked to keep
+        # the already-uploaded symbol set.
+        logger.warning(
+            "symbol_set_content_changed_skipped",
+            ref=existing.ref,
+            team_id=team_id,
+        )
+        return False
+    raise ValidationError(
+        code="content_hash_mismatch",
+        detail=f"Symbol set {existing.ref} already exists with different content.",
+    )
+
+
+# The DRF ValidationErrors on this path are the CLI upload contract, not server faults, so
+# error tracking must not see them. Real faults are still captured, by DRF's global reporting
+# hook (posthog.exceptions.exception_reporting), which reports every non-APIException.
+@posthoganalytics.scoped(capture_exceptions=False)
+def bulk_check_symbol_sets(
+    new_symbol_sets: list[SymbolSetUpload],
+    team: Team,
+    force: bool = False,
+    skip_on_conflict: bool = False,
+) -> list[str]:
+    """Return the chunk ids `bulk_create_symbol_sets` would act on, without creating rows or
+    issuing upload URLs. It raises the same validation errors, so a conflict fails the client
+    before it uploads anything. The other chunks are marked as still in use here, because the
+    client drops them from the upload and nothing else touches their rows.
+    """
+    _validate_uploads(new_symbol_sets, team)
+    chunk_ids = [x.chunk_id for x in new_symbol_sets]
+    existing_by_ref = {s.ref: s for s in ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids)}
+
+    chunk_ids_to_upload: list[str] = []
+    unchanged_chunk_ids: list[str] = []
+    for upload in new_symbol_sets:
+        existing = existing_by_ref.get(upload.chunk_id)
+        if existing is None:
+            chunk_ids_to_upload.append(upload.chunk_id)
+            continue
+        binds_release = _binds_release(existing, upload)
+        needs_upload = _needs_upload(existing, upload, team.id, force, skip_on_conflict)
+        if binds_release or needs_upload:
+            chunk_ids_to_upload.append(upload.chunk_id)
+        else:
+            unchanged_chunk_ids.append(upload.chunk_id)
+
+    if unchanged_chunk_ids:
+        refresh_last_used(team, unchanged_chunk_ids)
+    return chunk_ids_to_upload
+
+
+@posthoganalytics.scoped(capture_exceptions=False)
+def bulk_create_symbol_sets(
+    new_symbol_sets: list[SymbolSetUpload],
+    team: Team,
+    force: bool = False,
+    skip_on_conflict: bool = False,
+) -> dict[str, dict[str, Any]]:
+    _validate_uploads(new_symbol_sets, team)
+    chunk_ids = [x.chunk_id for x in new_symbol_sets]
+
     id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
     def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
         storage_ptr = generate_symbol_set_file_key()
         id_url_map[existing.ref] = {
-            **generate_symbol_set_upload_presigned_urls(storage_ptr),
+            **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
             "symbol_set_id": str(existing.id),
         }
         existing.storage_ptr = storage_ptr
+        # bulk_finish_upload stores the hash once the new file is confirmed in object storage.
+        existing.content_hash = None
 
     with transaction.atomic():
         existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
@@ -214,7 +367,9 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
+            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(
+                storage_ptr, new_symbol_set_map[chunk_id].content_length
+            )
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before
@@ -238,60 +393,13 @@ def bulk_create_symbol_sets(
             upload = new_symbol_set_map[existing.ref]
             dirty = False
 
-            # Allow adding an "orphan" symbol set to a release, but not
-            # moving symbols sets between releases
-            if upload.release_id:
-                if existing.release_id is None:
-                    existing.release_id = upload.release_id
-                    dirty = True
-                elif str(existing.release_id) != upload.release_id:
-                    raise ValidationError(
-                        code="release_id_mismatch",
-                        detail=f"Symbol set {existing.ref} already has a release ID",
-                    )
+            if _binds_release(existing, upload):
+                existing.release_id = upload.release_id
+                dirty = True
 
-            if upload.content_hash is None:
-                if existing.content_hash is not None:
-                    # Old CLI (no content hash) trying to re-upload a symbol set
-                    # that was already fully uploaded. We can't determine safety,
-                    # so reject rather than silently overwrite production data.
-                    raise ValidationError(
-                        code="content_hash_required",
-                        detail=f"Symbol set {existing.ref} already has content; provide a content_hash to update it.",
-                    )
-                # Both sides have no hash: this is a pending upload being restarted.
-                # Issue a fresh presigned URL so the client can retry.
+            if _needs_upload(existing, upload, team.id, force, skip_on_conflict):
                 reissue_upload(existing)
                 dirty = True
-            elif existing.content_hash is None:
-                # Existing record has no hash (pending upload or uploaded by old CLI
-                # without hash support). Allow the new upload to supply one.
-                reissue_upload(existing)
-                dirty = True
-            elif existing.content_hash == upload.content_hash:
-                # Content is identical — no upload needed.
-                # (We may still update the release below if it changed.)
-                pass
-            elif force:
-                # force=True: content has changed and the caller explicitly
-                # requested an overwrite. Issue a new presigned URL and clear
-                # the old content hash so bulk_finish_upload stores the new one.
-                reissue_upload(existing)
-                existing.content_hash = None  # will be set by bulk_finish_upload
-                dirty = True
-            elif skip_on_conflict:
-                # Content has changed, but the caller explicitly asked to keep
-                # the already-uploaded symbol set.
-                logger.warning(
-                    "symbol_set_content_changed_skipped",
-                    ref=existing.ref,
-                    team_id=team.id,
-                )
-            else:
-                raise ValidationError(
-                    code="content_hash_mismatch",
-                    detail=f"Symbol set {existing.ref} already exists with different content.",
-                )
 
             if dirty:
                 to_update.append(existing)
@@ -321,20 +429,21 @@ def list_symbol_sets(
         queryset = queryset.filter(ref=ref)
 
     if search:
-        queryset = queryset.filter(
-            Q(ref__icontains=search)
-            | Q(release__version__icontains=search)
-            | Q(release__project__icontains=search)
-            | Q(release__metadata__git__commit_id__icontains=search)
-        )
+        # Two single-table filters rather than one OR across the join: the release side collapses
+        # to a membership test against the much smaller release table, so Postgres no longer has
+        # to join every symbol set the team owns just to evaluate the OR.
+        matching_releases = ErrorTrackingRelease.objects.filter(
+            Q(version__icontains=search) | Q(project__icontains=search) | Q(metadata__git__commit_id__icontains=search),
+            team_id=team_id,
+        ).values("id")
+        queryset = queryset.filter(Q(ref__icontains=search) | Q(release_id__in=matching_releases))
 
     if symbol_set_status == "valid":
         queryset = queryset.filter(storage_ptr__isnull=False)
     elif symbol_set_status == "invalid":
         queryset = queryset.filter(storage_ptr__isnull=True)
 
-    if order_by:
-        queryset = queryset.order_by(order_by)
+    queryset = queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
 
     total = queryset.count()
     rows = queryset if limit is None else queryset[offset : offset + limit]
@@ -444,7 +553,9 @@ def bulk_start_upload(
     skip_on_conflict: bool,
 ) -> dict[str, dict[str, Any]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
-    uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
+    uploads.extend(
+        [SymbolSetUpload(chunk_id=chunk_id, release_id=release_id, content_hash=None) for chunk_id in chunk_ids]
+    )
 
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
@@ -458,6 +569,17 @@ def bulk_start_upload(
         force=force,
         skip_on_conflict=skip_on_conflict,
     )
+
+
+def bulk_check_upload(
+    team: Team,
+    *,
+    symbol_sets: list[dict],
+    force: bool,
+    skip_on_conflict: bool,
+) -> list[str]:
+    uploads = [SymbolSetUpload(**data) for data in symbol_sets]
+    return bulk_check_symbol_sets(uploads, team, force=force, skip_on_conflict=skip_on_conflict)
 
 
 def bulk_finish_upload(team: Team, content_hashes: dict[str, str]) -> None:

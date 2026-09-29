@@ -195,7 +195,9 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
     <Flex direction="column" gap="1">
       {reviewers.map((reviewer) => (
         <Flex
-          key={reviewer.user?.uuid ?? reviewer.github_login}
+          key={
+            reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login
+          }
           align="center"
           gap="2"
           wrap="wrap"
@@ -211,9 +213,11 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
             />
           ) : null}
           <Text className="text-[13px]">
-            {reviewer.user?.first_name ??
-              reviewer.github_name ??
-              reviewer.github_login}
+            {reviewer.user?.first_name ||
+              reviewer.github_name ||
+              reviewer.github_login ||
+              reviewer.user?.email ||
+              "Unknown reviewer"}
           </Text>
           {reviewer.github_login ? (
             <a

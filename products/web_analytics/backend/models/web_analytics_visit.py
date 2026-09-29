@@ -9,8 +9,8 @@ class WebAnalyticsVisit(TeamScopedRootMixin, UUIDModel):
     truth for streak and cumulative-loyalty achievements. `visit_date` is the team-local date, not
     a datetime — streak math must use the same team timezone that wrote it."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
     visit_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
 

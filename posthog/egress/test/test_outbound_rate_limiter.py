@@ -149,9 +149,6 @@ async def test_github_search_resource_meter_is_independent_of_core():
     assert await limiter.acquire(core_key, 1, priority=Priority.CRITICAL) is True
 
 
-_RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}
-
-
 @pytest.mark.parametrize(
     "priority,grantable",
     [
@@ -165,7 +162,7 @@ _RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}
 async def test_reserved_floor_caps_each_priority(priority, grantable):
     # The whole point of the lane: a lower priority is denied while headroom is still owed to higher
     # ones, even though all three draw from the same counter.
-    register_policy("test-reserve", RatePolicy(limits=((10, 3600.0),), reserve=_RESERVE))
+    register_policy("test-reserve", RatePolicy(limits=((10, 3600.0),)))
     limiter = _fresh_limiter()
     # Distinct scope per case — parametrize cases share one Redis-backed counter otherwise.
     key = f"test-reserve:scope:{priority.value}"
@@ -186,12 +183,11 @@ async def test_batch_shed_before_critical_on_shared_counter():
 
 
 @pytest.mark.parametrize("priority", [Priority.CRITICAL, Priority.NORMAL, Priority.BATCH])
-async def test_no_reserve_policy_is_priority_blind(priority):
-    # An empty reserve must reproduce the pre-priority behavior for every lane — no headroom held back.
-    register_policy("test-noreserve", RatePolicy(limits=((2, 3600.0),)))
+async def test_explicitly_flat_policy_is_priority_blind(priority):
+    register_policy("test-flat", RatePolicy(limits=((10, 3600.0),), reserve={}))
     limiter = _fresh_limiter()
-    key = f"test-noreserve:scope:{priority.value}"
-    assert [await limiter.acquire(key, priority=priority) for _ in range(3)] == [True, True, False]
+    key = _unique_key("test-flat")
+    assert [await limiter.acquire(key, priority=priority) for _ in range(11)] == [True] * 10 + [False]
 
 
 def test_reserve_inflated_weight_validation():
@@ -272,6 +268,24 @@ def test_pacing_follows_the_tightest_window(limits):
 
     # The minute window is barely touched. The hourly one is down to 4 of 10 and governs.
     assert limiter.pace_seconds(key) > 0.0
+
+
+@pytest.mark.parametrize(
+    "limits,priority,expected",
+    [
+        (((10, 60.0),), Priority.NORMAL, 6.0),
+        # The reserved floor is not part of the share, so BATCH spreads 7 of the 10 over the window.
+        (((10, 60.0),), Priority.BATCH, 60.0 / 7),
+        # The tightest window governs, whichever position it holds.
+        (((100, 60.0), (10, 3600.0)), Priority.NORMAL, 360.0),
+        (((10, 3600.0), (100, 60.0)), Priority.NORMAL, 360.0),
+    ],
+)
+def test_admission_interval_spreads_the_priority_share_over_the_tightest_window(limits, priority, expected):
+    register_policy("test-interval", RatePolicy(limits=limits, reserve={Priority.BATCH: 0.3}))
+    limiter = _fresh_limiter()
+
+    assert limiter.admission_interval_seconds("test-interval:scope:1", priority=priority) == pytest.approx(expected)
 
 
 def test_pace_seconds_answers_zero_when_the_store_is_unavailable(monkeypatch):

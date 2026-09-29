@@ -37,6 +37,49 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
     resolved_source_id: zod.uuid().nullish().describe('Optional knowledge source to link when accepting.'),
 })
 
+/**
+ * Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time, up to 3 open answers per person.
+ * @summary Ask a question in a playground chat
+ */
+export const businessKnowledgePlaygroundChatsAskCreateBodyQuestionMax = 4000
+
+export const BusinessKnowledgePlaygroundChatsAskCreateBody = /* @__PURE__ */ zod.object({
+    question: zod
+        .string()
+        .max(businessKnowledgePlaygroundChatsAskCreateBodyQuestionMax)
+        .describe(
+            "Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters."
+        ),
+})
+
+/**
+ * Start a sandbox agent that can search only this project's business knowledge. Returns immediately.
+ * @summary Ask a business knowledge sandbox question
+ */
+export const businessKnowledgeSandboxCreateBodyQuestionMax = 4000
+
+export const BusinessKnowledgeSandboxCreateBody = /* @__PURE__ */ zod.object({
+    question: zod
+        .string()
+        .max(businessKnowledgeSandboxCreateBodyQuestionMax)
+        .describe(
+            "Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters."
+        ),
+})
+
+/**
+ * Partially update Business knowledge learning settings. Enabling learn-from-support requires Support to be on in this environment.
+ * @summary Update business knowledge settings
+ */
+export const BusinessKnowledgeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    learn_from_support_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment.'
+        ),
+})
+
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
 export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false

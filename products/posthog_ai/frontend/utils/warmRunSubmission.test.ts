@@ -1,8 +1,7 @@
 import { kea, path, resetContext } from 'kea'
+import { type DisposablesManager, disposablesPlugin } from 'kea-disposables'
 
 import { ApiError } from 'lib/api-error'
-
-import { DisposablesManager, disposablesPlugin } from '~/kea-disposables'
 
 import { submitWithWarmRunRetry } from './warmRunSubmission'
 
@@ -64,15 +63,27 @@ describe('submitWithWarmRunRetry', () => {
     })
 
     test.each([
-        new Error('network failure'),
-        new DOMException('request timed out', 'TimeoutError'),
-        new ApiError('unavailable', 503),
-        new ApiError('unavailable', 500, undefined, { code: 'warm_run_activation_unavailable', retry_token: 'token' }),
-        new ApiError('unavailable', 503, undefined, { code: 'another_error', retry_token: 'token' }),
-        starting(''),
-        starting(' '),
-        new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable', retry_token: 1 }),
-    ])('stops without retrying an unconfirmed failure: %s', async (error) => {
+        ['network failure', new Error('network failure')],
+        ['request timeout', new DOMException('request timed out', 'TimeoutError')],
+        ['missing retry token', new ApiError('unavailable', 503)],
+        [
+            'non-retryable status',
+            new ApiError('unavailable', 500, undefined, {
+                code: 'warm_run_activation_unavailable',
+                retry_token: 'token',
+            }),
+        ],
+        [
+            'unrecognized error code',
+            new ApiError('unavailable', 503, undefined, { code: 'another_error', retry_token: 'token' }),
+        ],
+        ['empty retry token', starting('')],
+        ['blank retry token', starting(' ')],
+        [
+            'non-string retry token',
+            new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable', retry_token: 1 }),
+        ],
+    ])('stops without retrying an unconfirmed failure: %s', async (_case, error) => {
         const send = jest.fn().mockRejectedValueOnce(starting()).mockRejectedValueOnce(error)
         const result = submitWithWarmRunRetry(send, disposables)
         const rejected = result.catch((error) => error)

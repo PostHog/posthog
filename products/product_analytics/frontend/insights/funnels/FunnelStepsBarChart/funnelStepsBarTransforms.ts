@@ -1,10 +1,9 @@
 import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
 
-import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
-
 import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { getVisibilityKey } from '../funnelUtils'
 import { RATE_TO_PERCENT } from '../shared/funnelBarHorizontalShared'
 import {
     buildFunnelStepsBars,

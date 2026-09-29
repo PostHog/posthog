@@ -8,13 +8,8 @@ use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use dateparser::parse as parse_date;
-use fancy_regex::RegexBuilder;
 use semver::{Version, VersionReq};
 use serde_json::Value;
-
-/// Regex backtrack limit to prevent ReDoS attacks.
-/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
-pub(crate) const REGEX_BACKTRACK_LIMIT: usize = 10_000;
 
 /// Prefix used when storing PersonMetadata field values (e.g. created_at) in the
 /// person properties map. Avoids collision with user-set properties of the same name.
@@ -65,6 +60,7 @@ pub fn to_string_representation(value: &Value) -> String {
 pub struct PropertyMatchingContext {
     team_timezone: Tz,
     use_explicit_exact_matching: bool,
+    evaluation_time: Option<DateTime<Utc>>,
 }
 
 impl PropertyMatchingContext {
@@ -72,7 +68,13 @@ impl PropertyMatchingContext {
         Self {
             team_timezone,
             use_explicit_exact_matching,
+            evaluation_time: None,
         }
+    }
+
+    pub fn at_time(mut self, now: DateTime<Utc>) -> Self {
+        self.evaluation_time = Some(now);
+        self
     }
 }
 
@@ -84,9 +86,8 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
 }
 
 /// Parses the property value being matched as f64, for the numeric comparison operators
-/// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
-/// error here, distinct from `match_value.is_none()` short-circuiting to `Ok(false)`
-/// earlier in each operator's match arm.
+/// (Gt/Gte/Lt/Lte). A missing or non-numeric value is a validation error here, distinct
+/// from `match_value.is_none()` short-circuiting to `Ok(false)` earlier in that match arm.
 fn parse_numeric_match_value(
     match_value: Option<&Value>,
     key: &str,
@@ -179,10 +180,36 @@ pub fn match_property(
     partial_props: bool,
     context: PropertyMatchingContext,
 ) -> Result<bool, FlagMatchingError> {
+    let lookup_key = lookup_key_for(property);
+    match_property_input(
+        PropertyMatchInput {
+            key: lookup_key.as_ref(),
+            value: property.value.as_ref(),
+            operator: property.operator.unwrap_or(OperatorType::Exact),
+            compiled_regex: property.compiled_regex.as_ref(),
+        },
+        matching_property_values,
+        partial_props,
+        context,
+    )
+}
+
+pub(crate) struct PropertyMatchInput<'a> {
+    pub key: &'a str,
+    pub value: Option<&'a Value>,
+    pub operator: OperatorType,
+    pub compiled_regex: Option<&'a CompiledRegex>,
+}
+
+pub(crate) fn match_property_input(
+    property: PropertyMatchInput<'_>,
+    matching_property_values: &HashMap<String, Value>,
+    partial_props: bool,
+    context: PropertyMatchingContext,
+) -> Result<bool, FlagMatchingError> {
     let team_timezone = context.team_timezone;
     let use_explicit_exact_matching = context.use_explicit_exact_matching;
-    let lookup_key = lookup_key_for(property);
-    let key: &str = lookup_key.as_ref();
+    let key = property.key;
 
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
@@ -197,7 +224,7 @@ pub fn match_property(
         )));
     }
 
-    let operator = property.operator.unwrap_or(OperatorType::Exact);
+    let operator = property.operator;
     let match_value = matching_property_values.get(key);
 
     // first match operators that don't require a value
@@ -218,7 +245,7 @@ pub fn match_property(
     }
 
     // For all other operators, we need a value
-    let value = match &property.value {
+    let value = match property.value {
         Some(v) => v,
         None => return Ok(false), // No value means no match for value-requiring operators
     };
@@ -364,19 +391,15 @@ pub fn match_property(
             // - None: prepare_regex() was not called, compile on-the-fly (fallback
             //   for cohort property filters and test code)
             let compiled;
-            let regex: &fancy_regex::Regex = match &property.compiled_regex {
-                Some(CompiledRegex::Compiled(regex)) => regex,
-                Some(CompiledRegex::InvalidPattern) => return Ok(false),
-                None => match RegexBuilder::new(&to_string_representation(value))
-                    .backtrack_limit(REGEX_BACKTRACK_LIMIT)
-                    .build()
-                {
-                    Ok(regex) => {
-                        compiled = regex;
-                        &compiled
-                    }
-                    Err(_) => return Ok(false),
-                },
+            let compiled_regex = match property.compiled_regex {
+                Some(compiled_regex) => compiled_regex,
+                None => {
+                    compiled = CompiledRegex::new(&to_string_representation(value));
+                    &compiled
+                }
+            };
+            let CompiledRegex::Compiled(regex) = compiled_regex else {
+                return Ok(false);
             };
 
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
@@ -425,12 +448,6 @@ pub fn match_property(
             }
         }
         OperatorType::Between | OperatorType::NotBetween => {
-            if match_value.is_none() {
-                // When value doesn't exist:
-                // - for Between/NotBetween: it's not a match (false)
-                return Ok(false);
-            }
-
             // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
             // on both ends, not_between is its complement, and the filter value must be
             // a two-element numeric array with min <= max.
@@ -468,7 +485,11 @@ pub fn match_property(
                 ));
             }
 
-            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
+            // A missing, null, or non-numeric value reads as NULL in HogQL, which is not in
+            // range: Between does not match and its complement NotBetween does.
+            let Some(parsed_value) = match_value.and_then(to_f64_representation) else {
+                return Ok(operator == OperatorType::NotBetween);
+            };
             if parsed_value.is_nan() {
                 // "NaN" parses successfully as f64::NAN rather than failing, but a NaN
                 // property value is malformed input, not a real number: it must be a
@@ -620,8 +641,11 @@ pub fn match_property(
             // Both the person value and the filter value are interpreted in the
             // team timezone (naive strings) or by their explicit offset, so the two
             // sides agree with each other and with HogQL/ClickHouse cohort evaluation.
-            let parsed_date =
-                determine_parsed_date_for_property_matching(match_value, team_timezone);
+            let parsed_date = determine_parsed_date_for_property_matching(
+                match_value,
+                team_timezone,
+                context.evaluation_time,
+            );
 
             if parsed_date.is_none() {
                 // When value doesn't exist:
@@ -630,7 +654,11 @@ pub fn match_property(
             }
 
             if let Some(override_value) = value.as_str() {
-                let override_date = match parse_date_string_in_tz(override_value, team_timezone) {
+                let override_date = match parse_date_string_in_tz(
+                    override_value,
+                    team_timezone,
+                    context.evaluation_time,
+                ) {
                     Some(date) => date,
                     None => {
                         return Ok(false);
@@ -701,9 +729,13 @@ const NAIVE_DATETIME_FORMATS: &[&str] = &[
 /// Values that carry an explicit offset (a trailing `Z` or `±HH:MM`) are honored
 /// as written, mirroring ClickHouse's `parseDateTime64BestEffort`, which respects
 /// the embedded offset regardless of the team timezone.
-fn parse_date_string_in_tz(date_str: &str, team_timezone: Tz) -> Option<DateTime<Utc>> {
+fn parse_date_string_in_tz(
+    date_str: &str,
+    team_timezone: Tz,
+    now: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
     // Relative dates ("-7d", "-30d", …) are anchored to "now" in the team timezone.
-    if let Some(date) = relative_date::parse_relative_date_in_tz(date_str, team_timezone) {
+    if let Some(date) = relative_date::parse_relative_date_in_tz(date_str, team_timezone, now) {
         return Some(date);
     }
 
@@ -731,6 +763,7 @@ fn parse_date_string_in_tz(date_str: &str, team_timezone: Tz) -> Option<DateTime
 fn determine_parsed_date_for_property_matching(
     value: Option<&Value>,
     team_timezone: Tz,
+    now: Option<DateTime<Utc>>,
 ) -> Option<DateTime<Utc>> {
     let value = value?;
 
@@ -740,7 +773,7 @@ fn determine_parsed_date_for_property_matching(
             return parse_float_timestamp(num);
         }
         // Otherwise interpret the string in the team timezone, like the filter side.
-        return parse_date_string_in_tz(date_str, team_timezone);
+        return parse_date_string_in_tz(date_str, team_timezone, now);
     }
 
     if let Some(num) = value.as_number() {
@@ -2022,27 +2055,6 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Missing person property is not a match, for both between and not_between
-        assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
-        let not_between = PropertyFilter {
-            operator: Some(OperatorType::NotBetween),
-            ..between.clone()
-        };
-        assert!(
-            !match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
-        );
-
-        // Non-numeric person property value is a validation error (like Gt/Lt), which
-        // cohort evaluation resolves to a non-match
-        assert!(matches!(
-            match_property(
-                &between,
-                &HashMap::from([("key".to_string(), json!("abc"))]),
-                true
-            ),
-            Err(FlagMatchingError::ValidationError(_))
-        ));
-
         // A filter with no value is not a match
         let no_value = PropertyFilter {
             value: None,
@@ -2056,6 +2068,45 @@ mod test_match_properties {
         .expect("expected match to exist"));
     }
 
+    // Same inputs and outcomes as test_between_operators_treat_uncoercible_value_as_out_of_range in
+    // posthog/hogql/test/test_property.py, where such a value reads as NULL.
+    #[test_case(None, false, true; "absent")]
+    #[test_case(Some(json!(null)), false, true; "explicit null")]
+    #[test_case(Some(json!("abc")), false, true; "malformed")]
+    #[test_case(Some(json!("50")), true, false; "numeric string")]
+    #[test_case(Some(json!("NaN")), false, false; "NaN")]
+    #[test_case(Some(json!(50)), true, false; "in range")]
+    #[test_case(Some(json!(500)), false, true; "out of range")]
+    fn test_match_properties_between_operator_uncoercible_values(
+        property_value: Option<Value>,
+        expected_between: bool,
+        expected_not_between: bool,
+    ) {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!([0, 100])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            ..Default::default()
+        };
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        let props: HashMap<String, Value> = property_value
+            .map(|v| HashMap::from([("key".to_string(), v)]))
+            .unwrap_or_default();
+
+        assert_eq!(
+            match_property(&between, &props, false).expect("expected match to exist"),
+            expected_between
+        );
+        assert_eq!(
+            match_property(&not_between, &props, false).expect("expected match to exist"),
+            expected_not_between
+        );
+    }
+
     #[test_case(json!(75000); "not an array")]
     #[test_case(json!([70000]); "one element")]
     #[test_case(json!([70000, 75000, 80000]); "three elements")]
@@ -2064,26 +2115,27 @@ mod test_match_properties {
     #[test_case(json!(["NaN", 80000]); "NaN lower bound")]
     #[test_case(json!([70000, "NaN"]); "NaN upper bound")]
     fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
+        // A malformed filter is rejected whether or not the entity carries the property, so a
+        // missing property cannot turn a filter HogQL refuses to run into a NotBetween match.
+        let property_maps = [
+            HashMap::from([("key".to_string(), json!(75000))]),
+            HashMap::new(),
+        ];
         for operator in [OperatorType::Between, OperatorType::NotBetween] {
             let property = PropertyFilter {
                 key: "key".to_string(),
                 value: Some(filter_value.clone()),
                 operator: Some(operator),
                 prop_type: PropertyType::Person,
-                group_type_index: None,
-                negation: None,
-                compiled_regex: None,
-                extra: Default::default(),
+                ..Default::default()
             };
 
-            assert!(matches!(
-                match_property(
-                    &property,
-                    &HashMap::from([("key".to_string(), json!(75000))]),
-                    true
-                ),
-                Err(FlagMatchingError::ValidationError(_))
-            ));
+            for props in &property_maps {
+                assert!(matches!(
+                    match_property(&property, props, false),
+                    Err(FlagMatchingError::ValidationError(_))
+                ));
+            }
         }
     }
 
@@ -2660,11 +2712,17 @@ mod test_match_properties {
             .with_timezone(&Utc);
         let timestamp_number = 1836277747;
         let timestamp_string = timestamp_number.to_string();
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_number)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_string)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
     }
 
@@ -2674,13 +2732,19 @@ mod test_match_properties {
             .unwrap()
             .with_timezone(&Utc);
         let timestamp_number = 1836277747.86753;
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_number)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
 
         let timestamp_string = "1836277747.86753";
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_string)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
     }
 
@@ -2690,7 +2754,7 @@ mod test_match_properties {
         // value like this is interpreted in the team timezone; this test passes
         // Tz::UTC, so the result lands at UTC midnight.
         let date_string = "2025-12-19T00:00:00.000";
-        let date = parse_date_string_in_tz(date_string, Tz::UTC);
+        let date = parse_date_string_in_tz(date_string, Tz::UTC, None);
         assert!(
             date.is_some(),
             "Should be able to parse ISO 8601 with milliseconds"
@@ -2708,13 +2772,13 @@ mod test_match_properties {
     #[test]
     fn test_parse_iso8601_with_variable_millisecond_precision() {
         // Test 1 digit milliseconds
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.5", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.5", Tz::UTC, None).is_some());
 
         // Test 2 digit milliseconds
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.12", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.12", Tz::UTC, None).is_some());
 
         // Test 3 digit milliseconds (existing case)
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.123", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.123", Tz::UTC, None).is_some());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -25,6 +25,7 @@ from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
+    MCPOrgRule,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPServerTemplate,
@@ -938,6 +939,28 @@ class TestCallMemberServerTool(BaseTest):
     def _call(self, name: str = "list_events", **kwargs):
         return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_tool_with_no_row_is_listed_before_the_call_is_refused(self, mock_call, mock_fetch) -> None:
+        # A connection whose connect-time listing never landed holds no rows, and
+        # without a re-listing it refuses every call for the life of the connection.
+        self._installation()
+        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+
+        # Freshly listed tools are opt-in, so policy answers the call now.
+        assert self._call().status == "needs_approval"
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
+        installation = self._installation()
+        self._tool(installation, removed_at=timezone.now())
+        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+
+        assert self._call().status == "ok"
+        mock_call.assert_called_once()
+
     @patch(
         "products.mcp_store.backend.facade.api.call_upstream_tool",
         return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},
@@ -1000,7 +1023,7 @@ class TestCallMemberServerTool(BaseTest):
     ) -> None:
         self._tool(self._installation(), name=tool_name, annotations=annotations)
 
-        assert self._call(tool_name, allow_writes=allow_writes).status == expected_status
+        assert self._call(tool_name, allow_writes=allow_writes, approval_token="untrusted").status == expected_status
         assert mock_call.called is (expected_status == "ok")
         tools = member_server_tools(self.team.id, self.user.id, self.HOST)
         assert tools is not None
@@ -1013,5 +1036,56 @@ class TestCallMemberServerTool(BaseTest):
         )
         self._tool(self._installation(gateway_server=server))
 
+        assert self._call(approval_token="untrusted").status == "blocked"
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_approval_applies_only_to_one_call(self, mock_call: MagicMock) -> None:
+        installation = self._installation()
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+
+        pending = self._call(allow_writes=False)
+        assert pending.status == "needs_approval"
+        assert pending.approval_token is not None
+        mock_call.assert_not_called()
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "ok"
+        assert self._call(approval_token=pending.approval_token, allow_writes=False).status == "blocked"
+        assert self._call().status == "needs_approval"
+        assert mock_call.call_count == 1
+        assert installation.tools.get().approval_state == "needs_approval"
+
+    @parameterized.expand(
+        [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
+    )
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_approval_does_not_override_blocks(
+        self, _name: str, approval_state: str, removed: str | None, expected: str, mock_call: MagicMock
+    ) -> None:
+        installation = self._installation()
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
+        installation.tools.update(approval_state=approval_state, removed_at=timezone.now() if removed else None)
+
+        assert self._call(approval_token=token, allow_writes=False).status == expected
+        mock_call.assert_not_called()
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_org_rule_cannot_be_overridden_by_call_approval(self, mock_call: MagicMock) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Calendar", url=f"https://{self.HOST}/mcp"
+        )
+        installation = self._installation(gateway_server=server)
+        self._tool(installation)
+        installation.tools.update(approval_state="needs_approval")
+        token = self._call().approval_token
+        assert token is not None
+        MCPOrgRule.objects.for_team(self.team.id).create(
+            team=self.team, name="Review calendar reads", effect="needs_approval", tool_pattern="list_events"
+        )
+
+        assert self._call(approval_token=token, allow_writes=False).status == "blocked"
         assert self._call().status == "blocked"
         mock_call.assert_not_called()

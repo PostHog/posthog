@@ -77,7 +77,7 @@ the `external_data_schema` value the source needs. A table name alone is not eno
 
 ```sql
 select column_name, data_type
-from information_schema.columns
+from system.information_schema.columns
 where table_name = '<table name>'
 ```
 

@@ -64,7 +64,7 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
 
-For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
+For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
 ### Disclosure
 
@@ -121,6 +121,7 @@ For a run of questions asked one at a time — an agent needing a few decisions 
 | Heading   | Section/page titles — sizes 2xl/xl/lg/base/sm, semantic level via `render={<h1 />}` decoupled from size |
 | Text      | Body copy — sizes lg/base/sm/xs/xxs, variants default/muted/destructive, weights normal/medium/semibold |
 | Label     | `<label>` bound to a control; inside forms prefer FieldLabel                                            |
+| Highlight | A marker-pen tint on a few words of a heading or sentence, for emphasis; `animate` draws it in          |
 
 Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size="xs" variant="muted">` exists.
 
@@ -132,21 +133,21 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                                                 | Sizes                                                | Notes                                                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
-| Badge        | default, info, destructive, warning, success, completed                                  | —                                                    | Semantic status                                                                                                        |
-| Toggle       | default, outline                                                                         | default, sm, lg, icon                                |                                                                                                                        |
-| Chip         | outline                                                                                  | sm                                                   | Use with ChipClose                                                                                                     |
-| Separator    | —                                                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
-| Spinner      | —                                                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
-| Skeleton     | —                                                                                        | —                                                    | Pulsing placeholder div                                                                                                |
-| SkeletonText | —                                                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
-| Progress     | —                                                                                        | —                                                    | value: 0-100                                                                                                           |
-| Slider       | —                                                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
-| ChatGlobe    | —                                                                                        | —                                                    | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                      |
-| AvatarGroup  | —                                                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
+| Component    | Variants                                                                                 | Sizes                                                     | Notes                                                                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg, row | `loading` overlays a centered spinner and disables the button (width stays stable). `row` is the full-width, regular-weight list row that menu, combobox and autocomplete items render. |
+| Badge        | default, info, destructive, warning, success, completed                                  | —                                                         | Semantic status                                                                                                                                                                         |
+| Toggle       | default, outline                                                                         | default, sm, lg, icon                                     |                                                                                                                                                                                         |
+| Chip         | outline                                                                                  | sm                                                        | Use with ChipClose                                                                                                                                                                      |
+| Separator    | —                                                                                        | —                                                         | orientation: horizontal/vertical                                                                                                                                                        |
+| Spinner      | —                                                                                        | —                                                         | SVG, accepts svg props                                                                                                                                                                  |
+| Skeleton     | —                                                                                        | —                                                         | Pulsing placeholder div                                                                                                                                                                 |
+| SkeletonText | —                                                                                        | —                                                         | lines, minWidth, maxWidth                                                                                                                                                               |
+| Progress     | —                                                                                        | —                                                         | value: 0-100                                                                                                                                                                            |
+| Slider       | —                                                                                        | —                                                         | value, min, max                                                                                                                                                                         |
+| Avatar       | —                                                                                        | lg, default, sm, xs                                       | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                                                                                                |
+| ChatGlobe    | —                                                                                        | —                                                         | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                       |
+| AvatarGroup  | —                                                                                        | default, sm, xs                                           | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                  |
 
 ---
 
@@ -948,6 +949,26 @@ Skipped items don't appear at all.
 - **Tabs across the top are the same controlled navigation**, for a short run the user should see whole before committing: hold the active question's name in state, pass it as both the root's `item` and the `Tabs` `value`, and take `onItemChange` and `onValueChange` back into it. Read each item's `onStatusChange` to show a check in its tab — keep the icon mounted and `invisible` until the answer lands, tinted `text-success-foreground`, so the label doesn't shift. Keep the tabs outside the form — inside it they are one more stop between a question and its answers, and their buttons take part in the form. In a `Card` that means the card wraps the questionnaire: tabs in `CardHeader`, then the root with `className="contents"` around `CardContent` and `CardFooter`.
 - Inside a `Dialog`, put `className="contents"` on the root so the header, body, and footer stay in the dialog's own grid (and keep their padding and dividers) while the form still wraps the submit button. Cancel and dismiss remain the dialog's. Drop `QuestionnaireActions` there and put the navigation buttons straight into `DialogFooter` next to the `DialogClose`, the way every other dialog does — the footer is already the button row, and nesting the actions grid inside it doubles the gap.
 
+### Highlight
+
+A marker-pen tint over inline text — a pale background with the text in the same hue.
+The colors (`orange` default, `red`, `yellow`, `green`, `blue`, `purple`) are decorative, with no meaning; use `Badge` for status.
+It renders a `<mark>` and never changes layout: the tint bleeds a little past the text through padding that a matching negative margin cancels, so wrapping lines break exactly where they would without it.
+
+`animate` draws it like a marker stroke the first time it scrolls into view.
+The stroke covers one line before it starts the next, and the text takes the highlight color as the stroke passes it.
+The stroke length scales with the text length; override it with `duration`, and stagger several with `delay` (both in ms).
+Reduced motion shows the finished highlight at once.
+
+```tsx
+<Heading size="2xl">
+  Make your product{' '}
+  <Highlight color="blue" animate>
+    self-driving
+  </Highlight>
+</Heading>
+```
+
 ### Keyboard Shortcuts
 
 ```tsx
@@ -1142,6 +1163,12 @@ Note: pressing `d` also toggles theme (skipped when focus is in input fields).
 ## Spacing and layout
 
 Quill spacing uses a 4px base (`gap-1` = 4px, `gap-2` = 8px, `gap-4` = 16px). These rules are the conventions the stories actually follow:
+
+### Text sizes
+
+- `--text-ui` (13px) is the primary UI text: controls, list rows, chat, and the body text of cards, dialogs, drawers, popovers and tooltips.
+- `--text-xs` (12px) is secondary text: descriptions, labels, field errors, tables, and `sm` controls. Chat is the exception, and uses `--text-ui` for its help, error and meta text too.
+- In component CSS, write `var(--text-ui, 0.8125rem)`. Set `--text-ui` on an ancestor to rescale the primary text together.
 
 ### Between siblings — use gap, never margins
 

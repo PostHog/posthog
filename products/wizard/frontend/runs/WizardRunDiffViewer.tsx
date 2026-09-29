@@ -4,12 +4,37 @@ import { FileDiff } from '@pierre/diffs/react'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
+import { Button, Card, Item, ItemContent, ItemDescription } from '@posthog/quill-primitives'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { MAX_RENDERED_WIZARD_DIFF_LINES, wizardRunDiffCanRender } from '../wizardRunDisplay'
 const DIFF_THEME = { light: 'github-light', dark: 'github-dark' } as const
+
+function DiffNotice({
+    children,
+    pullRequestUrl,
+    tone,
+}: {
+    children: string
+    pullRequestUrl: string | null
+    tone: 'warning' | 'destructive'
+}): JSX.Element {
+    return (
+        <Item tone={tone} variant="outline">
+            <ItemContent>
+                <ItemDescription>{children}</ItemDescription>
+                {pullRequestUrl && (
+                    <Button variant="outline" size="sm" render={<LinkPrimitive to={pullRequestUrl} target="_blank" />}>
+                        Open pull request
+                    </Button>
+                )}
+            </ItemContent>
+        </Item>
+    )
+}
 
 function lineCounts(file: FileDiffMetadata): { additions: number; removals: number } {
     return file.hunks.reduce(
@@ -48,9 +73,6 @@ export function WizardRunDiffViewer({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const hasPullRequest = !!pullRequestUrl
-    const pullRequestAction = pullRequestUrl
-        ? { children: 'Open pull request', to: pullRequestUrl, targetBlank: true }
-        : undefined
 
     // Poll updates re-render the drawer with unchanged props, so parse only on real content changes.
     const parsed = useMemo<[boolean, FileDiffMetadata[]]>(() => {
@@ -66,11 +88,11 @@ export function WizardRunDiffViewer({
 
     if (!wizardRunDiffCanRender(sizeBytes)) {
         return (
-            <LemonBanner type="warning" action={pullRequestAction}>
+            <DiffNotice tone="warning" pullRequestUrl={pullRequestUrl}>
                 {hasPullRequest
                     ? 'This diff is too large to display here. Open the pull request to review the full change.'
                     : 'This diff is too large to display here.'}
-            </LemonBanner>
+            </DiffNotice>
         )
     }
 
@@ -78,11 +100,11 @@ export function WizardRunDiffViewer({
 
     if (parseFailed) {
         return (
-            <LemonBanner type="error" action={pullRequestAction}>
+            <DiffNotice tone="destructive" pullRequestUrl={pullRequestUrl}>
                 {hasPullRequest
                     ? "Couldn't display this diff. Open the pull request to review the changes."
                     : "Couldn't display this diff."}
-            </LemonBanner>
+            </DiffNotice>
         )
     }
 
@@ -92,11 +114,11 @@ export function WizardRunDiffViewer({
 
     if (renderedLines > MAX_RENDERED_WIZARD_DIFF_LINES) {
         return (
-            <LemonBanner type="warning" action={pullRequestAction}>
+            <DiffNotice tone="warning" pullRequestUrl={pullRequestUrl}>
                 {hasPullRequest
                     ? 'This diff has too many changes to display here. Open the pull request to review the full change.'
                     : 'This diff has too many changes to display here.'}
-            </LemonBanner>
+            </DiffNotice>
         )
     }
 
@@ -127,11 +149,7 @@ export function WizardRunDiffViewer({
                 )
 
                 return (
-                    <LemonCard
-                        key={`${file.name}-${file.cacheKey ?? ''}`}
-                        hoverEffect={false}
-                        className="p-0 overflow-clip"
-                    >
+                    <Card key={`${file.name}-${file.cacheKey ?? ''}`} flush className="overflow-clip">
                         {nonTextChange ? (
                             <>
                                 {header}
@@ -145,7 +163,7 @@ export function WizardRunDiffViewer({
                                 disableWorkerPool
                             />
                         )}
-                    </LemonCard>
+                    </Card>
                 )
             })}
         </div>

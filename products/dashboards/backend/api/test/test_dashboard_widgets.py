@@ -1,8 +1,8 @@
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, PropertyMock, patch
+from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -52,7 +52,7 @@ class TestDashboardWidgets(APIBaseTest):
         for patcher in self._widgets_flag_patchers:
             patcher.start()
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_widget_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -484,7 +484,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_widget_create_and_update_writes_activity_log(self) -> None:
         ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget").delete()
@@ -594,6 +594,20 @@ class TestDashboardWidgets(APIBaseTest):
         assert tile["widget"]["config"]["limit"] == 8
         assert tile["widget"]["name"] == "Errors"
         assert tile["layouts"]["sm"]["w"] == 6
+
+    @parameterized.expand([({},), ({"notebookShortId": None, "snapshotId": None},)])
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    def test_batch_add_rejects_notebook_widgets_without_saved_results(
+        self, config: dict[str, object], _flag: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "notebook_widget", "config": config}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Add this widget from a notebook" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard_id=dashboard_id).exists()
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_widgets_batch_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:

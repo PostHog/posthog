@@ -18,6 +18,7 @@ from django.utils.html import format_html
 from posthog.models.user import User
 
 from products.experiments.backend.metric_events import _default_metric_title
+from products.experiments.backend.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -29,7 +30,6 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     start_metrics_recalculation_workflow,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 
 
 def format_duration(started_at: datetime | None, completed_at: datetime | None) -> str | None:
@@ -163,9 +163,15 @@ def start_recalculation_for_experiment(
     try:
         start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
     except Exception as e:
-        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(id=recalculation_id).update(
-            status=ExperimentMetricsRecalculation.Status.FAILED
-        )
+        # start_workflow can raise after the server accepted the start, so only roll back a row that is
+        # still PENDING with no query_to; a run past mark_started proceeds untouched, and one caught in
+        # the discovery window is terminated cleanly by the mark_started/mark_completed guards
+        # (mirrors the API rollback).
+        ExperimentMetricsRecalculation.objects.for_team(experiment.team_id).filter(
+            id=recalculation_id,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            query_to__isnull=True,
+        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
         messages.error(request, f"Created the row but failed to start the workflow (marked failed): {e}")
         return HttpResponseRedirect(fallback_url)
 

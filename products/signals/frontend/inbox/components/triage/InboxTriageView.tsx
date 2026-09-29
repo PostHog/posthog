@@ -95,7 +95,7 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, isCreatingPr, aiConsentDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
+    const { canCreatePr, isCreatingPr, createPrDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
     const { dismissCurrent, resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } =
         useActions(inboxTriageLogic)
 
@@ -216,7 +216,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                         icon={<IconPullRequest />}
                         onClick={createPrForCurrent}
                         loading={isCreatingPr}
-                        disabledReason={aiConsentDisabledReason ?? undefined}
+                        disabledReason={createPrDisabledReason ?? undefined}
                         sideIcon={<KeyboardShortcut c />}
                         data-attr="inbox-triage-create-pr"
                     >

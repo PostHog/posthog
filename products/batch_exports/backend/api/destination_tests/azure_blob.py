@@ -1,5 +1,7 @@
 import collections.abc
 
+from posthog.models.integration.azure_blob import strip_leading_whitespace, validate_azure_blob_connection_string
+
 from products.batch_exports.backend.api.destination_tests.base import (
     DestinationTest,
     DestinationTestStep,
@@ -40,8 +42,19 @@ class AzureBlobContainerTestStep(DestinationTestStep):
         assert self.connection_string is not None
         assert self.container_name is not None
 
+        connection_string = strip_leading_whitespace(self.connection_string)
         try:
-            async with BlobServiceClient.from_connection_string(self.connection_string) as blob_service_client:
+            validate_azure_blob_connection_string(connection_string)
+        except ValueError as e:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Invalid connection string: {str(e)}",
+            )
+
+        try:
+            async with BlobServiceClient.from_connection_string(
+                connection_string, permit_redirects=False
+            ) as blob_service_client:
                 container_client = blob_service_client.get_container_client(self.container_name)
                 await container_client.get_container_properties()
 

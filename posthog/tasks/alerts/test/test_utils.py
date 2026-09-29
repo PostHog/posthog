@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +13,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
+    detector_verdict_event_fields,
     disable_invalid_alert,
     dispatch_alert_notification,
     next_check_time,
@@ -21,7 +22,7 @@ from posthog.tasks.alerts.utils import (
     trigger_alert_hog_functions,
 )
 
-from products.alerts.backend.destinations import ActiveAlertDestination
+from products.alerts.backend.facade.contracts import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -32,16 +33,35 @@ class TestAlertUtils:
             AlertCalculationInterval.EVERY_15_MINUTES
         )
 
+    @parameterized.expand(
+        [
+            (
+                "llm_verdict",
+                {"rationale": "Signups fell to 12 on Jan 7.", "kind": "drop"},
+                {"anomaly_rationale": "Signups fell to 12 on Jan 7.", "anomaly_kind": "drop"},
+            ),
+            ("statistical_detector", {"series_index": 2}, {}),
+            ("no_metadata", None, {}),
+            ("blank_rationale", {"rationale": "", "kind": "none"}, {"anomaly_kind": "none"}),
+        ]
+    )
+    def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
+        alert_check = MagicMock(spec=AlertCheck)
+        alert_check.triggered_metadata = metadata
+
+        assert detector_verdict_event_fields(alert_check) == expected
+
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.calculation_interval = AlertCalculationInterval.REAL_TIME
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
+        alert.schedule_start_time = None
         alert.schedule_restriction = None
         alert.skip_weekend = False
 
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             assert next_check_time(alert) == datetime(2026, 4, 6, 14, 2, 0, tzinfo=UTC)
 
     @parameterized.expand(

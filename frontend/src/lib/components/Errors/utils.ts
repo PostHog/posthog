@@ -220,11 +220,23 @@ export function getAdditionalProperties(
     )
 }
 
+function getStringProperty(properties: ErrorEventProperties, key: string): string | undefined {
+    const value = properties[key]
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
-    const sessionId = properties['$session_id']
     // $session_id can arrive malformed (e.g. a numeric timestamp) from misbehaving SDKs.
     // Only a non-empty string is a usable session id; anything else means "no session".
-    return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : undefined
+    return getStringProperty(properties, '$session_id')
+}
+
+export function getTraceId(properties: ErrorEventProperties): string | undefined {
+    return getStringProperty(properties, '$trace_id')
+}
+
+export function getSpanId(properties: ErrorEventProperties): string | undefined {
+    return getStringProperty(properties, '$span_id')
 }
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
@@ -264,6 +276,10 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
     }
 }
 
+// Only posthog-js (`web`) and posthog-node (`posthog-node`, `posthog-edge`) report `$release_id`.
+// Other libraries that share their runtime, such as analytics-node, never send it.
+const LIBS_REPORTING_RELEASE_ID: ReadonlySet<string> = new Set(['web', 'posthog-node', 'posthog-edge'])
+
 // Uploaded symbol sets without a release leave the SDK's `$release_id` as the only source of a release.
 // A symbol set fetched by URL never carries one, so it cannot signal a missing `$release_id`.
 // A frame with no loaded record still could, so the answer stays unknown until every frame has one.
@@ -273,6 +289,9 @@ export function isReleaseIdMissingFromSDK(
     stackFrameRecords: Record<string, ErrorTrackingStackFrameRecord>
 ): boolean {
     if (!properties || properties['$release_id'] || getExceptionRelease(properties)) {
+        return false
+    }
+    if (!LIBS_REPORTING_RELEASE_ID.has(String(properties['$lib'] ?? '').toLowerCase())) {
         return false
     }
 

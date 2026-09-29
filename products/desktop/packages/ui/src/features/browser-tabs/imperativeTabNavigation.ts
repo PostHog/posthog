@@ -1,12 +1,69 @@
 import {
   type BrowserTab,
+  openTab as openTabLocal,
   primaryWindow,
   setTabTarget as setTabTargetLocal,
+  setWindowActiveTab,
   type TabIdentity,
 } from "@posthog/shared";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import type { BrowserTabsClient } from "./browserTabsClient";
 import { pushTabHistoryEntry } from "./tabHistory";
-import { applyLocalTransform, persistTabTarget, readMirror } from "./tabsSync";
+import {
+  applyLocalTransform,
+  persistTabTarget,
+  persistWrite,
+  readMirror,
+  reseedMirror,
+} from "./tabsSync";
+
+export function openInNewBrowserTabSync(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+  options: { focus?: boolean } = {},
+): string | null {
+  const window = primaryWindow(readMirror());
+  const history = getRouterOrNull()?.history;
+  if (!window || !history) return null;
+  const tabId = crypto.randomUUID();
+  const keepActiveTabId = options.focus === false ? window.activeTabId : null;
+  const input = {
+    windowId: window.id,
+    href: destination.href,
+    viewState: destination.title ? { title: destination.title } : null,
+    dashboardId: destination.dashboardId ?? null,
+    taskId: destination.taskId ?? null,
+    channelId: destination.channelId ?? null,
+    channelSection: destination.channelSection ?? null,
+    appView: destination.appView ?? null,
+  };
+  applyLocalTransform((snapshot) => {
+    const opened = openTabLocal(snapshot, {
+      ...input,
+      makeId: () => tabId,
+      now: Date.now,
+    }).snapshot;
+    return keepActiveTabId
+      ? setWindowActiveTab(opened, window.id, keepActiveTabId)
+      : opened;
+  });
+  if (!keepActiveTabId) pushTabHistoryEntry(history, destination.href, tabId);
+  void persistWrite(async () => {
+    const opened = await client.openTab({ ...input, tabId });
+    if (!keepActiveTabId) return opened;
+    return client.setActiveTab({ windowId: window.id, tabId: keepActiveTabId });
+  });
+  return tabId;
+}
+
+export async function focusOrOpenBrowserTab(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): Promise<boolean> {
+  if (readMirror().windows.length === 0) await reseedMirror();
+  if (focusExistingTab(destination)) return true;
+  return openInNewBrowserTabSync(client, destination) !== null;
+}
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {
   href: string;
@@ -36,6 +93,44 @@ function tabShowsDestination(
   if (dest.taskId) return tab.taskId === dest.taskId;
   if (dest.dashboardId) return tab.dashboardId === dest.dashboardId;
   return tab.href === dest.href;
+}
+
+export function findTabForDestination(
+  destination: BrowserTabDestination,
+): BrowserTab | null {
+  const mirror = readMirror();
+  const window = primaryWindow(mirror);
+  if (!window) return null;
+  return (
+    mirror.tabs.find(
+      (tab) =>
+        tab.windowId === window.id && tabShowsDestination(tab, destination),
+    ) ?? null
+  );
+}
+
+export function writeBackgroundTabTarget(
+  tab: BrowserTab,
+  destination: BrowserTabDestination,
+): void {
+  const target = {
+    tabId: tab.id,
+    href: destination.href,
+    viewState: {
+      ...(tab.viewState ?? {}),
+      ...(destination.title ? { title: destination.title } : {}),
+    },
+    dashboardId: destination.dashboardId ?? null,
+    taskId: destination.taskId ?? null,
+    channelId: destination.channelId ?? null,
+    channelSection: destination.channelSection ?? null,
+    appView: destination.appView ?? null,
+    activate: false,
+  };
+  applyLocalTransform((snapshot) =>
+    setTabTargetLocal(snapshot, { ...target, now: Date.now }),
+  );
+  persistTabTarget(target);
 }
 
 export function focusExistingTab(destination: BrowserTabDestination): boolean {
@@ -87,24 +182,6 @@ export function navigateBrowserTab(
   const tab = readMirror().tabs.find((candidate) => candidate.id === tabId);
   if (!tab) return "closed";
 
-  const target = {
-    tabId,
-    href: destination.href,
-    viewState: {
-      ...(tab.viewState ?? {}),
-      ...(destination.title ? { title: destination.title } : {}),
-    },
-    dashboardId: destination.dashboardId ?? null,
-    taskId: destination.taskId ?? null,
-    channelId: destination.channelId ?? null,
-    channelSection: destination.channelSection ?? null,
-    appView: destination.appView ?? null,
-    activate: false,
-  };
-
-  applyLocalTransform((snapshot) =>
-    setTabTargetLocal(snapshot, { ...target, now: Date.now }),
-  );
-  persistTabTarget(target);
+  writeBackgroundTabTarget(tab, destination);
   return "background";
 }

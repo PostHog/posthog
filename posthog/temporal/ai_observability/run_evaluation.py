@@ -97,6 +97,8 @@ class WorkflowResult(TypedDict, total=False):
     evaluation_type: Required[str]
     skipped: Required[bool]
     verdict: NotRequired[bool | None]
+    score: NotRequired[float]
+    categories: NotRequired[list[str]]
     reasoning: NotRequired[str]
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]
@@ -123,6 +125,7 @@ async def handle_llm_judge_activity_error(
     terminal_result = terminal_user_error_result_from_application_error(
         e.cause,
         allows_na=(evaluation.get("output_config") or {}).get("allows_na", False),
+        output_type=evaluation.get("output_type", "boolean"),
     )
     if terminal_result is not None:
         return await handle_terminal_user_error_result(
@@ -133,13 +136,14 @@ async def handle_llm_judge_activity_error(
 
     if error_type == "parse_error":
         skip_result: WorkflowResult = {
-            "verdict": None,
             "skipped": True,
             "skip_reason": error_type,
             "message": e.cause.message,
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
         }
+        if evaluation.get("output_type") not in ("numeric", "categorical"):
+            skip_result["verdict"] = None
         return skip_result
 
     key_id = details.get("key_id")
@@ -233,13 +237,14 @@ async def handle_terminal_user_error_result(
             )
 
     workflow_result: WorkflowResult = {
-        "verdict": None,
         "skipped": True,
         "skip_reason": skip_reason,
         "message": result["reasoning"],
         "evaluation_id": evaluation["id"],
         "evaluation_type": evaluation_type,
     }
+    if evaluation.get("output_type") not in ("numeric", "categorical"):
+        workflow_result["verdict"] = None
     return workflow_result
 
 
@@ -250,6 +255,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
             event_data=json.loads(inputs[1]),
+            backfill_id=inputs[2] if len(inputs) > 2 else None,
         )
 
     @temporalio.workflow.run
@@ -259,6 +265,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+
+        # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
+        # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
+        # this boundary at all. Each activity that needs the body now reads it itself.
+        event_data = inputs.event_data
 
         # One activity fetches the evaluation and, for hog and sentiment, also executes it and
         # emits its event, so three Temporal Cloud actions become one for these local evaluation
@@ -272,8 +283,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     run_local_evaluation_activity,
                     RunLocalEvaluationInputs(
                         evaluation_id=inputs.evaluation_id,
-                        event_data=inputs.event_data,
+                        event_data=event_data,
                         start_time=start_time,
+                        backfill_id=inputs.backfill_id,
                     ),
                     start_to_close_timeout=timedelta(seconds=120),
                     # Total deadline including queue wait: without it a task stuck in the queue
@@ -305,14 +317,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
                     execute_hog_eval_activity,
-                    args=[evaluation, inputs.event_data],
+                    args=[evaluation, event_data],
                     schedule_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             elif evaluation_type == "sentiment":
                 result = await temporalio.workflow.execute_activity(
                     execute_sentiment_eval_activity,
-                    args=[evaluation, inputs.event_data],
+                    args=[evaluation, event_data],
                     schedule_to_close_timeout=timedelta(seconds=120),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -320,7 +332,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_llm_judge_activity,
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
+                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data),
                         schedule_to_close_timeout=timedelta(minutes=6),
                         retry_policy=LLM_JUDGE_RETRY_POLICY,
                     )
@@ -356,11 +368,16 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     emit_evaluation_event_activity,
                     EmitEvaluationEventInputs(
                         evaluation=evaluation,
-                        event_data=inputs.event_data,
+                        event_data=event_data,
                         result=result,
                         start_time=start_time,
+                        backfill_id=inputs.backfill_id,
                     ),
-                    schedule_to_close_timeout=timedelta(seconds=30),
+                    # The activity reads the generation itself when it was handed a reference, and
+                    # that event can run to several MiB, so it gets the same budget as the local
+                    # evaluation activity rather than the 30s a capture call alone would need.
+                    start_to_close_timeout=timedelta(seconds=120),
+                    schedule_to_close_timeout=timedelta(minutes=8),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
@@ -395,8 +412,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             and result.get("verdict") is True
             and result.get("reasoning")
         ):
-            event_uuid = inputs.event_data.get("uuid", "")
-            properties = inputs.event_data.get("properties", {})
+            event_uuid = event_data.get("uuid", "")
+            properties = event_data.get("properties", {})
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
@@ -406,7 +423,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 evaluation_name=evaluation.get("name", "Unknown evaluation"),
                 evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
                 event_uuid=event_uuid,
-                event_type=inputs.event_data.get("event", ""),
+                event_type=event_data.get("event", ""),
                 trace_id=properties.get("$ai_trace_id", ""),
                 reasoning=result.get("reasoning", ""),
                 model=result.get("model", ""),
@@ -451,6 +468,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "score" in result:
+            workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if "verdict" in result:
             workflow_result["verdict"] = result["verdict"]
         if result.get("skipped"):

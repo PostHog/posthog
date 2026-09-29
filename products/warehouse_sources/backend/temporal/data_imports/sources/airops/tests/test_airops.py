@@ -10,6 +10,8 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops import (
     AIROPS_BASE_URL,
+    BRAND_KIT_LIST_PATH,
+    BRAND_KITS_PATH,
     _make_session,
     airops_source,
     validate_credentials,
@@ -25,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops.make_tracked_session"
 
 APPS_URL = f"{AIROPS_BASE_URL}/public_api/airops_apps"
+BRAND_KITS_URL = f"{AIROPS_BASE_URL}/{BRAND_KIT_LIST_PATH}"
 
 
 def _response(body: Any, status: int = 200, reason: str | None = None, url: str = APPS_URL) -> Response:
@@ -53,6 +56,9 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
             {
                 "url": request.url,
                 "params": dict(request.params or {}),
+                # Brand-kit endpoints carry pagination in the POST body; snapshot it here for the
+                # same in-place-mutation reason as params.
+                "json": dict(request.json or {}),
                 "auth_headers": dict(prepared.headers),
             }
         )
@@ -222,6 +228,97 @@ class TestExecutions:
         assert session.send.call_count == 1
 
 
+class TestBrandKits:
+    @mock.patch(SESSION_PATCH)
+    def test_paginates_by_page_number_in_body(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"data": [{"id": 1}], "meta": {"total_pages": 2}}, url=BRAND_KITS_URL),
+                _response({"data": [{"id": 2}], "meta": {"total_pages": 2}}, url=BRAND_KITS_URL),
+            ],
+        )
+
+        rows = [row for batch in _batches(_source("brand_kits")) for row in batch]
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        # `meta.total_pages` stops pagination after the last page — exactly two requests, no extra
+        # empty page.
+        assert session.send.call_count == 2
+        assert [s["url"] for s in seen] == [BRAND_KITS_URL, BRAND_KITS_URL]
+        # Page size and the incrementing page number both ride in the POST body, not the query string.
+        assert seen[0]["json"] == {"per_page": 100, "page": 1}
+        assert seen[1]["json"] == {"per_page": 100, "page": 2}
+        assert seen[0]["params"] == {}
+        assert seen[0]["auth_headers"]["Authorization"] == "Bearer k"
+
+    @mock.patch(SESSION_PATCH)
+    def test_missing_data_key_fails_loud(self, MockSession: mock.MagicMock) -> None:
+        # A 200 whose body drops the `data` array means the response shape changed — fail loud
+        # instead of silently syncing 0 rows.
+        _wire(MockSession.return_value, [_response({"meta": {"total_pages": 1}}, url=BRAND_KITS_URL)])
+        with pytest.raises(Exception, match="data"):
+            _batches(_source("brand_kits"))
+
+
+class TestBrandKitFanout:
+    @pytest.mark.parametrize("endpoint", ["prompts", "citations"])
+    @mock.patch(SESSION_PATCH)
+    def test_fans_out_over_brand_kits_and_stamps_parent_id(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response({"data": [{"id": 10}, {"id": 20}], "meta": {"total_pages": 1}}, url=BRAND_KITS_URL),
+                _response({"data": [{"url": "a"}], "meta": {"total_pages": 1}}),  # kit 10
+                _response({"data": [{"url": "b"}], "meta": {"total_pages": 1}}),  # kit 20
+            ],
+        )
+
+        rows = [row for batch in _batches(_source(endpoint)) for row in batch]
+
+        # Every child row is stamped with its parent brand kit id so the flattened table's composite
+        # key stays unique across brand kits.
+        assert rows == [{"url": "a", "brand_kit_id": 10}, {"url": "b", "brand_kit_id": 20}]
+        assert [s["url"] for s in seen] == [
+            BRAND_KITS_URL,
+            f"{AIROPS_BASE_URL}/{BRAND_KITS_PATH}/10/{endpoint}/list",
+            f"{AIROPS_BASE_URL}/{BRAND_KITS_PATH}/20/{endpoint}/list",
+        ]
+
+    @pytest.mark.parametrize("endpoint", ["prompts", "citations"])
+    @mock.patch(SESSION_PATCH)
+    def test_skips_brand_kit_without_aeo_configured(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        # A brand kit that hasn't configured AEO answers the child endpoint with 412; that brand kit
+        # is skipped rather than failing the whole table, and its siblings still sync.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"data": [{"id": 10}, {"id": 20}], "meta": {"total_pages": 1}}, url=BRAND_KITS_URL),
+                _response({"error": "AEO not configured"}, status=412, reason="Precondition Failed"),  # kit 10
+                _response({"data": [{"url": "b"}], "meta": {"total_pages": 1}}),  # kit 20
+            ],
+        )
+
+        rows = [row for batch in _batches(_source(endpoint)) for row in batch]
+
+        assert rows == [{"url": "b", "brand_kit_id": 20}]
+        assert session.send.call_count == 3
+
+    @pytest.mark.parametrize("endpoint", ["prompts", "citations"])
+    @mock.patch(SESSION_PATCH)
+    def test_fails_when_brand_kit_missing_id(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        # A brand kit without an `id` can't be fanned out — fail loud rather than dropping its rows.
+        _wire(
+            MockSession.return_value,
+            [_response({"data": [{"name": "no id"}], "meta": {"total_pages": 1}}, url=BRAND_KITS_URL)],
+        )
+        with pytest.raises(ValueError, match="missing its 'id'"):
+            _batches(_source(endpoint))
+
+
 class TestUnknownEndpoint:
     def test_raises_for_unknown_endpoint(self) -> None:
         with pytest.raises(ValueError, match="Unknown AirOps endpoint"):
@@ -287,6 +384,10 @@ class TestAirOpsSourceResponse:
             ("apps", "created_at", ["id"]),
             # Executions are keyed by (app id, id) because execution ids are scoped per app.
             ("executions", "createdAt", ["airops_app_id", "id"]),
+            ("brand_kits", "created_at", ["id"]),
+            # Fan-out children carry the parent brand kit id in the composite key so rows from two
+            # brand kits never collide (which would seed duplicate rows and slow every merge).
+            ("prompts", "created_at", ["brand_kit_id", "id"]),
         ],
     )
     def test_partition_and_primary_keys(self, endpoint: str, partition_key: str, primary_keys: list[str]) -> None:
@@ -296,3 +397,11 @@ class TestAirOpsSourceResponse:
         assert response.primary_keys == primary_keys
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
+
+    def test_citations_keyed_by_url_without_partition(self) -> None:
+        # Citations carry no id or creation timestamp: identity is (brand kit id, URL) and there is
+        # no stable timestamp to partition on.
+        response = _source("citations")
+        assert response.primary_keys == ["brand_kit_id", "url"]
+        assert response.partition_keys is None
+        assert response.partition_mode is None

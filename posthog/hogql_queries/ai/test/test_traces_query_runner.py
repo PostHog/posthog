@@ -4,9 +4,11 @@ from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -270,7 +272,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         for key, value in expected_event.items():
             self.assertEqual(event_dict[key], value, f"Field {key} does not match")
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_field_mapping(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -346,7 +348,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
 
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_sums_distinguish_reported_zero_from_no_report(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
@@ -388,7 +390,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(unpriced_trace.inputCost)
         self.assertIsNone(unpriced_trace.inputTokens)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
         event_uuid = uuid.uuid4()
         generation_id = "generation-id-1"
@@ -429,7 +431,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(trace.events) == 1
         assert trace.events[0].sentiment is None
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     @patch("posthog.hogql_queries.ai.traces_query_runner.load_trace_sentiment_evaluations")
     def test_stored_sentiment_evaluation_lookup_is_opt_in(self, mock_load_sentiment):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -454,7 +456,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[0].sentiment is None
         mock_load_sentiment.assert_not_called()
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_pagination(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -478,7 +480,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertEqual([t.id for t in response.results], ["trace_2", "trace_1", "trace_0"])
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_pagination_with_multi_event_traces(self):
         """
         Regression test: pagination must not produce overlapping results when traces
@@ -530,7 +532,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # Walking the pages visits every trace exactly once
         self.assertEqual(page1_ids + page2_ids + page3_ids, ["trace_4", "trace_3", "trace_2", "trace_1", "trace_0"])
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_maps_all_fields(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
@@ -564,7 +566,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             response.results[0].events[0].properties.items(),
         )
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_returned(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
@@ -577,7 +579,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(response.results[0].person)
         self.assertEqual(response.results[0].distinctId, "person1")
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_prefers_trace_event(self):
         """When a $ai_trace event exists, its distinct_id should be used even if
         other events in the trace have an earlier timestamp with a different distinct_id."""
@@ -604,7 +606,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "real-user-id")
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_falls_back_without_trace_event(self):
         """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -626,7 +628,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "person1")
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_date_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
@@ -666,6 +668,30 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace3")
+
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
+    def test_single_calendar_day_range_covers_the_whole_day(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 14, 30),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 23, 59, 59, 500000),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2025-01-15", date_to="2025-01-15")),
+        ).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].id, "trace2")
+        self.assertEqual(response.results[1].id, "trace1")
 
     def test_capture_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -1113,34 +1139,44 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
-    def test_property_filter_matches_an_explicit_empty_string(self):
+    @parameterized.expand(["$ai_span_name", "custom_span_name"])
+    def test_property_filter_matches_an_explicit_empty_string(self, property_name: str):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace_with_empty_name",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_span_name": ""},
+            properties={property_name: ""},
         )
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace_with_name",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_span_name": "chat"},
+            properties={property_name: "chat"},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_without_name",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
         )
 
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
                 properties=[
-                    EventPropertyFilter(key="$ai_span_name", value=[""], operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key=property_name, value=[""], operator=PropertyOperator.EXACT),
                 ],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
 
-        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
+        # The native-JSON table treats an empty value as absent, so an explicit '' never matches there.
+        expected_ids = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"trace_with_empty_name"}
+        self.assertEqual({result.id for result in response.results}, expected_ids)
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):
@@ -1838,6 +1874,45 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should NOT double-count the children of Span A
         self.assertEqual(response.results[0].totalLatency, 450.0)
 
+    def test_latency_root_trace_event_reports_wall_clock(self):
+        """
+        Test the root $ai_trace latency wins over the sum of its children.
+
+        Tree structure:
+        Trace "trace_root_latency" (1.806s wall clock)
+        └── Generation ($ai_parent_id=trace_id, 0.917s, contained in the trace)
+
+        Expected: the root value 1.806s, rounded to 1.81, not 1.806 + 0.917
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_root_latency"
+
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="root-latency-trace",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_latency": 1.806},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 0.917, "$ai_parent_id": trace_id},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 1.81)
+
     def test_latency_no_span_id_automatic_leaves(self):
         """
         Test events without $ai_span_id are automatic leaves.
@@ -1991,7 +2066,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_person_id_filter(self):
         """Test that personId parameter filters traces by person."""
         person1 = _create_person(distinct_ids=["user1"], team=self.team)
@@ -2027,7 +2102,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
         self.assertEqual(len(response.results), 0)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_group_key_filter(self):
         """Test that groupKey and groupTypeIndex parameters filter traces by group."""
@@ -2178,7 +2253,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(runner.paginator.limit, 50)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_export_returns_more_than_default_limit(self):
         """Test that export context returns more than 100 traces (the old hardcoded default)."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -2200,7 +2275,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(response.results), 110)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_random_order(self):
         """Test that randomOrder parameter returns traces in random order instead of timestamp DESC."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -2238,7 +2313,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             self.assertGreaterEqual(trace_num, 0)
             self.assertLess(trace_num, 10)
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_request_and_web_search_cost_aggregation(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         trace_id = "trace_cost_components"

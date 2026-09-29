@@ -46,6 +46,17 @@ export interface PaginatedWizardProgramListApi {
     results: WizardProgramApi[]
 }
 
+export interface WizardRunCreatorApi {
+    /** Unique ID of the user who created the Wizard run. */
+    readonly id: number
+    /** First name of the user who created the Wizard run. */
+    readonly first_name: string
+    /** Last name of the user who created the Wizard run. */
+    readonly last_name: string
+    /** Email address of the user who created the Wizard run. */
+    readonly email: string
+}
+
 /**
  * Selects a folder on the user's machine as the workspace.
  */
@@ -131,6 +142,8 @@ export interface WizardRunApi {
      * @nullable
      */
     readonly created_by_id: number | null
+    /** User who created the Wizard run, or null if that user no longer exists. */
+    readonly created_by: WizardRunCreatorApi | null
     /** Where the setup agent runs.
      *
      * * `local` - local
@@ -354,6 +367,80 @@ export interface PaginatedWizardRunArtifactListApi {
 }
 
 /**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
+
+export const WizardTaskStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface WizardRunTaskApi {
+    /** Task name, unique within this run. */
+    readonly name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: WizardTaskStatusEnumApi
+    /** When the server first received this task. */
+    readonly created_at: string
+    /**
+     * When the server first observed this task running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the server first observed this task completed.
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * When the server first observed this task failed.
+     * @nullable
+     */
+    readonly failed_at: string | null
+    /**
+     * Task failure explanation, or null when none is available.
+     * @nullable
+     */
+    readonly error_message: string | null
+}
+
+export interface WizardRunTaskListApi {
+    /** Complete task list in snapshot order. */
+    readonly tasks: readonly WizardRunTaskApi[]
+}
+
+export interface UpdateWizardRunTaskApi {
+    /**
+     * Task name, unique within this run and stable across snapshots.
+     * @maxLength 255
+     */
+    name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    status: WizardTaskStatusEnumApi
+}
+
+export interface UpdateWizardRunTaskListApi {
+    /** Complete task snapshot. An empty list clears the run's tasks. */
+    tasks: UpdateWizardRunTaskApi[]
+}
+
+/**
  * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
  * widget renders is enforced at the edge instead of trusted from the producer.
  */
@@ -574,7 +661,21 @@ export type WizardRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter by one or more comma-separated run statuses.
+     */
+    status?: WizardRunsListStatusItem[]
 }
+
+export type WizardRunsListStatusItem = (typeof WizardRunsListStatusItem)[keyof typeof WizardRunsListStatusItem]
+
+export const WizardRunsListStatusItem = {
+    Cancelled: 'cancelled',
+    Completed: 'completed',
+    Created: 'created',
+    Failed: 'failed',
+    Running: 'running',
+} as const
 
 export type WizardRunsArtifactsListParams = {
     /**

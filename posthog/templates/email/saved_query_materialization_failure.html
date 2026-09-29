@@ -3,8 +3,25 @@
 {% block heading %}Materialized view '{{ saved_query_name }}' sync failed{% endblock %}
 {% block section %}
     <p>
-        Your materialized view <b>{{ saved_query_name }}</b> failed to sync. Please review the view in the SQL editor to see the error details and take any necessary action.
+        Your materialized view <b>{{ saved_query_name }}</b> failed to sync.
+        {% if error %}
+            The last run reported this error:
+        {% else %}
+            Please review the view in the SQL editor to see the error details and take any necessary action.
+        {% endif %}
     </p>
+    {% if error %}
+        <div style="background-color: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-left: 4px solid #fd7e14;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 12px;
+                    color: #374151;
+                    font-family: monospace;
+                    font-size: 0.85em;
+                    word-break: break-word">{{ error }}</div>
+    {% endif %}
     <div class="mb mt text-center">
         <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}"
            target="_blank"><b>Open the view</b></a>

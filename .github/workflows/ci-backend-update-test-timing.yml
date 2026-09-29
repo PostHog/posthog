@@ -29,7 +29,7 @@ jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         steps:
             - name: Get app token
               id: app-token
@@ -46,9 +46,9 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
 
             - name: Find Backend CI run to use
               id: find-backend-run
@@ -74,11 +74,12 @@ jobs:
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Backend CI runs with timing artifacts..."
 
-                  # The per-segment file-mode plan (.test_durations.core/.temporal) is averaged over
-                  # the last N runs to damp one run's timing noise (~-8pp makespan/mean on real PRs,
-                  # 1 -> 5 runs; the achievable floor is ~0%). The union .test_durations and the
-                  # JUnit de-tax still use the newest run alone (the primary). N stays small so the
-                  # extra downloads stay modest.
+                  # The per-segment file-mode plans (.test_durations.core/.temporal) and the
+                  # products slice of the union are averaged over the last N runs to damp one
+                  # run's timing noise (~-8pp makespan/mean on real PRs, 1 -> 5 runs; the
+                  # achievable floor is ~0%). The rest of the union .test_durations and the JUnit
+                  # de-tax still use the newest run alone (the primary). N stays small because
+                  # every extra run downloads its product timing artifacts, the largest set.
                   N="${BACKEND_RUNS_TO_AVERAGE:-5}"
                   # Guard a mis-set variable: a non-integer would make the `-ge` test below error
                   # out (never breaking the loop) and silently average every candidate run.
@@ -215,7 +216,7 @@ jobs:
                       echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
 
                   # Multi-run: pull timing + JUnit for each run we average into the per-segment
-                  # file-mode plan (Core/Temporal only). Each run is de-taxed + scoped on its own
+                  # file-mode plans and the products slice. Each run is de-taxed + scoped on its own
                   # below, then averaged. The primary is also downloaded here (into its own dir) so
                   # the union/JUnit steps above stay untouched. A run with no JUnit just gets its
                   # per-segment slice skipped, same fallback as the single-run path.
@@ -228,6 +229,15 @@ jobs:
                           --pattern "junit-results-backend-core-*" \
                           --pattern "junit-results-backend-temporal-*" \
                           --dir "runs/$rid/junit" || echo "::warning::No JUnit for run $rid — its per-segment slice is skipped"
+                      # The primary's Products artifacts are already in timing_artifacts and
+                      # junit_artifacts. Product timing artifacts are the largest set, so do not
+                      # download them twice.
+                      if [ "$rid" != "$BACKEND_RUN_ID" ]; then
+                          gh run download "$rid" --pattern "timing_data-Products-*" --dir "runs/$rid/timing" \
+                              || echo "::warning::No Products timing for run $rid — its products slice is skipped"
+                          gh run download "$rid" --pattern "product-junit-results-*" --dir "runs/$rid/junit" \
+                              || echo "::warning::No Products JUnit for run $rid — its products slice is skipped"
+                      fi
                   done
 
                   # Download dagster timing artifacts if available
@@ -245,6 +255,7 @@ jobs:
             - name: Process timing data
               env:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
+                  BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
                   BACKEND_RUN_IDS: ${{ steps.find-backend-run.outputs.run_ids }}
               run: |
                   # Process each segment separately with migration tax correction, then merge.
@@ -294,6 +305,26 @@ jobs:
                           # and under-shard the fixture-heavy products. Leave the older map newest.
                           echo "::error::Products slice failed with no previous map to stand in; refusing to publish a map without product entries"
                           exit 1
+                      fi
+                  else
+                      # Split product shards plan from this slice, so average it over the same runs
+                      # as the per-segment plans below. Each older run goes through the same drift
+                      # check as the newest one, and a run that fails it stays out of the average.
+                      # The newest slice goes first because it anchors which tests the average keeps.
+                      products_files="/tmp/products_durations"
+                      for rid in $BACKEND_RUN_IDS; do
+                          if [ "$rid" = "$BACKEND_RUN_ID" ]; then
+                              continue
+                          fi
+                          if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/products_$rid" \
+                              --segment Products --junit-dir "runs/$rid/junit" --fail-on-drift; then
+                              products_files="$products_files /tmp/products_$rid"
+                          fi
+                      done
+                      if uv run .github/scripts/optimize_test_durations.py /tmp/products_averaged --average-files $products_files; then
+                          mv /tmp/products_averaged /tmp/products_durations
+                      else
+                          echo "::warning::Products multi-run average failed, keeping the newest run's slice"
                       fi
                   fi
 
@@ -361,7 +392,7 @@ jobs:
 
                   # Also drop timing/JUnit download dirs (incl. the per-run runs/ tree) so the
                   # artifact upload below only sees the merged files.
-                  rm -rf timing_artifacts junit_artifacts runs /tmp/core_* /tmp/temporal_* /tmp/products_durations /tmp/dagster_durations
+                  rm -rf timing_artifacts junit_artifacts runs /tmp/core_* /tmp/temporal_* /tmp/products_* /tmp/dagster_durations
 
             - name: Compute the cache key
               id: durations-meta
@@ -419,3 +450,74 @@ jobs:
                   # The per-segment files are absent when their multi-run average failed.
                   if-no-files-found: error
                   retention-days: 30
+
+    rebuild-events-schema-prune-manifest:
+        name: Rebuild the events_json prune manifest
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Find the newest scheduled Backend CI run with recordings
+              id: find-run
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Only the scheduled runs that take the events_json rows record. A successful
+                  # one carries every shard's recording, because a shard that wrote none fails.
+                  # Without the created filter the API can return runs that are weeks old.
+                  cutoff=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
+                  gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=10&created=>=$cutoff" \
+                      --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' | while read -r id sha; do
+                      count=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?per_page=100" \
+                          --jq '[.artifacts[] | select((.name | startswith("events-schema-record-")) and .expired == false)] | length' | jq -s add)
+                      if [ "${count:-0}" -gt 0 ]; then
+                          echo "Using run $id at $sha, with $count recordings"
+                          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+                          echo "revision=$sha" >> "$GITHUB_OUTPUT"
+                          break
+                      fi
+                  done
+                  if ! grep -q '^run_id=' "$GITHUB_OUTPUT"; then
+                      echo "::error::No recent successful scheduled Backend CI run has events_json recordings, so the prune manifest stays as it is"
+                      exit 1
+                  fi
+
+            - name: Check whether that run's manifest is cached
+              id: cached
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ steps.find-run.outputs.run_id }}
+                  lookup-only: true
+
+            # The manifest digests each test file as the recorded commit has it, so a file that
+            # changed since then runs in full until a newer recording replaces the manifest.
+            - name: Check out the recorded commit
+              if: steps.cached.outputs.cache-hit != 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ steps.find-run.outputs.revision }}
+
+            - name: Install uv
+              if: steps.cached.outputs.cache-hit != 'true'
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Build the manifest
+              if: steps.cached.outputs.cache-hit != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+              run: |
+                  gh run download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+                  uv run --no-project --with pytest python posthog/test/events_schema_prune.py \
+                      --output events-schema-prune.json events-schema-records/*/events-schema-record.json
+
+            - name: Save the manifest to the Actions cache
+              # ci-backend's turbo-discover restores the newest entry by the
+              # posthog-events-schema-prune- prefix and pins it for every shard of the run.
+              if: steps.cached.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ steps.find-run.outputs.run_id }}

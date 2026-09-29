@@ -32,6 +32,7 @@ describe('clustersSetupLogic', () => {
         [1, false, 'has-data'],
         [0, true, 'waiting-for-data'],
         [0, false, 'needs-setup'],
+        [0, null, 'unknown'],
     ])('pushes %i runs and AI events=%s as status %s', async (runRows, hasAIEvents, expected) => {
         querySpy.mockResolvedValue({ results: Array.from({ length: runRows }, () => [1]) })
         mockHasRecentAIEvents.mockResolvedValue(hasAIEvents)
@@ -40,4 +41,35 @@ describe('clustersSetupLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.LLM_CLUSTERS }).values.status).toBe(expected)
     })
+
+    it.each([
+        [false, 'needs-setup'],
+        [true, 'waiting-for-data'],
+    ] as const)(
+        'preserves the setup screen through a failed check with AI events=%s (%s)',
+        async (hasAIEvents, expected) => {
+            querySpy.mockResolvedValue({ results: [] })
+            mockHasRecentAIEvents.mockResolvedValue(hasAIEvents)
+            const logic = clustersSetupLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const setupStatus = productSetupStatusLogic({ productKey: ProductKey.LLM_CLUSTERS })
+            expect(setupStatus.values.status).toBe(expected)
+
+            mockHasRecentAIEvents.mockResolvedValue(null)
+            logic.actions.detectStatus()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(setupStatus.values.status).toBe(expected)
+
+            mockHasRecentAIEvents.mockResolvedValue(hasAIEvents)
+            logic.actions.detectStatus()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(setupStatus.values.status).toBe(expected)
+
+            querySpy.mockResolvedValue({ results: [[1]] })
+            logic.actions.detectStatus()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(setupStatus.values.status).toBe('has-data')
+        }
+    )
 })

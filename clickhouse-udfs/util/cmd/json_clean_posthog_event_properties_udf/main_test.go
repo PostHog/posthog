@@ -67,6 +67,9 @@ func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *tes
 		`{"$feature/zebra":false,"$feature/alpha":"control","other":1}`: `{"other":1,"$feature_flags":{"alpha":"control","zebra":false}}`,
 		`{"$feature_flags":{"zebra":false,"alpha":"control"}}`:          `{"$feature_flags":{"alpha":"control","zebra":false}}`,
 		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":1}}}`,
+		`{"$feature/named-false":"false","$feature/off":false}`:         `{"$feature_flags":{"named-false":"$false","off":false}}`,
+		`{"$feature_flags":{"off":false,"named-false":"false"}}`:        `{"$feature_flags":{"named-false":"$false","off":false}}`,
+		`{"$feature_flags.named-false":"false"}`:                        `{"$feature_flags":{"named-false":"$false"}}`,
 	}
 
 	for input, want := range tests {
@@ -91,6 +94,9 @@ func TestEventPropertyRulesCoverComplexSchemaPaths(t *testing.T) {
 		},
 		normalizationObjectArray: {
 			"$exception_list",
+		},
+		normalizationObject: {
+			"$feature_flags",
 		},
 	}
 
@@ -121,8 +127,13 @@ func TestProcessLinePreservesScalarPropertiesAndNormalizesComplexProperties(t *t
 	}
 }
 
-func TestProcessLineQuarantinesInvalidExceptionList(t *testing.T) {
+func TestProcessLineQuarantinesInvalidComplexProperties(t *testing.T) {
 	tests := map[string]string{
+		`{"$feature_flags":"not-a-map","kept":"value"}`: `{"$feature_flags":{},"kept":"value","$unparseable_properties":"{\"$feature_flags\":\"not-a-map\"}"}`,
+		`{"$feature_flags":["flag"]}`:                   `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":[\"flag\"]}"}`,
+		`{"$feature_flags":true}`:                       `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":true}"}`,
+		`{"$feature_flags":42}`:                         `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":42}"}`,
+		`{"$feature_flags":null}`:                       `{}`,
 		`{"$unparseable_properties":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$unparseable_properties":"{\"$exception_list\":\"[redacted]\"}"}`,
 		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":[1]}"}`,
 		`{"$exception_list":true}`: `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":true}"}`,

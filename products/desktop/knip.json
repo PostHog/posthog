@@ -20,8 +20,6 @@
         "electron.vite.config.ts",
         "vite-main-plugins.mts",
         "vite.shared.mts",
-        "src/renderer/quick-ask/main.tsx",
-        "src/renderer/quick-ask-annotate/main.tsx",
         ".storybook/mocks/*.ts",
         "scripts/**/*.{ts,mts,mjs}"
       ],

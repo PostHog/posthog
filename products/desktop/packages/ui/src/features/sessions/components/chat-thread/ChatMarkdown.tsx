@@ -10,6 +10,8 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { buildImageDataUrl } from "@posthog/shared";
+import { useWorkspaceFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
@@ -25,6 +27,9 @@ import {
   InlineFileLink,
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
+import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
+import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
+import { useThrottledValue } from "@posthog/ui/hooks/useThrottledValue";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -40,13 +45,115 @@ import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
-import { memo, type ReactNode, useMemo } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 
 const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
+
+const LOCAL_IMAGE_MIME_TYPES: Record<string, string> = {
+  avif: "image/avif",
+  gif: "image/gif",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+function normalizeLocalPath(value: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+  const normalized = decoded.replaceAll("\\\\", "/");
+  const prefix = normalized.match(/^(?:[A-Za-z]:|\/)/)?.[0];
+  if (!prefix) return null;
+
+  const parts: string[] = [];
+  for (const part of normalized.slice(prefix.length).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.pop()) return null;
+    } else {
+      parts.push(part);
+    }
+  }
+  return `${prefix}${prefix === "/" ? "" : "/"}${parts.join("/")}`;
+}
+
+export function resolveLocalImage(
+  source: string | undefined,
+  cwd: string | undefined,
+): { path: string; mimeType: string } | null {
+  if (!source || !cwd) return null;
+  if (
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) &&
+    !/^[A-Za-z]:[\\/]/.test(source)
+  ) {
+    return null;
+  }
+  const normalizedCwd = normalizeLocalPath(cwd);
+  if (!normalizedCwd) return null;
+  const sourceWithRoot = /^(?:[A-Za-z]:[\\/]|\/)/.test(source)
+    ? source
+    : `${normalizedCwd}/${source}`;
+  const path = normalizeLocalPath(sourceWithRoot);
+  if (
+    !path ||
+    (path !== normalizedCwd && !path.startsWith(`${normalizedCwd}/`))
+  ) {
+    return null;
+  }
+  const extension = path.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase();
+  const mimeType = extension ? LOCAL_IMAGE_MIME_TYPES[extension] : undefined;
+  return mimeType ? { path, mimeType } : null;
+}
+
+function LocalMarkdownImage({
+  src,
+  alt,
+}: {
+  src: string | undefined;
+  alt: string | undefined;
+}) {
+  const taskId = useSessionTaskId();
+  const cwd = useCwd(taskId ?? "");
+  const localImage = resolveLocalImage(src, cwd);
+  const image = useWorkspaceFileAsBase64(
+    cwd ?? "",
+    localImage?.path ?? "",
+    Boolean(taskId && localImage),
+  );
+
+  if (!localImage) {
+    return (
+      <Text className="text-muted-foreground text-sm">
+        Remote image blocked{alt ? `: ${alt}` : ""}
+      </Text>
+    );
+  }
+  if (image.isPending) {
+    return <Spinner size="sm" aria-label={alt || "Loading image"} />;
+  }
+  if (!image.data) {
+    return (
+      <Text className="text-muted-foreground text-sm">
+        Failed to load image{alt ? `: ${alt}` : ""}
+      </Text>
+    );
+  }
+  return (
+    <img
+      src={buildImageDataUrl(localImage.mimeType, image.data)}
+      alt={alt ?? ""}
+      className="max-h-[32rem] max-w-full rounded-md border border-border object-contain"
+    />
+  );
+}
 
 function ChatCodeBlock({
   code,
@@ -124,16 +231,12 @@ const components: Components = {
       </ArtifactRefChip>
     );
   },
-  img: ({ alt }) => (
-    <Text className="text-muted-foreground text-sm">
-      Remote image blocked{alt ? `: ${alt}` : ""}
-    </Text>
-  ),
+  img: ({ alt, src }) => <LocalMarkdownImage src={src} alt={alt} />,
   ul: ({ children }) => (
     <ul className="list-disc space-y-0.5 ps-4">{children}</ul>
   ),
   ol: ({ children, start }) => (
-    <ol start={start} className="list-decimal space-y-0.5 ps-5">
+    <ol start={start} className="list-decimal space-y-0.5 ps-8">
       {children}
     </ol>
   ),
@@ -277,6 +380,21 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   );
 });
 
+const LARGE_TAIL_CHARS = 2_000;
+const TAIL_CHARS_PER_INTERVAL_MS = 100;
+const MIN_TAIL_PARSE_INTERVAL_MS = 100;
+const MAX_TAIL_PARSE_INTERVAL_MS = 500;
+
+function tailParseInterval(tailLength: number): number {
+  return Math.min(
+    MAX_TAIL_PARSE_INTERVAL_MS,
+    Math.max(
+      MIN_TAIL_PARSE_INTERVAL_MS,
+      tailLength / TAIL_CHARS_PER_INTERVAL_MS,
+    ),
+  );
+}
+
 /**
  * Streaming variant of {@link ChatMarkdown}: splits the message into top-level blocks so completed
  * blocks keep a stable string and their memoized parse is reused — each streamed frame re-parses
@@ -291,25 +409,55 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   content,
   renderObjectTags,
 }: ChatMarkdownProps) {
-  const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
+  // The throttle has to be sized before the split that measures the tail, so it reads the
+  // last rendered tail instead: the interval lags by at most one interval.
+  const tailLengthRef = useRef(0);
+  const renderedContent = useThrottledValue(
+    content,
+    tailParseInterval(tailLengthRef.current),
+    tailLengthRef.current > LARGE_TAIL_CHARS,
+  );
+  const blocks = useMemo(
+    () => splitMarkdownBlocks(renderedContent),
+    [renderedContent],
+  );
   const lastIndex = blocks.length - 1;
+  const tailBlock = blocks[lastIndex];
+  useEffect(() => {
+    tailLengthRef.current = tailBlock.length;
+  }, [tailBlock]);
+  const tail = useMemo(
+    () => ({
+      openFence: parseOpenFence(tailBlock),
+      linked: markOpenLinkDestination(tailBlock, PENDING_LINK_DESTINATION),
+    }),
+    [tailBlock],
+  );
 
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       {blocks.map((block, index) => {
         const key = `b${index}`;
-        const openFence = index === lastIndex ? parseOpenFence(block) : null;
-        if (openFence) {
+        if (index !== lastIndex) {
+          return (
+            <ChatMarkdown
+              key={key}
+              content={block}
+              renderObjectTags={renderObjectTags}
+            />
+          );
+        }
+        if (tail.openFence) {
           return (
             <div key={key} className="flex flex-col gap-3">
-              {openFence.before.trim() ? (
+              {tail.openFence.before.trim() ? (
                 <ChatMarkdown
-                  content={openFence.before}
+                  content={tail.openFence.before}
                   renderObjectTags={renderObjectTags}
                 />
               ) : null}
-              <ChatCodeBlock code={openFence.code}>
-                <code className="font-mono text-xs">{openFence.code}</code>
+              <ChatCodeBlock code={tail.openFence.code}>
+                <code className="font-mono text-xs">{tail.openFence.code}</code>
               </ChatCodeBlock>
             </div>
           );
@@ -317,11 +465,7 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
         return (
           <ChatMarkdown
             key={key}
-            content={
-              index === lastIndex
-                ? markOpenLinkDestination(block, PENDING_LINK_DESTINATION)
-                : block
-            }
+            content={tail.linked}
             renderObjectTags={renderObjectTags}
           />
         );

@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
@@ -34,14 +33,27 @@ class TestAwinSourceClass:
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = AwinSource().get_schemas(AwinSourceConfig(api_token="x"), team_id=1)
         names = {s.name for s in schemas}
-        assert names == {"accounts", "programmes", "transactions", "reports_advertiser"}
+        assert names == {
+            "accounts",
+            "programmes",
+            "programme_details",
+            "commission_groups",
+            "transactions",
+            "reports_advertiser",
+            "reports_publisher",
+            "advertiser_publishers",
+        }
 
     @parameterized.expand(
         [
             ("transactions", True),
             ("accounts", False),
             ("programmes", False),
+            ("programme_details", False),
+            ("commission_groups", False),
             ("reports_advertiser", False),
+            ("reports_publisher", False),
+            ("advertiser_publishers", False),
         ]
     )
     def test_supports_incremental_per_endpoint(self, endpoint: str, expected: bool) -> None:
@@ -57,7 +69,16 @@ class TestAwinSourceClass:
     def test_documented_tables_render_without_credentials(self) -> None:
         tables = AwinSource().get_documented_tables()
         names = {t["name"] for t in tables}
-        assert names == {"accounts", "programmes", "transactions", "reports_advertiser"}
+        assert names == {
+            "accounts",
+            "programmes",
+            "programme_details",
+            "commission_groups",
+            "transactions",
+            "reports_advertiser",
+            "reports_publisher",
+            "advertiser_publishers",
+        }
 
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Awin API token")])
     def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:

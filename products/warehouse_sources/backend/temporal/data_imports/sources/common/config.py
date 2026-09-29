@@ -167,6 +167,30 @@ class MetaConfig:
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert
 
 
+def _selection_options(config_type: type) -> tuple[str, ...] | None:
+    """The values a select container's `selection` field accepts, or None if it has no such field.
+
+    A select field (e.g. Stripe `auth_method`) is a nested config whose branch is named by
+    `selection`. Callers of the source API may send that branch as a bare string under the
+    container name instead of a mapping, so both spellings must resolve to the same branch.
+    """
+    for field in dataclasses.fields(config_type):
+        if field.name != "selection":
+            continue
+        field_type = _resolve_field_type(field, module_path=config_type.__module__)
+        options = tuple(arg for arg in typing.get_args(field_type) if isinstance(arg, str))
+        return options or None
+    return None
+
+
+def missing_field_error(field_name: str) -> str:
+    """The error `validate_config` reports for a required field that is absent.
+
+    Exposed so a source that replaces one of these with its own copy can match on it without
+    duplicating the wording."""
+    return f"Required field '{field_name}' is missing"
+
+
 def validate_config(
     config_cls: type, d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
 ) -> tuple[bool, list[str]]:
@@ -196,7 +220,7 @@ def validate_config(
         if field_flat_key not in d and field_nested_key not in d and field.name not in d:
             # Field not found in dict
             if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
-                errors.append(f"Required field '{field.name}' is missing")
+                errors.append(missing_field_error(field.name))
             continue
 
         # Validate nested configs
@@ -212,6 +236,18 @@ def validate_config(
                     if not is_valid:
                         errors.extend(nested_errors)
                 else:
+                    # A select container sent as a bare string names the branch to use, so an
+                    # unknown value would otherwise pass validation and land on the default branch.
+                    selection_options = _selection_options(config_type)
+                    nested_value = d.get(field_nested_key)
+                    if (
+                        selection_options is not None
+                        and isinstance(nested_value, str)
+                        and nested_value not in selection_options
+                    ):
+                        errors.append(f"Field '{field.name}' must be one of: {', '.join(selection_options)}")
+                        continue
+
                     # Trying a flat structure
                     field_type_meta = _try_get_meta(config_type)
                     if field_type_meta:
@@ -363,8 +399,17 @@ def to_config(
                     )
                     child_reserved_keys = reserved_keys | (sibling_names - {field.name})
 
+                    # A select container sent as a bare string (`auth_method: "oauth"`) names the
+                    # branch the caller chose, so read it as `selection`. Without this the flat
+                    # spelling silently falls back to the default branch.
+                    flat_source = d
+                    selection_options = _selection_options(config_type)
+                    nested_value = d.get(field_nested_key)
+                    if selection_options is not None and nested_value in selection_options:
+                        flat_source = {**d, "selection": nested_value}
+
                     try:
-                        value = to_config(config_type, d, field_prefixes, reserved_keys=child_reserved_keys)
+                        value = to_config(config_type, flat_source, field_prefixes, reserved_keys=child_reserved_keys)
                     except TypeError:
                         # We want to try all possible config types
                         continue

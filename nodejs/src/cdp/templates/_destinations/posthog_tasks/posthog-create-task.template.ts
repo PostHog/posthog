@@ -41,6 +41,10 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.channel)) {
+  payload.channel := inputs.channel
+}
+
 if (not empty(inputs.skills)) {
   payload.skills := inputs.skills
 }
@@ -71,7 +75,12 @@ if (response.status >= 400) {
   throw Error(f'Failed to create task ({response.status}): {apiErrorMessage(response)}')
 }
 
-return response.body
+let task := response.body
+if (not empty(task.run_id)) {
+  // Park the workflow step until the run finishes: the tasks runtime cap plus slack for its wake.
+  task.await := { 'max_wait': '190m', 'label': 'task' }
+}
+return task
 `,
     inputs_schema: [
         {
@@ -147,6 +156,21 @@ return response.body
             default: 5,
             description:
                 'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
+        },
+        {
+            // A space is a Tasks concept the workflow editor has no picker for, so the field is
+            // hidden and set by the clients that know about spaces. The display name rides along
+            // after a pipe, like the Slack channel picker's "C123|#name": the API keeps the id and
+            // the clients read the name back without a second input to keep in step.
+            key: 'channel',
+            type: 'string',
+            label: 'Space',
+            secret: false,
+            required: false,
+            hidden: true,
+            templating: false,
+            description:
+                'Space the created task is filed into, as its id, optionally followed by "|" and the space name. Leave empty to file the task in no space.',
         },
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other

@@ -107,15 +107,15 @@ describe('prepareConfirmedAction', () => {
 
     it('keeps the hash small and constant-size regardless of args size', async () => {
         // The args live in the stash, not the token. If someone regresses to
-        // signing them inline, a large payload (a scout body + files) makes
+        // signing them inline, a large payload (a resource body + files) makes
         // the hash tens of kilobytes that the model must relay verbatim —
         // this catches that by preparing ~200 KB of args.
         const codec = makeCodec()
         const { stash } = makeStash()
         const result = await prepareConfirmedAction(makeContext('did-1'), {
-            args: { name: 'signals-scout-big', body: 'x'.repeat(200_000) },
-            purpose: 'scout-create',
-            actionLabel: 'create scout',
+            args: { name: 'resource-big', body: 'x'.repeat(200_000) },
+            purpose: 'resource-create',
+            actionLabel: 'create resource',
             messageTemplate: 'msg',
             codec,
             stash,
@@ -132,8 +132,8 @@ describe('prepareConfirmedAction', () => {
         await expect(
             prepareConfirmedAction(makeContext('did-1'), {
                 args: { body: 'x'.repeat(1_100_000) },
-                purpose: 'scout-create',
-                actionLabel: 'create scout',
+                purpose: 'resource-create',
+                actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
                 stash,
@@ -159,8 +159,8 @@ describe('prepareConfirmedAction', () => {
         for (let i = 0; i < 23; i++) {
             await prepareConfirmedAction(makeContext('did-1'), {
                 args,
-                purpose: 'scout-create',
-                actionLabel: 'create scout',
+                purpose: 'resource-create',
+                actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
                 stash,
@@ -169,8 +169,8 @@ describe('prepareConfirmedAction', () => {
         await expect(
             prepareConfirmedAction(makeContext('did-1'), {
                 args,
-                purpose: 'scout-create',
-                actionLabel: 'create scout',
+                purpose: 'resource-create',
+                actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
                 stash,

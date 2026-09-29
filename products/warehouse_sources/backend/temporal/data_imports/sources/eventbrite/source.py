@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,10 +46,10 @@ class EventbriteSource(ResumableSource[EventbriteSourceConfig, EventbriteResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.EVENTBRITE,
+            name=ExternalDataSourceType.EVENTBRITE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventbrite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Eventbrite private token to automatically pull your Eventbrite data into the PostHog Data warehouse.
 
 You can create a private token under your [Eventbrite account settings](https://www.eventbrite.com/account-settings/apps) on the **API Keys** page (the **Private token** field of your API key).

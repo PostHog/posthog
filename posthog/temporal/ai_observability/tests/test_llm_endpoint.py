@@ -12,12 +12,16 @@ import openai
 from openai import APIStatusError, APITimeoutError, InternalServerError, RateLimitError
 from temporalio.exceptions import ApplicationError
 
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
+from posthog.temporal.ai_observability.eval_reports.constants import EVAL_REPORT_AGENT_MODEL
 from posthog.temporal.ai_observability.llm_endpoint import (
     AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+    FLEX_REPROBE_COOLDOWN,
     FlexFirstChatOpenAI,
     build_langchain_callbacks,
     build_langchain_chat_client,
 )
+from posthog.temporal.ai_observability.trace_clustering.constants import LABELING_AGENT_MODEL
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 GATEWAY_URL = "https://gateway.example/v1"
@@ -211,12 +215,14 @@ class TestBuildOpenAIChatClient:
             )
             assert client.service_tier == expected_tier
 
+    @pytest.mark.parametrize("model", [EVAL_REPORT_AGENT_MODEL, LABELING_AGENT_MODEL])
+    def test_every_batch_agent_runs_a_flex_capable_model(self, model):
+        # A model outside the allowlist keeps working and silently doubles that agent's bill.
+        assert model in FLEX_CAPABLE_MODELS
+
     def test_labeling_clients_bound_every_call_inside_the_activity_budget(self):
-        from posthog.temporal.ai_observability.clustering_agent import (
-            LABELING_FLEX_CALL_TIMEOUT,
-            LABELING_STANDARD_CALL_TIMEOUT,
-            get_labeling_llm,
-        )
+        from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
+        from posthog.temporal.ai_observability.llm_endpoint import FLEX_CALL_TIMEOUT, STANDARD_CALL_TIMEOUT
 
         with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
             flex_client = get_labeling_llm(
@@ -228,10 +234,10 @@ class TestBuildOpenAIChatClient:
 
         # Flex: 120s x 1 attempt (the standard-tier fallback call is the retry); standard: 240s x 2 = 480s.
         # Both fit the 600s activity budget, where the old 600s x 3 attempts per call could not.
-        assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
+        assert flex_client.request_timeout == FLEX_CALL_TIMEOUT
         assert flex_client.max_retries == 0
         assert standard_client.service_tier is None
-        assert standard_client.request_timeout == LABELING_STANDARD_CALL_TIMEOUT
+        assert standard_client.request_timeout == STANDARD_CALL_TIMEOUT
         assert standard_client.max_retries == 1
 
 
@@ -273,6 +279,47 @@ def _mock_create(*results: object) -> MagicMock:
     return client
 
 
+def _mock_stream(is_async: bool = False) -> MagicMock:
+    """Mock client.create for a streamed completion: one content chunk, then a stop."""
+    chunks = [
+        {
+            "id": "1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "gpt-5.4",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "labeled"}, "finish_reason": None}],
+        },
+        {
+            "id": "1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "gpt-5.4",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        },
+    ]
+
+    class _Stream:
+        def __enter__(self):
+            return iter(chunks)
+
+        def __exit__(self, *_):
+            return False
+
+        async def __aenter__(self):
+            async def gen():
+                for chunk in chunks:
+                    yield chunk
+
+            return gen()
+
+        async def __aexit__(self, *_):
+            return False
+
+    client = MagicMock()
+    client.create = AsyncMock(return_value=_Stream()) if is_async else MagicMock(return_value=_Stream())
+    return client
+
+
 class TestFlexFirstChatOpenAI:
     @pytest.mark.parametrize(
         "error",
@@ -306,7 +353,7 @@ class TestFlexFirstChatOpenAI:
 
         assert llm.client.with_raw_response.create.call_count == 1
 
-    def test_first_fallback_latches_the_client_to_standard(self):
+    def test_a_refusal_holds_the_client_on_standard_inside_the_cooldown(self):
         llm = _flex_client()
         llm.client = _mock_create(
             RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
@@ -319,6 +366,56 @@ class TestFlexFirstChatOpenAI:
 
         third = llm.client.with_raw_response.create.call_args_list[2]
         assert third.kwargs["service_tier"] == "default"
+
+    @pytest.mark.parametrize(
+        "error,tier_after_cooldown",
+        [
+            (
+                RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
+                "flex",
+            ),
+            (APITimeoutError(request=_FLEX_REQUEST), "default"),
+        ],
+    )
+    def test_flex_returns_after_a_refusal_but_stays_off_after_a_stall(self, error, tier_after_cooldown):
+        llm = _flex_client()
+        llm.client = _mock_create(error, _COMPLETION, _COMPLETION)
+        clock = {"now": 0.0}
+
+        with patch("posthog.temporal.ai_observability.llm_endpoint.time.monotonic", lambda: clock["now"]):
+            llm.invoke("label the clusters")
+            clock["now"] = FLEX_REPROBE_COOLDOWN + 1
+            llm.invoke("label the next cluster")
+
+        third = llm.client.with_raw_response.create.call_args_list[2]
+        assert third.kwargs["service_tier"] == tier_after_cooldown
+
+    @pytest.mark.parametrize("latched,expected", [(False, "flex"), (True, "default")])
+    def test_streaming_asks_for_the_same_tier_as_a_buffered_call(self, latched, expected):
+        llm = _flex_client()
+        llm._flex_latched = latched
+        llm.client = _mock_stream()
+
+        list(llm.stream("label the clusters"))
+
+        assert llm.client.create.call_args.kwargs["service_tier"] == expected
+
+    async def test_async_streaming_asks_for_flex_too(self):
+        llm = _flex_client()
+        llm.async_client = _mock_stream(is_async=True)
+
+        async for _ in llm.astream("label the clusters"):
+            pass
+
+        assert llm.async_client.create.call_args.kwargs["service_tier"] == "flex"
+
+    def test_a_caller_cannot_override_the_tier_the_client_chose(self):
+        llm = _flex_client()
+        llm.client = _mock_create(_COMPLETION)
+
+        llm.invoke("label the clusters", service_tier="default")
+
+        assert llm.client.with_raw_response.create.call_args.kwargs["service_tier"] == "flex"
 
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)

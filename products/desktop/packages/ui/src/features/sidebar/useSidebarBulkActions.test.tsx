@@ -1,6 +1,7 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useArchivingTasksStore } from "./archivingTasksStore";
 import { useTaskSelectionStore } from "./taskSelectionStore";
 import { useSidebarBulkActions } from "./useSidebarBulkActions";
 
@@ -112,6 +113,10 @@ describe("useSidebarBulkActions", () => {
     useTaskSelectionStore.setState({
       selectedTaskIds: ["t1", "t2"],
       lastClickedId: null,
+    });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
     });
   });
 
@@ -294,6 +299,30 @@ describe("useSidebarBulkActions", () => {
   );
 
   describe("archiveSelected", () => {
+    it("hides bulk rows while their archive is pending", async () => {
+      let settle: () => void = () => undefined;
+      hoisted.archiveTasksImperative.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = () => resolve({ archived: 2, failed: 0 });
+          }),
+      );
+      const { result } = render();
+
+      let archivePromise: Promise<void> | undefined;
+      act(() => {
+        archivePromise = result.current.archiveSelected();
+      });
+
+      const pending = useArchivingTasksStore.getState();
+      expect(pending.shouldHideWhileArchiving("t1")).toBe(true);
+      expect(pending.shouldHideWhileArchiving("t2")).toBe(true);
+
+      settle();
+      await act(async () => archivePromise);
+      expect(useArchivingTasksStore.getState().isArchiving("t1")).toBe(false);
+    });
+
     it("clears the selection when every session was archived", async () => {
       const { result } = render();
 

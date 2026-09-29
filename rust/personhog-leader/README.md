@@ -28,8 +28,7 @@ platform has always had — and its planned closure is operation
 identity: the router stamps each logical request with an op id, the
 leader keeps a short ring of recently applied ids on the cached person
 entry, and the id rides the produced record so warming rebuilds the
-ring on a new owner (scoped with the epoch-fencing work; the stamp and
-the ring land together).
+ring on a new owner (the stamp and the ring land together).
 
 Future RPCs must clear the same bar: convergent under redelivery
 (tombstone-style deletes, max-merge version floors, re-appliable
@@ -80,6 +79,9 @@ TBD:
 - this offset is the boundary:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
+- death documents (tombstoned persons) stay cached only while their record awaits the writer: once the committed offset passes it, the prune drops the document and reads fall through to Postgres, which then holds the tombstone or a revival that superseded it
+- a revival therefore becomes visible at most one prune tick after the writer applies its tombstone
+- warming leaves no residue for an applied death record — neither the document (unmarked, it would answer not-found forever) nor its earlier records for the same key
 
 #### Admission
 
@@ -209,15 +211,19 @@ via `LeaderHandoffHandler` (see `src/coordination/mod.rs`):
   "no in-flight" implies "every acked write durable in Kafka."
   Reads are never fenced — until cutover the frozen cache state is
   still the latest.
-- `warm_partition` (Warming): see the section above. Also lifts any
-  fence left over from a previous ownership of the same partition.
-- `release_partition` (Complete): lifts the write fence and drops the
-  partition's cache slot via `PartitionedCache::drop_partition` once
-  the routing table has flipped to the new owner.
+- `warm_partition` (Warming): see the section above. Takes the
+  partition's changelog epoch before the warm read, which fences every
+  predecessor at the broker, and lifts any write fence left over from a
+  previous ownership of the same partition.
+- `release_partition` (Complete): lifts the write fence, gives the
+  changelog epoch back, and drops the partition's cache slot via
+  `PartitionedCache::drop_partition` once the routing table has flipped
+  to the new owner.
 - `resume_partition` (handoff cancelled): a handoff deleted before
   `Complete` while this pod still owns the partition is a
-  cancellation — lifts the write fence so the partition serves writes
-  again.
+  cancellation — re-takes the changelog epoch, which the cancelled
+  handoff's target may have taken, then lifts the write fence so the
+  partition serves writes again.
 
 #### Request Path
 

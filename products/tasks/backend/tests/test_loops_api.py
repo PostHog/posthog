@@ -115,8 +115,14 @@ class LoopCRUDAPITest(LoopsAPITestCase):
             ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
         ]
     )
+    # GLM 5.2 is gated, and these cases are about model/effort validation rather than
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.presentation.serializers_loops.get_model_access_error",
+        return_value=None,
+    )
     def test_create_validates_model_and_reasoning_effort(
-        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status, _mock_flag
     ):
         payload = self._valid_loop_payload(
             runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
@@ -1189,6 +1195,24 @@ class LoopRunsAPITest(LoopsAPITestCase):
                 break
 
         self.assertEqual(collected_ids, list(reversed(created_run_ids)))
+
+        failed_ids = created_run_ids[::2]
+        TaskRun.objects.filter(id__in=failed_ids).update(status=TaskRun.Status.FAILED, error_message="Read failed")
+        failures = []
+        cursor = None
+        for _ in range(len(failed_ids) + 1):
+            response = self.owner_client.get(
+                runs_url, {"status": "failed", "limit": "2", **({"cursor": cursor} if cursor else {})}
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            page = response.json()
+            failures.extend(page["results"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual([run["id"] for run in failures], list(reversed(failed_ids)))
+        self.assertTrue(all(run["error_message"] == "Read failed" for run in failures))
+        self.assertEqual(self.owner_client.get(runs_url, {"status": "unknown"}).status_code, 400)
 
     def test_runs_listing_is_invisible_for_personal_loop_of_another_member(self):
         loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]

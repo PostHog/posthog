@@ -47,7 +47,7 @@ export function useNewTaskDeepLink() {
       trackResolution(result.analytics);
 
       if (result.kind === "navigate") {
-        openTaskInput(result.navigation);
+        openTaskInput({ ...result.navigation, newTab: true });
         return;
       }
 

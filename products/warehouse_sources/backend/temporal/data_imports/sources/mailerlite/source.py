@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -94,10 +92,10 @@ class MailerLiteSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILER_LITE,
+            name=ExternalDataSourceType.MAILERLITE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerLite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your MailerLite API key to pull your MailerLite data into the PostHog Data warehouse.
 
 You can create an API key in your [MailerLite integrations settings](https://dashboard.mailerlite.com/integrations/api).""",
@@ -184,10 +182,7 @@ Copy the `secret` from the response into the field below. MailerLite never retur
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
         path = endpoint_config.path if endpoint_config else "/subscribers"
-        if validate_mailerlite_credentials(config.api_key, path):
-            return True, None
-
-        return False, "Invalid MailerLite API key"
+        return validate_mailerlite_credentials(config.api_key, path)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailerLiteResumeConfig]:
         return ResumableSourceManager[MailerLiteResumeConfig](inputs, MailerLiteResumeConfig)

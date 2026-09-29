@@ -177,7 +177,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
+/// Parses JSON from the LOCAL_EVAL_RATE_LIMITS and LOCAL_EVAL_CONDITIONAL_RATE_LIMITS environment variables
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -476,9 +476,7 @@ pub struct Config {
     #[envconfig(default = "")]
     pub flags_redis_reader_url: String,
 
-    // Controls whether to read from dedicated Redis cache
-    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
-    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    // Nothing reads this. Flipping it moves no read path and emits no warning.
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 
@@ -488,6 +486,15 @@ pub struct Config {
     // stop enqueuing if it ever misbehaves in prod.
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
+
+    // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
+    // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
+    //
+    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which deployed environments
+    // already set. Reusing it would tie the cutover to a deploy instead of a config change, and
+    // remove the ability to flip the read path back without a rollout.
+    #[envconfig(from = "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED", default = "false")]
+    pub flag_definitions_dedicated_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -684,6 +691,22 @@ pub struct Config {
     // Example: {"123": "1200/minute", "456": "2400/hour"}
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
+    // Per-team rate limit for flag definitions requests with an ETag in If-None-Match
+    // (requests per minute). Most of these get a 304, which skips the payload read. They
+    // therefore get their own higher budget. A request whose ETag does not match also
+    // spends the budget for full responses.
+    #[envconfig(
+        from = "FLAG_DEFINITIONS_CONDITIONAL_RATE_PER_MINUTE",
+        default = "6000"
+    )]
+    pub flag_definitions_conditional_rate_per_minute: u32,
+
+    // Per-team overrides for the conditional budget, in the same JSON format as
+    // LOCAL_EVAL_RATE_LIMITS. Sharing LOCAL_EVAL_RATE_LIMITS would cap the revalidation polls
+    // of a team whose full-response override is below the conditional default.
+    #[envconfig(from = "LOCAL_EVAL_CONDITIONAL_RATE_LIMITS", default = "")]
+    pub flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits,
 
     // Per-credential rate limit for the remote_config endpoint (requests per minute).
     // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
@@ -1068,6 +1091,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1126,6 +1150,8 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            flag_definitions_conditional_rate_per_minute: 6000,
+            flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits::default(),
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),

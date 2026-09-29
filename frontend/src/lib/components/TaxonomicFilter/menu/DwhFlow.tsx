@@ -61,13 +61,15 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { urls } from 'scenes/urls'
 
 import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+
+import { HIDDEN_FIELD_TYPES } from '../dataWarehouseColumns'
 import { defaultDataWarehousePopoverFields } from '../taxonomicFilterLogic'
 import { DataWarehousePopoverField, TaxonomicDefinitionTypes } from '../types'
 import { CommitFn, MenuFilterEntry, TaxonomicFilterGroup } from './types'
@@ -93,7 +95,6 @@ const DEFAULT_FIELD_DESCRIPTIONS: Record<string, string> = {
     distinct_id_field: 'Used to associate this row with a person via distinct_id.',
 }
 
-const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table', 'view', 'materialized_view']
 const LINKED_TABLE_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table']
 
 interface ColumnOption {

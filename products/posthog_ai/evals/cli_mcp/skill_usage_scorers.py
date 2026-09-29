@@ -18,8 +18,9 @@ from typing import Any, cast
 from braintrust import Score
 from braintrust_core.score import Scorer
 
+from products.posthog_ai.backend.exec_commands import normalize_tool_name
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
-from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, normalize_tool_name
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     _exec_command,
@@ -175,15 +176,20 @@ class SearchRecoveryAfterZeroHit(Scorer):
                     score=0.0,
                     metadata={"reason": "No learning follow-up after zero-hit search", "call_id": zero_hit.call_id},
                 )
-            nxt = min(following, key=lambda call: call.position)
-            command = _exec_command(nxt)
-            if command.verb != "learn":
+            # Parallel tool calls in one turn share a position, so check every call in the earliest batch.
+            earliest = min(call.position for call in following)
+            offender = next(
+                (call for call in following if call.position == earliest and _exec_command(call).verb != "learn"),
+                None,
+            )
+            if offender is not None:
+                command = _exec_command(offender)
                 return Score(
                     name=self._name(),
                     score=0.0,
                     metadata={
                         "reason": "A non-learning command followed a zero-hit search",
-                        "call_id": nxt.call_id,
+                        "call_id": offender.call_id,
                         "command": f"{command.verb} {command.arguments}".strip(),
                     },
                 )

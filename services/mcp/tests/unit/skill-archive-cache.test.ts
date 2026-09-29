@@ -46,15 +46,15 @@ function downloaded(bytes: Uint8Array = makeArchive(), etag?: string): SkillArch
     return { status: 'downloaded', bytes, etag }
 }
 
-const CURRENT_KEY = 'mcp:shared-blob:product-skills:v2:current'
-const LOCK_KEY = 'mcp:shared-blob:product-skills:v2:lock'
+const CURRENT_KEY = 'mcp:shared-blob:{product-skills}:v3:current'
+const LOCK_KEY = 'mcp:shared-blob:{product-skills}:v3:lock'
 
 function current(redis: MockRedis): { sha: string; etag?: string; validatedAt: number } {
     return JSON.parse(redis.store.get(CURRENT_KEY)!)
 }
 
 function bytesKey(redis: MockRedis): string {
-    return `mcp:shared-blob:product-skills:v2:blob:${current(redis).sha}`
+    return `mcp:shared-blob:{product-skills}:v3:blob:${current(redis).sha}`
 }
 
 function expireSharedCopy(redis: MockRedis): void {

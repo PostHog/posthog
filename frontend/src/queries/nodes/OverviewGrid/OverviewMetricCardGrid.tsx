@@ -22,16 +22,18 @@ export interface OverviewMetricCardItem extends Omit<OverviewItem, 'value' | 'pr
 
 interface OverviewMetricCardGridProps {
     items: OverviewMetricCardItem[]
+    layout?: 'grid' | 'contents'
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
-    labelFromKey: (key: string) => string
+    labelFromKey: (key: string) => React.ReactNode
 }
 
 export function OverviewMetricCardGrid({
     items,
+    layout = 'grid',
     loading,
     numSkeletons,
     samplingRate,
@@ -41,13 +43,18 @@ export function OverviewMetricCardGrid({
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
         <>
-            <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+            <div
+                className={
+                    layout === 'contents' ? 'contents' : 'grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'
+                }
+            >
                 {loading
                     ? range(numSkeletons).map((i) => <MetricCardSkeleton key={i} />)
                     : items.map((item) => (
                           <MetricCardCell
                               key={item.key}
                               item={item}
+                              stretch={layout === 'contents'}
                               preComputeStrategy={preComputeStrategy}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
@@ -61,14 +68,16 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
+    stretch,
     preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
+    stretch?: boolean
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
-    labelFromKey: (key: string) => string
+    labelFromKey: (key: string) => React.ReactNode
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
 
@@ -110,6 +119,7 @@ function MetricCardCell({
                 <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
             <MetricCard
+                className={stretch ? 'h-full [&>div:first-child]:flex-1' : undefined}
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
                 value={item.value}
                 change={metricChange(item)}
@@ -121,7 +131,7 @@ function MetricCardCell({
     )
 }
 
-function MetricCardTitle({ label, item }: { label: string; item: OverviewMetricCardItem }): JSX.Element {
+function MetricCardTitle({ label, item }: { label: React.ReactNode; item: OverviewMetricCardItem }): JSX.Element {
     if (!item.warning) {
         return <>{label}</>
     }

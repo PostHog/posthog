@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
+from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -20,10 +23,18 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    ISSUE_BREAKDOWN_TOP_VALUES,
+    MAX_STACK_FRAMES,
+    BreakdownRange,
+    breakdown_query_date_range,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
+    dedupe_repeated_stacktraces,
+    map_issue_breakdown,
+    normalize_stacktrace,
+    resolve_breakdown_range,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -69,6 +80,144 @@ def test_release_filter_adds_substring_prefilter() -> None:
 
 def test_build_sparkline_accepts_float_values() -> None:
     assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
+
+
+def test_normalize_stacktrace_keeps_the_frames_closest_to_the_error() -> None:
+    frames = [{"mangled_name": f"frame_{index}", "in_app": True} for index in range(MAX_STACK_FRAMES + 20)]
+
+    stacktrace = normalize_stacktrace({"frames": frames}, only_app_frames=True)
+
+    assert stacktrace is not None
+    kept = cast(list[dict[str, object]], stacktrace["frames"])
+    assert len(kept) == MAX_STACK_FRAMES
+    assert kept[0]["mangled_name"] == "frame_20"
+    assert kept[-1]["mangled_name"] == f"frame_{MAX_STACK_FRAMES + 19}"
+    assert stacktrace["frames_omitted"] == 20
+
+
+def test_normalize_stacktrace_does_not_mark_a_short_stack() -> None:
+    stacktrace = normalize_stacktrace({"frames": [{"mangled_name": "main", "in_app": True}]}, only_app_frames=True)
+
+    assert stacktrace is not None
+    assert "frames_omitted" not in stacktrace
+
+
+def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() -> None:
+    def exception(line: int) -> dict[str, object]:
+        frame = {"mangled_name": "submitOrder", "line": line, "in_app": True}
+        return {"type": "TypeError", "stacktrace": {"frames": [frame]}}
+
+    def event(uuid: str, *lines: int) -> dict[str, object]:
+        return {"uuid": uuid, "properties": {"$exception_list": [exception(line) for line in lines]}}
+
+    events = dedupe_repeated_stacktraces(
+        [
+            # Two exceptions with different stacks, then an exception that repeats the first stack in the same event.
+            event("event-1", 42, 43, 42),
+            event("event-2", 43),
+            event("event-3", 44),
+        ]
+    )
+
+    stacks = [[exception["stacktrace"] for exception in cast(Any, e["properties"])["$exception_list"]] for e in events]
+    assert stacks[0][0]["frames"][0]["line"] == 42
+    assert stacks[0][1]["frames"][0]["line"] == 43
+    assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
+    assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
+    assert stacks[2][0]["frames"][0]["line"] == 44
+
+
+BREAKDOWN_NOW = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+
+@parameterized.expand(
+    [
+        ("short_relative_range", {"date_from": "-7d"}, BREAKDOWN_NOW - timedelta(days=7), BREAKDOWN_NOW, False),
+        ("long_relative_range", {"date_from": "-90d"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        ("unbounded_range", {"date_from": "all"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        (
+            "long_explicit_range",
+            {"date_from": "2026-01-01T00:00:00Z", "date_to": "2026-03-01T00:00:00Z"},
+            datetime(2026, 1, 30, tzinfo=UTC),
+            datetime(2026, 3, 1, tzinfo=UTC),
+            True,
+        ),
+    ]
+)
+def test_resolve_breakdown_range_limits_the_range_to_30_days(
+    _name: str,
+    date_range: dict[str, object],
+    expected_from: datetime,
+    expected_to: datetime,
+    expected_limited: bool,
+) -> None:
+    assert resolve_breakdown_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == BreakdownRange(
+        date_from=expected_from, date_to=expected_to, range_limited=expected_limited
+    )
+
+
+def test_map_issue_breakdown_drops_empty_values_and_dimensions() -> None:
+    long_path = "/" + "a" * 500
+    null_label = "$$_posthog_breakdown_null_$$"
+    results: dict[str, object] = {
+        "$pathname": {
+            "values": [{"value": long_path, "count": 3}, {"value": null_label, "count": 1}],
+            "total_count": 4,
+        },
+        "$current_url": {"values": [{"value": "https://example.test/a", "count": 3}], "total_count": 4},
+        "$browser": {"values": [{"value": "Chrome", "count": 4}], "total_count": 4},
+        "$os": {"values": [{"value": null_label, "count": 4}], "total_count": 4},
+        "$session_id": {
+            "values": [{"value": null_label, "count": 2}, {"value": "session-1", "count": 2}],
+            "total_count": 4,
+        },
+    }
+
+    breakdown = map_issue_breakdown(results)
+
+    assert breakdown["occurrences"] == 4
+    assert breakdown["sample_session_ids"] == ["session-1"]
+    top_values = cast(dict[str, Any], breakdown["top_values"])
+    # The URL is left out when the events have a path, and a dimension with only missing values is left out.
+    assert set(top_values) == {"path", "browser"}
+    assert top_values["browser"] == [{"value": "Chrome", "count": 4}]
+    assert len(top_values["path"]) == 1
+    assert top_values["path"][0]["count"] == 3
+    assert len(top_values["path"][0]["value"]) == 200
+
+
+def test_map_issue_breakdown_returns_urls_when_events_have_no_path() -> None:
+    results: dict[str, object] = {
+        "$pathname": {"values": [{"value": "", "count": 2}], "total_count": 2},
+        "$current_url": {"values": [{"value": "https://api.example.test/orders", "count": 2}], "total_count": 2},
+    }
+
+    top_values = cast(dict[str, Any], map_issue_breakdown(results)["top_values"])
+
+    assert top_values == {"url": [{"value": "https://api.example.test/orders", "count": 2}]}
+
+
+@parameterized.expand(
+    [
+        ("relative_range_keeps_the_request", {"date_from": "-7d"}, {"date_from": "-7d", "date_to": None}, False),
+        (
+            "long_range_is_limited",
+            {"date_from": "-90d"},
+            {"date_from": (BREAKDOWN_NOW - timedelta(days=30)).isoformat(), "date_to": None},
+            True,
+        ),
+        (
+            "relative_date_to_is_resolved",
+            {"date_from": "-7d", "date_to": "-1d"},
+            {"date_from": "-7d", "date_to": (BREAKDOWN_NOW - timedelta(days=1)).isoformat()},
+            False,
+        ),
+    ]
+)
+def test_breakdown_query_date_range(
+    _name: str, date_range: dict[str, object], expected: dict[str, object], expected_limited: bool
+) -> None:
+    assert breakdown_query_date_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == (expected, expected_limited)
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -122,7 +271,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp=now() - relativedelta(hours=1),
         )
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_accepts_typed_filters_and_matches_release_precisely(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -172,7 +321,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_queries_return_severity(self) -> None:
         self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
         self.create_exception_event()
@@ -228,13 +377,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert list_response.status_code == 400
         assert detail_response.status_code == 400
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_filters_by_assignee(self) -> None:
         self.create_issue()
         self.create_exception_event()
         ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id, user=self.user, team=self.team)
         # re-sync with a strictly newer version so the assignment wins argMax over the create-time row
-        with freeze_time(now() + timedelta(seconds=1)):
+        with time_machine.travel(now() + timedelta(seconds=1), tick=False):
             sync_issues_to_clickhouse(issue_ids=[self.issue_id], team_id=self.team.pk)
         flush_persons_and_events()
 
@@ -269,22 +418,49 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
-    def test_issues_list_normalizes_volume_resolution(self) -> None:
-        observed_volume_resolutions: list[int] = []
+    @parameterized.expand(
+        [
+            ("counts_only", {"volumeResolution": 0}, 1, False),
+            ("with_volume", {"volumeResolution": 1}, 1, True),
+        ]
+    )
+    def test_issues_list_returns_compact_rows(
+        self, _name: str, data: dict[str, object], expected_resolution: int, expect_volume: bool
+    ) -> None:
+        observed_queries: list[tuple[int, int | None]] = []
 
         def calculate(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
-            observed_volume_resolutions.append(runner.query.volumeResolution)
-            return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
+            observed_queries.append((runner.query.volumeResolution, runner.query.limit))
+            issue = {
+                "id": self.issue_id,
+                "name": "TypeError",
+                "description": "x" * 2000,
+                "status": "active",
+                "aggregations": {
+                    "occurrences": 3,
+                    "users": 2,
+                    "sessions": 1,
+                    "volumeRange": [3],
+                    "volume_buckets": [{"label": "2026-04-17T12:00:00+00:00", "value": 3}],
+                },
+            }
+            return FakeQueryResponse({"results": [issue], "hasMore": False, "limit": 10, "offset": 0})
 
         with patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
-                data={"volumeResolution": 0},
+                data=data,
                 format="json",
             )
 
         assert response.status_code == 200
-        assert observed_volume_resolutions == [1]
+        assert observed_queries == [(expected_resolution, 10)]
+        row = response.json()["results"][0]
+        assert len(row["description"]) == 300
+        assert row["description"].endswith("[truncated from 2000 chars]")
+        assert row["aggregations"]["occurrences"] == 3
+        assert ("volumeRange" in row["aggregations"]) is expect_volume
+        assert ("volume_buckets" in row["aggregations"]) is expect_volume
 
     def test_issue_detail_tags_clickhouse_queries(self) -> None:
         self.create_issue()
@@ -401,7 +577,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_filter_groups == [None]
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -462,7 +638,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:
         self.create_issue()
         self.create_exception_event()
@@ -480,7 +656,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["id"] == self.issue_id
         assert "top_in_app_frame" not in response.json()
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
         self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
 
@@ -536,7 +712,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_matches_by_fingerprint(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -554,7 +730,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_matches_events_without_issue_id(self) -> None:
         self.create_issue()
         self.create_exception_event(include_issue_id=False, properties={"$session_id": "session-id-1"})
@@ -569,7 +745,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_without_fingerprints_returns_empty(self) -> None:
         ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
 
@@ -609,7 +785,120 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 400
         assert "Access to property '$referrer' is restricted" in str(response.json())
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_omits_breakdown_by_default(self) -> None:
+        self.create_issue()
+        self.create_exception_event(properties={"$current_url": "https://example.test/checkout"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert "breakdown" not in response.json()
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_aggregates_matching_events(self) -> None:
+        self.create_issue()
+        for pathname, session_id, lib in [
+            ("/checkout", "session-id-1", "web"),
+            ("/checkout", "session-id-1", "web"),
+            ("/cart", "session-id-2", "web"),
+            ("/cart", "", "posthog-python"),
+            ("/cart", "", "posthog-python"),
+        ]:
+            self.create_exception_event(
+                properties={
+                    "$pathname": pathname,
+                    "$current_url": f"https://example.test{pathname}",
+                    "$session_id": session_id,
+                    "$browser": "Chrome",
+                    "$lib": lib,
+                }
+            )
+        self.create_exception_event(
+            issue_id="01936e7f-d7ff-7314-b2d4-7627981e34f1",
+            fingerprint="other-fingerprint",
+            properties={"$current_url": "https://example.test/other"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        breakdown = response.json()["breakdown"]
+        assert breakdown["occurrences"] == 5
+        assert breakdown["range_limited"] is False
+        # Sessions with the most events first; events without a session are not a session.
+        assert breakdown["sample_session_ids"] == ["session-id-1", "session-id-2"]
+        top_values = breakdown["top_values"]
+        assert top_values["path"] == [{"value": "/cart", "count": 3}, {"value": "/checkout", "count": 2}]
+        assert top_values["browser"] == [{"value": "Chrome", "count": 5}]
+        assert top_values["library"] == [{"value": "web", "count": 3}, {"value": "posthog-python", "count": 2}]
+        # The URL repeats the path here, and no event has an OS or a screen name.
+        assert set(top_values) == {"path", "browser", "library"}
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_keeps_empty_values_out_of_top_values(self) -> None:
+        self.create_issue()
+        for index in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$pathname": f"/page-{index}"})
+        # More events have an empty or no path than have any single real path, so a missing value would take a
+        # slot if the query ranked it and the response kept it.
+        for _ in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$pathname": ""})
+            self.create_exception_event()
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        paths = [item["value"] for item in response.json()["breakdown"]["top_values"]["path"]]
+        assert sorted(paths) == sorted(f"/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES))
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_masks_restricted_properties(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$pathname", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        self.create_issue()
+        self.create_exception_event(properties={"$pathname": "/checkout", "$browser": "Chrome"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        top_values = response.json()["breakdown"]["top_values"]
+        assert "path" not in top_values
+        assert "/checkout" not in str(response.json())
+        assert top_values["browser"] == [{"value": "Chrome", "count": 1}]
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
         long_text = "x" * 1200
         self.create_issue()
@@ -634,7 +923,40 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
         assert summary_event["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_returns_a_repeated_stack_trace_once(self) -> None:
+        self.create_issue()
+        exception_list = [
+            {
+                "type": "TypeError",
+                "value": "Cannot read properties of undefined",
+                "stacktrace": {"frames": [{"mangled_name": "submitOrder", "line": 42, "in_app": True}]},
+            }
+        ]
+        for _ in range(2):
+            self.create_exception_event(properties={"$exception_list": exception_list})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["stacktrace"],
+                "limit": 2,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        first, second = response.json()["results"]
+        assert first["properties"]["$exception_list"][0]["stacktrace"]["frames"][0]["line"] == 42
+        assert second["properties"]["$exception_list"][0]["stacktrace"] == {
+            "same_as_event": first["uuid"],
+            "same_as_exception": 0,
+        }
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_only_requested_context_groups(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -660,7 +982,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                                     "source": "src/checkout.ts",
                                     "line": 42,
                                     "in_app": True,
-                                    "code_variables": {"order": {"customer": None}},
+                                    "code_variables": {"order": {"customer": None, "total": 42}},
                                 }
                             ]
                         },
@@ -696,7 +1018,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
-        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        # The native-JSON table does not store a null leaf, so the null variable is absent there.
+        expected_variables = (
+            {"order": {"total": 42}}
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else {"order": {"customer": None, "total": 42}}
+        )
+        assert variables_frame["code_variables"] == expected_variables
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}

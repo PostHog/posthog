@@ -1,6 +1,6 @@
 Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating "metric X is rising/dropping — why?": one call answers how big the change is, exactly when it started, and which label values moved.
 
-All parameters go inside `query`:
+All parameters go inside `query` — top-level fields are rejected:
 
 ```json
 { "query": { "metricName": "m", "anomalyFrom": "2026-01-01T00:00:00Z" } }

@@ -127,6 +127,7 @@ class Feature(StrEnum):
     # is hit from every taxonomic property-value picker across the app, so attribution by scene
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
+    SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
@@ -139,6 +140,8 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    # The offline analysis of a slow query: a handful of EXPLAINs per scan slot, not per request.
+    QUERY_SCAN = "query_scan"
     SEMANTIC_SEARCH = "semantic_search"
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
@@ -230,7 +233,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
-        case NodeKind.METRICS_QUERY:
+        case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
         case NodeKind.ACCOUNTS_TABLE_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
@@ -251,6 +254,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.EXPERIMENT_METRIC
             | NodeKind.EXPERIMENT_EVENT_EXPOSURE_CONFIG
             | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_EXPOSURE_NODE
         ):
             return {"product": Product.EXPERIMENTS}
         case (
@@ -284,6 +288,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.MARKETING_ANALYTICS}
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
+            | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
@@ -415,10 +421,13 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
+    dashboard_all_time: Optional[bool] = None  # the dashboard's date filter, not the insight's range, chose All time
     scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -432,6 +441,10 @@ class QueryTags(BaseModel):
 
     # frontend UI context (from QueryLogTags)
     scene: Optional[str] = None
+    # Saved Web analytics filter preset the query was run under. Client-supplied and
+    # truncated at the boundary; the warming DAG validates it against Postgres before
+    # acting on it, so an invented id buys nothing.
+    preset_id: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
     # Cadence and query shape of the alert that triggered this run, tagged at evaluation
@@ -516,6 +529,7 @@ class QueryTags(BaseModel):
     trend_volume_display: Optional[str] = None
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
+    saved_query_ids: Optional[list[str]] = None
 
     trend_volume_type: Optional[str] = None
 
@@ -526,6 +540,14 @@ class QueryTags(BaseModel):
     contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
+
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None

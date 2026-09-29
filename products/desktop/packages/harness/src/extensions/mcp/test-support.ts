@@ -17,12 +17,15 @@ import type { TransportFactory } from "./server-manager";
 
 export interface MockToolSpec {
   name: string;
+  title?: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
   /** Handler invoked on tools/call. */
   handler: (args: Record<string, unknown>) => {
     content: Array<Record<string, unknown>>;
     isError?: boolean;
+    structuredContent?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
   };
 }
 
@@ -224,6 +227,7 @@ export function createMockMcpServer(
   const listResult = () => ({
     tools: tools.map((tool) => ({
       name: tool.name,
+      ...(tool.title ? { title: tool.title } : {}),
       description: tool.description ?? `mock tool ${tool.name}`,
       inputSchema: tool.inputSchema ?? { type: "object", properties: {} },
     })),

@@ -84,6 +84,38 @@ export function WebAnalyticsDashboard(): JSX.Element {
     return <App />
 }
 
+WebAnalyticsDashboardTileHeaderV2Medium.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 900, height: 2000 },
+    },
+}
+export function WebAnalyticsDashboardTileHeaderV2Medium(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
+
+WebAnalyticsDashboardTileHeaderV2Wide.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 1600, height: 2000 },
+    },
+}
+export function WebAnalyticsDashboardTileHeaderV2Wide(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
+
 WebAnalyticsDashboardLoading.parameters = {
     layout: 'fullscreen',
     viewMode: 'story',

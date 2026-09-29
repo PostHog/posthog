@@ -13,10 +13,11 @@ import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SURVEY_NOTEBOOK_WIDGET_VIEWS, SurveyNotebookWidgetAttributes } from 'scenes/surveys/surveyNotebookWidgetViews'
 import { getSurveyStatus } from 'scenes/surveys/surveysLogic'
-import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagBasicType } from '~/types'
+
+import { SurveyResult } from 'products/surveys/frontend/SurveyResult'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'

@@ -1,3 +1,6 @@
+const MAX_SRCSET_WIDTH: f64 = 1024.0;
+const MAX_SRCSET_DENSITY: f64 = 2.0;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DescriptorKind {
     Density,
@@ -10,21 +13,26 @@ struct Candidate<'a> {
     value: f64,
 }
 
-pub(crate) fn largest_candidate(srcset: &str) -> Option<&str> {
+pub(crate) fn candidate_for_scrubbing(srcset: &str) -> Option<&str> {
     let candidates = parse_candidates(srcset)?;
     let kind = candidates.first()?.kind;
     if candidates.iter().any(|candidate| candidate.kind != kind) {
         return None;
     }
+    let limit = match kind {
+        DescriptorKind::Width => MAX_SRCSET_WIDTH,
+        DescriptorKind::Density => MAX_SRCSET_DENSITY,
+    };
     candidates
         .into_iter()
-        .reduce(|best, candidate| {
-            if candidate.value > best.value {
-                candidate
-            } else {
-                best
-            }
-        })
+        .reduce(
+            |best, candidate| match (best.value <= limit, candidate.value <= limit) {
+                (false, true) => candidate,
+                (true, true) if candidate.value > best.value => candidate,
+                (false, false) if candidate.value < best.value => candidate,
+                _ => best,
+            },
+        )
         .map(|candidate| candidate.url)
 }
 
@@ -112,10 +120,10 @@ fn parse_descriptor(descriptor: &str) -> Option<(DescriptorKind, f64)> {
 
 #[cfg(test)]
 mod tests {
-    use super::largest_candidate;
+    use super::candidate_for_scrubbing;
 
     #[test]
-    fn selects_the_largest_consistent_candidate() {
+    fn selects_the_largest_candidate_within_the_limit_or_the_smallest_above_it() {
         for (srcset, expected) in [
             (
                 "https://example.com/a.png 1x, https://example.com/b.png 2x",
@@ -123,14 +131,38 @@ mod tests {
             ),
             (
                 "https://example.com/a.png 320w, https://example.com/b.png 1280w",
-                "https://example.com/b.png",
+                "https://example.com/a.png",
             ),
+            (
+                "large.png 3840w, medium.png 960w, small.png 320w, extra.png 1920w",
+                "medium.png",
+            ),
+            (
+                "small.png 960w, exact.png 1024w, large.png 2048w",
+                "exact.png",
+            ),
+            (
+                "large.png 3840w, small.png 1280w, medium.png 1920w",
+                "small.png",
+            ),
+            (
+                "small.png 1280w, medium.png 1920w, large.png 3840w",
+                "small.png",
+            ),
+            ("large.png 4x, medium.png 2x, small.png 1x", "medium.png"),
+            ("small.png 1x, medium.png 1.5x, large.png 3x", "medium.png"),
+            ("large.png 4x, small.png 3x", "small.png"),
+            ("small.png 3x, large.png 4x", "small.png"),
+            ("default.png, large.png 3x", "default.png"),
+            ("only.png 4096w", "only.png"),
+            ("only.png 4x", "only.png"),
+            ("small.png 320w, large.png 1024w", "large.png"),
             (
                 "data:image/png;base64,AAAA 1x, data:image/png;base64,BBBB 2x",
                 "data:image/png;base64,BBBB",
             ),
         ] {
-            assert_eq!(largest_candidate(srcset), Some(expected));
+            assert_eq!(candidate_for_scrubbing(srcset), Some(expected), "{srcset}");
         }
     }
 
@@ -145,15 +177,19 @@ mod tests {
             "https://example.com/a.png 1x,, https://example.com/b.png 2x",
             "https://example.com/a.png,https://example.com/b.png",
         ] {
-            assert_eq!(largest_candidate(srcset), None);
+            assert_eq!(candidate_for_scrubbing(srcset), None);
         }
     }
 
     #[test]
     fn the_first_candidate_wins_a_tie() {
-        assert_eq!(
-            largest_candidate("https://example.com/a.png 2x, https://example.com/b.png 2x"),
-            Some("https://example.com/a.png")
-        );
+        for descriptor in ["2x", "3x", "1024w", "2048w"] {
+            assert_eq!(
+                candidate_for_scrubbing(&format!(
+                    "first.png {descriptor}, second.png {descriptor}"
+                )),
+                Some("first.png")
+            );
+        }
     }
 }

@@ -2,8 +2,8 @@
 
 Idempotent and resumable — a killed or re-run pass skips any (org, label, version, fetch)
 already computed, so partial progress is never redone and a re-enriched org naturally
-recomputes under the same version. Nothing here is consumed downstream; results are
-queryable in Postgres only.
+recomputes under the same version. Configured AI labels also update the ICP fit
+score; stored results remain available for retry when score projection fails.
 """
 
 import time
@@ -22,9 +22,15 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.fit_recomputation import apply_enrichment_result, label_needs_application
+from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
+    TransientToolError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
@@ -39,6 +45,38 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 logger = structlog.get_logger(__name__)
 
 _ID_BATCH_SIZE = 500
+
+# So an absence-of-event alert can catch the label pipeline going silent.
+LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
+
+
+def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> None:
+    """Never raises: the run's summary and exit status must survive a broken client, capture, or
+    flush here, or a monitoring-only failure would take down a run that otherwise succeeded."""
+    try:
+        region = get_instance_region()
+        if region not in ("US", "EU"):
+            return
+        with ph_scoped_capture(region=region) as capture:
+            capture(
+                distinct_id="ai-enrichment-label-batch",
+                event=LABEL_BATCH_RUN_EVENT,
+                properties={
+                    "label": label,
+                    "version": version,
+                    "attempted": counts["attempted"],
+                    "succeeded": counts["succeeded"],
+                    "failed": counts["failed"],
+                    "tool_calls": counts["tool_calls"],
+                    "tools_deferred": counts["tools_deferred"],
+                    "scores_projected": counts["scores_projected"],
+                    "score_failures": counts["score_failures"],
+                    "score_attempted": counts["score_attempted"],
+                },
+            )
+    except Exception as e:
+        capture_exception(e, {"path": "enrichment_label_batch._report_batch_run"})
+        logger.exception("enrichment_label_batch_report_failed", label=label, version=version)
 
 
 def _advisory_lock_key(label: str) -> int:
@@ -55,7 +93,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--label", required=True, help="EnrichmentPromptConfig.name to run")
-        parser.add_argument("--limit", type=int, default=None, help="Attempt at most this many (non-skipped) orgs")
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Classify at most this many new orgs and repair at most this many stored scores",
+        )
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
         parser.add_argument(
             "--max-failures",
@@ -141,9 +184,14 @@ class Command(BaseCommand):
             "skipped_existing": 0,
             "skipped_no_ai_consent": 0,
             "unknown": 0,
-            "failures": 0,
+            "failed": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "tool_calls": 0,
+            "tools_deferred": 0,
+            "scores_projected": 0,
+            "score_failures": 0,
+            "score_attempted": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -158,15 +206,48 @@ class Command(BaseCommand):
         }
         counts_lock = threading.Lock()
         failure_streak = 0
+        score_failure_streak = 0
+        repair_attempted = 0
         circuit_open = threading.Event()
 
-        def _result_exists(fetch: OrganizationEnrichmentFetch, label_name: str) -> bool:
+        def _existing_result(fetch: OrganizationEnrichmentFetch, label_name: str) -> EnrichmentLabelResult | None:
             return EnrichmentLabelResult.objects.filter(
                 organization_id=fetch.organization_id,
                 label_name=label_name,
                 prompt_version=config.version,
                 fetch=fetch,
-            ).exists()
+            ).first()
+
+        def _apply_score(result: EnrichmentLabelResult, *, repair: bool) -> None:
+            nonlocal score_failure_streak, repair_attempted
+            lists = load_active_lists()
+            if (
+                lists is None
+                or not gates.region_allowed()
+                or not gates.enrichment_enabled()
+                or not label_needs_application(result)
+            ):
+                return
+            with counts_lock:
+                if circuit_open.is_set() or (repair and limit is not None and repair_attempted >= limit):
+                    return
+                if repair:
+                    repair_attempted += 1
+                counts["score_attempted"] += 1
+            try:
+                applied = apply_enrichment_result(result)
+            except Exception as error:
+                capture_exception(error, {"label_result_id": str(result.id), "path": "enrichment_score"})
+                with counts_lock:
+                    counts["score_failures"] += 1
+                    score_failure_streak += 1
+                    if score_failure_streak >= max_failures:
+                        circuit_open.set()
+            else:
+                with counts_lock:
+                    counts["scores_projected"] += int(applied)
+                    if applied:
+                        score_failure_streak = 0
 
         def _live_label_name() -> str:
             # A rename leaves content_hash alone, so the mid-run config check can't catch it. The
@@ -195,7 +276,9 @@ class Command(BaseCommand):
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
                 live_label = _live_label_name()
-                if _result_exists(fetch, live_label):
+                existing = _existing_result(fetch, live_label)
+                if existing is not None:
+                    _apply_score(existing, repair=True)
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
@@ -215,7 +298,7 @@ class Command(BaseCommand):
                 with transaction.atomic():
                     # Re-read: a rename can land while the LLM call is in flight, and stamping the
                     # name captured before it would strand this verdict under a retired label.
-                    EnrichmentLabelResult.objects.get_or_create(
+                    result, _ = EnrichmentLabelResult.objects.get_or_create(
                         organization_id=fetch.organization_id,
                         fetch=fetch,
                         label_name=_live_label_name(),
@@ -227,6 +310,11 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
+                _apply_score(result, repair=False)
+            except TransientToolError:
+                with counts_lock:
+                    counts["tools_deferred"] += 1
+                return
             except Exception as e:
                 capture_exception(
                     e,
@@ -237,7 +325,7 @@ class Command(BaseCommand):
                     },
                 )
                 with counts_lock:
-                    counts["failures"] += 1
+                    counts["failed"] += 1
                     failure_streak += 1
                     if failure_streak >= max_failures:
                         circuit_open.set()
@@ -250,6 +338,7 @@ class Command(BaseCommand):
                 counts["succeeded"] += 1
                 counts["prompt_tokens"] += meta.get("prompt_tokens", 0)
                 counts["completion_tokens"] += meta.get("completion_tokens", 0)
+                counts["tool_calls"] += len(meta.get("tool_calls", []))
                 failure_streak = 0
                 if is_unknown_output(output):
                     counts["unknown"] += 1
@@ -288,7 +377,9 @@ class Command(BaseCommand):
                 for fetch in fetches:
                     if circuit_open.is_set():
                         return
-                    if _result_exists(fetch, label):
+                    existing = _existing_result(fetch, label)
+                    if existing is not None:
+                        _apply_score(existing, repair=True)
                         with counts_lock:
                             counts["skipped_existing"] += 1
                         continue
@@ -333,20 +424,25 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips are excluded for the
-        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
-        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
-        # caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips and tool deferrals are
+        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
+        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
+        # "consent_revoked_after_attempt" and "tools_deferred" need subtracting here - a declined
+        # org caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
         # double-subtract and could push "tried" negative.
-        tried = counts["attempted"] - counts["aborted"] - counts["consent_revoked_after_attempt"]
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["tools_deferred"]
+        tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
-            f"failures {counts['failures']}, aborted {counts['aborted']}, "
+            f"failed {counts['failed']}, aborted {counts['aborted']}, "
+            f"tool_calls {counts['tool_calls']}, tools_deferred {counts['tools_deferred']}, "
+            f"scores_projected {counts['scores_projected']}, score_failures {counts['score_failures']}, "
+            f"score_attempted {counts['score_attempted']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -358,9 +454,14 @@ class Command(BaseCommand):
             elapsed_seconds=elapsed_seconds,
             **counts,
         )
+        # Emitted unconditionally too, before any failure decision below, so an absence-of-event
+        # alert also sees a run that aborted or failed its ratio check.
+        _report_batch_run(label=label, version=config.version, counts=counts)
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)
+        if counts["score_failures"]:
+            raise CommandError(f"failed to apply {counts['score_failures']} stored AI labels ({summary})")
         if circuit_open.is_set():
             raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
         if tried > 0 and counts["succeeded"] == 0:

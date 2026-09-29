@@ -1,11 +1,6 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamDataQualityConfig(models.Model):
@@ -17,7 +12,7 @@ class TeamDataQualityConfig(models.Model):
 
     # db_constraint=False: a real FK constraint takes SHARE ROW EXCLUSIVE on posthog_team while
     # migrating, stalling writes under traffic.
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+")
 
     gate_materialization_on_checks = models.BooleanField(
         default=False,
@@ -26,6 +21,3 @@ class TeamDataQualityConfig(models.Model):
 
     class Meta:
         app_label = "data_quality"
-
-
-register_team_extension_signal(TeamDataQualityConfig, logger=logger)

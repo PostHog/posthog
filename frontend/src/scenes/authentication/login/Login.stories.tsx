@@ -1,9 +1,17 @@
+import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
+import { setLastLoginMethodCookie } from 'scenes/authentication/shared/lastLoginMethod.mock'
+import {
+    PENDING_OAUTH_CONNECTION_FIXTURE,
+    setPendingOAuthConnectionCookie,
+} from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
+import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Login } from './Login'
 import { loginLogic } from './loginLogic'
 
@@ -16,6 +24,9 @@ type StoryArgs = {
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    pendingOAuthConnection: boolean
+    arrivedFromWebsite: boolean
+    hasLoggedInBefore: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -42,6 +53,9 @@ const meta: Meta<StoryArgs> = {
             name: 'General error',
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
+        pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
+        hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
     },
     args: {
         cloud: true,
@@ -52,6 +66,9 @@ const meta: Meta<StoryArgs> = {
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
+        pendingOAuthConnection: false,
+        arrivedFromWebsite: false,
+        hasLoggedInBefore: true,
     },
 }
 export default meta
@@ -65,8 +82,15 @@ const Template: StoryFn<StoryArgs> = ({
     samlAvailable,
     ssoEnforcement,
     generalError,
+    pendingOAuthConnection,
+    arrivedFromWebsite,
+    hasLoggedInBefore,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
+    // Set synchronously: the scene reads the cookie while it mounts during this same render.
+    setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
+    setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
+    setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
 
     useStorybookMocks({
         get: {
@@ -91,6 +115,10 @@ const Template: StoryFn<StoryArgs> = ({
     })
 
     useEffect(() => {
+        arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
+    }, [arrivedFromWebsite])
+
+    useEffect(() => {
         if (enforcement) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
@@ -109,7 +137,7 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [generalError])
 
-    return <Login />
+    return <Login key={String(hasLoggedInBefore)} />
 }
 
 export const Default: StoryFn<StoryArgs> = Template.bind({})
@@ -129,5 +157,17 @@ SAMLAvailable.args = { samlAvailable: true }
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
 
+export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.storyName = 'Pending OAuth connection'
+PendingOAuthConnection.args = { pendingOAuthConnection: true }
+
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const ArrivedFromWebsite: StoryFn<StoryArgs> = Template.bind({})
+ArrivedFromWebsite.storyName = 'Arrived from posthog.com'
+ArrivedFromWebsite.args = { arrivedFromWebsite: true }
+
+export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
+FirstLoginOnThisBrowser.storyName = 'First login on this browser'
+FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }

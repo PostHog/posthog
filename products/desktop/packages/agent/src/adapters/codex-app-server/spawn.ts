@@ -2,9 +2,18 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { applyContextWikiEnv } from "../../context-wiki";
-import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+} from "@posthog/harness/extensions/context-wiki";
+import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
+
+export interface ChatgptAuthTokens {
+  accessToken: string;
+  chatgptAccountId?: string;
+  chatgptPlanType?: string;
+}
 
 /**
  * Host-facing codex options passed through `createAcpConnection`'s
@@ -17,6 +26,12 @@ export interface CodexOptions {
   apiKey?: string;
   model?: string;
   reasoningEffort?: string;
+  /**
+   * OpenAI service tier requested for every turn on the thread ("default" |
+   * "priority" | "flex"). Sent as `thread/start`'s `serviceTier`; codex drops
+   * it when the model catalogue doesn't advertise that tier for the model.
+   */
+  serviceTier?: string;
   /**
    * Static HTTP headers forwarded on every request to the PostHog gateway
    * (the codex equivalent of Claude's `ANTHROPIC_CUSTOM_HEADERS`). Carries the
@@ -33,6 +48,8 @@ export interface CodexOptions {
   binaryPath?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  chatgptAuthTokens?: ChatgptAuthTokens;
+  refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
   /**
@@ -52,6 +69,8 @@ export interface CodexAppServerProcessOptions {
   apiKey?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  /** Pins the ChatGPT login so an ambient API key cannot take over. */
+  useChatgptAuthTokens?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -151,7 +170,7 @@ export function buildAppServerArgs(
   args.push("-c", `otel.trace_exporter="none"`);
   args.push("-c", "otel.log_user_prompt=false");
 
-  if (options.useMachineAuth) {
+  if (options.useMachineAuth || options.useChatgptAuthTokens) {
     args.push("-c", `model_provider="openai"`);
     args.push("-c", `forced_login_method="chatgpt"`);
     args.push("-c", `history.persistence="none"`);

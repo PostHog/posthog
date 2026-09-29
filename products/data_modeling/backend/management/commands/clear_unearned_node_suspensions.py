@@ -27,7 +27,7 @@ from posthog.temporal.data_modeling.activities.utils import (
     is_externally_aborted,
 )
 
-from products.data_modeling.backend.logic.node_suspension import resume_nodes, suspension_reset_at, suspension_state
+from products.data_modeling.backend.logic.node_suspension import suspension_reset_at, suspension_state, unsuspend_nodes
 from products.data_modeling.backend.models.node import Node
 
 RESUMED_BY = "suspension_recheck"
@@ -92,7 +92,7 @@ class Command(BaseCommand):
         # one call per marker, because clearing every engine of a node would free markers its other
         # engines did earn
         cleared = sum(
-            resume_nodes([marker.node], by=RESUMED_BY, engine=marker.engine, only_if=marker.still_unearned)
+            unsuspend_nodes([marker.node], by=RESUMED_BY, engine=marker.engine, only_if=marker.still_unearned)
             for marker in unearned
         )
         self.stdout.write(f"Cleared {cleared} marker(s).")

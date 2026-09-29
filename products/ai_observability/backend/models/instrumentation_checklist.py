@@ -14,7 +14,7 @@ class AIObservabilityChecklistItemState(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         DISMISSED = "dismissed", "Dismissed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     check_key = models.CharField(max_length=64)
     # Null means project-wide. Reserved for per-workload checklists.
     scope = models.CharField(max_length=200, null=True, blank=True)

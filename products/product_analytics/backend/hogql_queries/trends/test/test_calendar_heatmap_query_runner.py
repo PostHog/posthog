@@ -1,7 +1,9 @@
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -25,7 +27,7 @@ from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_qu
 class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 _create_person(
                     team_id=self.team.pk,
                     distinct_ids=[id],
@@ -959,11 +961,13 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "empty_string", "value": ""}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert results_dict.get((6, 10)) == 1, (
-            f"Expected 1 empty string event at 10:00, got {results_dict.get((6, 10))}"
+        # On the native-JSON table an empty value is absent, like a materialized column, so the filter matches nothing.
+        expected_matches = 0 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 1
+        assert (results_dict.get((6, 10)) or 0) == expected_matches, (
+            f"Expected {expected_matches} empty string event(s) at 10:00, got {results_dict.get((6, 10))}"
         )
-        assert response.results.allAggregations == 1, (
-            f"Expected 1 total empty string event, got {response.results.allAggregations}"
+        assert response.results.allAggregations == expected_matches, (
+            f"Expected {expected_matches} total empty string event(s), got {response.results.allAggregations}"
         )
 
         # Test with non-existent property filter
@@ -1304,7 +1308,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.results.allAggregations == 1, f"Expected 1 total event, got {response.results.allAggregations}"
 
-    @freeze_time("2026-05-01 14:32:11")
+    @time_machine.travel("2026-05-01 14:32:11", tick=False)
     def test_explicit_date_keeps_relative_window_exact(self):
         # Without explicitDate, "-7d" truncates the lower bound to start-of-day and rounds the
         # upper bound to end-of-day, so the window spans 8 calendar days.
@@ -1366,7 +1370,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-03 00:10:00",  # Sunday 00:00 — same session, next day/hour
             "2023-12-03 01:30:00",  # Sunday 01:00
         ]
-        with freeze_time(timestamps[0]):
+        with time_machine.travel(timestamps[0], tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
         for timestamp in timestamps:
             _create_event(

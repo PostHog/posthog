@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -42,6 +42,9 @@ from products.product_analytics.backend.hogql_queries.funnels.test.test_funnel_p
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
+
+
+_TRENDS_COUNT_KEYS = ("reached_from_step_count", "reached_to_step_count")
 
 
 class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
@@ -166,7 +169,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
         return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-    @freeze_time("2021-06-18 12:00:00")
+    @time_machine.travel("2021-06-18 12:00:00", tick=False)
     def test_keeps_incomplete_conversion_window_periods_by_default(self):
         results = self._run_conversion_window_trends(hide_incomplete_periods=False)
         by_day = {row["timestamp"].date(): row for row in results}
@@ -180,7 +183,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
         self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
 
-    @freeze_time("2021-06-18 12:00:00")
+    @time_machine.travel("2021-06-18 12:00:00", tick=False)
     def test_hides_incomplete_conversion_window_periods_when_enabled(self):
         results = self._run_conversion_window_trends(hide_incomplete_periods=True)
         by_day = {row["timestamp"].date(): row for row in results}
@@ -304,6 +307,46 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
+    def test_summarized_results_include_conversion_counts(self):
+        journeys_for(
+            {
+                "user_converted": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                "user_dropped_off": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 12)}],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-08 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=1,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(1, len(results))
+        self.assertEqual([50.0, 0.0], results[0]["data"])
+        self.assertEqual([2, 0], results[0]["reached_from_step_count"])
+        self.assertEqual([1, 0], results[0]["reached_to_step_count"])
+
     # minute, hour, day, week, month
     def test_hour_interval(self):
         query = FunnelsQuery(
@@ -328,7 +371,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        with freeze_time("2021-05-06T23:40:59Z"):
+        with time_machine.travel("2021-05-06T23:40:59Z", tick=False):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(len(results), 144)
@@ -549,7 +592,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        with freeze_time("2021-05-20T13:01:01Z"):
+        with time_machine.travel("2021-05-20T13:01:01Z", tick=False):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         self.assertEqual(20, len(results))
@@ -685,7 +728,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
 
-    @freeze_time("2021-05-02 12:00:00")
+    @time_machine.travel("2021-05-02 12:00:00", tick=False)
     def test_period_not_final(self):
         now = datetime(2021, 5, 2, 12, 0, 0)
 
@@ -2079,7 +2122,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        with freeze_time("2021-05-06T23:40:59Z"):
+        with time_machine.travel("2021-05-06T23:40:59Z", tick=False):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
             conversion_rates = [row["conversion_rate"] for row in results]
             self.assertEqual(conversion_rates, [50.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -3393,6 +3436,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         # First Touchpoint (just "one")
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        # Attribution is what this test covers, and the per-period counts have their own test.
+        results = [{key: value for key, value in result.items() if key not in _TRENDS_COUNT_KEYS} for result in results]
 
         self.assertEqual(
             [

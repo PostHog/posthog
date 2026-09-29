@@ -59,6 +59,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
+    CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
+    CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: string
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -189,6 +193,10 @@ export type CdpConfig = ClickhouseConfig & {
     // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
     // the other's calls. Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_CANCEL_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's step_resume calls (a finished task waking its parked
+    // workflow step). Its own key: the Celery and Temporal workers mint it, no other tier does.
+    // Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_STEP_RESUME_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
@@ -259,6 +267,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
@@ -372,12 +382,14 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
         // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
         CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
-        // Dev default must equal Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS default so local
-        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        // Dev/test default must match Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS so local calls work.
+        // When empty, account actions use legacy auth. Customer task creation fails closed without a fallback.
         CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-customer-analytics-accounts-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_STEP_RESUME_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-resume-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).

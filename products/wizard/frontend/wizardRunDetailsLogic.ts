@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -11,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
+import { wizardRunEventProperties } from './wizardAnalytics'
 import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
 import { wizardRunDiffCanRender, wizardRunIsActive } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
@@ -21,6 +23,10 @@ type WizardRunDiffContent = {
     artifactId: string
     content: string
 }
+
+export type WizardRunDetailSource = 'fab_click' | 'fab_expand_icon_click' | 'wizard_datatable' | 'wizard_library'
+export type WizardRunArtifactSource = 'button' | 'artifacts_section'
+export type WizardRunIdLocation = 'bottom_button' | 'run_id_label'
 
 function requestError(error: unknown, fallback: string): string {
     return error instanceof ApiError && error.detail ? error.detail : fallback
@@ -68,7 +74,14 @@ export interface wizardRunDetailsLogicActions {
         payload?: { runId: string }
     }
     closeRunDiff: () => { value: true }
-    copyRunId: (runId: string) => { runId: string }
+    artifactClicked: (
+        artifact: WizardRunArtifactApi,
+        source: WizardRunArtifactSource
+    ) => {
+        artifact: WizardRunArtifactApi
+        source: WizardRunArtifactSource
+    }
+    copyRunId: (runId: string, location: WizardRunIdLocation) => { runId: string; location: WizardRunIdLocation }
     loadRunArtifacts: ({ runId }: { runId: string }) => { runId: string }
     loadRunArtifactsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     loadRunArtifactsSuccess: (
@@ -102,7 +115,13 @@ export interface wizardRunDetailsLogicActions {
     openRunDiff: (artifact: WizardRunGitDiffArtifactApi) => { artifact: WizardRunGitDiffArtifactApi }
     refreshRuns: () => { value: true }
     refreshSelectedRun: () => { value: true }
-    selectRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
+    selectRun: (
+        run: WizardRunApi | null,
+        source?: WizardRunDetailSource
+    ) => {
+        run: WizardRunApi | null
+        source?: WizardRunDetailSource
+    }
 }
 
 export interface wizardRunDetailsLogicMeta {
@@ -139,12 +158,13 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         actions: [wizardRunsLogic, ['refreshRuns']],
     })),
     actions({
-        selectRun: (run: WizardRunApi | null) => ({ run }),
+        selectRun: (run: WizardRunApi | null, source?: WizardRunDetailSource) => ({ run, source }),
         openRunDiff: (artifact: WizardRunGitDiffArtifactApi) => ({ artifact }),
+        artifactClicked: (artifact: WizardRunArtifactApi, source: WizardRunArtifactSource) => ({ artifact, source }),
         closeRunDiff: true,
         refreshSelectedRun: true,
         cancelRun: (run: WizardRunApi) => ({ run }),
-        copyRunId: (runId: string) => ({ runId }),
+        copyRunId: (runId: string, location: WizardRunIdLocation) => ({ runId, location }),
     }),
     reducers({
         selectedRunSummary: [
@@ -274,7 +294,25 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                         return null
                     }
 
-                    return wizardRunsPartialUpdate(String(values.currentProjectId), runId, { status: 'cancelled' })
+                    const properties = {
+                        event_source: 'wizard_ui',
+                        project_id: String(values.currentProjectId),
+                        wizard_run_id: runId,
+                    }
+                    posthog.capture('wizard run cancel requested', properties)
+                    try {
+                        const run = await wizardRunsPartialUpdate(String(values.currentProjectId), runId, {
+                            status: 'cancelled',
+                        })
+                        posthog.capture('wizard run cancel succeeded', wizardRunEventProperties(run))
+                        return run
+                    } catch (error) {
+                        posthog.capture('wizard run cancel failed', {
+                            ...properties,
+                            http_status: error instanceof ApiError ? error.status : null,
+                        })
+                        throw error
+                    }
                 },
             },
         ],
@@ -316,13 +354,22 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        selectRun: ({ run }) => {
+        selectRun: ({ run, source }) => {
             cache.disposables.dispose('wizardRunDetailPolling')
 
             if (!run) {
+                if (cache.openRun) {
+                    posthog.capture('wizard run detail dialog closed', wizardRunEventProperties(cache.openRun))
+                    cache.openRun = undefined
+                }
                 return
             }
 
+            cache.openRun = run
+            posthog.capture('wizard run detail dialog opened', {
+                ...wizardRunEventProperties(run),
+                source,
+            })
             actions.loadRunDetails({ runId: run.id })
             actions.loadRunArtifacts({ runId: run.id })
 
@@ -342,6 +389,8 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                 return
             }
 
+            actions.artifactClicked(artifact, 'artifacts_section')
+
             // Artifacts are immutable, so reuse the cached content instead of re-downloading it.
             if (values.runDiff?.artifactId !== artifact.id) {
                 actions.loadRunDiff({ runId: artifact.run_id, artifactId: artifact.id })
@@ -349,6 +398,11 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         },
         refreshSelectedRun: () => {
             if (values.selectedRunId) {
+                posthog.capture('wizard run refreshed', {
+                    ...(values.selectedRun ? wizardRunEventProperties(values.selectedRun) : {}),
+                    wizard_run_id: values.selectedRunId,
+                    location: 'detail_dialog',
+                })
                 actions.loadRunDetails({ runId: values.selectedRunId })
                 actions.loadRunArtifacts({ runId: values.selectedRunId })
             }
@@ -395,8 +449,27 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         cancelRunRequestFailure: ({ errorObject }) => {
             lemonToast.error(requestError(errorObject, "Couldn't cancel the Wizard run. Try again."))
         },
-        copyRunId: ({ runId }) => {
-            void copyToClipboard(runId, 'Wizard run ID')
+        artifactClicked: ({ artifact, source }) => {
+            posthog.capture('artifact clicked', {
+                ...(values.selectedRun?.id === artifact.run_id
+                    ? wizardRunEventProperties(values.selectedRun)
+                    : { event_source: 'wizard_ui', wizard_run_id: artifact.run_id }),
+                type: artifact.artifact_type === 'git_diff' ? 'diff' : 'pull_request',
+                url: artifact.artifact_type === 'pull_request' ? artifact.url : null,
+                name: artifact.artifact_type === 'pull_request' ? `Pull request #${artifact.number}` : 'Git diff',
+                source,
+            })
+        },
+        copyRunId: ({ runId, location }) => {
+            void copyToClipboard(runId, 'Wizard run ID').then((copied) => {
+                if (copied) {
+                    posthog.capture('run id copied', {
+                        event_source: 'wizard_ui',
+                        wizard_run_id: runId,
+                        location,
+                    })
+                }
+            })
         },
     })),
 ])

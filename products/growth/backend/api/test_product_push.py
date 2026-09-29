@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -29,7 +29,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-    @freeze_time("2026-07-03T12:00:00Z")
+    @time_machine.travel("2026-07-03T12:00:00Z", tick=False)
     def test_active_returns_the_running_campaign_with_resolved_product_path(self) -> None:
         started_at = timezone.now() - timedelta(days=3)
         campaign = ProductPushCampaign.objects.create(
@@ -50,7 +50,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
         assert data["reason_text"] == "Watch real sessions."
         assert data["product_path"]
 
-    @freeze_time("2026-07-03T12:00:00Z")
+    @time_machine.travel("2026-07-03T12:00:00Z", tick=False)
     def test_campaign_is_hidden_in_projects_that_already_use_the_product(self) -> None:
         started_at = timezone.now() - timedelta(days=3)
         ProductPushCampaign.objects.create(
@@ -71,7 +71,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
         assert self.client.get(self._url() + "?team_id=99999999").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url() + "?team_id=nope").status_code == status.HTTP_400_BAD_REQUEST
 
-    @freeze_time("2026-07-03T12:00:00Z")
+    @time_machine.travel("2026-07-03T12:00:00Z", tick=False)
     def test_restricted_team_returns_404_same_as_nonexistent(self) -> None:
         """Inaccessible teams should be indistinguishable from nonexistent ones."""
         if AccessControl is None:
@@ -108,7 +108,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
             "Restricted teams should return 404, same as nonexistent teams"
         )
 
-    @freeze_time("2026-07-03T12:00:00Z")
+    @time_machine.travel("2026-07-03T12:00:00Z", tick=False)
     def test_non_member_cannot_read_another_orgs_campaign(self) -> None:
         other_organization = Organization.objects.create(name="other")
         ProductPushCampaign.objects.create(

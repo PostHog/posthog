@@ -26,8 +26,8 @@ from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
+from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
-from .file_system.persisted_folder import PersistedFolder
 from .file_system.user_product_list import UserProductList
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -77,6 +77,7 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .user_facet_settings import UserFacetSettings
+from .webauthn_credential import WebauthnCredential
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -108,8 +109,8 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "FileSystem",
+    "FileSystemHomeFolder",
     "FileSystemViewLog",
-    "PersistedFolder",
     "UserProductList",
     "Filter",
     "Group",
@@ -178,6 +179,7 @@ __all__ = [
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserFacetSettings",
+    "WebauthnCredential",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

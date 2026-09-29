@@ -35,6 +35,7 @@ GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY = "gmail_pending_message_ids"
 GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 INITIAL_IMPORT_QUERY = "{in:inbox in:sent} newer_than:30d"
 INITIAL_IMPORT_LIMIT = 100
+BACKFILL_PAGE_SIZE = 5
 HISTORY_PAGE_SIZE = 100
 HISTORY_MESSAGE_BATCH_SIZE = 100
 MAX_ATTACHMENT_BACKED_BODY_PARTS = 4
@@ -58,6 +59,18 @@ class _EmailBodies:
 def integration_has_gmail_scope(integration: Integration) -> bool:
     scopes = integration.config.get("scope") or ""
     return GMAIL_READONLY_SCOPE in scopes.split()
+
+
+def can_sync_gmail_integration(integration_id: int, team_id: int) -> bool:
+    integration = (
+        Integration.objects.select_related("created_by")
+        .filter(id=integration_id, team_id=team_id, kind="google-calendar")
+        .first()
+    )
+    if integration is None or not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
+        return False
+    email = str(integration.config.get("email") or "").strip()
+    return "@" in email
 
 
 def sync_gmail_integration(integration_id: int, team_id: int) -> None:
@@ -97,6 +110,49 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
     integration.config[GMAIL_HISTORY_ID_CONFIG_KEY] = next_history_id
     integration.config[GMAIL_LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
     integration.save(update_fields=["config"])
+
+
+def sync_gmail_backfill_batch(
+    integration_id: int,
+    team_id: int,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    page_token: str | None = None,
+) -> tuple[str | None, int]:
+    integration = Integration.objects.select_related("team", "created_by").get(
+        id=integration_id,
+        team_id=team_id,
+        kind="google-calendar",
+    )
+    if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
+        raise GmailSyncError(f"Integration {integration.id} cannot sync Gmail")
+
+    access_token = _get_fresh_access_token(integration)
+    channel = _email_channel(integration)
+    params = {
+        "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp()) - 1} before:{int(end_at.timestamp())}",
+        "maxResults": BACKFILL_PAGE_SIZE,
+    }
+    if page_token:
+        params["pageToken"] = page_token
+    payload = _get_json(
+        integration=integration,
+        access_token=access_token,
+        url=f"{GMAIL_API_BASE_URL}/messages",
+        endpoint="/gmail/v1/users/me/messages",
+        params=params,
+    )
+    message_ids = [str(message["id"]) for message in payload.get("messages", []) if message.get("id")]
+    _ingest_message_ids(
+        integration=integration,
+        channel=channel,
+        access_token=access_token,
+        message_ids=message_ids,
+        internal_emails=_organization_member_emails(integration),
+    )
+    next_page_token = str(payload.get("nextPageToken") or "") or None
+    return next_page_token, len(message_ids)
 
 
 def _has_active_owner(integration: Integration) -> bool:

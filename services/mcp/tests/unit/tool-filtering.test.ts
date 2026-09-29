@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
+        const context = {
+            stateManager: {
+                getApiKey: async () => ({
+                    scopes: ['task:read', 'task:write', ...(sandbox ? ['internal_run:read'] : [])],
+                }),
+                getAiConsentGiven: async () => true,
+            },
+        } as unknown as Context
+        const tools = await getToolsFromContext(context, {
+            featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': true },
+        })
+        const names = tools.map((tool) => tool.name)
+        expect(names).toContain('tasks-create')
+        expect(names.includes('tasks-create-and-run')).toBe(!sandbox)
+        expect(names.includes('tasks-run-create')).toBe(!sandbox)
+    })
+
+    it('does not advertise run-start tools before rollout', () => {
+        const names = getToolsForFeatures({ featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': false } })
+        expect(names).toContain('tasks-create')
+        expect(names).not.toContain('tasks-create-and-run')
+        expect(names).not.toContain('tasks-run-create')
+    })
     const featureTests = [
         {
             features: undefined,
@@ -268,6 +292,18 @@ const createMockContext = (
 })
 
 describe('Tool Filtering - API Scopes', () => {
+    it.each([
+        { scopes: ['billing:read'], visible: true },
+        { scopes: [], visible: false },
+    ])('billing read tools require a scope but no rollout flag: $visible', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags: {} })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']) {
+            expect(names.includes(name)).toBe(visible)
+        }
+    })
+
     it('should return all tools when user has * scope', async () => {
         const context = createMockContext(['*'])
         const tools = await getToolsFromContext(context)
@@ -288,6 +324,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('dashboards-get-all')
         expect(toolNames).toContain('dashboard-reorder-tiles')
+        expect(toolNames).toContain('dashboard-transfer-tile')
 
         expect(toolNames).not.toContain('create-feature-flag')
         expect(toolNames).not.toContain('organizations-list')
@@ -891,16 +928,23 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('billing-mcp-read-tools flag gates billing read tools', () => {
-        const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
-        expect(off).not.toContain('billing-overview-get')
-        expect(off).not.toContain('billing-usage-get')
-        expect(off).not.toContain('billing-spend-get')
+    it('organization-billing-api flag gates the tools that call the organization billing API', () => {
+        const gated = [
+            'billing-subscription-get',
+            'billing-usage-status-get',
+            'billing-usage-timeseries-get',
+            'billing-spend-timeseries-get',
+            'billing-projects-list',
+        ]
+        const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
+        for (const tool of gated) {
+            expect(off).not.toContain(tool)
+        }
 
-        const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
-        expect(on).toContain('billing-overview-get')
-        expect(on).toContain('billing-usage-get')
-        expect(on).toContain('billing-spend-get')
+        const on = getToolsForFeatures({ featureFlags: { 'organization-billing-api': true } })
+        for (const tool of gated) {
+            expect(on).toContain(tool)
+        }
     })
 
     it('customer-analytics-csp flag gates account meeting tools', () => {
@@ -920,6 +964,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-create-markdown')
         expect(off).not.toContain('notebooks-add-cell')
         expect(off).not.toContain('notebooks-set-variables')
+        expect(off).not.toContain('notebooks-run')
+        expect(off).not.toContain('notebooks-run-status')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -928,6 +974,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-update-cell')
         expect(on).toContain('notebooks-delete-cell')
         expect(on).toContain('notebooks-set-variables')
+        expect(on).toContain('notebooks-run')
+        expect(on).toContain('notebooks-run-status')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
@@ -948,7 +996,12 @@ describe('Tool Filtering - Feature Flags', () => {
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
+        const allFlags = getRequiredFeatureFlags()
+        expect(allFlags).toContain('self-optimising-workflows')
+        // The flag this branch adds is asserted on the line above and held out of the list and
+        // count below. Those belong to master and move with every flag master adds or drops, so a
+        // stacked branch that adds one does not edit them.
+        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -958,36 +1011,41 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
+                'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',
+                'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
-                'mcp-analytics',
+                'mcp-analytics-intent-routing',
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'loops',
+                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
-                'billing-mcp-read-tools',
+                'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
-                'experiment-flag-cleanup-pr',
+                'experiment-setup-context',
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -1211,5 +1269,38 @@ describe('Tool Filtering - Entitlements (activity log family)', () => {
         // Fail-open: unresolved entitlements still advertise.
         const unknown = getToolsForFeatures({ isCloud: true })
         expect(unknown).toContain('advanced-activity-logs-list')
+    })
+})
+
+describe('Tool Filtering - Entitlements (access control family)', () => {
+    const memberAndDefaultTools = [
+        'access-control-defaults-get',
+        'access-control-members-list',
+        'access-control-member-objects-list',
+        'access-control-member-properties-list',
+        'access-control-default-objects-list',
+        'access-control-default-properties-list',
+    ]
+    const roleTools = [
+        'access-control-roles-list',
+        'access-control-role-objects-list',
+        'access-control-role-properties-list',
+    ]
+
+    it.each(memberAndDefaultTools)('%s needs access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: [], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).toContain(tool)
+    })
+
+    it.each(roleTools)('%s needs role_based_access, not just access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['role_based_access'], isCloud: true })).toContain(tool)
+    })
+
+    it('fails open when entitlements are unknown', () => {
+        const unknown = getToolsForFeatures({ isCloud: true })
+        for (const tool of [...memberAndDefaultTools, ...roleTools]) {
+            expect(unknown).toContain(tool)
+        }
     })
 })

@@ -7,21 +7,30 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from django.db import transaction
+
 import requests
 import structlog
 import tldextract
 
 from posthog.dataclasses import frozen
+from posthog.egress.slack.observability import record_slack_api_response, slack_endpoint_from_url
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
-from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_credentials_source_metadata
+from .oauth_credentials import (
+    SUPPORTED_OAUTH_CREDENTIAL_SOURCES,
+    oauth_credentials_source_is_allowed,
+    resolve_oauth_credentials_source,
+    validate_oauth_credentials_source_metadata,
+)
 
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+TOKEN_REFRESH_REJECTION_ERRORS = frozenset({"invalid_client", "invalid_grant"})
 
 
 class SSRFBlockedError(Exception):
@@ -447,6 +456,14 @@ class TokenRefreshError(Exception):
     pass
 
 
+class TokenRefreshRejectedError(TokenRefreshError):
+    """The provider refused the grant, or there is nothing to refresh with.
+
+    Separate from its transient parent because only this one is worth making the user
+    reconnect over: retrying it never succeeds.
+    """
+
+
 def _credential_auth_method(
     credentials: Mapping[str, object], auth_method_key: str, client_secret: str | None, metadata: dict
 ) -> str:
@@ -490,6 +507,8 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
 
     template = installation.template
     if template is not None:
+        if not oauth_credentials_source_is_allowed(template.oauth_credentials_source, installation.team_id):
+            raise ValueError("OAuth app is not available for this project")
         credentials = resolve_template_oauth_credentials(template)
         shared_client_id = credentials.get("client_id", "")
         if shared_client_id:
@@ -557,6 +576,22 @@ def _token_request_auth(
     return form, None
 
 
+def _oauth_error_code(response: requests.Response | None) -> str | None:
+    if response is None:
+        return None
+
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    error_code = payload.get("error")
+    return error_code if isinstance(error_code, str) else None
+
+
 def refresh_oauth_token(
     *,
     token_url: str,
@@ -565,6 +600,7 @@ def refresh_oauth_token(
     client_secret: str | None = None,
     token_endpoint_auth_method: str | None = None,
     resource: str = "",
+    oauth_credentials_source: str = "",
 ) -> dict:
     data: dict[str, str] = {
         "grant_type": "refresh_token",
@@ -587,19 +623,32 @@ def refresh_oauth_token(
     try:
         _validate_url(token_url)
         resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+        if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+            record_slack_api_response(
+                resp,
+                source="mcp_store_oauth",
+                workspace_id=None,
+                app_id=oauth_credentials_source,
+                method="POST",
+                endpoint=slack_endpoint_from_url(token_url),
+            )
         if 300 <= resp.status_code < 400:
             raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException as exc:
-        failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        failed_status_code = getattr(exc.response, "status_code", None)
+        oauth_error_code = _oauth_error_code(exc.response)
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
             status_code=failed_status_code,
+            oauth_error_code=oauth_error_code,
         )
-        raise TokenRefreshError("Token refresh request failed")
+        if oauth_error_code in TOKEN_REFRESH_REJECTION_ERRORS:
+            raise TokenRefreshRejectedError("Token refresh rejected by the provider") from exc
+        raise TokenRefreshError("Token refresh request failed") from exc
 
     token_data = resp.json()
     if "access_token" not in token_data:
@@ -609,12 +658,49 @@ def refresh_oauth_token(
     return token_data
 
 
+def _flag_needs_reauth(installation: MCPServerInstallation, *, rejected_refresh_token: str | None) -> None:
+    """Record that only a new authorization can revive this credential.
+
+    Everything that mounts or proxies an installation reads this flag, so it takes the
+    connection out of agent runs and surfaces a reconnect prompt instead of leaving every
+    call to 401 behind a UI that still reads as connected.
+
+    ``rejected_refresh_token`` is the credential the provider turned down, and the row is
+    only flagged while it is still the stored one. Nothing serializes refreshes, and
+    ``is_token_expiring`` goes true for the whole second half of a token's life, so
+    concurrent calls on one installation refresh together. A provider that rotates refresh
+    tokens answers every loser of that race with a 4xx for a token the winner has already
+    replaced. Flagging on that would take a working connection out of service, and writing
+    this request's credentials back would destroy the ones the winner just stored.
+
+    The re-read holds a row lock so the check cannot straddle a concurrent write.
+    """
+    with transaction.atomic():
+        locked = MCPServerInstallation.objects.select_for_update().get(pk=installation.pk)
+        sensitive = dict(locked.sensitive_configuration or {})
+        if sensitive.get("needs_reauth"):
+            return
+        if sensitive.get("refresh_token") != rejected_refresh_token:
+            logger.info(
+                "Skipped reauth flag for an MCP installation refreshed by a concurrent request",
+                installation_id=str(installation.id),
+            )
+            return
+        sensitive["needs_reauth"] = True
+        locked.sensitive_configuration = sensitive
+        locked.save(update_fields=["sensitive_configuration", "updated_at"])
+
+    installation.sensitive_configuration = sensitive
+    logger.warning("Flagged MCP installation as needing reauthorization", installation_id=str(installation.id))
+
+
 def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     sensitive = installation.sensitive_configuration or {}
     refresh_token_value = sensitive.get("refresh_token")
     if not refresh_token_value:
         logger.warning("No refresh token available for installation", installation_id=str(installation.id))
-        raise TokenRefreshError("No refresh token available")
+        _flag_needs_reauth(installation, rejected_refresh_token=None)
+        raise TokenRefreshRejectedError("No refresh token available")
 
     try:
         ctx = resolve_installation_oauth_context(installation)
@@ -625,17 +711,24 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     if not token_url:
         raise TokenRefreshError("Missing OAuth metadata for token refresh")
 
-    token_data = refresh_oauth_token(
-        token_url=token_url,
-        refresh_token=refresh_token_value,
-        client_id=ctx.client_id,
-        client_secret=ctx.client_secret,
-        token_endpoint_auth_method=ctx.token_endpoint_auth_method,
-        resource=oauth_resource(ctx.metadata),
-    )
+    try:
+        token_data = refresh_oauth_token(
+            token_url=token_url,
+            refresh_token=refresh_token_value,
+            client_id=ctx.client_id,
+            client_secret=ctx.client_secret,
+            token_endpoint_auth_method=ctx.token_endpoint_auth_method,
+            resource=oauth_resource(ctx.metadata),
+            oauth_credentials_source=installation.template.oauth_credentials_source if installation.template else "",
+        )
+    except TokenRefreshRejectedError:
+        _flag_needs_reauth(installation, rejected_refresh_token=refresh_token_value)
+        raise
 
-    # Preserve non-token keys (needs_reauth, dcr_client_id, dcr_client_secret, etc.) across refresh.
+    # Preserve non-token keys (dcr_client_id, dcr_client_secret, etc.) across refresh. A
+    # working token clears any earlier rejection.
     updated: dict = dict(sensitive)
+    updated.pop("needs_reauth", None)
     updated["access_token"] = token_data["access_token"]
     updated["token_retrieved_at"] = int(time.time())
     updated["refresh_token"] = token_data.get("refresh_token", refresh_token_value)
@@ -702,6 +795,16 @@ def exchange_oauth_token(
         raise OAuthTokenExchangeError(str(exc))
 
     token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+    oauth_credentials_source = installation.template.oauth_credentials_source if installation.template else ""
+    if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+        record_slack_api_response(
+            token_response,
+            source="mcp_store_oauth",
+            workspace_id=None,
+            app_id=oauth_credentials_source,
+            method="POST",
+            endpoint=slack_endpoint_from_url(token_endpoint),
+        )
 
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
     if 300 <= token_response.status_code < 400:

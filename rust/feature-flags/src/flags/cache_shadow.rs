@@ -45,6 +45,7 @@ use common_redis::{Client, CustomRedisError};
 use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strum::EnumIter;
 
 use crate::cohorts::cohort_models::Cohort;
 use crate::flags::cache_builder::is_evaluable;
@@ -67,8 +68,10 @@ pub struct ShadowLiveEntry {
 }
 
 /// One issue class per diff entry; used as the `issue_type` metric label, so the
-/// set must stay small and static.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// set must stay small and static. `EnumIter` is derived so the builder's
+/// startup pre-creation walks the variants instead of a hand-written list of
+/// labels, which would keep compiling after a variant is added here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
 pub enum ShadowIssueType {
     /// Live entry has no `evaluation_metadata` key (pre-metadata entry shape).
     MissingEvaluationMetadata,
@@ -412,8 +415,9 @@ impl ShadowObservation {
 }
 
 /// Which tracker store access failed. Used as a metric label, so the set must
-/// stay small and static.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// stay small and static. `EnumIter` is derived for the same reason as
+/// `ShadowIssueType`: startup pre-creation iterates the variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
 pub enum TrackerStoreOp {
     /// Read of the team's previous observation. The build falls back to first
     /// sight, so confirmations are lost while reads fail.

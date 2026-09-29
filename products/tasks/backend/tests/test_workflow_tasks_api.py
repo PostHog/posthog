@@ -15,10 +15,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
@@ -29,10 +31,11 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
-from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
 
 SECRET = "test-tasks-create-jwt"
 
@@ -56,10 +59,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        self.hog_flow = HogFlow.objects.create(
-            team=self.team,
+        self.hog_flow = create_workflow_for_test(
+            team_id=self.team.id,
             name="Alert triage",
-            created_by=self.user,
+            created_by_id=self.user.id,
             trigger={"type": "manual"},
         )
         self.url = f"/api/projects/{self.team.id}/workflow_tasks/"
@@ -115,7 +118,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         task = Task.objects.get(id=body["id"])
         assert task.team_id == self.team.id
         assert task.origin_product == Task.OriginProduct.WORKFLOW
-        assert task.hog_flow_id == self.hog_flow.id
+        assert str(task.hog_flow_id) == self.hog_flow.id
         assert task.created_by_id == self.user.id
         assert task.description == "look into the alert"
         run = TaskRun.objects.get(id=body["run_id"])
@@ -125,6 +128,31 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # shared with the project.
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
+
+    @parameterized.expand(
+        [
+            ("bare id", Channel.ChannelType.PUBLIC, "{id}", True),
+            ("id with the space name after a pipe", Channel.ChannelType.PUBLIC, "{id}|growth", True),
+            ("private space the owner is not in", Channel.ChannelType.PRIVATE, "{id}", False),
+            ("space that does not exist", None, "0198c9f1-bbbb-0000-0000-000000000001", False),
+            ("not an id at all", None, "growth", False),
+        ]
+    )
+    def test_files_the_task_in_the_named_space_only_when_the_owner_can_see_it(
+        self, _name: str, channel_type: str | None, reference: str, expect_filed: bool
+    ) -> None:
+        with team_scope(self.team.id):
+            channel = (
+                Channel.objects.create(team=self.team, name="growth", channel_type=channel_type)
+                if channel_type is not None
+                else None
+            )
+
+        response = self._post({"channel": reference.format(id=channel.id) if channel else reference})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.channel_id == (channel.id if channel and expect_filed else None)
 
     @parameterized.expand(
         [
@@ -194,6 +222,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["slack_chart_delivery"] is True
         assert run.state["slack_reply_context"] is True
         assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -204,6 +233,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.
@@ -341,7 +371,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_refuses_an_owner_removed_from_the_organization(self, usage_limit_response_mock) -> None:
         former_member = self._create_user("former@posthog.com")
-        flow = HogFlow.objects.create(team=self.team, name="Orphaned", created_by=former_member)
+        flow = create_workflow_for_test(team_id=self.team.id, name="Orphaned", created_by_id=former_member.id)
         OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
 
         response = self._post(token=_token(self.team.id, str(flow.id)))
@@ -356,7 +386,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             flow_id = str(uuid4())
         else:
             other_team = self.create_team_with_organization(self.organization)
-            flow_id = str(HogFlow.objects.create(team=other_team, name="Theirs", created_by=self.user).id)
+            flow_id = create_workflow_for_test(team_id=other_team.id, name="Theirs", created_by_id=self.user.id).id
 
         response = self._post(token=_token(self.team.id, flow_id))
 
@@ -382,7 +412,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
         if scope == "per_workflow":
-            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
             expected_fragment = "This workflow reached its daily limit"
         else:
             # Two other workflows fill the team budget; this workflow is far under its own cap.
@@ -409,7 +439,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
                 "workflow_task_team_rate_limit_per_day": WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY + 1,
             },
         )
-        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
         self._seed_created_tasks(
             WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY - WORKFLOW_TASK_RATE_CAP_PER_DAY,
             hog_flow_id=uuid4(),
@@ -428,13 +458,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
                 "per_workflow",
                 {"workflow_task_rate_limit_per_day": 0},
                 "Task creation is paused for this workflow. "
-                "The event was skipped. Contact PostHog support to resume task creation.",
+                "The event was skipped. Raise the daily limit in project settings to resume it.",
             ),
             (
                 "team_wide",
                 {"workflow_task_team_rate_limit_per_day": 0},
                 "Task creation from workflows is paused for this project. "
-                "The event was skipped. Contact PostHog support to resume task creation.",
+                "The event was skipped. Raise the daily limit in project settings to resume it.",
             ),
         ]
     )
@@ -454,7 +484,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         if case == "older_than_24h":
             self._seed_created_tasks(
                 WORKFLOW_TASK_RATE_CAP_PER_DAY,
-                hog_flow_id=self.hog_flow.id,
+                hog_flow_id=UUID(self.hog_flow.id),
                 created_at=django_timezone.now() - timedelta(hours=25),
             )
         else:
@@ -498,7 +528,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # owner is over the usage limit; the retry of the already-created request must
         # still return the existing task.
         resolve_ids.return_value = {"server-1": None}
-        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
         with patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response", return_value=object()):
             replay = self._post(
                 {"idempotency_key": "invocation-1", "connectors": ["server-1"], "max_parallel_tasks": 1}
@@ -638,6 +668,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
@@ -647,6 +695,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "output_fields"
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
@@ -964,6 +1036,10 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {

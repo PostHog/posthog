@@ -4,15 +4,21 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
   type AgentToolCallContent,
   type AgentToolCallStatus,
+  boundPersistedMcpResult,
   createPiToolCallRecord,
   isPiToolName,
   mcpToolKey,
   type PiToolName,
+  parsePiMcpCallDetails,
   posthogToolMeta,
 } from "@posthog/shared";
 import { z } from "zod";
@@ -51,9 +57,19 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-const mcpToolDetailsSchema = z.object({
+const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
   posthog: z.object({
-    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+    mcp: z.object({
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      title: z.string().min(1).optional(),
+      result: mcpResultMetaSchema.optional(),
+    }),
   }),
 });
 
@@ -257,10 +273,32 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       toolCall.details = result.details;
     }
 
+    const piMcpCallDetails = parsePiMcpCallDetails(toolName, args);
     const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
-      toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+      toolCall._meta = posthogToolMeta({
+        toolName: mcpToolKey(mcp),
+        mcp,
+        ...(piMcpCallDetails ? { mcpProxy: piMcpCallDetails } : {}),
+      });
+
+      const resultMeta = mcp.result;
+      if (
+        resultMeta &&
+        (resultMeta.structuredContent !== undefined ||
+          resultMeta._meta !== undefined)
+      ) {
+        toolCall.rawOutput = boundPersistedMcpResult({
+          content: result.content,
+          ...resultMeta,
+        });
+      }
+    } else if (piMcpCallDetails) {
+      toolCall._meta = posthogToolMeta({
+        toolName,
+        mcpProxy: piMcpCallDetails,
+      });
     }
 
     const translator = isPiToolName(toolName)

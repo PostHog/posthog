@@ -224,6 +224,10 @@ def migrate_notebooks_to_markdown(
     )
 
 
+def to_markdown_notebook_content(content: Any, *, organization_id: UUID) -> dict[str, Any] | None:
+    return markdown_migration.to_markdown_notebook_content(content, organization_id=organization_id)
+
+
 # --- Resource links (groups, accounts) ---
 
 

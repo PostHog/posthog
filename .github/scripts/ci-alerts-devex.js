@@ -188,6 +188,7 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { ev
             if (run.status !== 'completed') {continue}
             if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') {continue}
             settled.push({
+                id: run.id,
                 name: run.name,
                 conclusion: run.conclusion,
                 sha: run.head_sha,
@@ -248,7 +249,10 @@ function buildFailingMap(laneRuns) {
                 lane,
                 since: oldest.updated_at, // detection (full streak)
                 displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
+                run_id: latest.id,
                 run_url: latest.run_url,
+                run_created_at: latest.created_at,
+                run_sha: latest.sha,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
             }
@@ -642,7 +646,15 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                     properties: {
                         channel,
                         ts: posted.ts,
-                        workflows: workflows.map((w) => w.name),
+                        workflows: blocking.map((failure) => ({
+                            name: failure.name,
+                            workflow_file: failure.workflow_file,
+                            event: failure.lane.event,
+                            run_id: failure.run_id,
+                            run_url: failure.run_url,
+                            run_created_at: failure.run_created_at,
+                            head_sha: failure.run_sha,
+                        })),
                         commit_streak: commitActive ? commitStreakCount : 0,
                         since,
                         latest_commit_sha: latestCommit?.sha || '',

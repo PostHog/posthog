@@ -7,12 +7,13 @@ use std::borrow::Cow;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::is_image_data_uri;
-use crate::collect::is_image_ref_strict;
+use crate::collect::{collectable_data_uri_bytes, is_image_ref_strict};
 use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
 use crate::json::{as_f64, as_str, string_value};
-use crate::srcset::largest_candidate;
+use crate::srcset::candidate_for_scrubbing;
 use crate::url::scrub_url;
+use crate::url_policy::canonicalize;
 
 // rrweb inlines rendered pixels (a `toDataURL()` snapshot) into this attribute.
 pub const INLINE_IMAGE_ATTR: &str = "rr_dataURL";
@@ -139,6 +140,13 @@ pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
 }
 
+pub(crate) fn has_usable_srcset(value: &str, keep_image_refs: bool) -> bool {
+    (keep_image_refs && is_image_ref_strict(value))
+        || candidate_for_scrubbing(value).is_some_and(|url| {
+            collectable_data_uri_bytes(url).is_some() || canonicalize(url).is_some()
+        })
+}
+
 /// Blur an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
 /// Returns whether it acted.
 pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str) -> bool {
@@ -168,6 +176,11 @@ pub fn apply_blur(
     parent_is_picture: bool,
 ) -> bool {
     let mut acted = false;
+    let prefer_srcset = tag.eq_ignore_ascii_case("img")
+        && attrs
+            .get("srcset")
+            .and_then(as_str)
+            .is_some_and(|value| has_usable_srcset(value, ctx.keeps_image_refs()));
     // Computed only when a remote image is about to be collected, because the inline style is
     // parsed for it and most elements never reach that branch.
     let mut hidden_pixel: Option<bool> = None;
@@ -175,6 +188,15 @@ pub fn apply_blur(
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
         };
+        if prefer_srcset && matches!(*key, "src" | "rr_src") {
+            attrs.insert(
+                Cow::Borrowed(*key),
+                string_value(PLACEHOLDER_SRC.to_string()),
+            );
+            attrs.remove(format!("{IMAGE_REF_ATTR_PREFIX}{key}").as_str());
+            acted = true;
+            continue;
+        }
         // A content ref from an earlier pass over already-mirrored output: opaque, carrying no
         // content of its own, with its bytes scrubbed out of band. Re-scrubbing would redact it
         // into the placeholder and strand that image beyond recovery, so a caller re-scrubbing
@@ -185,7 +207,7 @@ pub fn apply_blur(
         }
         acted = true;
         let selected = if *key == "srcset" {
-            largest_candidate(&existing).map(str::to_string)
+            candidate_for_scrubbing(&existing).map(str::to_string)
         } else {
             Some(existing.clone())
         };

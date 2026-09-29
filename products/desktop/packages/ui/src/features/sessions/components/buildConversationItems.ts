@@ -8,6 +8,7 @@ import {
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
+import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -42,6 +43,8 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -167,6 +170,7 @@ export interface ItemBuilder {
    *  permission request — and the resolving tool_call_update replays the raw
    *  plan-less input, so the plan is re-applied after every merge. */
   recoveredPlans: Map<string, string>;
+  pendingAgentStart: number | null;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -186,6 +190,7 @@ export function createItemBuilder(): ItemBuilder {
     isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
     recoveredPlans: new Map(),
+    pendingAgentStart: null,
   };
 }
 
@@ -276,9 +281,17 @@ function markThoughtCompletionInItems(
   }
 }
 
+function flushAgentStart(b: ItemBuilder) {
+  const ts = b.pendingAgentStart;
+  if (ts === null) return;
+  b.pendingAgentStart = null;
+  pushItem(b, { sessionUpdate: "status", status: "agent_started" }, ts);
+}
+
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
+  flushAgentStart(b);
   turn.itemCount++;
   b.items.push({
     type: "session_update",
@@ -292,6 +305,22 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
 export interface BuildConversationOptions {
   /** Render `debug`-level console logs inline; without this only info/warn/error show up. */
   showDebugLogs?: boolean;
+}
+
+export function hasSetupProgressForRun(
+  events: AcpMessage[],
+  runId?: string,
+): boolean {
+  if (!runId) return false;
+  const group = `setup:${runId}`;
+
+  return events.some(({ message }) => {
+    return (
+      isJsonRpcNotification(message) &&
+      isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&
+      (message.params as { group?: unknown } | undefined)?.group === group
+    );
+  });
 }
 
 /**
@@ -407,7 +436,7 @@ export function buildAgentConversationItems(
   };
 }
 
-function processAgentConversationEvent(
+export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
@@ -911,6 +940,11 @@ function handleRuntimeStatus(
 ): void {
   ensureImplicitTurn(b, timestamp);
 
+  if (isSessionStartupPhase(status.status)) {
+    b.pendingAgentStart ??= timestamp;
+    return;
+  }
+
   if (status.status === "refusal" || status.status === "refusal_fallback") {
     pushItem(b, {
       sessionUpdate: "status",
@@ -1129,6 +1163,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {
@@ -1342,6 +1377,7 @@ function appendTextChunk(
   ts: number,
 ) {
   if (update.content.type !== "text") return;
+  flushAgentStart(b);
 
   const lastItem = b.items[b.items.length - 1];
   if (

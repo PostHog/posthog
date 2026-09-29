@@ -25,11 +25,13 @@ function recordingFn(impl) {
 // Workflow-run objects in raw listWorkflowRuns shape, conclusions newest-first.
 function runs(name, conclusions) {
     return conclusions.map((conclusion, i) => ({
+        id: 1000 + i,
         name,
         status: 'completed',
         conclusion,
         head_sha: `sha_${name}_${i}`,
         html_url: `https://github.com/runs/${name}/${i}`,
+        created_at: minutes(-(i * 5)).toISOString(),
         updated_at: minutes(-(i * 5)).toISOString(),
     }))
 }
@@ -240,7 +242,17 @@ describe('ci-alerts-devex', () => {
             assert.equal(body.event, 'master_ci_incident_opened')
             assert.equal(body.properties.channel, 'C0AS64N6DJL')
             assert.equal(body.properties.ts, '111.222') // the anchor, so the agent replies under it
-            assert.deepEqual(body.properties.workflows, ['Backend CI'])
+            assert.deepEqual(body.properties.workflows, [
+                {
+                    name: 'Backend CI',
+                    workflow_file: 'ci-backend.yml',
+                    event: 'push',
+                    run_id: 1000,
+                    run_url: 'https://github.com/runs/Backend CI/0',
+                    run_created_at: minutes(0).toISOString(),
+                    head_sha: 'sha_Backend CI_0',
+                },
+            ])
         })
 
         it('retries a failed start rather than losing it', async () => {
@@ -343,10 +355,17 @@ describe('ci-alerts-devex', () => {
                     : { 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' }
             )
         )
-        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+        const fetch = makeWebhook()
+        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }), {
+            env: { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start' },
+            fetch,
+        })
 
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.commit_streak, '10')
+        const payload = JSON.parse(fetch.calls[0][1].body)
+        assert.deepEqual(payload.properties.workflows, [])
+        assert.equal(payload.properties.latest_commit_sha, 'commit_sha_0')
         const anchor = slack.postMessage.calls[0][0]
         const body = JSON.stringify(anchor.attachments)
         assert.match(body, /10 commits in a row failed a required check/)

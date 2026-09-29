@@ -98,6 +98,27 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
         expect(tree[0].aggregation?.totalCost).toBe(0.25)
     })
 
+    it('keeps a span latency instead of summing children that it already covers', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span',
+                event: '$ai_span',
+                properties: { $ai_parent_id: 'trace', $ai_latency: 1.806 },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'generation',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span', $ai_latency: 0.917 },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+
+        expect(tree[0].aggregation?.totalLatency).toBe(1.806)
+    })
+
     it('should build a nested tree', () => {
         const events: LLMTraceEvent[] = [
             {

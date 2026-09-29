@@ -11,6 +11,160 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each(["implementation", "discussion"] as const)(
+    "creates a report %s without client repository credentials",
+    async (relationship) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.createSignalReportTask({
+        reportId: "report-1",
+        relationship,
+        description: "Read the report evidence",
+        title: "Review report",
+        question: "  What caused this?  ",
+      });
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
+      expect(request.method).toBe("POST");
+      expect(JSON.parse(request.body)).toEqual({
+        description: "Read the report evidence",
+        title: "Review report",
+        origin_product: "signal_report",
+        signal_report: "report-1",
+        signal_report_task_relationship: relationship,
+        ...(relationship === "discussion"
+          ? { signal_report_discussion_question: "What caused this?" }
+          : {}),
+      });
+    },
+  );
+
+  it("shows the setup dependency error returned by the server", async () => {
+    const detail =
+      "The workflow action is unavailable. Sync templates and retry setup.";
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 503 }),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "goal",
+        goal: {
+          statement: "Improve activation",
+          direction: "at_least",
+          period: "week",
+        },
+      }),
+    ).rejects.toThrow(new Error(detail));
+  });
+  it.each([{}, { task_id: 123 }, { task_id: "invalid" }])(
+    "rejects an invalid setup response: %j",
+    async (body) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+      await expect(
+        client.setupTaskChannel("channel-1", {
+          kind: "feature",
+          feature: { name: "Search" },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("returns the validated setup task", async () => {
+    const body = { task_id: "0198cf5c-67dd-7000-8000-000000000001" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "feature",
+        feature: { name: "Search" },
+      }),
+    ).resolves.toEqual(body);
+  });
+
+  describe("Desktop beta terms", () => {
+    it.each([
+      [
+        "checks acceptance",
+        "get",
+        (client: PostHogAPIClient) => client.areDesktopBetaTermsAccepted(),
+      ],
+      [
+        "accepts terms",
+        "post",
+        (client: PostHogAPIClient) => client.acceptDesktopBetaTerms(),
+      ],
+    ] as const)(
+      "%s through the selected project",
+      async (_name, method, request) => {
+        const fetch = vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ is_desktop_beta_terms_accepted: true }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        const client = new PostHogAPIClient(
+          "https://app.posthog.test",
+          async () => "token",
+          async () => "token",
+          42,
+          { fetch },
+        );
+
+        await request(client);
+
+        expect(fetch).toHaveBeenCalledOnce();
+        expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+          "/api/projects/42/desktop_beta_terms/",
+        );
+        expect(fetch.mock.calls[0][1]).toMatchObject({
+          method: method.toUpperCase(),
+        });
+      },
+    );
+  });
+
   it("sends the selected scout to the runs endpoint", async () => {
     const fetch = vi
       .fn()
@@ -1745,6 +1899,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1766,6 +1921,7 @@ describe("PostHogAPIClient", () => {
         runtime_adapter: "codex",
         model: "gpt-5.5",
         reasoning_effort: "high",
+        initial_permission_mode: "auto",
       });
 
       expect(fetch).toHaveBeenCalledWith(
@@ -1778,6 +1934,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: "codex",
               model: "gpt-5.5",
               reasoning_effort: "high",
+              initial_permission_mode: "auto",
             }),
           },
         }),
@@ -1809,6 +1966,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
               sandbox_environment_id: "environment-123",
               custom_image_id: "image-123",
             }),
@@ -1840,6 +1998,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1866,6 +2025,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -2204,10 +2364,10 @@ describe("PostHogAPIClient", () => {
       return client;
     }
 
-    function page(results: object[], next: string | null = null) {
+    function page(results: object[], count: number = results.length) {
       return {
         ok: true,
-        json: async () => ({ count: 0, previous: null, next, results }),
+        json: async () => ({ count, previous: null, next: null, results }),
       };
     }
 
@@ -2225,46 +2385,53 @@ describe("PostHogAPIClient", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it("returns single-page results without further requests", async () => {
+    it("requests the max page size and stops when one page covers the count", async () => {
       const fetch = buildFetchForPages(page([{ id: "a" }]));
       await expect(buildClient(fetch).getTaskSummaries(["a"])).resolves.toEqual(
         [{ id: "a" }],
       );
       expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][0]).toMatchObject({
+        method: "post",
+        path: `${SUMMARIES_PATH}?limit=100&offset=0`,
+      });
     });
 
     it.each([
+      {},
+      { pr_url: null, pr_state: null },
       {
-        name: "same-host next URL",
-        nextUrl: `http://localhost:8000${SUMMARIES_PATH}?limit=2&offset=2`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=2&offset=2`,
+        pr_url: "https://github.com/example/project/pull/1",
+        pr_state: "merged",
       },
-      {
-        name: "cross-host next URL (proxy variance)",
-        nextUrl: `https://internal.posthog.example${SUMMARIES_PATH}?limit=1&offset=1`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=1&offset=1`,
-      },
-    ])(
-      "follows the next cursor across pages and merges results: $name",
-      async ({ nextUrl, expectedSecondPath }) => {
-        const fetch = buildFetchForPages(
-          page([{ id: "a" }, { id: "b" }], nextUrl),
-          page([{ id: "c" }]),
-        );
-        await expect(
-          buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
-        ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(fetch.mock.calls[0][0]).toMatchObject({
-          method: "post",
-          path: SUMMARIES_PATH,
-        });
-        expect(fetch.mock.calls[1][0]).toMatchObject({
-          method: "post",
-          path: expectedSecondPath,
-        });
-      },
-    );
+    ])("preserves optional PR fields in task summaries: %j", async (fields) => {
+      const summary = {
+        id: "task-1",
+        latest_run: { id: "run-1", status: "completed", ...fields },
+      };
+      const fetch = buildFetchForPages(page([summary]));
+      const summaries = await buildClient(fetch).getTaskSummaries([summary.id]);
+      expect(summaries).toEqual([summary]);
+      expect(summaries[0].latest_run?.pr_url).toBe(fields.pr_url);
+      expect(summaries[0].latest_run?.pr_state).toBe(fields.pr_state);
+    });
+
+    it("fetches remaining pages by offset from count, not by walking next", async () => {
+      const fetch = buildFetchForPages(
+        page([{ id: "a" }], 250),
+        page([{ id: "b" }]),
+        page([{ id: "c" }]),
+      );
+      await expect(
+        buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
+      ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch.mock.calls.map((call) => call[0].path)).toEqual([
+        `${SUMMARIES_PATH}?limit=100&offset=0`,
+        `${SUMMARIES_PATH}?limit=100&offset=100`,
+        `${SUMMARIES_PATH}?limit=100&offset=200`,
+      ]);
+    });
 
     it("throws when the server responds non-OK", async () => {
       const fetch = vi
@@ -2275,18 +2442,27 @@ describe("PostHogAPIClient", () => {
       );
     });
 
-    it("returns partial results when MAX_PAGES is exceeded", async () => {
-      const fetch = vi
-        .fn()
-        .mockResolvedValue(
-          page(
-            [{ id: "x" }],
-            `http://localhost:8000${SUMMARIES_PATH}?offset=1`,
-          ),
-        );
+    it("caps at MAX_PAGES when the count is unbounded", async () => {
+      const fetch = vi.fn().mockResolvedValue(page([{ id: "x" }], 1_000_000));
       const result = await buildClient(fetch).getTaskSummaries(["a"]);
       expect(fetch).toHaveBeenCalledTimes(50);
       expect(result.length).toBe(50);
+    });
+
+    it("caps how many page fetches are in flight at once", async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const fetch = vi.fn().mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return page([{ id: "x" }], 2000);
+      });
+      await buildClient(fetch).getTaskSummaries(["a"]);
+      // 20 pages (count 2000 / 100), fetched in bounded batches, never all at once.
+      expect(fetch).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeLessThanOrEqual(6);
     });
   });
 

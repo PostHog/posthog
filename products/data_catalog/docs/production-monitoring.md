@@ -6,6 +6,10 @@ All of this lives in PostHog's internal telemetry project (US project 2), where 
 
 The division of labor follows one rule: **the judges decide what a session was trying to do; deterministic code only measures what mechanically happened.** A keyword list can never enumerate every way a person asks a metric question (measured coverage of the tile keywords: ~6.5% of SQL sessions), so any check that starts with "was this a metric question?" belongs to a judge. The tiles keep the keyword heuristic as a cheap trend signal, and the judges measure what it misses.
 
+## Local semantic-layer canary
+
+The first canary dispatcher is the local [`semantic_layer_canary.py`](../scripts/semantic_layer_canary.py) runner. A local ChatGPT session invokes it on demand against a versioned LLM Analytics dataset through the task-backed Conversations API. It deliberately has no Dagster schedule or event publishing. A separate Signals Scout reads the resulting PostHog AI task runs and ACP session logs to score routing and answer quality. See the [scripts runbook](../scripts/README.md) for the dataset contract, browser authentication, smoke command, and task/run correlation output.
+
 ## 1. Dashboard tiles (HogQL over existing telemetry)
 
 Tile group `7 · Agent behavior` on the "Data catalog usage" dashboard (project 2, dashboard 1902365):

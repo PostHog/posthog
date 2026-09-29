@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_release_lease' */ UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01244922af743b8c14562a138bd0fc8b68c173ccdab90e6e16d4023835969e9a"
+}

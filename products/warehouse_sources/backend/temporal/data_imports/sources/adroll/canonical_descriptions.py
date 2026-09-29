@@ -1,18 +1,39 @@
 """Canonical, documentation-sourced descriptions for AdRoll (NextRoll) endpoints and columns.
 
-Sourced from the official NextRoll/AdRoll API reference (https://developers.nextroll.com/).
-Keyed by the endpoint names in `settings.py` `ADROLL_ENDPOINTS`, which match the
-`ExternalDataSchema.name` of a synced AdRoll table. Columns absent here fall back to LLM enrichment.
+Sourced from the official NextRoll/AdRoll CRUD API reference
+(https://apidocs.nextroll.com/crud-api/reference.html). Keyed by the endpoint names in
+`settings.py` `ADROLL_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced AdRoll
+table. Columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 
+_DOCS_URL = "https://apidocs.nextroll.com/crud-api/reference.html"
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "organization": {
+        "description": "The AdRoll organization the credentials belong to — the top of the organization, account, advertisable hierarchy.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "Unique encoded identifier (EID) for the organization.",
+            "name": "Display name of the organization.",
+            "created_date": "Date the organization was created.",
+        },
+    },
+    "accounts": {
+        "description": "An account under your AdRoll organization, grouping the advertisables that are billed together.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "Unique encoded identifier (EID) for the account.",
+            "name": "Display name of the account.",
+            "status": "Current status of the account.",
+        },
+    },
     "advertisables": {
         "description": "An advertisable entity (a brand or product) under your AdRoll organization that campaigns run against.",
-        "docs_url": "https://developers.nextroll.com/api-reference/index.html",
+        "docs_url": _DOCS_URL,
         "columns": {
             "eid": "Unique encoded identifier (EID) for the advertisable.",
             "name": "Display name of the advertisable.",
@@ -26,7 +47,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "campaigns": {
         "description": "An advertising campaign belonging to an advertisable, grouping ads toward a goal and budget.",
-        "docs_url": "https://developers.nextroll.com/api-reference/index.html",
+        "docs_url": _DOCS_URL,
         "columns": {
             "eid": "Unique encoded identifier (EID) for the campaign.",
             "_advertisable_eid": "EID of the parent advertisable the campaign belongs to (added during sync).",
@@ -41,9 +62,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "Type of the campaign (e.g. retargeting, prospecting).",
         },
     },
+    "adgroups": {
+        "description": "An ad group within a campaign, pairing a set of ads with the segments and placements they target.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "Unique encoded identifier (EID) for the ad group.",
+            "_advertisable_eid": "EID of the parent advertisable the ad group belongs to (added during sync).",
+            "name": "Display name of the ad group.",
+            "campaign": "EID of the campaign the ad group belongs to.",
+            "status": "Current status of the ad group.",
+            "created_date": "Date the ad group was created.",
+            "updated_date": "Date the ad group was last updated.",
+            "ad_optimization": "Strategy used to pick between ads that fit a single ad space.",
+            "ads": "Ads attached to the ad group, each with the ad's EID (`id`) and its status in this ad group.",
+            "segments": "Segments targeted by the ad group, each with the segment's EID (`id`) and an `is_negative` flag marking exclusions.",
+            "site_exclusions": "Domains excluded from the ad group, with ad format information where set.",
+            "placement_targets": "Placements the ad group targets (all, newsfeed, or rightcolumn).",
+            "flight_timezone": "Time zone applied to all flights of the ad group.",
+            "allowed_targeting": "Targeting classification allowed by the campaign's objective.",
+        },
+    },
     "ads": {
         "description": "An individual ad creative belonging to an advertisable, served within campaigns.",
-        "docs_url": "https://developers.nextroll.com/api-reference/index.html",
+        "docs_url": _DOCS_URL,
         "columns": {
             "eid": "Unique encoded identifier (EID) for the ad.",
             "_advertisable_eid": "EID of the parent advertisable the ad belongs to (added during sync).",
@@ -56,6 +97,85 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_date": "Time at which the ad was created.",
             "type": "Type of the ad creative (e.g. image, html5, native).",
             "clickthrough_url": "Destination URL the ad links to when clicked.",
+        },
+    },
+    "segments": {
+        "description": "An audience segment on an advertisable's active pixel, used to target or exclude visitors in ad groups.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "Unique encoded identifier (EID) for the segment.",
+            "_advertisable_eid": "EID of the parent advertisable the segment belongs to (added during sync).",
+            "name": "Name of the segment, used internally and for JavaScript segment matching.",
+            "display_name": "Name of the segment shown in the AdRoll UI.",
+            "type": "Type of the segment, one of s (segment), u (single product), c (conversion), p (low-intent), b (shopping cart), e (email), g (prospecting), x (external), l (product list), q (coop).",
+            "match_method": "Match method used to decide segment membership.",
+            "pattern": "URL pattern used to match visitors into the segment.",
+            "threshold": "Threshold applied by match methods that take a numerical limit.",
+            "duration": "How long a visitor stays in the segment, in days.",
+            "conversion_value": "Value of a conversion from this segment, in USD.",
+            "group": "Group the segment belongs to.",
+            "product": "Product the segment belongs to.",
+            "mobile": "Mobile extension data for the segment.",
+        },
+    },
+    "advertisable_reports": {
+        "description": "Lifetime delivery metrics per advertisable, as returned by the CRUD reporting API in its entity format.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "EID of the advertisable the metrics belong to.",
+            "_advertisable_eid": "EID of the advertisable the report was requested for (added during sync).",
+            "advertisable": "Display name of the advertisable.",
+            "status": "Status of the advertisable at the time of the report.",
+            "created_date": "Date the advertisable was created.",
+            "impressions": "Number of times the advertisable's ads were shown.",
+            "clicks": "Number of clicks on the advertisable's ads.",
+            "cost": "Amount spent, in the report's currency.",
+            "cpc": "Average cost per click.",
+            "cpm": "Average cost per thousand impressions.",
+            "ctr": "Click-through rate, as clicks divided by impressions.",
+            "prospects": "Number of prospects reached.",
+        },
+    },
+    "campaign_reports": {
+        "description": "Lifetime delivery metrics per campaign, as returned by the CRUD reporting API in its entity format. Prospecting and new-style Facebook campaigns are not covered by this endpoint.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "EID of the campaign the metrics belong to.",
+            "_advertisable_eid": "EID of the advertisable the report was requested for (added during sync).",
+            "campaign": "Display name of the campaign.",
+            "advertiser": "Display name of the advertisable the campaign belongs to.",
+            "type": "Type of the campaign (e.g. Retargeting).",
+            "status": "Status of the campaign at the time of the report.",
+            "created_date": "Date the campaign was created.",
+            "start_date": "Date the campaign starts running.",
+            "end_date": "Date the campaign stops running.",
+            "budget": "Budget allocated to the campaign.",
+            "impressions": "Number of times the campaign's ads were shown.",
+            "clicks": "Number of clicks on the campaign's ads.",
+            "cost": "Amount spent, in the report's currency.",
+            "cpc": "Average cost per click.",
+            "cpm": "Average cost per thousand impressions.",
+            "ctr": "Click-through rate, as clicks divided by impressions.",
+            "prospects": "Number of prospects reached.",
+        },
+    },
+    "ad_reports": {
+        "description": "Lifetime delivery metrics per ad, as returned by the CRUD reporting API in its entity format.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "eid": "EID of the ad the metrics belong to.",
+            "_advertisable_eid": "EID of the advertisable the report was requested for (added during sync).",
+            "ad": "Display name of the ad.",
+            "ad_size": "Size of the ad creative, as width by height in pixels.",
+            "status": "Status of the ad at the time of the report.",
+            "created_date": "Date the ad was created.",
+            "impressions": "Number of times the ad was shown.",
+            "clicks": "Number of clicks on the ad.",
+            "cost": "Amount spent, in the report's currency.",
+            "cpc": "Average cost per click.",
+            "cpm": "Average cost per thousand impressions.",
+            "ctr": "Click-through rate, as clicks divided by impressions.",
+            "prospects": "Number of prospects reached.",
         },
     },
 }

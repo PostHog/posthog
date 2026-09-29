@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -714,7 +715,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
                 return
             }
-            eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
+            posthog.capture('subscribed during onboarding', {
+                product_key: productKey,
+            })
         },
         completeOnboarding: async ({ redirectUrlOverride }) => {
             // Idempotency guard. Without this, a double-click on Finish, a re-render

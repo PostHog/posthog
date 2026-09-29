@@ -154,7 +154,7 @@ export interface CanvasAgent {
 /** In-app navigation. Only these four targets exist. */
 export interface CanvasNavigate {
     toTask(taskId: string): void
-    toNewTask(): void
+    toNewTask(options?: { prompt?: string; repository?: string }): void
     toCanvas(canvasId: string): void
     toNewCanvas(): void
 }
@@ -180,7 +180,7 @@ export interface CanvasSdk {
      * each event name in `capabilities.posthog.captureEvents`.
      */
     capture(event: string, properties?: Record<string, unknown>, distinctId?: string): Promise<{ ok: boolean }>
-    /** Open a PostHog URL externally. https://posthog.com / *.posthog.com only. */
+    /** Open a PostHog HTTPS URL or a GitHub PR HTTPS URL from a user click. */
     openExternal(url: string): void
     state: CanvasState
     actions: CanvasActions
@@ -191,9 +191,38 @@ export interface CanvasSdk {
      * only; undefined in the edit-mode preview.
      */
     config?: Readonly<Record<string, unknown>>
-    /** Preview runtime only today; undefined in a published canvas. */
+    /** Available in current preview and published runtimes; older builds may omit it. */
     navigate?: CanvasNavigate
 }
+
+export type CanvasParamType =
+    | 'text'
+    | 'longtext'
+    | 'number'
+    | 'boolean'
+    | 'select'
+    | 'event'
+    | 'events'
+    | 'property'
+    | 'insight'
+    | 'color'
+
+export interface CanvasParam {
+    type: CanvasParamType
+    label?: string
+    description?: string
+    default?: string | number | boolean | string[]
+    options?: Array<string | { value: string; label: string }>
+    min?: number
+    max?: number
+    step?: number
+}
+
+export declare function editable(
+    name: string,
+    props: Record<string, unknown>,
+    params: Record<string, CanvasParam>
+): Record<string, string>
 
 /**
  * The canvas's PostHog bridge, the same object as the `window.ph` global. Both

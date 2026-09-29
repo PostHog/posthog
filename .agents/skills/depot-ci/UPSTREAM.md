@@ -11,7 +11,7 @@ Upstream also ships `agents/openai.yaml` and `assets/` icons in this directory. 
 ## Local additions
 
 - `references/posthog-check-run-semantics.md`, which upstream has no equivalent of.
-- In `SKILL.md`, the paragraph between the PostHog-local comment markers, and the two sentences appended to the frontmatter `description`.
+- In `SKILL.md`, the two paragraphs between PostHog-local comment markers (one under the intro, one under "Parallel Steps" recording that GitHub Actions now has its own `parallel:` keyword), and the two sentences appended to the frontmatter `description`.
 - Three code fences tagged `text` to satisfy markdownlint MD040, which the pre-commit hook enforces: the directory tree in `SKILL.md` and `references/migration.md`, and the SPIFFE id in `references/oidc.md`. Upstream leaves them untagged, so a resync reintroduces the error.
 
 ## Resync

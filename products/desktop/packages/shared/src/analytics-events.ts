@@ -18,6 +18,10 @@ export interface PromptHistorySelectedProperties {
 
 type ExecutionType = "cloud" | "local";
 export type RepositoryProvider = "github" | "gitlab" | "local" | "none";
+export type SpaceContextMode =
+  | "none"
+  | "legacy_inline"
+  | "context_wiki_reference";
 type TaskCreatedFrom = "cli" | "command-menu" | "sidebar-worktree";
 type RepositorySelectSource = "task-creation" | "task-detail";
 type GitActionType =
@@ -50,6 +54,7 @@ export type CommandMenuAction =
   | "logout"
   | "toggle-theme"
   | "toggle-left-sidebar"
+  | "toggle-notifications-pause"
   | "open-review-panel"
   | "archive-task"
   | "go-back"
@@ -70,6 +75,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-usage"
   | "open-cost-management"
+  | "send-feedback"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -86,6 +92,7 @@ export interface TaskListViewProperties {
 }
 
 export interface TaskCreateProperties {
+  task_id: string;
   auto_run: boolean;
   created_from: TaskCreatedFrom;
   repository_provider?: RepositoryProvider;
@@ -105,6 +112,10 @@ export interface TaskCreateProperties {
   adapter?: Adapter;
   codex_model_access?: ModelAccess;
   claude_model_access?: ModelAccess;
+  /** Space that owns the task, when it was created from a Space. */
+  channel_id?: string;
+  /** How shared Space context was delivered to the task. */
+  space_context_mode: SpaceContextMode;
 }
 
 export interface TaskViewProperties {
@@ -290,6 +301,12 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export interface CommentSentToAgentProperties {
+  surface: "artifact" | "canvas" | "task";
+  with_context: boolean;
+  with_screenshot: boolean;
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -303,18 +320,60 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
+  /** How a rail destination was picked. Only the channels rail sends it. */
+  source?: "click" | "shortcut";
+}
+
+/** Every row of the account / project / org menu, plus opening it. */
+export type ProjectMenuAction =
+  | "open"
+  | "switch_project"
+  | "switch_organization"
+  | "create_project"
+  | "create_organization"
+  | "discord"
+  | "changelog"
+  | "website"
+  | "privacy_policy"
+  | "keyboard_shortcuts"
+  | "archived"
+  | "settings"
+  | "log_out";
+
+export interface ProjectMenuActionProperties {
+  action: ProjectMenuAction;
+  /** The rail draws the trigger as an icon, the code sidebar as a footer row. */
+  appearance: "row" | "icon";
+  /** For switch_project / switch_organization: whether the pick moved anywhere. */
+  changed?: boolean;
 }
 
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
-  group_by: "repository" | "date";
+  group_by: "repository" | "date" | "space";
   sort_by: "updated" | "created" | "alpha";
   surface: TaskListSurface;
 }
 
+export interface BrowserTabTiledProperties {
+  edge: "left" | "right" | "top" | "bottom";
+  source: "strip" | "tile" | "sidebar";
+  tile_count: number;
+}
+
+export interface BrowserTabTileCountProperties {
+  tile_count: number;
+}
+
 export interface TaskListAppearanceChangedProperties {
-  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_fields: (
+    | "space"
+    | "repository"
+    | "branch"
+    | "creator"
+    | "activity"
+  )[];
   secondary_field_count: number;
   surface: TaskListSurface;
 }
@@ -344,6 +403,35 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+type SettingsBackupScope = "all" | "sounds";
+
+export interface SettingsBackupExportProperties {
+  scope: SettingsBackupScope;
+  sound_count: number;
+}
+
+export interface SettingsBackupExportFailedProperties
+  extends SettingsBackupExportProperties {
+  error: string;
+}
+
+export interface SettingsBackupImportedProperties {
+  scope: SettingsBackupScope;
+  setting_count: number;
+  sound_count: number;
+  added_sound_count: number;
+  warning_count: number;
+  backup_app_version: string;
+  version_matches: boolean;
+}
+
+export interface SettingsBackupImportFailedProperties {
+  scope: SettingsBackupScope;
+  /** "open" = reading and validating the file; "apply" = writing the settings. */
+  stage: "open" | "apply";
+  error: string;
+}
+
 export interface CloudCredentialRelayProperties {
   credential: "claude_subscription_token";
   outcome: "sent" | "no_token" | "expired" | "rejected";
@@ -367,6 +455,8 @@ export interface TaskCreationFailedProperties {
 export interface AgentSessionErrorProperties {
   task_id: string;
   error_type: string;
+  failure_reason?: "startup_timeout" | "startup_failed" | "other";
+  startup_step?: string;
 }
 
 export interface CloudStreamDisconnectedProperties {
@@ -540,10 +630,9 @@ export type OnboardingStepId =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
-type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
+type OnboardingSkipReason = "dev_skip";
 
 export interface OnboardingStepViewedProperties {
   step_id: OnboardingStepId;
@@ -577,11 +666,6 @@ export interface OnboardingProjectSelectedProperties {
   had_multiple_projects: boolean;
 }
 
-export interface OnboardingFolderSelectedProperties {
-  has_git_remote: boolean;
-  repository_provider: RepositoryProvider;
-}
-
 export interface OnboardingCliCheckCompletedProperties {
   git_installed: boolean;
   gh_installed: boolean;
@@ -596,7 +680,6 @@ export interface OnboardingCliRunCompletedProperties {
 export interface OnboardingCompletedProperties {
   duration_seconds: number;
   github_connected: boolean;
-  repo_skipped: boolean;
 }
 
 export type OnboardingGithubConnectFlow =
@@ -712,6 +795,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "refund"
   | "open_pr"
   | "open_task"
   | "copy_link"
@@ -841,6 +925,17 @@ export interface UsageViewedProperties {
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
   burst_used_percent: number | null;
+  /** Which meter the page rendered: org dollars, the valve bucket, or nothing. */
+  meter_kind: "dollars" | "bucket" | "hidden";
+  /** The dollar figure the meter rendered, null when it rendered no dollars. */
+  org_used_usd: number | null;
+  /** The org limit the figure is measured against, null when no dollars render. */
+  org_limit_usd: number | null;
+  /**
+   * The viewer's own 30-day spend, null when it has not loaded. Read against
+   * `org_used_usd` to see the two figures disagree.
+   */
+  personal_spend_30d_usd: number | null;
 }
 
 export interface SpendAnalysisTaskOpenedProperties {
@@ -871,6 +966,9 @@ export interface InboxReportActionProperties {
   list_size: number;
   triage_id?: string;
   dismissal_reason?: string;
+  dismissal_note?: string;
+  refund_reason?: string;
+  refund_note?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;
@@ -918,7 +1016,7 @@ export interface InboxReportFeedbackProperties {
 }
 
 /**
- * Optional note metadata, offered only once a rating is already recorded. It
+ * Optional note, offered only once a rating is already recorded. It
  * rides on its own event rather than re-firing {@link InboxReportFeedbackProperties}
  * so sentiment stays exactly one event per rating; join back to the rating on
  * `report_id`. Carries `sentiment` too so a note can be read without that join.
@@ -931,7 +1029,7 @@ export interface InboxReportFeedbackNoteProperties {
   sentiment: InboxReportFeedbackSentiment;
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  note_length: number;
+  note: string;
 }
 
 // Scout events
@@ -1107,7 +1205,8 @@ export type ChannelsSurface =
   | "thread_panel"
   | "activity_panel"
   | "activity"
-  | "canvases_pane";
+  | "canvases_pane"
+  | "spaces_index";
 
 type ChannelActionType =
   | "enter_space"
@@ -1141,7 +1240,13 @@ type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  /** Sessions ↔ Canvases in a space's sidebar list. */
+  | "space_tab_change"
+  | "expand_channel"
+  | "activity_unreads_toggle"
+  | "activity_mark_all_read"
+  | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
@@ -1162,14 +1267,19 @@ export interface ChannelActionProperties {
   task_id?: string;
   /** For file_task: destination channel when different from `channel_id`. */
   target_channel_id?: string;
-  /** For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings"). */
+  /**
+   * For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings").
+   * A space's sidebar rows send their page key, where "home" is the row labelled "Feed".
+   */
   nav_target?: string;
   /** For mention_member: the tagged teammate's user uuid. */
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For activity_tab_change: the tab landed on. */
+  /** The tab landed on; space_tab_change sends the kind it lists ("task" reads "Sessions"). */
   tab?: string;
+  /** For activity_unreads_toggle: the state being entered. */
+  enabled?: boolean;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
   /** For auto_archive_update: the selected inactivity window. Null disables it. */
@@ -1256,13 +1366,19 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
-export type ContextActionType = "save_version" | "generate_started" | "discard";
+export type ContextActionType =
+  | "save_version"
+  | "generate_started"
+  | "setup_started"
+  | "discard";
 
 export interface ContextActionProperties {
   action_type: ContextActionType;
   channel_id: string;
   /** generate_started only. */
   execution_type?: "local" | "cloud";
+  /** setup_started only: what the space was set up for. */
+  setup_kind?: "goal" | "feature";
   /** save_version: whether this created the first version vs. an update. */
   is_first_version?: boolean;
   success?: boolean;
@@ -1385,6 +1501,8 @@ export interface LoopListViewedProperties {
   loop_count: number;
   personal_loop_count: number;
   team_loop_count: number;
+  global_loop_count: number;
+  space_count: number;
   is_at_limit: boolean;
   /** Backend-enforced per-project cap; omitted while the limit is still loading. */
   loop_limit?: number;
@@ -1578,6 +1696,10 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
+  BROWSER_TAB_TILED: "Browser tab tiled",
+  BROWSER_TAB_UNTILED: "Browser tab untiled",
+  BROWSER_TAB_TILE_FOCUSED: "Browser tab tile focused",
+  BROWSER_TAB_SPLIT_RENAMED: "Browser tab split renamed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1593,6 +1715,10 @@ export const ANALYTICS_EVENTS = {
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
+  SETTINGS_BACKUP_EXPORTED: "Settings backup exported",
+  SETTINGS_BACKUP_EXPORT_FAILED: "Settings backup export failed",
+  SETTINGS_BACKUP_IMPORTED: "Settings backup imported",
+  SETTINGS_BACKUP_IMPORT_FAILED: "Settings backup import failed",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
@@ -1600,6 +1726,8 @@ export const ANALYTICS_EVENTS = {
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
   CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
   CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CODEX_CLOUD_ACCOUNT_CONNECTED: "Codex cloud account connected",
+  CODEX_CLOUD_ACCOUNT_DISCONNECTED: "Codex cloud account disconnected",
   CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
@@ -1620,7 +1748,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
   ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
@@ -1706,6 +1833,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
+  PROJECT_MENU_ACTION: "Project menu action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -1734,6 +1862,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
+  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
 } as const;
 
 // Event property mapping
@@ -1791,6 +1920,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILE_FOCUSED]: BrowserTabTileCountProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SPLIT_RENAMED]: BrowserTabTileCountProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
@@ -1807,8 +1940,14 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_DISCONNECTED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORT_FAILED]: SettingsBackupExportFailedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORTED]: SettingsBackupImportedProperties;
+  [ANALYTICS_EVENTS.SETTINGS_BACKUP_IMPORT_FAILED]: SettingsBackupImportFailedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
@@ -1833,7 +1972,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
@@ -1918,6 +2056,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
+  [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
@@ -1950,6 +2089,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
+  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
 };
 
 /**

@@ -138,10 +138,10 @@ describe("buildScoutDeeplink", () => {
   }>([
     {
       name: "builds a bare scout link when finding is null",
-      skillName: "error-tracking",
+      skillName: "my-churn-watch",
       findingId: null,
       isDevBuild: false,
-      expected: "posthog-code://scout/error-tracking",
+      expected: "posthog-code://scout/my-churn-watch",
     },
     {
       name: "builds a bare scout link when finding is undefined",
@@ -158,11 +158,11 @@ describe("buildScoutDeeplink", () => {
       expected: "posthog-code://scout/error-tracking?finding=abc-123",
     },
     {
-      name: "strips the signals-scout- prefix from a full skill name",
+      name: "keeps the signals-scout- prefix of a canonical skill name",
       skillName: "signals-scout-error-tracking",
       findingId: "f-1",
       isDevBuild: false,
-      expected: "posthog-code://scout/error-tracking?finding=f-1",
+      expected: "posthog-code://scout/signals-scout-error-tracking?finding=f-1",
     },
     {
       name: "uses the dev scheme for dev builds",

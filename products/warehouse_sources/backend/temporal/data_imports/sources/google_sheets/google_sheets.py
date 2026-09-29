@@ -5,8 +5,6 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any, Optional, TypeVar, cast
 
-from django.conf import settings
-
 import gspread
 import requests
 from cachetools import Cache, TTLCache, cached
@@ -17,6 +15,7 @@ from gspread.utils import numericise_all
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
@@ -44,12 +43,20 @@ GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
 def google_sheets_client() -> gspread.Client:
+    resolved = integration_secrets.get_secrets(
+        [
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL",
+        ]
+    )
     credentials = service_account.Credentials.from_service_account_info(
         {
-            "private_key": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY,
-            "private_key_id": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID,
-            "token_uri": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI,
-            "client_email": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL,
+            "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+            "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+            "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
+            "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
         },
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
     )

@@ -14,9 +14,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -92,6 +90,9 @@ import {
 import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions'
 import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
+
+import { ViewLinkButton } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { PersonDeleteModal } from 'products/persons/frontend/components/PersonDeleteModal'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
@@ -840,10 +841,20 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+            <EventName
+                key="event-name"
+                query={query.source as EventsQuery | SessionsQuery}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
-            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
+            <EventsFilter
+                key="events-filter"
+                query={query.source}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -955,6 +966,7 @@ export function DataTable({
                 setQuery={setQuery}
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
+                downloadQuery={context?.dataTableExportQuery}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1060,6 +1072,7 @@ export function DataTable({
                                 data-attr={dataAttr}
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
+                                stickyHeader={context?.dataTableStickyHeader}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}

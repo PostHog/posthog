@@ -14,6 +14,8 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -23,6 +25,8 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
+import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
+import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
 import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
 
 import { CommonConfig } from '../common/config'
@@ -106,6 +110,19 @@ export class IngestionTracesServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
+        // Span-based metric rules share the log rules table + OTLP emitter; the traces
+        // consumer filters to `source=spans`. Inert without a traces export URL.
+        const metricRulesCache = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new MetricRulesCache(this.postgres)
+            : undefined
+        const metricsEmitter = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
+            : undefined
+
+        // The tracing config supplies the per-team default for spans no rule matches.
+        const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const tracingConfigCache = new TracingConfigCache(this.postgres)
+
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
@@ -122,6 +139,10 @@ export class IngestionTracesServer implements NodeServer {
                 quotaLimiting,
                 outputs,
                 usageBatch,
+                metricRulesCache,
+                metricsEmitter,
+                retentionRulesCache,
+                tracingConfigCache,
             })
             await consumer.start()
             return consumer.service

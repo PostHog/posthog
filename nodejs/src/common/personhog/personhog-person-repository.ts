@@ -168,7 +168,10 @@ export class PersonHogPersonRepository implements PersonRepository {
     }
 
     fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
-        return Promise.reject(new Error('fetchPersonDistinctIdMappings is not implemented for personhog'))
+        // The personhog identity service produces the ClickHouse mapping messages
+        // itself, so mapping re-emission has nothing to heal on this backend.
+        // Returning no rows disables it without failing the merge.
+        return Promise.resolve([])
     }
 
     // All write operations delegate directly to Postgres

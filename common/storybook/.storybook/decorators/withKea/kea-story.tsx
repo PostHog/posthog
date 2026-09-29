@@ -3,6 +3,7 @@ import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
+import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { App } from 'scenes/App'
 // Eagerly bring AuthenticatedShell into the storybook bundle. App.tsx code-splits
@@ -18,8 +19,33 @@ import { userLogic } from 'scenes/userLogic'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
 
+/**
+ * `resetContext` drops the context without unmounting, so `beforeUnmount` never runs. That is where
+ * kea invalidates in-flight listeners, and without it they resume against the next story's store.
+ */
+function unmountLogicsOfPreviousStory(): void {
+    const context = getContext()
+    if (!context) {
+        return
+    }
+    for (const [pathString, logic] of Object.entries(context.mount.mounted)) {
+        // Unmounting one logic also unmounts the logics it connects to, so re-read the count.
+        while (context.mount.counter[pathString] > 0) {
+            try {
+                logic.unmount()
+            } catch {
+                break // one logic throwing must not strand the rest
+            }
+        }
+    }
+}
+
 export function resetKeaStory(): void {
     worker.resetHandlers()
+    unmountLogicsOfPreviousStory()
+    // Stories in one file share a browser context, so a has-data answer cached by one story
+    // would open the gate over the next story's empty state.
+    clearAllCachedHasData()
 
     const history = createMemoryHistory({})
     ;(history as any).pushState = history.push

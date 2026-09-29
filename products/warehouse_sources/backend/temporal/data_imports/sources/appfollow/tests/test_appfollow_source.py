@@ -30,6 +30,12 @@ class TestAppfollowSource:
             ("users", False, None),
             ("reviews", True, "updated"),
             ("ratings_history", True, "date"),
+            # Only reviews_stats among the ASO/statistics endpoints takes a from/to range; rankings,
+            # keywords and app_versions expose no server-side time filter at all.
+            ("reviews_stats", True, "date"),
+            ("rankings", False, None),
+            ("keywords", False, None),
+            ("app_versions", False, None),
         ],
     )
     def test_incremental_capability_per_endpoint(self, name, incremental, field):
@@ -50,6 +56,10 @@ class TestAppfollowSource:
             ("reviews", True),
             ("users", False),
             ("ratings_history", False),
+            ("rankings", False),
+            ("keywords", False),
+            ("app_versions", False),
+            ("reviews_stats", False),
         ],
     )
     def test_should_sync_defaults(self, name, default_sync):
@@ -66,6 +76,10 @@ class TestAppfollowSource:
             # Fan-out children must include the parent id so keys stay unique table-wide.
             ("reviews", ["ext_id", "review_id"]),
             ("ratings_history", ["ext_id", "store", "date"]),
+            ("rankings", ["ext_id", "country", "device", "genre_id", "date"]),
+            ("keywords", ["ext_id", "country", "device", "date", "keyword"]),
+            ("app_versions", ["ext_id", "country", "version"]),
+            ("reviews_stats", ["ext_id", "date"]),
         ],
     )
     def test_primary_keys_are_unique_table_wide(self, name, primary_keys):

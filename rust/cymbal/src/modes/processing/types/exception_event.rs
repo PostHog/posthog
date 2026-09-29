@@ -10,7 +10,7 @@ use crate::{
     frames::releases::{ReleaseInfo, ReleaseRecord},
     issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
-    modes::processing::normalization::normalize_wire_order,
+    modes::processing::normalization::{normalize_legacy_tags, normalize_wire_order},
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties},
 };
@@ -615,6 +615,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             .and_then(|object| object.get_mut("$exception_list"))
         {
             recursively_sanitize_properties(event.uuid, value, 0)?;
+            normalize_legacy_tags(value);
         }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)
@@ -738,6 +739,54 @@ mod tests {
                 client_fingerprint: Some("client-fingerprint".to_string()),
                 legacy_order_resolved: None,
             },
+        }
+    }
+
+    #[test]
+    fn exception_relationship_ids_survive_processing() {
+        for mechanisms in [
+            serde_json::json!([
+                {"type": "generic", "handled": true, "exception_id": 0},
+                {"type": "chained", "source": "member", "exception_id": 1, "parent_id": 0},
+                {"type": "chained", "source": "cause", "exception_id": 2, "parent_id": 1},
+                {"type": "chained", "source": "member", "exception_id": 3, "parent_id": 0}
+            ]),
+            serde_json::json!([{"type": "generic", "handled": true}]),
+        ] {
+            let exceptions: Vec<Value> = mechanisms.as_array().unwrap().iter().map(|mechanism| {
+                serde_json::json!({"type": "Error", "value": "example failure", "mechanism": mechanism})
+            }).collect();
+            let parsed = ExceptionEvent::<Parsed>::try_from(AnyEvent {
+                uuid: Uuid::now_v7(),
+                event: "$exception".to_string(),
+                team_id: 42,
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                properties: serde_json::json!({"$exception_list": exceptions}),
+                others: HashMap::new(),
+            })
+            .unwrap();
+            let issue = Issue {
+                id: Uuid::now_v7(),
+                team_id: 42,
+                status: crate::issue_resolution::IssueStatus::Active,
+                severity: None,
+                name: None,
+                description: None,
+                created_at: chrono::Utc::now(),
+            };
+            let processed = parsed
+                .into_resolved()
+                .into_fingerprinted(SelectedFingerprint::manual("example-group".to_string()))
+                .into_linked(issue)
+                .into_rate_checked()
+                .into_finalized()
+                .into_clickhouse_properties();
+            let output = processed["$exception_list"].as_array().unwrap();
+            assert_eq!(output.len(), exceptions.len());
+            for (index, exception) in output.iter().enumerate() {
+                assert_eq!(exception["mechanism"], mechanisms[index]);
+                assert!(Uuid::parse_str(exception["id"].as_str().unwrap()).is_ok());
+            }
         }
     }
 

@@ -350,6 +350,7 @@ function SetupTaskSection() {
       });
       if (result.success) {
         track(ANALYTICS_EVENTS.TASK_CREATED, {
+          task_id: result.data.task.id,
           auto_run: true,
           created_from: "command-menu",
           repository_provider: "github",
@@ -357,6 +358,7 @@ function SetupTaskSection() {
           has_branch: false,
           cloud_run_source: "manual",
           adapter,
+          space_context_mode: "none",
         });
       } else {
         toastError("Failed to start Self-driving setup", result.error);

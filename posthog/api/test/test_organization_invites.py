@@ -1,7 +1,7 @@
 import random
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -844,12 +844,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(invite["target_email"], email)
         self.assertEqual(invite["private_project_access"], [])
 
-    @freeze_time("2024-01-10")
+    @time_machine.travel("2024-01-10", tick=False)
     def test_combine_pending_invites_with_expired_invites(self):
         email = "xyz@posthog.com"
 
         # Create an expired invite
-        with freeze_time("2023-01-05"):
+        with time_machine.travel("2023-01-05", tick=False):
             OrganizationInvite.objects.create(
                 organization=self.organization,
                 target_email=email,
@@ -1418,8 +1418,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
         self.assertEqual(OrganizationInvite.objects.count(), 1)
 
-    def test_add_organization_invite_case_insensitive_existing_member_check(self):
-        """Test that invites are rejected if a user with case variation already exists as member"""
+    @parameterized.expand(
+        [
+            ("single", "/api/organizations/@current/invites/", {"target_email": "existing.user@example.com"}),
+            (
+                "bulk_does_not_save_earlier_rows",
+                "/api/organizations/@current/invites/bulk/",
+                [{"target_email": "new.user@example.com"}, {"target_email": "existing.user@example.com"}],
+            ),
+        ]
+    )
+    def test_add_organization_invite_case_insensitive_existing_member_check(self, _name, url, payload):
         existing_user = User.objects.create_user(
             email="Existing.User@Example.COM", password="password123", first_name="Existing"
         )
@@ -1428,13 +1437,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
         )
 
-        invite_email = "existing.user@example.com"
-        response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {"target_email": invite_email},
-        )
+        response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "existing_member")
+        self.assertEqual(response.json()["attr"], "target_email")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):
@@ -1974,7 +1981,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
     def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
         base_time = now()
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             for i in range(2):
                 response = self.client.post(
                     "/api/organizations/@current/invites/",
@@ -1987,7 +1994,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        with freeze_time(base_time + timedelta(hours=1, seconds=1)):
+        with time_machine.travel(base_time + timedelta(hours=1, seconds=1), tick=False):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "reset_later@posthog.com"},
@@ -2001,14 +2008,14 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         # Space requests more than 1 hour apart (defeating any burst bucket)
         # but still well within the 24h sustained window.
         for i in range(3):
-            with freeze_time(base_time + timedelta(hours=2 * i)):
+            with time_machine.travel(base_time + timedelta(hours=2 * i), tick=False):
                 response = self.client.post(
                     "/api/organizations/@current/invites/",
                     {"target_email": f"sustained_{i}@posthog.com"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        with freeze_time(base_time + timedelta(hours=8)):
+        with time_machine.travel(base_time + timedelta(hours=8), tick=False):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "sustained_blocked@posthog.com"},

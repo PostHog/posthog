@@ -9,6 +9,22 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }",
         [],
     ],
+    "__gt": [
+        "function __gt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a > b }",
+        [],
+    ],
+    "__gte": [
+        "function __gte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a >= b }",
+        [],
+    ],
+    "__lt": [
+        "function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }",
+        [],
+    ],
+    "__lte": [
+        "function __lte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a <= b }",
+        [],
+    ],
     "__imatch": [
         "function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }",
         [],
@@ -64,7 +80,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "length": [
-        "function length (value) { return value.length }",
+        "function length (value) { return value === null || value === undefined ? null : value.length }",
         [],
     ],
     "empty": [
@@ -89,11 +105,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "upper": [
-        "function upper (value) { return value.toUpperCase() }",
+        "function upper (value) { return value === null || value === undefined ? null : value.toUpperCase() }",
         [],
     ],
     "reverse": [
-        "function reverse (value) { return value.split('').reverse().join('') }",
+        "function reverse (value) { return value === null || value === undefined ? null : value.split('').reverse().join('') }",
         [],
     ],
     "print": [
@@ -231,11 +247,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "replaceOne": [
-        "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }",
+        "function replaceOne (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replace(searchValue, replaceValue) }",
         [],
     ],
     "replaceAll": [
-        "function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }",
+        "function replaceAll (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replaceAll(searchValue, replaceValue) }",
         [],
     ],
     "position": [
@@ -248,6 +264,9 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "trim": [
         """function trim (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -271,6 +290,9 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "trimLeft": [
         """function trimLeft (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -287,6 +309,9 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "trimRight": [
         """function trimRight (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -302,7 +327,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "splitByString": [
-        "function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }",
+        "function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }",
         [],
     ],
     "generateUUIDv4": [
@@ -476,23 +501,23 @@ function isIPAddressInRange(address, prefix) {
         [],
     ],
     "arrayCount": [
-        "function arrayCount (func, arr) { let count = 0; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { count = count + 1 } } return count }",
+        "function arrayCount (func, arr) { let count = 0; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { count = count + 1 } } return count }",
         [],
     ],
     "arrayExists": [
-        """function arrayExists (func, arr) { for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { return true } } return false }""",
+        """function arrayExists (func, arr) { for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { return true } } return false }""",
         [],
     ],
     "arrayFilter": [
-        """function arrayFilter (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}""",
+        """function arrayFilter (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}""",
         ["arrayPushBack"],
     ],
     "arrayMap": [
-        """function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }""",
+        """function arrayMap (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }""",
         ["arrayPushBack"],
     ],
     "arrayReduce": [
-        """function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < arr.length; i++) { result = func(result, arr[i]) } return result }""",
+        """function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < (arr ?? []).length; i++) { result = func(result, arr[i]) } return result }""",
         [],
     ],
     "has": [
@@ -1251,11 +1276,11 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "greater": [
-        "function greater(a, b) { return a > b }",
+        "function greater(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a > b }",
         [],
     ],
     "greaterOrEquals": [
-        "function greaterOrEquals(a, b) { return a >= b }",
+        "function greaterOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a >= b }",
         [],
     ],
     "if": [
@@ -1272,11 +1297,11 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "less": [
-        "function less(a, b) { return a < b }",
+        "function less(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b }",
         [],
     ],
     "lessOrEquals": [
-        "function lessOrEquals(a, b) { return a <= b }",
+        "function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }",
         [],
     ],
     "min2": [

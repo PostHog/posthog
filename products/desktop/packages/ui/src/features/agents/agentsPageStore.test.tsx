@@ -36,19 +36,19 @@ describe("agents page selection", () => {
     [{}, null],
     [
       { agent: "signals-scout-aio" },
-      { slug: "signals-scout-aio", tab: "activity" },
+      { skillName: "signals-scout-aio", tab: "activity" },
     ],
     [
       { agent: "a", finding: "f-1" },
-      { slug: "a", tab: "output", findingId: "f-1" },
+      { skillName: "a", tab: "output", findingId: "f-1" },
     ],
     [
       { agent: "a", agentTab: "settings" },
-      { slug: "a", tab: "settings" },
+      { skillName: "a", tab: "settings" },
     ],
     [
       { agent: "a", agentTab: "nonsense" },
-      { slug: "a", tab: "activity" },
+      { skillName: "a", tab: "activity" },
     ],
   ])("reads the open agent from %o", (search, agent) =>
     agent
@@ -69,11 +69,12 @@ describe("agents page selection", () => {
     });
   });
 
-  it("drops the agent when returning to a page tab", () =>
+  it("drops the agent when returning to a page tab", () => {
+    agentsPageActions().showTab("memory");
     expect(
-      (agentsPageActions().showTab("memory"),
-      lastSearch({ from: "/activity", agent: "a", agentTab: "output" })),
-    ).toEqual({ from: "/activity", tab: "memory" }));
+      lastSearch({ from: "/activity", agent: "a", agentTab: "output" }),
+    ).toEqual({ from: "/activity", tab: "memory" });
+  });
 
   it("replaces the entry when switching the agent's own tab", () => {
     agentsPageActions().showAgentTab("settings");

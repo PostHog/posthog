@@ -21,6 +21,7 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    InsightNodeKind,
     LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
@@ -34,10 +35,10 @@ import {
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
-import { integer } from './type-utils'
+import { integer, positive_integer } from './type-utils'
 
 /**
- * This filter only works with absolute dates.
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
 export interface AssistantDateRange {
     /**
@@ -45,7 +46,7 @@ export interface AssistantDateRange {
      */
     date_from: string
     /**
-     * ISO8601 date string.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
 }
@@ -490,8 +491,8 @@ export interface AssistantTrendsFilter {
      * `ActionsBar` - time-series bar chart.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
-     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
+     * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
+     * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -759,10 +760,10 @@ export interface AssistantFunnelsFilter {
      */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /**
-     * Defines the type of visualization to use. The `steps` option is recommended.
-     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
-     * `trends` - shows trends of the conversion rate of the whole sequence over time.
+     * Defines the type of visualization to use.
+     * `steps` - one bar per step with the conversion between them (default). Use for "what's the conversion rate" and "where do users drop off".
+     * `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time ("is conversion improving", "conversion per week", "since we shipped X"); a `steps` chart cannot show that.
+     * `time_to_convert` - a histogram of how long users took to complete the funnel.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
@@ -1089,7 +1090,7 @@ export interface AssistantStickinessFilter {
     computedAs?: StickinessComputationMode
 }
 
-export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+export interface AssistantStickinessQuery extends Omit<AssistantInsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
 
     /**
@@ -1106,7 +1107,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * How many base intervals comprise one stickiness period. Defaults to 1.
      * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
 
     /**
      * Events or actions to include. Each series measures how many intervals (e.g. days) within
@@ -1990,4 +1991,24 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// an index signature because zod strips every key the schema does not declare, which would send
+// `{ kind }` alone to the endpoint and save an empty insight.
+export interface AssistantBareInsightQuery {
+    kind: InsightNodeKind
+    [key: string]: unknown
+}
+
+export interface AssistantBareHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** The HogQL query to run. */
+    query: string
+    [key: string]: unknown
+}
+
+export type InsightQuery =
+    | AssistantInsightVizNode
+    | AssistantDataVisualizationNode
+    | AssistantBareInsightQuery
+    | AssistantBareHogQLQuery

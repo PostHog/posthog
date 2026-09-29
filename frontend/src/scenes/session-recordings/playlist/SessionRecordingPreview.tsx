@@ -16,7 +16,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -24,6 +23,8 @@ import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
