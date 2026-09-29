@@ -18,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.functions.prompt_jev import MODEL, PromptJevCall, PromptJevFinder
+from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -50,8 +50,11 @@ MAX_BATCH_BYTES = 32768
 
 class _ResultField(DatabaseField):
     clickhouse_type: str
+    hogql_type: ast.ConstantType | None = None
 
     def get_constant_type(self) -> ast.ConstantType:
+        if self.hogql_type is not None:
+            return self.hogql_type
         return constant_type_from_runtime_type(parse_clickhouse_type(self.clickhouse_type))
 
 
@@ -65,24 +68,47 @@ class _ResultTable(DANGEROUS_NoTeamIdCheckTable):
 
 
 @frozen
+class PromptJevColumn:
+    name: str
+    clickhouse_type: str
+    # A ClickHouse type does not say whether the source column was a JSON blob or an array, so a
+    # passthrough column keeps its HogQL type here and an outer query can still read properties off it.
+    hogql_type: ast.ConstantType | None = None
+
+
+@frozen
+class PromptJevSource:
+    response: HogQLQueryResponse
+    column_types: dict[str, ast.ConstantType]
+
+
+@frozen
 class PromptJevTable:
     name: str
-    structure: list[tuple[str, str]]
+    columns: list[PromptJevColumn]
     rows: list[list[object]]
 
     def register(self, context: "HogQLContext") -> None:
         assert context.database is not None
+        names = [column.name for column in self.columns]
         context.external_tables[self.name] = {
             "name": self.name,
-            "structure": self.structure,
-            "data": [dict(zip((name for name, _ in self.structure), row)) for row in self.rows],
+            "structure": [(column.name, column.clickhouse_type) for column in self.columns],
+            "data": [dict(zip(names, row)) for row in self.rows],
         }
         context.database.tables.add_child(
             TableNode(
                 name=self.name,
                 table=_ResultTable(
                     name=self.name,
-                    fields={name: _ResultField(name=name, clickhouse_type=kind) for name, kind in self.structure},
+                    fields={
+                        column.name: _ResultField(
+                            name=column.name,
+                            clickhouse_type=column.clickhouse_type,
+                            hogql_type=column.hogql_type,
+                        )
+                        for column in self.columns
+                    },
                 ),
                 hidden=True,
             ),
@@ -194,7 +220,7 @@ class PromptJevRunner:
         if missing and self.client is None:
             try:
                 client = build_system_one_client(
-                    model=MODEL,
+                    model=settings.HOGQL_PROMPT_JEV_MODEL,
                     ai_product="hogql_prompt_jev",
                     distinct_id=self.distinct_id,
                     properties={"team_id": str(self.team_id)},
@@ -287,7 +313,7 @@ class _CTEReferences(TraversingVisitor):
         self.names.update(node.chain[:1])
 
     @classmethod
-    def used(cls, query: ast.SelectQuery, ctes: dict[str, ast.CTE]) -> dict[str, ast.CTE]:
+    def used(cls, query: ast.Expr, ctes: dict[str, ast.CTE]) -> dict[str, ast.CTE]:
         # ClickHouse does not run a CTE that nothing reads, so inference must not run for it either.
         references = cls()
         references.visit(query)
@@ -303,7 +329,7 @@ class PromptJevPlanner(CloningVisitor):
     def __init__(
         self,
         *,
-        execute: Callable[[ast.SelectQuery], HogQLQueryResponse],
+        execute: Callable[[ast.SelectQuery], PromptJevSource],
         runner: PromptJevRunner,
         tables: list[PromptJevTable],
     ) -> None:
@@ -312,6 +338,24 @@ class PromptJevPlanner(CloningVisitor):
         self.runner = runner
         self.tables = tables
         self.ctes: dict[str, ast.CTE] = {}
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        initial = node.initial_select_query
+        # A WITH clause on the first branch stays in scope for every later branch, so its CTEs are
+        # planned once across the whole set. Planning them per branch drops a CTE that only a later
+        # branch reads, and that branch then cannot find its table.
+        if not isinstance(initial, ast.SelectQuery) or not initial.ctes:
+            return cast(ast.SelectSetQuery, super().visit_select_set_query(node))
+        previous = self.ctes
+        self.ctes = dict(previous)
+        try:
+            without_ctes = clone_expr(node)
+            cast(ast.SelectQuery, without_ctes.initial_select_query).ctes = None
+            for name, cte in _CTEReferences.used(without_ctes, initial.ctes).items():
+                self.ctes[name] = self.visit(cte)
+            return cast(ast.SelectSetQuery, super().visit_select_set_query(without_ctes))
+        finally:
+            self.ctes = previous
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         previous = self.ctes
@@ -372,7 +416,8 @@ class PromptJevPlanner(CloningVisitor):
                 or not 0 <= source.limit.value <= MAX_ROWS
             ):
                 raise QueryError(f"__preview_promptJev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
-            response = self.execute(source)
+            result = self.execute(source)
+            response = result.response
             if response.error:
                 raise QueryError(response.error)
             rows: list[list[object]] = [list(row) for row in response.results or []]
@@ -381,20 +426,30 @@ class PromptJevPlanner(CloningVisitor):
             names = response.columns or []
             if len(names) != len(query.select) or len(set(names)) != len(names):
                 raise QueryError("Give each column in the __preview_promptJev SELECT a unique name.")
-            structure = [(str(name), str(kind)) for name, kind in response.types or []]
+            kinds = [str(kind) for _, kind in response.types or []]
             inputs = {i: [row[i] for row in rows] for i in specs}
             self.runner.check_budget([(spec, inputs[i]) for i, spec in specs.items()])
             for i, spec in specs.items():
                 values = self.runner.evaluate(spec, inputs[i])
                 for row, value in zip(rows, values):
                     row[i] = value
-                structure[i] = (names[i], spec.clickhouse_type)
-            structure = [(name, structure[i][1]) for i, name in enumerate(names)]
-            table = PromptJevTable(name=f"__prompt_jev_{uuid.uuid4().hex}", structure=structure, rows=rows)
+                kinds[i] = spec.clickhouse_type
+            columns = [
+                PromptJevColumn(
+                    name=name,
+                    clickhouse_type=kinds[i],
+                    hogql_type=None if i in specs else result.column_types.get(name),
+                )
+                for i, name in enumerate(names)
+            ]
+            table = PromptJevTable(name=f"__prompt_jev_{uuid.uuid4().hex}", columns=columns, rows=rows)
             self.tables.append(table)
             return ast.SelectQuery(
                 select=[ast.Field(chain=[name]) for name in names],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
+                # The source query consumed the LIMIT and the OFFSET. Keeping the limit stops the
+                # default row limit from replacing it; re-applying the offset would skip rows twice.
+                limit=clone_expr(query.limit) if query.limit is not None else None,
             )
         finally:
             self.ctes = previous

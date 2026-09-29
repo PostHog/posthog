@@ -5,7 +5,6 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.llm.system_one import ChoiceQuestion, NoulQuestion, Question
 
-MODEL = "posthog/hogference/jevk5-fp8-0.2"
 MAX_CHOICES = 16
 CHOICE_TYPE = "Tuple(choice Nullable(String), probabilities Array(Tuple(value String, probability Float64)), confidence Nullable(Float64))"
 

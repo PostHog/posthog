@@ -49,7 +49,7 @@ from posthog.hogql.direct_sql import (
     get_adapter,
     get_raw_adapter_for_source,
 )
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
@@ -575,6 +575,25 @@ class HogQLQueryExecutor:
 
         return None
 
+    def _resolved_column_types(self) -> dict[str, ast.ConstantType]:
+        """HogQL types of the executed query's columns, for a caller that has to keep a column's
+        logical type after materializing its rows. A column whose type cannot be resolved is left out,
+        because the caller has the ClickHouse type to fall back on."""
+        context = self.hogql_context or self.context
+        types: dict[str, ast.ConstantType] = {}
+        try:
+            query_type = self._get_select_query_type()
+            if query_type is None:
+                return types
+            for name, column in query_type.columns.items():
+                try:
+                    types[name] = column.resolve_constant_type(context)
+                except BaseHogQLError:
+                    continue
+        except BaseHogQLError:
+            return {}
+        return types
+
     def _detect_warehouse_sources(self) -> list[WarehouseSourceUsage]:
         """Detect connector-synced data warehouse sources referenced by the (resolved) query and
         store them for the query response. Never raises — telemetry must not break query execution."""
@@ -720,6 +739,7 @@ class HogQLQueryExecutor:
             PromptJevBudget,
             PromptJevPlanner,
             PromptJevRunner,
+            PromptJevSource,
             validate_prompt_jev_access,
         )
 
@@ -753,7 +773,7 @@ class HogQLQueryExecutor:
         self._prompt_jev_tables = []
         runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None)
 
-        def execute_source(query: ast.SelectQuery) -> HogQLQueryResponse:
+        def execute_source(query: ast.SelectQuery) -> PromptJevSource:
             settings = get_default_hogql_global_settings(self.team.pk, self.settings)
             timeout = runner.source_timeout()
             settings.max_execution_time = min(settings.max_execution_time or timeout, timeout)
@@ -767,7 +787,7 @@ class HogQLQueryExecutor:
             executor._prompt_jev_tables = self._prompt_jev_tables
             response = executor.execute()
             self._prompt_jev_warehouse_sources.extend(executor.used_data_warehouse_sources)
-            return response
+            return PromptJevSource(response=response, column_types=executor._resolved_column_types())
 
         planner = PromptJevPlanner(execute=execute_source, runner=runner, tables=self._prompt_jev_tables)
         with self.timings.measure("__preview_promptJev"):

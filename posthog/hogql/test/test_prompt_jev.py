@@ -271,6 +271,10 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 + " LIMIT 100",
                 [(0.9,) * 10],
             ),
+            (
+                "WITH messages AS (SELECT 'refund' AS body) SELECT 0.0 AS p UNION ALL SELECT __preview_promptJev(body, 'Refund?') AS p FROM messages LIMIT 10",
+                [(0.0,), (0.9,)],
+            ),
         ]
     )
     def test_sql_decisions(self, query: str, expected: list) -> None:
@@ -290,6 +294,31 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, self.team, user=self.user)
         self.assertEqual(response.results, [(1,)])
         post.assert_not_called()
+
+    def test_explicit_limit_above_the_default_keeps_every_row(self) -> None:
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+            response = execute_hogql_query(
+                "SELECT __preview_promptJev(toString(number), 'Refund?') AS p FROM numbers(150) LIMIT 150",
+                self.team,
+                user=self.user,
+            )
+        self.assertEqual(len(response.results or []), 150)
+
+    def test_outer_query_reads_properties_off_a_passthrough_column(self) -> None:
+        _create_event(
+            team=self.team,
+            event="jev_test_message",
+            distinct_id="synthetic-user",
+            properties={"message": "refund please", "category": "billing"},
+        )
+        flush_persons_and_events()
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+            response = execute_hogql_query(
+                "SELECT props.category, p FROM (SELECT properties AS props, __preview_promptJev(properties.message, 'Refund?') AS p FROM events WHERE event = 'jev_test_message' LIMIT 1)",
+                self.team,
+                user=self.user,
+            )
+        self.assertEqual(response.results, [("billing", 0.9)])
 
     def test_source_scan_stays_within_the_inference_deadline(self) -> None:
         with (
