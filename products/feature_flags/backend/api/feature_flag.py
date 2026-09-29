@@ -141,7 +141,7 @@ from products.feature_flags.backend.filters_validation import collect_cross_fiel
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
-    STALE_FLAG_THRESHOLD_DAYS,
+    STALE_ACTIVE_PARAM_DESCRIPTION,
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
@@ -1305,7 +1305,13 @@ class FeatureFlagSerializer(
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+            "serving state. Read the `active` field for that. A disabled flag that is not archived or "
+            "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
+        )
+    )
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -2922,15 +2928,6 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
-    @extend_schema_field(
-        serializers.CharField(
-            help_text=(
-                "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
-                "serving state. Read the `active` field for that. A disabled flag that is not archived or "
-                "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
-            )
-        )
-    )
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -3534,7 +3531,7 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     active = serializers.ChoiceField(
         choices=["true", "false", "STALE"],
         required=False,
-        help_text="Filter by active state.",
+        help_text=STALE_ACTIVE_PARAM_DESCRIPTION,
     )
     created_by_id = serializers.IntegerField(
         required=False,
@@ -4079,16 +4076,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
-                description=(
-                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' "
-                    "selects enabled flags that the stale filter matches, so a disabled flag is never "
-                    "STALE. A flag matches when its last recorded `$feature_flag_called` event is more "
-                    f"than {STALE_FLAG_THRESHOLD_DAYS} days old, or when it has no recorded event, is at "
-                    f"least {STALE_FLAG_THRESHOLD_DAYS} days old and serves one result to everyone through "
-                    "a release condition at 100% with no property filters. A flag with an empty `groups` "
-                    "list does not match, even when its `status` reads STALE. An SDK that sends no "
-                    "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
-                ),
+                description=STALE_ACTIVE_PARAM_DESCRIPTION,
             ),
             OpenApiParameter(
                 "created_by_id",

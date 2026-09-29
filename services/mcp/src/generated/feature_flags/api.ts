@@ -84,7 +84,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .enum(['STALE', 'false', 'true'])
         .optional()
         .describe(
-            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' selects enabled flags that the stale filter matches, so a disabled flag is never STALE. A flag matches when its last recorded `$feature_flag_called` event is more than 30 days old, or when it has no recorded event, is at least 30 days old and serves one result to everyone through a release condition at 100% with no property filters. A flag with an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
+            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
         ),
     archived: zod
         .enum(['false', 'true'])
@@ -1177,7 +1177,9 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
             search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
             type: zod
