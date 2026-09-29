@@ -71,24 +71,35 @@ async def test_should_run_no_hog_function(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_run_with_matching_hog_function(team):
+@pytest.mark.parametrize(
+    ("schema_name", "linked_table_name", "hogql_table_name"),
+    [
+        ("public.widgets", "postgres_widgets", "postgres.widgets"),
+        ("public.widgets", None, "postgres.public__widgets"),
+    ],
+)
+async def test_should_run_with_matching_hog_function(team, schema_name, linked_table_name, hogql_table_name):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
-    table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_table_1", external_data_source=source
+    table = (
+        await sync_to_async(DataWarehouseTable.objects.create)(
+            team=team, name=linked_table_name, external_data_source=source
+        )
+        if linked_table_name
+        else None
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        team=team, name="table_1", source=source, table=table
+        team=team, name=schema_name, source=source, table=table
     )
-
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": hogql_table_name}]},
     )
 
     producer = CDPProducer.for_source(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.get_dot_notated_table_name() == hogql_table_name
     assert await producer.should_run() is True
 
 
@@ -146,7 +157,7 @@ async def test_should_run_with_new_style_table_name(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres.table_1", external_data_source=source
+        team=team, name="postgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -169,7 +180,7 @@ async def test_should_run_with_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -192,7 +203,7 @@ async def test_should_run_with_leading_underscore_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="_eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="_eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
