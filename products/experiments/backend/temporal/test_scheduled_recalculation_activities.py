@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -39,6 +40,7 @@ def _start_recalculation(experiment_id: int, hour: int):
         return _start_recalculation_raw(experiment_id, hour)
 
 
+@time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 class TestScheduledRecalculationActivities(BaseTest):
     def setUp(self) -> None:
         super().setUp()
