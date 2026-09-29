@@ -130,9 +130,11 @@ export function EvaluationBackfillsTab({
         expandBackfill,
         collapseBackfill,
         loadBackfills,
+        startClicked,
     } = useActions(logic)
 
     const confirmStart = (): void => {
+        startClicked()
         LemonDialog.open({
             title: 'Start this backfill?',
             description: estimate ? (

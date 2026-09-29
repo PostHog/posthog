@@ -2213,9 +2213,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.b8da0d666c219b2f36b7d110b2109ec5586c8c42fecf67b52821a3b18fde4734.ZjncalrNKMXAQVhkoICoGDvgbi1edOR7DaVgF-QRVAQ
     components-search--searching--dark:
-        hash: v1.k794b7964.da5560e3b062f5b1f6cc4d9e5c338258502948ed2353f4add22970bbce7dfd4e.GwVjKIvJSaqKOTsWNTQb5Bz4v5jN-byKBorSc854UrA
+        hash: v1.k794b7964.b2ed568193ffa1c83081e07dda8f66f39a935f3531641bfe6ad70a5e3eceac98.QNRQpRjQl2IkGKyT8SDHvDmtSn74BTviYqtwlK0hEwU
     components-search--searching--light:
-        hash: v1.k794b7964.9775e841728ad772089c8f176abeeee0d65c92c93c0dcf83f54a4b073b34fceb.97GZHXFK7aMWwRYJKX7CEhTVCfPJ6ZxW1nCJtUQkxI0
+        hash: v1.k794b7964.ad2cde0478b9ed3d426a05eb6bb4cb76e328b770cea593e489ee1f9a5b6564ab.RHvW0X7jb1gKM4YZNPg2OeJ24LJZP790T3v2ZaxhjD4
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.7e8e5dd2e09d246cc3668f362f2391fe67618bd1143aa393832297f5dc30e558.yptEWKc5RAUY613Fwd5cQ0VIinMvpdoI6cuKgagAGxk
     components-sentencelist--full-sentence--light:
@@ -5808,6 +5808,8 @@ snapshots:
         hash: v1.k794b7964.fde427a04a5be7d7bd22031125188c719c92e3cec3040de64e833259496836a4.tr8wf9B0D2VjRFAGVH8LpfHNiLuXIUBQkPcsRigf1MQ
     mcp-apps-error-tracking--stack-trace--light:
         hash: v1.k794b7964.ad8da946c8891849416cc66d17c77e44dc83e62d5b71cb2eb433779d1ddc0cb3.s-3zNqXOIZXWGTq1Ts0ETT809GtSjhzHcG4PbGrfgDo
+    mcp-apps-error-tracking--with-breakdown--light:
+        hash: v1.k794b7964.1dd412a9421bb62e86ff964b3a0449375c9429b972a66fe3074db04bc7d7dd97.qWnA19cd9of2KGwgsVLoFh0yzOSwj8lWaSr2cDaW4_0
     mcp-apps-error-tracking--with-external-links--light:
         hash: v1.k794b7964.1c438b81ddecf6cd51016c53d57b3a80c7a60aab20f69a4629f52d9366452c72.alkUqUY-JcNO_PquFIaJSqBh0hBs4BbMf4NNbwjkHI4
     mcp-apps-experiments--completed--light:
@@ -10416,6 +10418,10 @@ snapshots:
         hash: v1.k794b7964.71ad45e65a5513ff7088e026d8ffb2bf891fb1effddb0e9dbd95ba78b597c3b1.0e6bNu95d2bH_NlZmGGW7oiHJ__aHNSxqzRcxMUA4xM
     scenes-app-marketing-analytics-freshness--fresh--light:
         hash: v1.k794b7964.b8d9453c270c310350d2bcf30cdb54cae4da19b8877e8d3206160478eb2dda94.dJpt6MIMxg7mOxiHC6PoqwTGwMfiGrln7SheHTKHTcU
+    scenes-app-marketing-analytics-source-status--source-issues--dark:
+        hash: v1.k794b7964.f387ac40dbf399676c91b2f6de86c2b169e9aaa86205af692abf51a141ead5d7.3PpHqWiSeMKvXuYLv4lU1yM_tqF38xD4NiUkUX6XW2U
+    scenes-app-marketing-analytics-source-status--source-issues--light:
+        hash: v1.k794b7964.9bc9c27858206a2c2ecee18b7e72a9b80c91488ab539e78955a62b0254176a8e.gYszI9sP1_uusVkRVzBFdMoACwSmYaBfgxSuUX_pZpQ
     scenes-app-max-ai-logs-query-tool--no-matches--dark:
         hash: v1.k794b7964.c231a64a00f6dfc8bf5b88c3dab624bad88d347b96be0b2e6b0cc14e1c10e1cc.ScE515QePrAYrJB-UWn5sakLt5cKxQKQQrx_n_uJERI
     scenes-app-max-ai-logs-query-tool--no-matches--light:
@@ -11537,9 +11543,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
         hash: v1.k794b7964.05cd4d11178a6ab2b511d9bf210abe0d975216c98945669170f00138e560fd16.sqlVQyLt-1PLj-fF9YbPdwnFo_RxtHzrHyZe2OQiSDc
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
-        hash: v1.k794b7964.be02a5a5aca0c21f1209806314ae91395639411a5d1e689990ed1a6be7e1b984.a3HCulmnaLQ7xiOoBW9lSVExkcvdUYvaoyyygmUxDjA
+        hash: v1.k794b7964.f542dc208f8caacdc2978c3e17d6c077d299f4896b6acf1b0cbe51eb1e7e2f34.KnYG2YFjexeGzYr2iZlQmND2MXxJXDH3G9_vOeCMy84
     scenes-app-settings-environment--settings-environment-feature-flags--light:
-        hash: v1.k794b7964.91c5e9f7763ce91c703da86d0a2436195760fa588d2ae7f84151aee47874782e.PzgdK0kad_2mLrec1AbhBtrbHLtr66dOOu3a8l1Wnr0
+        hash: v1.k794b7964.1727c58a0c3d1d7b98d9837e7bc9371ed6917ece4e4bd56e117c8346dcdcab73.33HDPAg7mL_qrKAVTV2Q9hGSZxtDS6geLAt4ohn8Uw4
     scenes-app-settings-environment--settings-environment-heatmaps--dark:
         hash: v1.k794b7964.2e1a4ab99529aea8bedf4ed8acc2a6a88f82070cb66efbd86be237afdb76ac43.r49rtZmhxy0F163z1LlyTV0x_ZBOHMT03jA4exX3kks
     scenes-app-settings-environment--settings-environment-heatmaps--light:
