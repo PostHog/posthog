@@ -17,7 +17,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db import models
-from django.db.models import CharField, F, OrderBy, Q, QuerySet
+from django.db.models import Case, CharField, F, OrderBy, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -36,6 +36,9 @@ MAX_TAG_FILTER_VALUES = 50
 # Matches MAX_ASSIGNEE_FILTER_ENTRIES in products/conversations/frontend/components/Assignee.
 MAX_ASSIGNEE_FILTER_ENTRIES = 100
 MAX_SEARCH_LENGTH = 200
+# pg_trgm extracts no trigram from a shorter string, so the trigram indexes cannot serve it.
+TRIGRAM_MIN_SEARCH_LENGTH = 3
+UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
 SLA_FILTER_VALUES = ["breached", "at-risk", "on-track"]
 AI_TRIAGE_FILTER_VALUES = [
@@ -457,24 +460,34 @@ def _apply_search(queryset: QuerySet, search: str, team: Team) -> QuerySet:
     if is_ticket_number_search(search):
         return queryset.filter(ticket_number=int(search.removeprefix("#")))
 
-    # Comment match as a non-correlated subquery: self-contained, so Postgres hashes
-    # it once per query (scanning posthog_comment through its trigram index) instead
-    # of probing comments per ticket the way a correlated EXISTS would. The ticket id
-    # is cast to text rather than item_id to uuid — the id side is always a valid
-    # UUID, while a malformed item_id row would make the whole search error.
+    field_match = (
+        Q(anonymous_traits__name__icontains=search)
+        | Q(anonymous_traits__email__icontains=search)
+        | Q(email_subject__icontains=search)
+    )
     comment_match = Comment.objects.filter(
         team_id=team.id,
         scope="conversations_ticket",
         deleted=False,
         content__icontains=search,
-    ).values("item_id")
-
-    return queryset.alias(id_text=Cast("id", output_field=CharField())).filter(
-        Q(anonymous_traits__name__icontains=search)
-        | Q(anonymous_traits__email__icontains=search)
-        | Q(email_subject__icontains=search)
-        | Q(id_text__in=comment_match)
     )
+
+    if len(search) < TRIGRAM_MIN_SEARCH_LENGTH:
+        # The ticket id is cast to text rather than item_id to uuid, so a malformed
+        # item_id row cannot make the search error.
+        return queryset.alias(id_text=Cast("id", output_field=CharField())).filter(
+            field_match | Q(id_text__in=comment_match.values("item_id"))
+        )
+
+    # An OR of these predicates forces a check of every ticket in the team. A UNION of
+    # ticket ids lets each branch use its trigram index, and the outer query then reads
+    # only the matched tickets by primary key.
+    field_ticket_ids = queryset.model.objects.filter(team_id=team.id).filter(field_match).values("id")
+    # CASE guarantees that Postgres casts only well-formed UUIDs.
+    comment_ticket_ids = comment_match.annotate(
+        ticket_id=Case(When(item_id__iregex=UUID_PATTERN, then=Cast("item_id", output_field=UUIDField())))
+    ).values("ticket_id")
+    return queryset.filter(id__in=field_ticket_ids.union(comment_ticket_ids))
 
 
 def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team: Team, user: User | None) -> QuerySet:
