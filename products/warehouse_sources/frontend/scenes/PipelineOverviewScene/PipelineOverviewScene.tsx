@@ -4,6 +4,7 @@ import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,7 +33,7 @@ export const scene: SceneExport = {
 
 export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { window, jobStatsLoading, hasIssues } = useValues(pipelineOverviewSceneLogic)
+    const { window, jobStatsLoading, hasIssues, lastUpdatedAt } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
 
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
@@ -73,6 +74,11 @@ export function PipelineOverviewScene(): JSX.Element {
             />
 
             <PipelineStatTiles />
+            {lastUpdatedAt ? (
+                <div className="-mt-1 text-xs text-muted">
+                    Updated <TZLabel time={lastUpdatedAt} />, and every 30 seconds while this page is open
+                </div>
+            ) : null}
 
             <SceneDivider />
 

@@ -17,7 +17,7 @@ export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | '
 export type CustomerTaskAccountFilter = { id: string; name: string }
 
 const MAX_CUSTOMER_TASK_ASSIGNEE_ID = 2_147_483_647
-const CUSTOMER_TASK_ORDERINGS = [
+export const CUSTOMER_TASK_ORDERINGS = [
     'name',
     '-name',
     'status',
