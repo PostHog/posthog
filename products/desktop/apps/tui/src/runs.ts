@@ -6,7 +6,7 @@ import type {
   StoredLogEntry,
   TaskRunStatus,
 } from "@posthog/shared";
-import type { TranscriptLine } from "./transcript";
+import type { Transcript, TranscriptLine } from "./transcript";
 
 export interface RunView {
   loaded: boolean;
@@ -94,21 +94,42 @@ export function withListedRun(
 }
 
 // A status line for the pane while a run has nothing of its own to show.
+export function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
 export function runNotice(
   view: RunView,
   lines: TranscriptLine[],
   turnOpen: boolean,
-): { text: string; tone: "working" | "error" } | null {
+  lastTurn: Transcript["lastTurn"],
+): { text: string; tone: "working" | "error" | "done" } | null {
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
   }
-  if (view.status !== "queued" && view.status !== "in_progress") return null;
-  if (!lines.some((line) => line.kind !== "user")) {
+  const running = view.status === "queued" || view.status === "in_progress";
+  const waiting = lines.at(-1)?.kind === "user";
+  if (running && !lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
   }
   // A turn still going, or a message the agent has not picked up yet.
-  if (turnOpen || lines.at(-1)?.kind === "user") {
+  if (running && (turnOpen || waiting)) {
     return { text: "Thinking…", tone: "working" };
+  }
+  if (lastTurn && !waiting) {
+    const done = new Date(lastTurn.endedAt).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return {
+      text: `Worked for ${formatDuration(lastTurn.durationMs)} · done ${done}`,
+      tone: "done",
+    };
   }
   return null;
 }

@@ -27,7 +27,7 @@ const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 export interface ChatNotice {
   text: string;
-  tone: "working" | "error";
+  tone: "working" | "error" | "done";
 }
 
 // The run's status line; a working one spins, advancing with the clock on each repaint.
@@ -38,6 +38,7 @@ class NoticeRow implements Component {
     if (this.notice.tone === "error") {
       return [` \u001b[31m${this.notice.text}\u001b[39m`];
     }
+    if (this.notice.tone === "done") return [DIM(` ✻ ${this.notice.text}`)];
     const frame = SPINNER[Math.floor(Date.now() / 80) % SPINNER.length];
     return [DIM(` ${frame} ${this.notice.text}`)];
   }

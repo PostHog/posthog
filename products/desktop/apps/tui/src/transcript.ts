@@ -23,6 +23,8 @@ export interface Transcript {
   lines: TranscriptLine[];
   // The agent is mid-turn: a prompt it has not finished answering.
   turnOpen: boolean;
+  // The latest turn once it has finished: how long it took and when it ended (epoch ms).
+  lastTurn: { durationMs: number; endedAt: number } | null;
 }
 
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
@@ -45,6 +47,13 @@ export function transcriptFrom(
         );
   const lines = built.items.flatMap(toLine);
   const turnOpen = built.lastTurnInfo?.isComplete === false;
+  const lastTurn =
+    built.lastTurnInfo?.isComplete && built.lastActivityAt !== null
+      ? {
+          durationMs: built.lastTurnInfo.durationMs,
+          endedAt: built.lastActivityAt,
+        }
+      : null;
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
   if (
     runtime === "pi" &&
@@ -57,9 +66,10 @@ export function transcriptFrom(
         ...lines,
       ],
       turnOpen,
+      lastTurn,
     };
   }
-  return { lines, turnOpen };
+  return { lines, turnOpen, lastTurn };
 }
 
 // Bookkeeping the harness asks for every turn; it says nothing about the work.

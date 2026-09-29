@@ -77,7 +77,7 @@ export function Pane({
             view.entries,
             task.description || task.description_preview,
           )
-        : { lines: [], turnOpen: false },
+        : { lines: [], turnOpen: false, lastTurn: null },
     [task, view.entries],
   );
   const lines = useMemo(
@@ -90,6 +90,7 @@ export function Pane({
         withListedRun(view, task.latest_run),
         lines,
         transcript.turnOpen,
+        transcript.lastTurn,
       )
     : pending
       ? ({ text: "Starting cloud run…", tone: "working" } as const)

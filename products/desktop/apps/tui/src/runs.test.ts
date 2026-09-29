@@ -7,6 +7,7 @@ import {
   applyUpdate,
   CloudRuns,
   emptyRunView,
+  formatDuration,
   type RunView,
   runNotice,
   type SessionLogs,
@@ -244,6 +245,7 @@ describe("runNotice", () => {
         { ...emptyRunView, loaded: true, ...run },
         [...lines],
         turnOpen,
+        null,
       ),
     ).toEqual(expected);
   });
@@ -271,5 +273,52 @@ describe("withListedRun", () => {
     expect(withListedRun(view, { status: "queued" }).status).toBe(
       "in_progress",
     );
+  });
+});
+
+describe("runNotice after a finished turn", () => {
+  const lines = [
+    { kind: "user" as const, id: "u", text: "hi" },
+    { kind: "assistant" as const, id: "a", text: "hello" },
+  ];
+  const done = {
+    durationMs: 150_000,
+    endedAt: new Date(2026, 0, 1, 17, 6).getTime(),
+  };
+
+  it("says how long the agent worked and when it finished", () => {
+    const notice = runNotice(
+      { ...emptyRunView, loaded: true, status: "in_progress" },
+      lines,
+      false,
+      done,
+    );
+    expect(notice?.tone).toBe("done");
+    expect(notice?.text).toMatch(/^Worked for 2m 30s · done 5:06/);
+  });
+
+  it("gives way once a new message is waiting", () => {
+    const waiting = [
+      ...lines,
+      { kind: "user" as const, id: "u2", text: "more" },
+    ];
+    expect(
+      runNotice(
+        { ...emptyRunView, loaded: true, status: "in_progress" },
+        waiting,
+        false,
+        done,
+      )?.text,
+    ).toBe("Thinking…");
+  });
+});
+
+describe("formatDuration", () => {
+  it.each([
+    [4_000, "4s"],
+    [150_000, "2m 30s"],
+    [3_720_000, "1h 2m"],
+  ])("formats %d ms", (ms, text) => {
+    expect(formatDuration(ms)).toBe(text);
   });
 });
