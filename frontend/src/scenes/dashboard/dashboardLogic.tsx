@@ -671,6 +671,9 @@ export interface dashboardLogicActions {
     openButtonTileModal: () => {
         value: true
     }
+    closeTileModal: () => {
+        value: true
+    }
     openImageTileModal: () => {
         value: true
     }
@@ -1592,6 +1595,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         openTextTileModal: true,
         openImageTileModal: true,
         openButtonTileModal: true,
+        closeTileModal: true,
         setTileOverride: (tile: DashboardTile) => ({ tile }),
 
         /**
@@ -2108,6 +2112,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) =>
+                    dashboard?.id === props.id ? { ...tileLayoutsFromDashboard(dashboard), ...state } : state,
                 saveEditModeChangesSuccess: (state, { dashboard, payload }) =>
                     payload?.scope === 'layout' ? tileLayoutsFromDashboard(dashboard) : state,
                 receiveTileFromStream: (state, { tile }) => ({
@@ -2259,7 +2265,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    return state && dashboard && state.id === dashboard.id ? dashboard : state
+                    if (!state || !dashboard || state.id !== dashboard.id) {
+                        return state
+                    }
+                    const draftTiles = new Map(state.tiles.map((tile) => [tile.id, tile]))
+                    return {
+                        ...dashboard,
+                        tiles: dashboard.tiles.map((tile: DashboardTile) => ({
+                            ...tile,
+                            layouts: draftTiles.get(tile.id)?.layouts ?? tile.layouts,
+                        })),
+                    }
                 },
                 saveDashboardChangesSuccess: (state, { dashboard }) =>
                     state && dashboard
@@ -2498,6 +2514,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showTextTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 setTextTileId: (_, { textTileId }) => !!textTileId,
                 openTextTileModal: () => true,
             },
@@ -2505,6 +2522,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showImageTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 openImageTileModal: () => true,
                 setTextTileId: () => false,
             },
@@ -2512,6 +2530,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         textTileId: [
             null as DashboardTileIdOrNew,
             {
+                closeTileModal: () => null,
                 setTextTileId: (_, { textTileId }) => textTileId,
                 openTextTileModal: () => null,
             },
@@ -2520,6 +2539,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showButtonTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 setButtonTileId: (_, { buttonTileId }) => !!buttonTileId,
                 openButtonTileModal: () => true,
             },
@@ -2527,6 +2547,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         buttonTileId: [
             null as DashboardTileIdOrNew,
             {
+                closeTileModal: () => null,
                 setButtonTileId: (_, { buttonTileId }) => buttonTileId,
                 openButtonTileModal: () => null,
             },

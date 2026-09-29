@@ -2093,6 +2093,98 @@ describe('dashboardLogic', () => {
             )
         })
 
+        describe('add tile modal with an unsaved layout', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                logic.actions.updateLayouts({
+                    ...logic.values.layouts,
+                    sm: logic.values.layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                })
+            }
+
+            it.each([
+                ['image', 'showImageTileModal', () => logic.actions.openImageTileModal()],
+                ['button', 'showButtonTileModal', () => logic.actions.openButtonTileModal()],
+                ['text', 'showTextTileModal', () => logic.actions.openTextTileModal()],
+            ] as const)('keeps draft layout after cancelling %s', async (_type, visibleKey, open) => {
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    moveFirstTile()
+                    const draftLayouts = logic.values.layouts
+
+                    open()
+                    expect(logic.values[visibleKey]).toBe(true)
+                    logic.actions.closeTileModal()
+
+                    expect(logic.values[visibleKey]).toBe(false)
+                    expect(logic.values.dashboardEditing?.layout).toBe(true)
+                    expect(logic.values.layouts).toEqual(draftLayouts)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                    expect(confirmSpy).not.toHaveBeenCalled()
+                } finally {
+                    confirmSpy.mockRestore()
+                }
+            })
+
+            it('keeps the draft layout when adding an image', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                moveFirstTile()
+                const draftLayout = logic.values.dashboard!.tiles[0].layouts
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: [
+                        ...dashboards[5].tiles,
+                        {
+                            id: 999,
+                            text: { body: '![Example](https://example.com/example.png)' },
+                            layouts: {},
+                            color: null,
+                        } as DashboardTile,
+                    ],
+                }
+
+                dashboardsModel.actions.updateDashboardSuccess(savedDashboard)
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayout)
+                expect(logic.values.dashboard!.tiles).toHaveLength(savedDashboard.tiles.length)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                expect(logic.values.dashboardEditing?.layout).toBe(true)
+            })
+
+            it('still asks before navigating away from unsaved layout changes', async () => {
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                try {
+                    router.actions.push(urls.dashboard(5))
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    moveFirstTile()
+
+                    router.actions.push(urls.dashboard(6))
+
+                    expect(confirmSpy).toHaveBeenCalledWith(
+                        'Leave dashboard?\nChanges you made to the layout will be discarded.'
+                    )
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                } finally {
+                    confirmSpy.mockRestore()
+                }
+            })
+        })
+
         describe('colors modal cancel', () => {
             beforeEach(() => {
                 dashboardInsightColorsModalLogic.mount()
