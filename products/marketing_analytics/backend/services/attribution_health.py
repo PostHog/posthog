@@ -15,6 +15,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -75,8 +76,7 @@ class AttributionHealthEntry:
     matched_pct: float
     sample_unmatched_utm_sources: list[UnmatchedUtmSample] = field(default_factory=list)
     # Of the matched events, how many look paid, and how many carry any utm_medium.
-    # `paid == 0 and tagged > 0` is positive evidence the traffic is organic; both
-    # zero only means the team doesn't tag medium, which says nothing either way.
+    # Missing paid signals mean unknown intent, not necessarily organic traffic.
     events_matched_paid_last_7d: int = 0
     events_matched_tagged_medium_last_7d: int = 0
 
@@ -175,9 +175,7 @@ async def get_attribution_health(
             acc = per_integration.get(matched_key)
             if acc is not None:
                 acc.matched_count += count
-                acc.paid_count += row.paid_event_count
-                if matched_key == "google_ads":
-                    acc.paid_count += row.google_click_id_count
+                acc.paid_count += row.platform_paid_event_counts.get(matched_key, row.paid_event_count)
                 acc.tagged_medium_count += row.tagged_medium_count
                 candidates = [d for d in (acc.last_matched_at, last_at) if d is not None]
                 acc.last_matched_at = max(candidates) if candidates else None
@@ -221,10 +219,8 @@ class _UtmRow:
     # A cost-bearing utm_medium, per PostHog's own channel-type rule
     # (posthog.com/docs/data/channel-type). Platform-agnostic: any source can be paid.
     paid_event_count: int = 0
-    # Counted apart from the medium, because `gclid` and `gad_source` name Google Ads
-    # specifically. They ride along on whatever URL carries them, so a link shared with a
-    # stale gclid would otherwise mark LinkedIn traffic as paid LinkedIn.
-    google_click_id_count: int = 0
+    # Each platform count is the union of paid medium and its own ad signals.
+    platform_paid_event_counts: dict[NativeIntegration, int] = field(default_factory=dict)
     # Events carrying any utm_medium at all. Separates "tagged, and organic" from
     # "not tagged", which are different answers to "is this paid?".
     tagged_medium_count: int = 0
@@ -272,6 +268,57 @@ def _build_team_alias_map(team: Team) -> dict[str, NativeIntegration]:
     return build_combined_alias_map(custom)
 
 
+# These identify ad interactions; fbclid and epik can also accompany unpaid visits.
+_PLATFORM_AD_PARAMETERS: dict[NativeIntegration, tuple[str, ...]] = {
+    "google_ads": ("gclid", "gbraid", "wbraid", "gad_source", "gad_campaignid"),
+    "openai_ads": ("oppref",),
+    "bing_ads": ("msclkid",),
+    "linkedin_ads": ("li_fat_id",),
+    "reddit_ads": ("rdt_cid",),
+    "snapchat_ads": ("ScCid",),
+    "tiktok_ads": ("ttclid",),
+    "rokt_ads": ("rtid",),
+}
+
+
+def _event_parameter_matches(parameter: str, value: str | None = None) -> ast.Expr:
+    # SDKs do not capture every platform's parameter as an event property.
+    property_value = parse_expr(
+        "trim(ifNull(toString({property}), ''))",
+        placeholders={"property": ast.Field(chain=["properties", parameter])},
+    )
+    url_value = parse_expr(
+        "trim(decodeURLComponent(extractURLParameter(ifNull(properties.$current_url, ''), {parameter})))",
+        placeholders={"parameter": ast.Constant(value=parameter)},
+    )
+    return ast.Or(
+        exprs=[
+            parse_expr(
+                "{candidate} != ''" if value is None else "{candidate} = {value}",
+                placeholders={"candidate": candidate, "value": ast.Constant(value=value)},
+            )
+            for candidate in (property_value, url_value)
+        ]
+    )
+
+
+def _platform_paid_expressions(paid_medium: ast.Expr) -> dict[NativeIntegration, ast.Expr]:
+    expressions: dict[NativeIntegration, ast.Expr] = {
+        key: ast.Or(exprs=[paid_medium, *[_event_parameter_matches(parameter) for parameter in parameters]])
+        for key, parameters in _PLATFORM_AD_PARAMETERS.items()
+    }
+    # Saved ads retain campaign tags, but Pinterest marks their unpaid clicks pp=1.
+    expressions["pinterest_ads"] = parse_expr(
+        "({paid_medium} OR {paid_click}) AND NOT {earned_click}",
+        placeholders={
+            "paid_medium": paid_medium,
+            "paid_click": _event_parameter_matches("pp", "0"),
+            "earned_click": _event_parameter_matches("pp", "1"),
+        },
+    )
+    return expressions
+
+
 @database_sync_to_async
 def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
     """HogQL aggregation of utm_source counts and latest timestamp within the window.
@@ -285,19 +332,20 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
     """
     now = timezone.now()
     since = now - timedelta(days=lookback_days)
-    hogql = """
+    paid_medium = parse_expr(
+        """
+        lower(trim(properties.utm_medium)) IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')
+        OR startsWith(lower(trim(properties.utm_medium)), 'paid')
+        """
+    )
+    platform_paid = _platform_paid_expressions(paid_medium)
+    query = parse_select(
+        """
         SELECT
             lower(trim(properties.utm_source)) AS raw_utm_source,
             count() AS event_count,
             max(timestamp) AS last_seen_at,
-            countIf(
-                lower(trim(properties.utm_medium)) IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')
-                OR startsWith(lower(trim(properties.utm_medium)), 'paid')
-            ) AS paid_event_count,
-            countIf(
-                (properties.gclid IS NOT NULL AND properties.gclid != '')
-                OR (properties.gad_source IS NOT NULL AND properties.gad_source != '')
-            ) AS google_click_id_count,
+            countIf({paid_medium}) AS paid_event_count,
             countIf(properties.utm_medium IS NOT NULL AND trim(properties.utm_medium) != '') AS tagged_medium_count
         FROM events
         WHERE
@@ -308,27 +356,21 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
         GROUP BY raw_utm_source
         ORDER BY event_count DESC
         LIMIT {limit}
-    """
+    """,
+        placeholders={
+            "paid_medium": paid_medium,
+            "since": ast.Constant(value=since),
+            "until": ast.Constant(value=now),
+            "limit": ast.Constant(value=HOGQL_GROUP_LIMIT),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    query.select.extend(ast.Call(name="countIf", args=[expression]) for expression in platform_paid.values())
     with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
-        result = execute_hogql_query(
-            hogql,
-            team,
-            placeholders={
-                "since": ast.Constant(value=since),
-                "until": ast.Constant(value=now),
-                "limit": ast.Constant(value=HOGQL_GROUP_LIMIT),
-            },
-        )
+        result = execute_hogql_query(query, team)
     rows: list[_UtmRow] = []
     for row in result.results or []:
-        raw, count, last_at, paid_count, click_id_count, tagged_count = (
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-        )
+        raw, count, last_at, paid_count, tagged_count = row[:5]
         if not raw:
             continue
         rows.append(
@@ -337,7 +379,7 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
                 event_count=int(count or 0),
                 last_seen_at=last_at if isinstance(last_at, datetime) else None,
                 paid_event_count=int(paid_count or 0),
-                google_click_id_count=int(click_id_count or 0),
+                platform_paid_event_counts={key: int(value or 0) for key, value in zip(platform_paid, row[5:])},
                 tagged_medium_count=int(tagged_count or 0),
             )
         )
