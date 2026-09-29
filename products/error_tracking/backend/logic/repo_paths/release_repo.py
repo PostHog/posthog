@@ -40,6 +40,8 @@ def parse_release_repo(metadata: object) -> ReleaseRepo | Literal["no_git_metada
 
 def repo_paths_enabled(team_id: int) -> bool:
     # Bucket child environments with their parent project, as the other error tracking flags do.
+    # The SDK returns no value when the lookup fails and does not raise, so a flags outage reads
+    # as off and skips the job.
     project_id = resolve_effective_team_id(team_id)
     return feature_enabled_or_false(
         REPO_PATHS_FLAG,

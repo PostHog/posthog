@@ -150,9 +150,15 @@ class TestStoreReleaseFileList(BaseTest):
         assert store_release_file_list(self.team.id, release_id) == expected
         assert self.fetched == []
 
-    @parameterized.expand([("server_error", 502, "retry"), ("permission_refused", 422, "auth_failed")])
-    def test_a_github_token_failure_retries_only_on_a_server_error(
-        self, _name: str, status_code: int, expected: str
+    @parameterized.expand(
+        [
+            ("budget_spent", False, 502, "budget_exhausted"),
+            ("server_error", True, 502, "retry"),
+            ("permission_refused", True, 422, "auth_failed"),
+        ]
+    )
+    def test_github_token_minting_waits_for_the_budget_and_retries_only_on_a_server_error(
+        self, _name: str, budget_admits: bool, status_code: int, expected: str
     ) -> None:
         github = MagicMock(github_installation_id=7)
         github.mint_scoped_installation_token.side_effect = GitHubIntegrationError(
@@ -167,7 +173,7 @@ class TestStoreReleaseFileList(BaseTest):
             ),
             patch(
                 "products.error_tracking.backend.logic.repo_paths.release_files.consume_git_fetch_budget",
-                return_value=True,
+                return_value=budget_admits,
             ),
         ):
             outcome: str
@@ -177,6 +183,7 @@ class TestStoreReleaseFileList(BaseTest):
                 outcome = "retry"
 
         assert outcome == expected
+        assert github.mint_scoped_installation_token.call_count == int(budget_admits)
         assert self.fetched == []
 
 
