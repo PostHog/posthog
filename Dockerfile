@@ -224,6 +224,10 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
+# Keep dynamic symbols for Python imports; discard compiler debug sections only.
+RUN strip --strip-debug /python-runtime/lib/python3.14/site-packages/deltalite/deltalite.abi3.so && \
+    rm /python-runtime/lib/python3.14/site-packages/playwright/driver/node
+
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under
 # restricted egress or flaky DNS. Covers the two encodings our callers resolve to: o200k_base
@@ -261,6 +265,12 @@ RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
     else \
         echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
     fi
+
+COPY bin/deduplicate-static-assets.py /code/bin/deduplicate-static-assets.py
+RUN python /code/bin/deduplicate-static-assets.py && \
+    mkdir -p /runtime-assets/code/frontend && \
+    mv /code/staticfiles /runtime-assets/code/staticfiles && \
+    mv /code/frontend/dist /runtime-assets/code/frontend/dist
 
 
 
@@ -333,6 +343,7 @@ RUN apt-get update && \
 # checked-in file; it is not run in this image.
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && node --version
+ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node
 
 # Install and use a non-root user.
 # Pin uid/gid to a fixed, host-safe value (avoid 1000, which maps to ec2-user on the nodes).
@@ -353,16 +364,14 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 ARG POSTHOG_RELEASE_ID
 ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
 
-# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
-COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
-COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
-ENV PATH=/python-runtime/bin:$PATH \
-    PYTHONPATH=/python-runtime
-
+# Copy both asset trees together, preserving the links between identical files.
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
 # where the JS sourcemaps have already been stripped.
-COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+COPY --from=posthog-build --chown=posthog:posthog /runtime-assets/code/ /code/
+COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
 
 # Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
 COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed

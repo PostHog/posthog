@@ -14,7 +14,6 @@ dependencies = [
     "aiohttp==3.13.5",
     "aiokafka~=0.13.0",
     "anthropic==0.80.0",
-    "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",
     "brotli==1.2.0",
@@ -30,13 +29,11 @@ dependencies = [
     "dagster==1.12.11",
     "dagster-cloud==1.12.11",
     "dagster-aws==0.28.11",
-    "dagster-celery==0.28.11",
     "dagster-docker==0.28.11",
     "dagster-k8s==0.28.11",
     "dagster-pipes==1.12.11",
     "dagster-postgres==0.28.11",
     "dagster-slack==0.28.11",
-    "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.0.0",
     "django~=5.2.0",
@@ -66,7 +63,6 @@ dependencies = [
     # 2.8+ gives each worker its own SO_REUSEPORT socket on Linux. The query pool runs
     # bin/granian_shared_socket.py to keep one shared socket; its test must pass on any bump.
     "granian[uvloop,reload,pname]==2.8.3",
-    "grimp~=3.14",
     "grpcio~=1.75.1",
     "gspread==6.2.1",
     "hogql-parser==1.3.85",
@@ -89,7 +85,6 @@ dependencies = [
     "markdown-it-py~=3.0.0",
     "mcp~=1.26.0",
     "mimesis==5.2.1",
-    "mistralai==1.6.0",
     "more-itertools==9.0.0",
     "nanoid==2.0.0",
     "natsort==8.4.0",
@@ -147,7 +142,6 @@ dependencies = [
     "tldextract~=5.1",
     "trafilatura==2.0.0",
     "trino==0.338.0",
-    "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
     # Distributed owners.yaml resolver. A runtime dependency, not just tooling: stamphog's digest
@@ -187,7 +181,6 @@ dependencies = [
     "pydantic-avro~=0.9.0",
     "playwright~=1.60.0",
     "linkedin-api-client~=0.3.0",
-    "glom~=24.11.0",
     "modal[api-proxy-support]~=1.5.4",
     "databricks-sql-connector~=4.3.0",
     "databricks-sdk~=0.118.0",
@@ -206,6 +199,7 @@ dependencies = [
     "blake3>=1.0.8,<2",
     "pixelhog~=1.3.1",
     "google-re2>=1.1.20251105,<2",
+    "phonenumberslite==9.0.28",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
@@ -216,6 +210,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "asyncstdlib==3.13.1",
+    "dagster-celery==0.28.11",
+    "dagster-webserver==1.12.11",
+    "grimp~=3.14",
+    "mistralai==1.6.0",
+    "types-cachetools==5.5.0.20240820",
+    "glom~=24.11.0",
     { include-group = "proto-codegen" },
     "aioresponses==0.7.6",
     "autoevals==0.2.0",
@@ -306,6 +307,7 @@ proto-codegen = [
 ]
 
 [tool.uv]
+exclude-dependencies = ["phonenumbers"]
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
