@@ -6359,9 +6359,9 @@ snapshots:
     products-data-catalog-metric-lineage--load-failed--light:
         hash: v1.k794b7964.1b9c3b1720e0444a2f33b4ba6dc972f6a56a114c94be10cc77fa455b8441fbca.LUvQPwM50s6A-ZDh32zDhqhWWm5KAPgEFK2qa8ffmWs
     products-data-catalog-metric-lineage--loading--dark:
-        hash: v1.k794b7964.10e5f42c7d9feef174fbf84585f42b3c023795a750dbbea10febeec15966f0d9.WQdI3QUiM3MPqu2jUswGuIkHtAjQlM-XV8dAV1Qpbmg
+        hash: v1.k794b7964.d2e01904e4c1ba9e222e434c70d459e1d4354b7cf5ec05f8e54aa17844b91fa3.ldvpgC3VPt5yjE4qd-lwTNdm3tfAhpCoWAGhMun3YWk
     products-data-catalog-metric-lineage--loading--light:
-        hash: v1.k794b7964.5290922c579080221a18b00e7855f14d4fd4bdba8158fcb2acb0dcc1fcd1fb6c.N5PeHfKZdzMTWuAgku68dGntKgBb3tE0dqZbO6orPrY
+        hash: v1.k794b7964.fa63fb4b9b33a6c2cc7a7c22e3968c9f015b0e63e82996ea559b87fdea7797a0.RpSFIW0xf3AwRBHwe-Auvg-qR7JQHSMrhro-qOUhAzo
     products-data-catalog-metric-lineage--no-definition--dark:
         hash: v1.k794b7964.0a67016ff06498b8f16e83dcbd01d03ced850f02935d9cfc555c5d321a6dc21e.SYouGVS4FM4aPQFE51xlJG_1LPN79L4zsp_xwt4mRJI
     products-data-catalog-metric-lineage--no-definition--light:
@@ -6386,6 +6386,18 @@ snapshots:
         hash: v1.k794b7964.112213e8e69bef1f6e8aab90994d6e0be0c7fcb922965b6834c1081d3d3805c0.CDKiRu_VCNR1dBVF3-l8EfsSBvtbYuQPHWFYHyXbIoI
     products-data-modeling-lineage-graph--full--light:
         hash: v1.k794b7964.3d2a0a0a6ff2a27f3f8d682857757695b61970b3bfdc3f50e7508c86257aa4ad.S_I2CjkAMi3HiNyo014ZRrZHZbcDaVTQwF4718lZNws
+    products-data-modeling-lineage-graph--loading--dark:
+        hash: v1.k794b7964.37e743bd1659c207ae6da2e71d236547305a9956ac742799d8de1016d6136129.v6YYaaPBVxDTr4p6vGmQxUR35EzxaX_KryIe6cPHeHI
+    products-data-modeling-lineage-graph--loading--light:
+        hash: v1.k794b7964.799b736f8dfed7d406019308f305b3ce63ff6da574ebdad87d991d3c7bdb654d.H1HIvMH-fmzpbbYKKK3eJ1QhnHzPFV1Rifb2eIqRKUA
+    products-data-modeling-lineage-graph--loading-dark-mode--dark:
+        hash: v1.k794b7964.b4b4e7958ad0e3a27afee43b9617d7885fd4e02bc2edff68bc05598297159ef2.0AecY87D9zDsi6MBje5iYOSAbVAGSIkcJ8QZRH6V21Y
+    products-data-modeling-lineage-graph--loading-dark-mode--light:
+        hash: v1.k794b7964.9db1ad5713b6cdd0b0410f1c7859bee92d885c48f3400611673b50d0cfbdbe43.kR2brmUL-KkueOC8D8pqWJ9bzuTAVJrhRTxuC4fncJ4
+    products-data-modeling-lineage-graph--loading-focused--dark:
+        hash: v1.k794b7964.5c5253d7f45ff64b2a7de267d7f216b5dfbc6cebf566c64bb2804a15d49f6877.jipTXPSFWSQEENdldM5M1jViiEaBSPmHfbpMf8M_nx8
+    products-data-modeling-lineage-graph--loading-focused--light:
+        hash: v1.k794b7964.fe8f51a186a08326e770d97862c7f3edf4fa0d3bc477a9082be1db3bf6a36d24.1sIg57c84D-amSb_6VRD1ySV2WN-HbaeEToOy-e9YuM
     products-data-modeling-lineage-graph--search-focus--dark:
         hash: v1.k794b7964.b4d9053ce873f58fd7242899886a9732c0daaa37eefe75fdf02b157608030db0.ZZPDrU7QcCWBEqceYc4pO5Xh6UHGMhyDXx_fN8UpsCg
     products-data-modeling-lineage-graph--search-focus--light:
