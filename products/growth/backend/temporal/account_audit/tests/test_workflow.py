@@ -258,7 +258,15 @@ class TestStartAccountAuditActivity(SimpleTestCase):
                 )
             create_task.assert_not_called()
 
-    def test_does_not_capture_when_the_notebook_is_missing(self) -> None:
+    @parameterized.expand(
+        [
+            (None,),
+            ({"type": "doc", "content": []},),
+            ({"type": "doc", "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Account audit"}}]},),
+            ({"type": "ph-markdown-notebook", "attrs": {"markdown": "Findings."}},),
+        ]
+    )
+    def test_does_not_capture_when_the_notebook_has_no_document_body(self, content: dict[str, object] | None) -> None:
         now = timezone.now()
         run = SimpleNamespace(
             status="completed",
@@ -275,7 +283,7 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             ),
             patch(
                 "products.growth.backend.temporal.account_audit.activities.notebooks_facade.get_notebook",
-                return_value=None,
+                return_value=SimpleNamespace(created_by_id=5, content=content) if content is not None else None,
             ),
             patch("products.growth.backend.temporal.account_audit.activities.ph_scoped_capture") as scoped_capture,
         ):
@@ -307,7 +315,16 @@ class TestStartAccountAuditActivity(SimpleTestCase):
             short_id="audit123",
             created_by_id=5,
             created_at=now + timedelta(seconds=1),
-            text_content="# Account audit\n\nFindings and next steps.",
+            text_content="",
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {"markdown": "# Account audit\n\nFindings and next steps."},
+                    }
+                ],
+            },
         )
         team = SimpleNamespace(id=4, organization=SimpleNamespace(is_ai_data_processing_approved=True))
         user = SimpleNamespace(distinct_id="user-5")

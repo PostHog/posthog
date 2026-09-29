@@ -18,6 +18,7 @@ from posthog.utils import absolute_uri, get_instance_region
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade import api as notebooks_facade
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown
 from products.skills.backend.facade import api as skills_facade
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_cost
@@ -189,7 +190,8 @@ def finish_account_audit_activity(input: AccountAuditFinishInput) -> str:
         notebook is None
         or notebook.created_by_id != input.user_id
         or not any(
-            line.strip() and not line.lstrip().startswith("#") for line in (notebook.text_content or "").splitlines()
+            line.strip() and not line.lstrip().startswith("#")
+            for line in convert_notebook_content_to_markdown(notebook.content).splitlines()
         )
     ):
         raise RuntimeError("Account audit notebook could not be verified")
