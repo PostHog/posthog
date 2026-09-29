@@ -3,8 +3,8 @@ import uuid
 import pytest
 from posthog.test.base import BaseTest
 
+from products.experiments.backend.metric_resolution import find_metric_dict, iter_metric_dicts
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict, iter_metric_dicts
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
