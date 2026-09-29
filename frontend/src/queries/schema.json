@@ -603,6 +603,19 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AccountsTablePropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyFilter"
+                }
+            ]
+        },
         "AccountsTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -610,6 +623,16 @@
                     "description": "Columns to load for each account. Account identity fields are always returned.",
                     "items": {
                         "$ref": "#/definitions/AccountsTableColumn"
+                    },
+                    "type": "array"
+                },
+                "filterGroups": {
+                    "description": "Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply.",
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/AccountsTablePropertyFilter"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },

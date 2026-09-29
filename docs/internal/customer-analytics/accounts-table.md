@@ -10,6 +10,9 @@ Other query types keep their existing global or scene-specific concurrency limit
 
 The Accounts list keeps unsaved filters when a user opens an account and returns to the list.
 The draft includes search, tags, assignment filters, account property and relationship filters, and the selected overview tile filter.
+Account property, relationship, and custom-property filters can be placed in OR groups.
+Filters within each group use AND, while search, tags, assignment status, and selected overview tile filters apply to every group.
+Saved views and shared links keep the groups; older views without groups retain their AND behavior.
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
 
 The browser stores one draft per project and user in `sessionStorage`.

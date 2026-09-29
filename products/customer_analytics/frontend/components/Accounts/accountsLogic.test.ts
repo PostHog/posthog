@@ -412,6 +412,7 @@ describe('accountsLogic', () => {
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
+                filterGroups: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},
@@ -1108,6 +1109,24 @@ describe('accountsLogic', () => {
                         tags: ['enterprise'],
                         assignedTo: [7],
                         columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                        customProperties: [
+                            {
+                                type: PropertyFilterType.Account,
+                                key: AccountsTableAccountField.Name,
+                                operator: PropertyOperator.IsSet,
+                                value: null,
+                            },
+                        ],
+                        filterGroups: [
+                            [
+                                {
+                                    type: PropertyFilterType.Account,
+                                    key: AccountsTableAccountField.ExternalId,
+                                    operator: PropertyOperator.IsSet,
+                                    value: null,
+                                },
+                            ],
+                        ],
                     },
                 }
             )
@@ -1123,6 +1142,10 @@ describe('accountsLogic', () => {
                 { kind: 'search', query: 'acme' },
                 { kind: 'tags', tagNames: ['enterprise'] },
                 { kind: 'assigned_to', userIds: [7] },
+            ])
+            expect(source.filterGroups).toEqual([
+                [{ kind: 'account_field', field: 'name', operator: 'is_set', values: [] }],
+                [{ kind: 'account_field', field: 'external_id', operator: 'is_set', values: [] }],
             ])
         })
 
