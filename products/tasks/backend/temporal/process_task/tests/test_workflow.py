@@ -34,7 +34,10 @@ from products.tasks.backend.temporal.constants import (
     SANDBOX_TTL_SNAPSHOT_LEAD,
     WARM_IDLE_TIMEOUT,
 )
-from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
+from products.tasks.backend.temporal.process_task import (
+    credential_refresh as credential_refresh_module,
+    workflow as process_task_workflow_module,
+)
 from products.tasks.backend.temporal.process_task.activities import (
     STEER_DECLINED_OUTCOME,
     CleanupSandboxInput,
@@ -72,6 +75,11 @@ from products.tasks.backend.temporal.process_task.activities import (
 )
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
+    RefreshSandboxCredentialsInput,
+    RefreshSandboxCredentialsOutput,
+    refresh_sandbox_credentials,
+)
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -239,10 +247,19 @@ class TestProcessTaskWorkflow:
         signal_status: str = "completed",
         signal_error: str | None = None,
         create_pr: bool = True,
+        cancel_during_refresh: bool = False,
     ) -> ProcessTaskOutput:
         workflow_id = str(uuid.uuid4())
         workflow_input = ProcessTaskInput(run_id=str(run_id), create_pr=create_pr)
         ready = asyncio.Event()
+        refresh_started = asyncio.Event()
+
+        @activity.defn(name="refresh_sandbox_credentials")
+        async def refresh_and_observe(input: RefreshSandboxCredentialsInput) -> RefreshSandboxCredentialsOutput:
+            if cancel_during_refresh:
+                refresh_started.set()
+                await asyncio.Future()
+            return await refresh_sandbox_credentials(input)
 
         @activity.defn(name="start_agent_server")
         async def start_and_observe(input: StartAgentServerInput) -> StartAgentServerOutput:
@@ -278,6 +295,7 @@ class TestProcessTaskWorkflow:
                     complete_run_stream,
                     track_workflow_event,
                     update_task_run_status,
+                    refresh_and_observe,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -301,13 +319,17 @@ class TestProcessTaskWorkflow:
                 if result_task in done:
                     raise AssertionError(f"Workflow finished before completion signal: {result_task.result()}")
                 assert ready_task in done, "Agent did not become ready"
+                if cancel_during_refresh:
+                    await asyncio.wait_for(refresh_started.wait(), timeout=30)
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=[signal_status, signal_error])
-                result = await result_task
+                result = await asyncio.wait_for(asyncio.shield(result_task), timeout=60)
             finally:
                 ready_task.cancel()
                 await asyncio.gather(ready_task, return_exceptions=True)
                 if not result_task.done():
                     await handle.cancel()
+                    await asyncio.wait({result_task}, timeout=30)
+                    result_task.cancel()
                     await asyncio.gather(result_task, return_exceptions=True)
 
         return result
@@ -338,15 +360,32 @@ class TestProcessTaskWorkflow:
             if sandbox:
                 sandbox.destroy()
 
-    @pytest.mark.parametrize("signal_status,signal_error", [("completed", None), ("failed", "Test error")])
+    @pytest.mark.parametrize(
+        "signal_status,signal_error,cancel_during_refresh",
+        [("completed", None, False), ("failed", "Test error", False), ("completed", None, True)],
+    )
     async def test_workflow_starts_agent_handles_signal_and_cleans_up(
-        self, test_task_run, github_integration, sandbox_task_api, assert_sandbox_shutdown, signal_status, signal_error
+        self,
+        test_task_run,
+        github_integration,
+        sandbox_task_api,
+        assert_sandbox_shutdown,
+        signal_status,
+        signal_error,
+        cancel_during_refresh,
+        monkeypatch,
     ):
+        if cancel_during_refresh:
+            monkeypatch.setattr(credential_refresh_module, "CREDENTIAL_REFRESH_INITIAL_DELAY", timedelta(seconds=0))
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
             result = await self._run_workflow_with_signal(
-                test_task_run.id, sandbox_task_api, signal_status, signal_error
+                test_task_run.id,
+                sandbox_task_api,
+                signal_status,
+                signal_error,
+                cancel_during_refresh=cancel_during_refresh,
             )
 
             assert result.success is True

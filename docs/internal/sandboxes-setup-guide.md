@@ -103,6 +103,9 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
+Other refresh failures retry on the default cadence.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
