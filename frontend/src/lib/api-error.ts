@@ -162,6 +162,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 403 with no JSON body — DRF always sends `detail` and `code` with its 403s, so a refusal without
+ *   them comes from something in front of PostHog, such as a reverse proxy, WAF, or CDN. There is no
+ *   code of ours to fix, and `client_request_failure` still records the status and pathname.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
@@ -214,6 +217,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 403 && failure.code == null && failure.data == null) {
         return false
     }
     return !isApprovalRequiredError(failure)

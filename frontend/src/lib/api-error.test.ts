@@ -102,7 +102,9 @@ describe('api-error', () => {
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
-            ['a 403 with no code', { status: 403 }, true],
+            ['a 403 with a body but no code', { status: 403, data: { detail: 'Nope.' } }, true],
+            // DRF always sends a JSON body with a 403, so one without it came from a proxy or WAF.
+            ['a 403 with no body', { status: 403, data: null }, false],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
@@ -160,6 +162,15 @@ describe('api-error', () => {
         it('reads the code off a constructed ApiError', async () => {
             const body = { detail: "You don't have access to the project.", code: 'permission_denied' }
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
+
+            expect(shouldReportApiFailure(error)).toBe(false)
+        })
+
+        it.each([
+            ['an empty body', ''],
+            ['an HTML error page', '<html><body>403 Forbidden</body></html>'],
+        ])('does not report a proxy 403 with %s', async (_, body) => {
+            const error = await ApiError.fromResponse(new Response(body, { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
         })
