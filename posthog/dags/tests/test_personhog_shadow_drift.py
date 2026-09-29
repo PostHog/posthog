@@ -129,10 +129,12 @@ def test_drift_gauges_keep_each_count_under_its_own_name_and_category() -> None:
     ]
     registry = CollectorRegistry()
 
-    record_drift_gauges(registry, reports, completed_at=1_700_000_000.0)
+    record_drift_gauges(registry, "PERSONS_SHADOW_DB_URL", reports, completed_at=1_700_000_000.0)
 
     def sample(name: str, **labels: str) -> float | None:
-        return registry.get_sample_value(f"posthog_personhog_shadow_lane_drift_{name}", labels)
+        return registry.get_sample_value(
+            f"posthog_personhog_shadow_lane_drift_{name}", {"database": "PERSONS_SHADOW_DB_URL", **labels}
+        )
 
     assert {
         name: sample(name, category="persons")

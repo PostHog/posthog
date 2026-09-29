@@ -332,21 +332,23 @@ def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConf
     Gauge(
         "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
         "Unix time when the shadow lane last started with every replica ready",
+        ["namespace"],
         registry=registry,
-    ).set(completed_at)
+    ).labels(namespace=config.namespace).set(completed_at)
     Gauge(
         "posthog_personhog_shadow_lane_start_reset_state",
         "1 when the last start truncated the shadow persons database first, 0 when it resumed from existing state",
+        ["namespace"],
         registry=registry,
-    ).set(1 if config.reset_state else 0)
+    ).labels(namespace=config.namespace).set(1 if config.reset_state else 0)
     replicas = Gauge(
         "posthog_personhog_shadow_lane_start_replicas",
         "Replicas the last start requested, by deployment",
-        ["deployment"],
+        ["namespace", "deployment"],
         registry=registry,
     )
-    replicas.labels(deployment=config.consumer_deployment).set(config.consumer_replicas)
-    replicas.labels(deployment=config.processor_deployment).set(config.processor_replicas)
+    replicas.labels(namespace=config.namespace, deployment=config.consumer_deployment).set(config.consumer_replicas)
+    replicas.labels(namespace=config.namespace, deployment=config.processor_deployment).set(config.processor_replicas)
 
 
 @dagster.op
@@ -383,7 +385,7 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
             )
         )
 
-    with pushed_metrics_registry(START_METRICS_JOB) as registry:
+    with pushed_metrics_registry(f"{START_METRICS_JOB}_{config.namespace}") as registry:
         record_start_gauges(registry, config, time.time())
 
     context.add_output_metadata(
