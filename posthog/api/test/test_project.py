@@ -11,7 +11,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
-from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team import TeamCustomerAnalyticsConfigSerializer, TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -896,30 +896,47 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIsNotNone(settings.get("widget_public_token"))
         self.assertGreater(len(settings["widget_public_token"]), 20)
 
-    @parameterized.expand([(False,), (True,)])
-    def test_conversations_settings_preserve_managed_values(self, include_enabled: bool) -> None:
+    @parameterized.expand(
+        [(False, False, False), (True, False, False), (False, True, False), (True, True, False), (False, True, True)]
+    )
+    def test_conversations_settings_preserve_managed_values(
+        self, include_enabled: bool, clear_settings: bool, use_team_serializer: bool
+    ) -> None:
         managed = {
             "widget_public_token": "test-server-generated-token",
             "slack_bot_token": "test-server-managed-token",
-            "slack_enabled": True,
-            "teams_tenant_id": "test-server-managed-tenant",
+            "slack_team_id": "test-slack-team",
+            "slack_enabled": False,
+            "slack_scopes": "test-scope",
+            "teams_enabled": False,
+            "teams_tenant_id": None,
+            "teams_team_id": "test-team",
+            "teams_team_name": "Test team",
+            "teams_channel_id": "test-channel",
+            "teams_channel_name": "Test channel",
+            "teams_channels": [],
             "email_enabled": True,
         }
         self.team.conversations_enabled = True
-        self.team.conversations_settings = managed
+        self.team.conversations_settings = {**managed, "widget_color": "#123456"}
         self.team.save()
-        payload: dict[str, dict[str, str] | bool] = {
-            "conversations_settings": dict.fromkeys(managed, "test-client-value")
+        payload: dict[str, dict[str, str] | bool | None] = {
+            "conversations_settings": None if clear_settings else dict.fromkeys(managed, "test-client-value")
         }
         if include_enabled:
             payload["conversations_enabled"] = True
 
-        response = self.client.patch(f"/api/projects/{self.project.id}/", payload, format="json")
+        if use_team_serializer:
+            request = APIRequestFactory().patch("/", payload, format="json")
+            request.user = self.user
+            TeamSerializer(context={"request": request}).update(self.team, payload)
+        else:
+            response = self.client.patch(f"/api/projects/{self.project.id}/", payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.team.refresh_from_db()
-        for key, value in managed.items():
-            self.assertEqual(self.team.conversations_settings[key], value)
+        expected = managed if clear_settings else {**managed, "widget_color": "#123456"}
+        self.assertEqual(self.team.conversations_settings, expected)
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

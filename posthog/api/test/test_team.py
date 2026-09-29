@@ -24,6 +24,8 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
+    handle_conversations_token_on_update,
+    merge_conversations_settings,
 )
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -4003,6 +4005,49 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
+    def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
+        self.assertIsNone(merge_conversations_settings(None, existing))
+
+    @parameterized.expand([(enabling, has_token) for enabling in (False, True) for has_token in (False, True)])
+    def test_conversations_clear_retains_integration_state_on_toggle(self, enabling: bool, has_token: bool) -> None:
+        current: dict[str, object] = {
+            "widget_color": "#123456",
+            "slack_enabled": False,
+            "teams_tenant_id": None,
+        }
+        if has_token:
+            current["widget_public_token"] = "test-existing-token"
+        updates = {
+            "conversations_enabled": enabling,
+            "conversations_settings": merge_conversations_settings(None, current),
+        }
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current)
+
+        token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
+        self.assertEqual(
+            result["conversations_settings"],
+            {"slack_enabled": False, "teams_tenant_id": None, "widget_public_token": token},
+        )
+
+    @parameterized.expand(
+        [(enabling, settings_input) for enabling in (False, True) for settings_input in ("omitted", "null", "empty")]
+    )
+    def test_conversations_token_update_respects_cleared_settings(self, enabling: bool, settings_input: str) -> None:
+        current_settings = {"widget_color": "#123456"}
+        updates: dict[str, object] = {"conversations_enabled": enabling}
+        if settings_input != "omitted":
+            updates["conversations_settings"] = None if settings_input == "null" else {}
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current_settings)
+
+        expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
+        expected["widget_public_token"] = "test-generated-token" if enabling else None
+        self.assertEqual(result["conversations_settings"], expected)
+
     @parameterized.expand(
         [
             (serializer, value)

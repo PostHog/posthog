@@ -53,6 +53,7 @@ from posthog.api.team import (
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
+    merge_conversations_settings,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
@@ -1292,10 +1293,10 @@ class ProjectBackwardCompatSerializer(
             }
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = team.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+        if "conversations_settings" in validated_data:
+            validated_data["conversations_settings"] = merge_conversations_settings(
+                validated_data["conversations_settings"], team.conversations_settings
+            )
 
         validated_data = handle_conversations_token_on_update(
             validated_data, team.conversations_enabled, team.conversations_settings

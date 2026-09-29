@@ -2281,10 +2281,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = instance.conversations_settings or {}
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+        if "conversations_settings" in validated_data:
+            validated_data["conversations_settings"] = merge_conversations_settings(
+                validated_data["conversations_settings"], instance.conversations_settings
+            )
 
         validated_data = handle_conversations_token_on_update(
             validated_data, instance.conversations_enabled, instance.conversations_settings
@@ -3137,28 +3137,39 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
         report_user_action(user, "support setting changed", properties, team=team)
 
 
+MANAGED_CONVERSATIONS_SETTINGS = (
+    # Strip widget_public_token from user input - it's auto-generated only
+    "widget_public_token",
+    # Integration state is managed only by dedicated endpoints, not user input
+    "slack_bot_token",
+    "slack_team_id",
+    "slack_enabled",
+    "slack_scopes",
+    "email_enabled",
+    "teams_enabled",
+    "teams_tenant_id",
+    "teams_team_id",
+    "teams_team_name",
+    "teams_channel_id",
+    "teams_channel_name",
+    "teams_channels",
+)
+
+
 def strip_managed_conversations_settings(value: dict[str, Any]) -> None:
     if not isinstance(value, dict):
         raise serializers.ValidationError("Conversation settings must be an object or null.")
-    # Strip widget_public_token from user input - it's auto-generated only
-    if "widget_public_token" in value:
-        value.pop("widget_public_token")
-    # Integration state is managed only by dedicated endpoints, not user input
-    for managed_key in (
-        "slack_bot_token",
-        "slack_team_id",
-        "slack_enabled",
-        "slack_scopes",
-        "email_enabled",
-        "teams_enabled",
-        "teams_tenant_id",
-        "teams_team_id",
-        "teams_team_name",
-        "teams_channel_id",
-        "teams_channel_name",
-        "teams_channels",
-    ):
+    for managed_key in MANAGED_CONVERSATIONS_SETTINGS:
         value.pop(managed_key, None)
+
+
+def merge_conversations_settings(
+    value: dict[str, Any] | None, existing: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    existing = existing or {}
+    if value is None:
+        return {key: existing[key] for key in MANAGED_CONVERSATIONS_SETTINGS if key in existing} or None
+    return {**existing, **value}
 
 
 def handle_conversations_token_on_update(
@@ -3177,11 +3188,11 @@ def handle_conversations_token_on_update(
         # Check if token already exists in current DB state (not user input, which is stripped)
         has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings = dict(validated_data.get("conversations_settings", current_conversations_settings) or {})
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings = dict(validated_data.get("conversations_settings", current_conversations_settings) or {})
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 
