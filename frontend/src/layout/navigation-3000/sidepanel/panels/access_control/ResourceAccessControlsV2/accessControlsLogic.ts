@@ -38,7 +38,8 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import type { ScopeObjectEnumApi } from '../../../../../../../../products/access_control/frontend/generated/api.schemas'
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { AccessControlUIVersion } from '../../../../../../lib/utils/accessControlUtils'
 import type { AccessControlResponseType, AccessControlUpdateType, RoleType } from '../../../../../../types'

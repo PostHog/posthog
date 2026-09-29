@@ -13,8 +13,8 @@ import {
     propertyAccessControlsDestroy,
 } from 'products/access_control/frontend/generated/api'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-import type { ScopeObjectEnumApi } from '../../../../../../../../products/access_control/frontend/generated/api.schemas'
 import type { ScopeType } from './types'
 
 /** A member or role whose access detail panel is open. The 'default' scope has no panel of its own. */

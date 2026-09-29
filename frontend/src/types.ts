@@ -5865,7 +5865,8 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Every grantable scope object, generated from posthog/scopes.py through the access control API.
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// through the `resource` choice fields of the access control serializers.
 export type APIScopeObject = ScopeObjectEnumApi
 
 export type APIScopeAction = 'read' | 'write'

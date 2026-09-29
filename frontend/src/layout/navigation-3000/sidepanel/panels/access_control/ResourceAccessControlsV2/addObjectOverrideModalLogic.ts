@@ -21,7 +21,8 @@ import api from 'lib/api'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import type { ScopeObjectEnumApi } from '../../../../../../../../products/access_control/frontend/generated/api.schemas'
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
 import type { ObjectRuleResource } from '../../../../../../types'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessObjectRule, accessDetailLogic, parseObjectRuleUrl } from './accessDetailLogic'

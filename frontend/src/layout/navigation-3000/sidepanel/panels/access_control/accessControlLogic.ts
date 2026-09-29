@@ -27,6 +27,8 @@ import {
     RoleType,
 } from '~/types'
 
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
 import type { GuardAvailableFeatureFn } from '../../../../../lib/components/UpgradeModal/upgradeModalLogic'
 import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
@@ -207,17 +209,9 @@ export interface accessControlLogicActions {
 export interface accessControlLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        resource: (
-            resource: import('products/access_control/frontend/generated/api.schemas').ScopeObjectEnumApi
-        ) => ScopeObjectEnumApi
-        endpoint: (
-            currentProjectId: number | string,
-            resource: import('products/access_control/frontend/generated/api.schemas').ScopeObjectEnumApi,
-            resource_id: string
-        ) => string
-        humanReadableResource: (
-            resource: import('products/access_control/frontend/generated/api.schemas').ScopeObjectEnumApi
-        ) => string
+        resource: (resource: ScopeObjectEnumApi) => ScopeObjectEnumApi
+        endpoint: (currentProjectId: number | string, resource: ScopeObjectEnumApi, resource_id: string) => string
+        humanReadableResource: (resource: ScopeObjectEnumApi) => string
         minimumAccessLevel: (accessControls: AccessControlResponseType | null) => AccessControlLevel | null
         availableLevelsWithNone: (accessControls: AccessControlResponseType | null) => AccessControlLevel[]
         availableLevels: (availableLevelsWithNone: AccessControlLevel[]) => AccessControlLevel[]

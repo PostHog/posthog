@@ -2,7 +2,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
-import type { ScopeObjectEnumApi } from '../../../../../../../../products/access_control/frontend/generated/api.schemas'
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
 import { accessControlsLogic } from './accessControlsLogic'
 import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource, inheritedReasonOf } from './helpers'
 import { FormAccessLevel, GroupedAccessControlRuleModalLogicProps } from './types'
