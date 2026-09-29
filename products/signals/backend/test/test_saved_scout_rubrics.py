@@ -109,26 +109,37 @@ class TestSavedScoutRubrics(SimpleTestCase):
         body = json.loads(request.content)
         self.requests.append(body)
         prompt = body["messages"][-1]["content"]
-        judging = prompt.startswith("Evaluate a saved scout execution")
+        judging = body["messages"][0]["content"].startswith("Evaluate one scout run")
         stage = "judge" if judging else "generation"
         if self.failure == f"{stage}_provider":
             return httpx.Response(503, json={"error": {"message": "Invented provider unavailable"}})
         if self.failure == f"{stage}_format":
             text = "Incomplete JSON: {"
         elif judging:
-            evidence = json.loads(prompt.rsplit("\n", 1)[1])
+            evidence = json.loads(prompt)
+            source = next(source for source in evidence["sources"] if EVALUATED_REPORT in source["text"])
+            rows = [
+                {
+                    "criterion_id": criterion["id"],
+                    "verdict": "pass",
+                    "reason": "The invented report names the delivery-date review.",
+                    "confidence": "high",
+                    "evidence": [{"source_id": source["id"], "quote": EVALUATED_REPORT}],
+                }
+                for criterion in evidence["criteria"]
+            ]
+            if self.failure == "judge_unknown":
+                for row in rows:
+                    row["evidence"] = [{"source_id": source["id"], "quote": "Invented absent quotation."}]
+            elif self.failure == "judge_partial":
+                for index, row in enumerate(rows):
+                    row["verdict"] = ["pass", "fail", "pass", "not_applicable"][min(index, 3)]
+                    if index == 2:
+                        row["evidence"] = [{"source_id": source["id"], "quote": "Invented absent quotation."}]
             text = json.dumps(
                 {
-                    "criteria": [
-                        {
-                            "id": criterion["id"],
-                            "applicability": "applicable",
-                            "status": "pass",
-                            "rationale": "The invented report names the delivery-date review.",
-                            "evidence": [{"source": "output", "pointer": "/summary", "quote": EVALUATED_REPORT}],
-                        }
-                        for criterion in evidence["rubric"]
-                    ]
+                    "summary": "The invented delivery report was evaluated against the fixed rubric.",
+                    "criteria": rows,
                 }
             )
         elif "Numbered draft criteria:\n" in prompt:
@@ -190,6 +201,7 @@ class TestSavedScoutRubrics(SimpleTestCase):
         self.assertEqual(score.score, 1.0)
         self.assertEqual(self.requests[-1]["model"], "different-judge")
         assert score.metadata is not None
+        self.assertEqual(score.metadata["coverage"], 1.0)
         path = Path(score.metadata["judgment_path"])
         sidecar = json.loads(path.read_text())
         self.assertEqual(sidecar["session_rubric_sha256"], rubric.sha256)
@@ -197,10 +209,17 @@ class TestSavedScoutRubrics(SimpleTestCase):
         judgment_metadata = output["rubric_judgment"]
         assert isinstance(judgment_metadata, dict)
         self.assertEqual(judgment_metadata["judgment_path"], str(path))
-        judge_input = json.loads(sidecar["model_response"]["prompt"].rsplit("\n", 1)[1])
-        self.assertEqual(judge_input["canonical_references"]["instructions"], CANONICAL_INSTRUCTIONS)
-        self.assertEqual(judge_input["canonical_references"]["reference_files"][0]["content"], CANONICAL_REFERENCE)
-        self.assertEqual(judge_input["output"]["instructions"], VARIANT_INSTRUCTIONS)
+        judge_input = json.loads(sidecar["model_response"]["prompt"])
+        self.assertEqual(judge_input["rubric_reference_context"]["instructions"], CANONICAL_INSTRUCTIONS)
+        self.assertEqual(judge_input["rubric_reference_context"]["reference_files"][0]["content"], CANONICAL_REFERENCE)
+        self.assertTrue(
+            any(
+                source["kind"] == "instructions"
+                and VARIANT_INSTRUCTIONS in source["text"]
+                and "output:/instructions" in sidecar["evidence"]["source_locations"][source["id"]]
+                for source in judge_input["sources"]
+            )
+        )
 
     @parameterized.expand(["completed", "execution_failed", "wrong_scout"])
     async def test_rejudging_preserves_saved_bytes_and_checks_result_identity(self, outcome: str) -> None:
@@ -239,7 +258,10 @@ class TestSavedScoutRubrics(SimpleTestCase):
             self.assertEqual(sidecar["source_result_path"], str(path))
             if outcome == "execution_failed":
                 self.assertEqual(judgment.execution_status, "failed")
-                self.assertTrue(all(row.status == "unknown" and row.score is None for row in judgment.criteria))
+                self.assertEqual(judgment.status, "excluded")
+                self.assertEqual(judgment.criteria, [])
+                self.assertIsNone(judgment.score)
+                self.assertIsNone(judgment.coverage)
                 self.assertEqual(len(self.requests), 2)
             else:
                 self.assertIsNone(judgment.error)
@@ -248,27 +270,61 @@ class TestSavedScoutRubrics(SimpleTestCase):
                 )
                 self.assertEqual(sidecar["model_response"]["requested_model"], "gpt-6-astra")
                 self.assertNotIn("old_verdict", sidecar["model_response"]["prompt"])
-                evidence = json.loads(sidecar["model_response"]["prompt"].rsplit("\n", 1)[1])
-                self.assertEqual(evidence["output"]["seed"]["target_cutoff"], target_cutoff)
-                self.assertEqual(
-                    evidence["output"]["seed"]["source_cutoff"], self.saved.manifest.source_cutoff.isoformat()
-                )
+                evidence = json.loads(sidecar["model_response"]["prompt"])
+                self.assertEqual(sidecar["evidence"]["output_sha256"], sidecar["output_sha256"])
+                for key, value in (
+                    ("target_cutoff", target_cutoff),
+                    ("source_cutoff", self.saved.manifest.source_cutoff.isoformat()),
+                ):
+                    self.assertTrue(
+                        any(
+                            value in item["text"]
+                            and any(
+                                location in ("output:/seed", f"output:/seed/{key}")
+                                for location in sidecar["evidence"]["source_locations"][item["id"]]
+                            )
+                            for item in evidence["sources"]
+                        )
+                    )
         self.assertEqual(path.read_bytes(), original)
 
-    @parameterized.expand(["judge_provider", "judge_format"])
-    async def test_failed_judging_writes_an_error_sidecar_without_a_passing_score(self, failure: str) -> None:
+    @parameterized.expand(
+        [
+            ("judge_provider", None, None),
+            ("judge_format", None, None),
+            ("judge_unknown", None, 0.0),
+            ("judge_partial", 0.5, 2 / 3),
+        ]
+    )
+    async def test_judging_separates_run_errors_from_unknown_quality(
+        self, failure: str, expected_score: float | None, expected_coverage: float | None
+    ) -> None:
         rubric = await self.pipeline.prepare()
         self.failure = failure
         scorer = SavedRubricScorer(self.pipeline, rubric)
         score = await scorer.eval_async(self._output())
 
-        self.assertIsNone(score.score)
-        self.assertTrue(scorer.errors)
+        self.assertEqual(score.score, expected_score)
         assert score.metadata is not None
+        self.assertEqual(score.metadata["coverage"], expected_coverage)
         sidecar = json.loads(Path(score.metadata["judgment_path"]).read_text())
-        self.assertTrue(sidecar["error"])
-        self.assertTrue(all(row["status"] == "error" and row["score"] is None for row in sidecar["criteria"]))
         self.assertEqual(sidecar["execution_status"], "completed")
+        self.assertEqual(len(self.requests), 3)
+        if failure in ("judge_provider", "judge_format"):
+            self.assertTrue(scorer.errors)
+            self.assertTrue(sidecar["error"])
+            self.assertEqual(sidecar["status"], "judge_error")
+            self.assertEqual(sidecar["criteria"], [])
+            self.assertEqual(score.metadata["criteria"], {})
+        else:
+            self.assertEqual(scorer.errors, [])
+            self.assertIsNone(sidecar["error"])
+            self.assertEqual(sidecar["status"], "judged")
+            expected = (
+                ["unknown"] * 7 if failure == "judge_unknown" else ["pass", "fail", "unknown", *["not_applicable"] * 4]
+            )
+            self.assertEqual([row["verdict"] for row in sidecar["criteria"]], expected)
+            self.assertEqual(list(score.metadata["criteria"].values()), expected)
 
     @parameterized.expand(["client_setup", "judgment_storage"])
     async def test_suite_fails_when_engine_retains_scorer_exception_separately(self, failure: str) -> None:

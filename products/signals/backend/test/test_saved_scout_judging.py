@@ -12,18 +12,25 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import httpx
-import jsonschema
 from openai import AsyncOpenAI
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
+from products.signals.backend.rubrics_judging import (
+    TrialEvaluationCriterion,
+    TrialEvidenceSource,
+    TrialJudgeVerdicts,
+    build_rubric_judge_messages,
+    coverage,
+    parse_trial_judgment,
+    pass_rate,
+)
+from products.signals.evals.agentic.rubric_evidence import build_offline_evidence
 from products.signals.evals.agentic.rubric_judge import (
-    STATE_REFERENCE_KEY,
-    TRANSCRIPT_REFERENCE_KEY,
+    DEFAULT_MAX_INPUT_BYTES,
+    DEFAULT_MAX_INPUT_TOKENS,
     PrivateRubricClient,
-    RubricJudgment,
     RubricModelResponse,
-    canonical_json,
     content_hash,
     judge_rubric,
 )
@@ -41,14 +48,22 @@ def criterion(criterion_id: str, *, enabled: bool = True) -> dict[str, object]:
     }
 
 
-def verdict(criterion_id: str, status: str = "pass") -> dict[str, object]:
+def verdict(criterion_id: str, status: str = "pass", *, source_id: str = "summary") -> dict[str, object]:
     return {
-        "id": criterion_id,
-        "applicability": "not_applicable" if status == "not_applicable" else "applicable",
-        "status": status,
-        "rationale": "The synthetic report states the observation.",
-        "evidence": [{"source": "output", "pointer": "/summary", "quote": "Invented report"}],
+        "criterion_id": criterion_id,
+        "verdict": status,
+        "reason": "The synthetic report states the observation.",
+        "confidence": "high",
+        "evidence": [{"source_id": source_id, "quote": "Invented report"}],
     }
+
+
+def model_response(rows: list[dict[str, object]]) -> RubricModelResponse:
+    return RubricModelResponse(
+        requested_model="invented-model",
+        text=json.dumps({"summary": "The invented evidence supports the listed conclusions.", "criteria": rows}),
+        finish_reason="stop",
+    )
 
 
 class TestSavedScoutJudgment(SimpleTestCase):
@@ -56,6 +71,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
         super().setUp()
         self.output: dict[str, object] = {
             "summary": "Invented report: no change in the demonstration metric.",
+            "prompt": "Invented report must describe the observed delivery count.",
             "raw_log": "invented transcript beginning\ncomplete invented transcript ending",
             "artifacts": {"task_run": {"status": "completed"}, "before": {"reports": []}},
         }
@@ -66,6 +82,12 @@ class TestSavedScoutJudgment(SimpleTestCase):
                 return_value=SimpleNamespace(encode=lambda text, **kwargs: text.split()),
             )
         )
+        self.evidence = build_offline_evidence(self.output)
+        self.summary_id = next(
+            source_id
+            for source_id, locations in self.evidence.source_locations.items()
+            if "output:/summary" in locations
+        )
 
     def test_module_import_does_not_initialize_django(self) -> None:
         subprocess.run(
@@ -73,6 +95,7 @@ class TestSavedScoutJudgment(SimpleTestCase):
                 sys.executable,
                 "-c",
                 "import sys; "
+                "import products.signals.backend.rubrics_judging; "
                 "import products.signals.evals.agentic.rubric_judge; "
                 "import products.signals.evals.saved_scout; "
                 "assert 'django.db.models' not in sys.modules",
@@ -83,357 +106,170 @@ class TestSavedScoutJudgment(SimpleTestCase):
             cwd=Path(__file__).resolve().parents[4],
         )
 
-    async def test_judges_all_enabled_criteria_once_with_complete_evidence_and_separate_scores(self) -> None:
+    async def test_recorded_response_matches_shared_verdicts_scores_and_coverage(self) -> None:
         statuses = ["pass", "fail", "unknown", "not_applicable"]
         criteria = [criterion(status) for status in statuses] + [criterion("disabled", enabled=False)]
-        ask = AsyncMock(
-            return_value=RubricModelResponse(
-                requested_model="invented-model",
-                text=json.dumps({"criteria": [verdict(status, status) for status in reversed(statuses)]}),
-            )
-        )
+        response = model_response([verdict(status, status, source_id=self.summary_id) for status in reversed(statuses)])
+        ask = AsyncMock(return_value=response)
+        original = copy.deepcopy(self.output)
 
         result = await judge_rubric(self.output, criteria, self.references, ask)
 
-        self.assertEqual([row.status for row in result.criteria], statuses)
-        self.assertEqual([row.score for row in result.criteria], [1.0, 0.0, None, None])
-        self.assertEqual(result.execution_status, "completed")
-        self.assertIsNone(result.error)
+        assert ask.await_args is not None
+        messages = ask.await_args.args[0]
+        envelope = json.loads(messages[-1]["content"])
+        shared = parse_trial_judgment(
+            response.text,
+            criteria=[TrialEvaluationCriterion.model_validate(row) for row in envelope["criteria"]],
+            sources=[TrialEvidenceSource.model_validate(row) for row in envelope["sources"]],
+        )
+        self.assertEqual(result.status, "judged")
+        self.assertEqual(result.criteria, shared.criteria)
+        self.assertEqual([row.verdict for row in result.criteria], statuses)
+        self.assertEqual(result.score, pass_rate(shared.criteria))
+        self.assertEqual(result.coverage, coverage(shared.criteria))
+        self.assertEqual((result.score, result.coverage), (0.5, 2 / 3))
+        self.assertEqual(result.request_messages, messages)
+        self.assertEqual(result.messages_sha256, content_hash(messages))
+        self.assertEqual(result.judge_prompt_version, "7")
         self.assertEqual(result.disabled_criterion_ids, ["disabled"])
         self.assertEqual(result.output_sha256, content_hash(self.output))
         self.assertEqual(result.rubric_sha256, content_hash(criteria))
         self.assertEqual(result.reference_sha256, content_hash(self.references))
-        legacy = RubricJudgment.model_validate(result.model_dump(exclude={"transcript_references", "model_attempts"}))
-        self.assertEqual(legacy.transcript_references, {})
-        self.assertEqual(legacy.model_attempts, [])
-        self.assertEqual(len(result.model_attempts), 1)
-        ask.assert_awaited_once()
-        prompt = ask.call_args.args[0]
-        self.assertIn("complete invented transcript ending", prompt)
-        self.assertIn(str(self.references["instructions"]), prompt)
-        self.assertNotIn('"id":"disabled"', prompt)
-
-    @parameterized.expand(
-        [
-            "missing",
-            "duplicate",
-            "extra",
-            "invalid_json",
-            "wrong_quote",
-            "missing_pointer",
-            "contradiction",
-            "truncated",
-            "model_error",
-            "timeout",
-            "empty_rationale",
-        ]
-    )
-    async def test_rejects_incomplete_or_unsupported_judgments(self, failure: str) -> None:
-        rows = [verdict("first"), verdict("second")]
-        finish_reason = "stop"
-        if failure == "missing":
-            rows.pop()
-        elif failure == "duplicate":
-            rows[1] = verdict("first")
-        elif failure == "extra":
-            rows.append(verdict("extra"))
-        elif failure == "wrong_quote":
-            rows[0]["evidence"] = [{"source": "output", "pointer": "/summary", "quote": "Fabricated quotation"}]
-        elif failure == "missing_pointer":
-            rows[0]["evidence"] = [{"source": "output", "pointer": "/missing", "quote": "Invented report"}]
-        elif failure == "contradiction":
-            rows[0]["applicability"] = "not_applicable"
-        elif failure == "truncated":
-            finish_reason = "length"
-        elif failure == "empty_rationale":
-            rows[0]["rationale"] = "   "
-        ask = AsyncMock(
-            return_value=RubricModelResponse(
-                requested_model="invented-model",
-                text="not json" if failure == "invalid_json" else json.dumps({"criteria": rows}),
-                finish_reason=finish_reason,
-                error="Synthetic provider error" if failure in ("model_error", "timeout") else None,
-                error_type="TimeoutError" if failure == "timeout" else None,
-            )
-        )
-
-        result = await judge_rubric(self.output, [criterion("first"), criterion("second")], self.references, ask)
-
-        self.assertTrue(result.error)
-        self.assertEqual([row.status for row in result.criteria], ["error", "error"])
-        self.assertEqual([row.score for row in result.criteria], [None, None])
-        self.assertIsNotNone(result.model_response)
-        self.assertEqual(result.execution_status, "completed")
-        expected_attempts = 1 if failure in ("model_error", "timeout", "truncated") else 2
-        self.assertEqual(ask.await_count, expected_attempts)
-        self.assertEqual(len(result.model_attempts), expected_attempts)
-        self.assertEqual(result.model_response, result.model_attempts[-1].response)
-
-    async def test_corrects_all_validation_errors_once_with_unchanged_evidence_and_retained_attempts(self) -> None:
-        invalid = verdict("first")
-        invalid["evidence"] = [
-            {"source": "output", "pointer": "/missing", "quote": "Invented report"},
-            {"source": "output", "pointer": "/summary", "quote": "Fabricated quotation"},
-        ]
-        first = RubricModelResponse(
-            requested_model="invented-model",
-            text=json.dumps({"criteria": [invalid, verdict("first"), verdict("unexpected")]}),
-            finish_reason="stop",
-        )
-        corrected = RubricModelResponse(
-            requested_model="invented-model",
-            text=json.dumps({"criteria": [verdict("first"), verdict("second")]}),
-            finish_reason="stop",
-        )
-        ask = AsyncMock(side_effect=[first, corrected])
-        original = copy.deepcopy(self.output)
-
-        result = await judge_rubric(self.output, [criterion("first"), criterion("second")], self.references, ask)
-
-        self.assertIsNone(result.error)
-        self.assertEqual([row.status for row in result.criteria], ["pass", "pass"])
-        self.assertEqual(ask.await_count, 2)
-        self.assertEqual([attempt.response for attempt in result.model_attempts], [first, corrected])
-        self.assertEqual(result.model_response, corrected)
-        issues = result.model_attempts[0].validation_errors
-        self.assertEqual(len(issues), 5)
-        for diagnostic in ("Missing", "Unexpected", "Duplicate", "/missing", "not literal"):
-            self.assertTrue(any(diagnostic in issue for issue in issues), diagnostic)
-        self.assertEqual(result.model_attempts[1].validation_errors, [])
-        prompts = [call.args[0] for call in ask.await_args_list]
-        self.assertEqual(prompts[0].rsplit("\n", 1)[1], prompts[1].rsplit("\n", 1)[1])
-        correction = json.loads(prompts[1].rsplit("\n", 2)[1])
-        self.assertEqual(correction, {"previous_response": first.text, "validation_errors": issues})
-        self.assertEqual(result.request_prompt, prompts[1])
-        self.assertEqual(result.input_bytes, result.model_attempts[1].input_bytes)
-        self.assertEqual(result.input_tokens, result.model_attempts[1].input_tokens)
+        self.assertEqual(envelope["rubric_reference_context"], self.references)
+        self.assertEqual(result.model_response, response)
         self.assertEqual(self.output, original)
+        ask.assert_awaited_once()
 
-    @parameterized.expand(["bytes", "tokens"])
-    async def test_correction_obeys_input_guards_without_a_second_model_call(self, limit: str) -> None:
-        valid = RubricModelResponse(
-            requested_model="invented-model", text=json.dumps({"criteria": [verdict("check")]}), finish_reason="stop"
-        )
-        baseline = await judge_rubric(self.output, [criterion("check")], self.references, AsyncMock(return_value=valid))
-        assert baseline.input_tokens is not None
-        invalid = verdict("check")
-        invalid["evidence"] = [{"source": "output", "pointer": "/missing", "quote": "Invented report"}]
-        response = valid.model_copy(update={"text": json.dumps({"criteria": [invalid]})})
+    @parameterized.expand(["nonliteral", "instruction_only", "reference_is_not_execution"])
+    async def test_invalid_citation_preserves_other_verdicts_without_retry(self, failure: str) -> None:
+        unsupported = verdict("unsupported", source_id=self.summary_id)
+        if failure == "instruction_only":
+            source_id = next(source.id for source in self.evidence.sources if source.kind == "instructions")
+            unsupported["evidence"] = [{"source_id": source_id, "quote": "Invented report"}]
+        elif failure == "reference_is_not_execution":
+            unsupported["evidence"] = [{"source_id": "rubric_reference_context", "quote": "Report material changes"}]
+        else:
+            unsupported["evidence"] = [{"source_id": self.summary_id, "quote": "Text absent from this source"}]
+        response = model_response([verdict("supported", source_id=self.summary_id), unsupported])
         ask = AsyncMock(return_value=response)
 
+        result = await judge_rubric(
+            self.output, [criterion("supported"), criterion("unsupported")], self.references, ask
+        )
+
+        self.assertEqual(result.status, "judged")
+        self.assertEqual([row.verdict for row in result.criteria], ["pass", "unknown"])
+        self.assertEqual(result.criteria[1].confidence, "low")
+        self.assertEqual((result.score, result.coverage), (1.0, 0.5))
+        self.assertEqual(result.model_response, response)
+        self.assertIsNone(result.error)
+        ask.assert_awaited_once()
+
+    @parameterized.expand(["malformed", "missing", "duplicate", "provider", "exception", "truncated", "missing_finish"])
+    async def test_judge_failure_has_no_quality_verdicts_or_retry(self, failure: str) -> None:
+        row = verdict("check", source_id=self.summary_id)
+        response = model_response([row])
+        if failure == "malformed":
+            response = response.model_copy(update={"text": "Incomplete JSON: {"})
+        elif failure == "missing":
+            response = model_response([verdict("another", source_id=self.summary_id)])
+        elif failure == "duplicate":
+            response = model_response([row, row])
+        elif failure == "provider":
+            response = response.model_copy(update={"error": "Invented provider unavailable", "error_type": "Provider"})
+        elif failure in {"truncated", "missing_finish"}:
+            response = response.model_copy(update={"finish_reason": "length" if failure == "truncated" else None})
+        ask = AsyncMock(return_value=response)
+        if failure == "exception":
+            ask.side_effect = TimeoutError("Invented timeout")
+
+        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
+
+        self.assertEqual(result.status, "judge_error")
+        self.assertEqual(result.criteria, [])
+        self.assertIsNone(result.score)
+        self.assertIsNone(result.coverage)
+        self.assertTrue(result.error)
+        self.assertEqual(result.model_response, None if failure == "exception" else response)
+        ask.assert_awaited_once()
+
+    @parameterized.expand(["bytes", "tokens"])
+    async def test_oversized_evidence_is_retained_without_calling_model(self, budget: str) -> None:
+        ask = AsyncMock()
         result = await judge_rubric(
             self.output,
             [criterion("check")],
             self.references,
             ask,
-            max_input_bytes=baseline.input_bytes if limit == "bytes" else 100_000,
-            max_input_tokens=baseline.input_tokens if limit == "tokens" else 20_000,
+            max_input_bytes=50 if budget == "bytes" else DEFAULT_MAX_INPUT_BYTES,
+            max_input_tokens=2 if budget == "tokens" else DEFAULT_MAX_INPUT_TOKENS,
         )
 
-        ask.assert_awaited_once()
-        self.assertEqual(len(result.model_attempts), 1)
-        self.assertEqual(result.model_response, response)
-        self.assertTrue(result.model_attempts[0].validation_errors)
-        self.assertEqual(result.criteria[0].status, "error")
-        self.assertIsNone(result.criteria[0].score)
+        self.assertEqual(result.status, "judge_error")
         self.assertIn("no evidence was truncated", result.error or "")
-        self.assertEqual(result.request_prompt.rsplit("\n", 1)[1], baseline.request_prompt.rsplit("\n", 1)[1])
+        self.assertIsNone(result.score)
+        self.assertEqual(result.criteria, [])
+        self.assertEqual(result.evidence, self.evidence)
+        self.assertIn("complete invented transcript ending", result.request_prompt)
+        self.assertEqual(
+            result.input_bytes,
+            sum(len(message["content"].encode("utf-8")) for message in result.request_messages),
+        )
+        ask.assert_not_awaited()
 
     @parameterized.expand(
         [
-            "byte_limit",
-            "token_limit",
-            "execution_failed",
-            "task_failed",
-            "workflow_unfinished",
-            "exit_failed",
-            "no_output",
+            "source",
+            "task",
+            "workflow",
+            "workflow_missing",
+            "workflow_null",
+            "workflow_invalid",
+            "task_missing",
+            "exit",
+            "exit_bool",
+            "exit_string",
+            "exit_null",
+            "empty",
+            "unconfirmed",
         ]
     )
-    async def test_no_model_call_when_input_cannot_be_graded(self, reason: str) -> None:
-        ask = AsyncMock(side_effect=AssertionError("No model call expected"))
-        if reason == "task_failed":
-            self.output["artifacts"] = {"task_run": {"status": "failed", "error_message": "Invented task failure"}}
-        elif reason == "workflow_unfinished":
-            self.output["artifacts"] = {"task_run": {"status": "completed"}, "workflow": {"terminal": False}}
-        elif reason == "exit_failed":
-            self.output["exit_code"] = 1
-        result = await judge_rubric(
-            {} if reason == "no_output" else self.output,
-            [criterion("check")],
-            self.references,
-            ask,
-            max_input_bytes=1 if reason == "byte_limit" else 100_000,
-            max_input_tokens=1 if reason == "token_limit" else 20_000,
-            source_error="Synthetic infrastructure error" if reason == "execution_failed" else None,
-        )
+    async def test_failed_or_unconfirmed_execution_is_excluded(self, failure: str) -> None:
+        output = copy.deepcopy(self.output)
+        source_error = None
+        if failure == "source":
+            source_error = "Invented sandbox failure"
+        elif failure == "task":
+            output["artifacts"] = {"task_run": {"status": "failed"}}
+        elif failure == "workflow":
+            output["artifacts"] = {"workflow": {"terminal": False}}
+        elif failure.startswith("workflow_"):
+            workflow: object = (
+                {"terminal": None} if failure == "workflow_null" else {} if failure == "workflow_missing" else None
+            )
+            output["artifacts"] = {"workflow": workflow, "task_run": {"status": "completed"}}
+        elif failure == "task_missing":
+            output["artifacts"] = {"task_run": {}}
+            output["exit_code"] = 0
+        elif failure == "exit":
+            output["exit_code"] = 1
+        elif failure.startswith("exit_"):
+            output["exit_code"] = False if failure == "exit_bool" else "1" if failure == "exit_string" else None
+        elif failure == "empty":
+            output = {}
+        else:
+            output = {"summary": "Invented report without confirmed completion"}
+        ask = AsyncMock()
 
+        result = await judge_rubric(output, [criterion("check")], self.references, ask, source_error=source_error)
+
+        self.assertEqual(result.status, "excluded")
+        self.assertEqual(result.criteria, [])
+        self.assertIsNone(result.score)
+        self.assertIsNone(result.coverage)
+        self.assertIsNone(result.model_response)
         ask.assert_not_awaited()
-        self.assertEqual(result.criteria[0].status, "error" if reason.endswith("limit") else "unknown")
-        self.assertIsNone(result.criteria[0].score)
-        self.assertEqual(
-            result.execution_status,
-            "failed"
-            if reason in ("execution_failed", "task_failed", "workflow_unfinished", "exit_failed")
-            else "unknown"
-            if reason == "no_output"
-            else "completed",
-        )
-        if reason.endswith("limit"):
-            self.assertIn("no evidence was truncated", result.error or "")
-        else:
-            self.assertIsNone(result.error)
-
-    async def test_no_report_can_be_not_applicable_with_literal_empty_state_evidence(self) -> None:
-        row = verdict("check", "not_applicable")
-        row["evidence"] = [
-            {"source": "output", "pointer": "/artifacts/before/reports", "quote": "[]"},
-            {"source": "canonical_references", "pointer": "/instructions", "quote": "otherwise remain silent"},
-        ]
-        ask = AsyncMock(
-            return_value=RubricModelResponse(requested_model="invented-model", text=json.dumps({"criteria": [row]}))
-        )
-
-        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
-
-        self.assertIsNone(result.error)
-        self.assertEqual(result.criteria[0].status, "not_applicable")
-        self.assertEqual(result.criteria[0].evidence[1].quote, "otherwise remain silent")
-
-    @parameterized.expand(
-        ["multiline_text", "decoded_jsonl_text", "wrong_decoded_text", "mixed_jsonl", "duplicate_keys"]
-    )
-    async def test_citations_preserve_literal_quotes_newlines_and_jsonl_escaping(self, source: str) -> None:
-        observed = 'Invented "blue" metric\nSecond invented observation'
-        raw_log = json.dumps({"content": observed}) + "\n"
-        fallback = source in ("mixed_jsonl", "duplicate_keys")
-        if source == "mixed_jsonl":
-            raw_log += "not a JSON entry\n"
-        elif source == "duplicate_keys":
-            raw_log = '{"content":"first invented value","content":"second invented value"}\n'
-        self.output.update(summary=observed, raw_log=raw_log)
-        row = verdict("check")
-        row["evidence"] = [
-            {
-                "source": "output" if source == "multiline_text" or fallback else "transcript",
-                "pointer": "/summary" if source == "multiline_text" else "/raw_log" if fallback else "/0/content",
-                "quote": raw_log if fallback else "wrong invented text" if source == "wrong_decoded_text" else observed,
-            }
-        ]
-        ask = AsyncMock(
-            return_value=RubricModelResponse(requested_model="invented-model", text=json.dumps({"criteria": [row]}))
-        )
-
-        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
-
-        self.assertEqual(result.criteria[0].status, "error" if source == "wrong_decoded_text" else "pass")
-        self.assertEqual(result.output_sha256, content_hash(self.output))
-        self.assertEqual(self.output["raw_log"], raw_log)
-        self.assertEqual(result.evidence_representation, "saved-output-v1" if fallback else "indexed-jsonl-v1")
-        if fallback:
-            self.assertIn('"raw_log":', result.request_prompt)
-            self.assertIsNone(result.transcript_sha256)
-        else:
-            self.assertNotIn('"raw_log":', result.request_prompt)
-            self.assertEqual(result.transcript_sha256, content_hash([{"content": observed}]))
-        if source != "wrong_decoded_text":
-            self.assertEqual(result.criteria[0].evidence[0].quote, raw_log if fallback else observed)
-
-    @parameterized.expand(
-        ["text", "ancestor", "root_ancestor", "forged_literal", "forged_redirect", "generated_marker"]
-    )
-    async def test_shared_transcript_preserves_original_values_and_citation_identity(self, citation: str) -> None:
-        observed = 'Invented "blue" metric\nSecond invented observation. ' * 32
-        transcript = [
-            {"content": observed},
-            {"content": {"a/b~c": observed}},
-            {"content": {TRANSCRIPT_REFERENCE_KEY: "/0/content"}},
-            *[{"content": "short invented text"} for _ in range(8)],
-            {"content": observed},
-        ]
-        self.output["raw_log"] = "\n".join(json.dumps(entry) for entry in transcript) + "\n"
-        original = copy.deepcopy(self.output)
-        pointer, quote = {
-            "text": ("/1/content/a~1b~0c", observed),
-            "ancestor": ("/1", canonical_json(transcript[1])),
-            "root_ancestor": ("", "[" + canonical_json(transcript[0]) + ","),
-            "forged_literal": ("/2/content", "/0/content"),
-            "forged_redirect": ("/2/content", observed),
-            "generated_marker": ("/1/content/a~1b~0c/" + TRANSCRIPT_REFERENCE_KEY, "/0/content"),
-        }[citation]
-        row = verdict("check")
-        row["evidence"] = [{"source": "transcript", "pointer": pointer, "quote": quote}]
-        ask = AsyncMock(
-            return_value=RubricModelResponse(requested_model="invented-model", text=json.dumps({"criteria": [row]}))
-        )
-
-        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
-
-        self.assertEqual(
-            result.criteria[0].status, "error" if citation in ("forged_redirect", "generated_marker") else "pass"
-        )
-        self.assertEqual(self.output, original)
-        self.assertEqual(result.output_sha256, content_hash(original))
-        self.assertEqual(result.transcript_sha256, content_hash(transcript))
-        self.assertEqual(result.evidence_representation, "indexed-jsonl-v1")
-        self.assertEqual(
-            result.transcript_references,
-            {"/1/content/a~1b~0c": "/0/content", "/11/content": "/0/content"},
-        )
-        evidence = json.loads(result.request_prompt.rsplit("\n", 1)[1])
-        self.assertEqual(evidence["transcript_references"], result.transcript_references)
-        shared = evidence["transcript"]
-        self.assertEqual(set(shared), {str(index) for index in range(len(transcript))})
-        self.assertEqual(shared["1"]["content"]["a/b~c"], {TRANSCRIPT_REFERENCE_KEY: "/0/content"})
-        self.assertEqual(shared["11"]["content"], {TRANSCRIPT_REFERENCE_KEY: "/0/content"})
-        self.assertEqual(shared["2"], transcript[2])
-        self.assertLess(len(canonical_json(shared)), len(canonical_json(transcript)))
-        shared["1"]["content"]["a/b~c"] = shared["0"]["content"]
-        shared["11"]["content"] = shared["0"]["content"]
-        self.assertEqual([shared[str(index)] for index in range(len(transcript))], transcript)
-
-    async def test_shared_state_expands_to_original_and_citations_follow_only_generated_references(self) -> None:
-        before = [
-            {"id": "stable", "summary": "The invented observation stays the same."},
-            {"id": "changed", "summary": "The original invented observation."},
-            {"id": "deleted", "summary": "A deleted invented observation."},
-        ]
-        after = [
-            {"id": "changed", "summary": "The updated invented observation."},
-            before[0],
-            {"id": "new", "summary": "A new invented observation."},
-        ]
-        self.output.update(
-            raw_log=json.dumps({"content": "Invented transcript"}) + "\n",
-            artifacts={
-                "task_run": {"status": "completed"},
-                "before": {"reports": before},
-                "after": {"reports": after},
-                "changes": {"reports": {"created": [], "updated": [], "deleted": []}},
-            },
-        )
-        original = copy.deepcopy(self.output)
-        row = verdict("check")
-        row["evidence"] = [
-            {"source": "output", "pointer": "/artifacts/after/reports/1/summary", "quote": "stays the same"},
-            {"source": "output", "pointer": "/artifacts/before/reports/0/summary", "quote": "stays the same"},
-            {"source": "output", "pointer": "/artifacts/after/reports/0/summary", "quote": "updated invented"},
-        ]
-        ask = AsyncMock(
-            return_value=RubricModelResponse(requested_model="invented-model", text=json.dumps({"criteria": [row]}))
-        )
-
-        result = await judge_rubric(self.output, [criterion("check")], self.references, ask)
-
-        self.assertEqual(result.criteria[0].status, "pass")
-        self.assertEqual(result.evidence_representation, "indexed-jsonl-v1")
-        self.assertEqual(self.output, original)
-        self.assertEqual(result.output_sha256, content_hash(original))
-        self.assertEqual(result.state_references, {"/artifacts/after/reports/1": "/artifacts/before/reports/0"})
-        evidence = json.loads(result.request_prompt.rsplit("\n", 1)[1])["output"]["artifacts"]
-        self.assertEqual(evidence["after"]["reports"][1], {STATE_REFERENCE_KEY: "/artifacts/before/reports/0"})
-        evidence["after"]["reports"][1] = evidence["before"]["reports"][0]
-        self.assertEqual(evidence, original["artifacts"])
 
 
 class TestPrivateRubricClient(SimpleTestCase):
@@ -484,6 +320,7 @@ class TestPrivateRubricClient(SimpleTestCase):
     @parameterized.expand(
         [
             ("success", "gpt-6-sol", ["reasoning_effort"]),
+            ("success", "gpt-6-astra", ["reasoning_effort"]),
             ("success", "openai/gpt-6-sol", ["reasoning_effort"]),
             ("success", "claude-sonnet-4-6", None),
             ("gateway_error", "gpt-6-sol", ["reasoning_effort"]),
@@ -568,7 +405,7 @@ class TestPrivateRubricClient(SimpleTestCase):
                             "index": 0,
                             "message": {
                                 "role": "assistant",
-                                "content": json.dumps({"criteria": [verdict("check")]})
+                                "content": json.dumps({"summary": "Invented summary", "criteria": [verdict("check")]})
                                 if len(requests) == 3
                                 else '{"suggestions":[]}',
                             },
@@ -583,11 +420,21 @@ class TestPrivateRubricClient(SimpleTestCase):
             base_url="http://localhost/signals/v1",
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
         )
+        judge_messages = build_rubric_judge_messages(
+            criteria=[
+                TrialEvaluationCriterion.model_validate(
+                    {key: value for key, value in criterion("check").items() if key not in {"enabled", "source"}}
+                )
+            ],
+            sources=[TrialEvidenceSource(id="summary", kind="summary", text="Invented report")],
+            reference_context={"instructions": "Review the invented report."},
+            limitations=[],
+        )
         with patch("posthog.llm.gateway_client.build_async_openai_client", return_value=sdk):
             async with PrivateRubricClient() as client:
                 await client.ask("Initial canonical scout instructions")
                 await client.ask("Select the useful generated criteria")
-                await client.complete("Judge this independent result")
+                await client.complete(judge_messages)
 
         self.assertEqual(len(requests), 3)
         self.assertEqual(
@@ -601,16 +448,11 @@ class TestPrivateRubricClient(SimpleTestCase):
         self.assertEqual(client.calls[1].messages, requests[1]["messages"])
         self.assertEqual(client.calls[1].messages_sha256, content_hash(requests[1]["messages"]))
         self.assertEqual(len(client.calls[0].messages), 2)
-        self.assertEqual(client.calls[2].messages[1:], [{"role": "user", "content": "Judge this independent result"}])
+        self.assertEqual(client.calls[2].messages, judge_messages)
+        self.assertEqual(requests[2]["messages"], judge_messages)
+        self.assertEqual(client.calls[2].system_prompt, judge_messages[0]["content"])
         self.assertEqual([request["response_format"] for request in requests[:2]], [{"type": "json_object"}] * 2)
         for call, request in zip(client.calls, requests):
             self.assertEqual(call.response_format, request["response_format"])
-        response_format = requests[2]["response_format"]
-        assert isinstance(response_format, dict)
-        self.assertEqual(response_format["type"], "json_schema")
-        schema = response_format["json_schema"]
-        self.assertTrue(schema["strict"])
-        validator = jsonschema.Draft202012Validator(schema["schema"])
-        validator.validate(json.loads(client.calls[2].text))
-        with self.assertRaises(jsonschema.ValidationError):
-            validator.validate({"verdicts": [verdict("check")]})
+        self.assertEqual(requests[2]["response_format"], {"type": "json_object"})
+        TrialJudgeVerdicts.model_validate_json(client.calls[2].text)

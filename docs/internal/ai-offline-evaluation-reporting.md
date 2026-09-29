@@ -122,26 +122,33 @@ Normal execution then restores the case, runs the scout, and judges the retained
 The shared generator's pure schemas and generation logic live in `products/signals/backend/rubrics_schema.py`
 and `products/signals/backend/rubrics_generation.py`; production authorization and persistence remain in the scout harness.
 
-Judgments retain a verdict, explanation, and validated evidence references for each enabled criterion.
-Pass and fail are separate from unknown, not applicable, and judging errors.
-Missing historical evidence does not become a failed criterion; a failed model request does not become a scout-quality verdict.
-The aggregate rubric score is omitted when any enabled criterion remains unknown or errored.
-Detailed private judgment files remain available, including original responses and recorded usage.
-Judging requests a strict JSON schema and records the requested format; local schema and literal-citation checks still validate the response.
-Completed responses that fail validation receive at most one correction request with the same complete evidence.
-Each request obeys the input budget, and artifacts retain every response and its validation errors.
-Provider and incomplete-response errors stop judging without a correction request.
-Dollar costs remain unknown when the model route does not provide them.
+Judgments use the scout trial response contract: a `summary` and one `criteria` entry per enabled criterion.
+Each entry contains `criterion_id`, `verdict`, `reason`, `confidence`, and evidence with `source_id` and an exact `quote`.
+Verdicts are `pass`, `fail`, `unknown`, or `not_applicable`; confidence is `low`, `medium`, or `high`.
+The pure schemas, versioned prompts, citation validation, and scoring live in `products/signals/backend/rubrics_judging.py`.
+
+Invalid evidence quotations or conclusions citing only candidate instructions become `unknown` for that criterion.
+Other valid criteria remain available. Missing historical evidence does not become a failed criterion.
+Malformed or incomplete model responses are run-level `judge_error` results with no quality verdicts.
+Failed or unconfirmed scout executions are `excluded`; execution failures and judge errors do not receive scores.
+Judging makes one request and does not automatically repair or retry it.
+
+The score is `pass / (pass + fail)`. Coverage is `(pass + fail) / (pass + fail + unknown)`.
+An empty denominator produces `null`; `not_applicable` is excluded from both denominators.
+Read score and coverage together: a high score with low coverage is not a complete evaluation.
+Incomplete judgments cannot establish a baseline difference.
+Detailed private judgment files retain the original model response, normalized verdicts, usage, rubric/reference hashes,
+judge model, prompt version, and evidence provenance. Dollar costs remain unknown when the model route does not provide them.
+New judgments use artifact version `scout-rubric-judge-v4`; earlier files stay untouched.
+To evaluate an older run under the current contract, rejudge its original `result.json` into a new judgment file.
 
 Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
 An exact evidence quote establishes where text came from, not that its claim is correct.
 Valid citations also do not establish that the judge interpreted a criterion correctly; compare decisions with examples reviewed by a person.
-Valid JSONL transcripts are decoded and keyed by their original entry numbers so citations can locate literal tool text.
-Quotes and newlines remain intact.
-Repeated large transcript strings refer to their first exact occurrence; all entries and their positions remain available.
-Unchanged after-state rows refer to their identical before-state rows; changed and new rows remain complete.
-The judgment records the generated references, evidence representation, and original output and transcript hashes.
-These representations preserve the full captured evidence.
+Local records and transcript entries receive stable source IDs. Their original file locations and JSON pointers remain in provenance.
+Candidate instructions are marked as instruction sources; the frozen rubric reference is separate from execution evidence.
+Quotes and newlines remain intact, and the offline evidence adapter preserves the complete capture.
+The judgment records the evidence adapter version and original output and transcript hashes.
 `--judge-max-input-tokens` sets a proxy token budget (default 900,000); the script retains an explicit ungraded error
 when evidence exceeds the budget or byte limit, rather than silently dropping evidence.
 The budget is not a guarantee that a different judging model accepts the same context size.
@@ -164,7 +171,7 @@ checksums, and UTF-8 contents. They do not load or validate saved state or event
 Their provenance records `validation_scope: instructions`; it does not claim that the case can be restored.
 Normal execution, `--validate-only`, and `--preflight-only` still require the complete case to pass strict validation.
 Historical judgments use the cutoffs and evidence recorded in each result; `--target-cutoff` does not shift saved results.
-Failed historical executions remain execution failures with ungraded criteria.
+Failed historical executions remain `excluded`, with no quality verdicts or scores.
 New judgment files record both the source-result hash and the session-rubric hash.
 These modes use the shared private eval service lifecycle, so its ordinary environment prerequisites still apply.
 They do not launch scout tasks or restore case events.

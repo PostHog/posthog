@@ -222,16 +222,15 @@ class SavedRubricScorer(AsyncOnlyScorerMixin, Scorer):
             # The engine records scorer exceptions separately from task failures.
             self.errors.append(f"{type(error).__name__}: {error}")
             raise
-        if judgment.error:
-            self.errors.append(judgment.error)
-        scores = [row.score for row in judgment.criteria if row.score is not None]
-        complete = not any(row.status in ("unknown", "error") for row in judgment.criteria)
-        score = sum(scores) / len(scores) if complete and scores else None
+        if judgment.status == "judge_error":
+            self.errors.append(judgment.error or judgment.summary)
         metadata = {
             "judgment_path": str(path),
             "session_rubric_sha256": self.rubric.sha256,
-            "criteria": {row.id: row.status for row in judgment.criteria},
+            "status": judgment.status,
+            "coverage": judgment.coverage,
+            "criteria": {row.criterion_id: row.verdict for row in judgment.criteria},
         }
         if isinstance(output, dict):
             output["rubric_judgment"] = metadata
-        return Score(name=self._name(), score=score, metadata=metadata)
+        return Score(name=self._name(), score=judgment.score, metadata=metadata)
