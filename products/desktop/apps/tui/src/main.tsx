@@ -25,12 +25,15 @@ if (import.meta.hot) {
   import.meta.hot.accept("./components/Root", (next) => {
     if (next) instance.rerender(root(next.Root));
   });
-  // Any other edit re-runs this module, so tear down this copy first.
-  import.meta.hot.dispose(() => {
+  // Any other edit re-runs this module, so tear down this copy first. A full reload skips dispose, so it listens too.
+  const teardown = (): void => {
+    if (reloading) return;
     reloading = true;
     mouse.dispose();
     instance.unmount();
-  });
+  };
+  import.meta.hot.dispose(teardown);
+  import.meta.hot.on("vite:beforeFullReload", teardown);
 }
 
 await instance.waitUntilExit();

@@ -78,6 +78,7 @@ export class MouseInput {
   readonly events: MouseEvents = new EventEmitter();
   readonly stdin: NodeJS.ReadStream;
   private readonly onData: (data: Buffer) => void;
+  private disposed = false;
 
   constructor(
     private readonly source: NodeJS.ReadStream = process.stdin,
@@ -85,8 +86,9 @@ export class MouseInput {
   ) {
     const stream = new PassThrough() as unknown as NodeJS.ReadStream;
     stream.isTTY = true;
+    // After dispose, a reloaded copy owns the terminal; this copy's Ink teardown must not turn raw mode off under it.
     stream.setRawMode = (mode: boolean) => {
-      source.setRawMode(mode);
+      if (!this.disposed) source.setRawMode(mode);
       return stream;
     };
     stream.ref = () => {
@@ -117,6 +119,7 @@ export class MouseInput {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.source.off("data", this.onData);
     this.stdout.write(DISABLE);
   }
