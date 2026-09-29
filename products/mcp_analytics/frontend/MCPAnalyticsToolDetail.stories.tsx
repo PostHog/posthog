@@ -143,7 +143,6 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as MockQueryBody
-                    // Real tool names never match an encoded name, so an encoded name gets no data.
                     if (body?.query?.toolName?.includes('%')) {
                         return [200, { results: [] }]
                     }

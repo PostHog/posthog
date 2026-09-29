@@ -504,7 +504,6 @@ function TrendChart({
 }
 
 export function MCPAnalyticsToolDetail(): JSX.Element {
-    // Read the name from the bound logic: the raw route param is still URL-encoded.
     const {
         toolName,
         summary,
