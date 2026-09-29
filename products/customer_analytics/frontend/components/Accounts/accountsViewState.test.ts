@@ -25,6 +25,7 @@ const draft: AccountsViewState = {
         tags: [],
         tileFilter: null,
         customProperties: [],
+        filterGroups: [],
     },
     tiles: [...DEFAULT_TILES],
     columnDisplay: {},
@@ -123,6 +124,17 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                         values: [100],
                     },
                 },
+                filterGroups: [
+                    [
+                        {
+                            type: PropertyFilterType.AccountCustomProperty as const,
+                            key: '11111111-2222-3333-4444-555555555555',
+                            operator: PropertyOperator.Exact,
+                            value: 'Staged',
+                            label: 'Tier',
+                        },
+                    ],
+                ],
                 customProperties: [
                     {
                         type: PropertyFilterType.Account as const,
@@ -163,6 +175,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
+                filterGroups: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},
@@ -183,6 +196,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             tags: [],
             tileFilter: null,
             customProperties: [],
+            filterGroups: [],
         })
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()

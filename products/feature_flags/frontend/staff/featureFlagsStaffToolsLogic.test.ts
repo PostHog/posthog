@@ -6,7 +6,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { StaffTeamConfigMutationApi } from '../generated/api.schemas'
+import type {
+    StaffFlagEvaluationsModeMutationApi,
+    StaffOrganizationModeChangeApi,
+    StaffTeamConfigMutationApi,
+} from '../generated/api.schemas'
 import { featureFlagsStaffToolsLogic, parseFlagLimit, StaffTeamResult } from './featureFlagsStaffToolsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -468,6 +472,75 @@ describe('featureFlagsStaffToolsLogic', () => {
             }).toFinishAllListeners()
 
             expect(handleSet).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('flag evaluations mode', () => {
+        const MODE_URL = '/api/feature_flags_staff_team_config/set_flag_evaluations_mode'
+
+        it('previews the request as a dry run, then applies the same request', async () => {
+            const bodies: StaffFlagEvaluationsModeMutationApi[] = []
+            // Three organizations move, one stays above the mode, and one is already on it. A summary
+            // that reads the wrong field, or counts every unchanged organization as left above, fails.
+            const organizations: StaffOrganizationModeChangeApi[] = (
+                [
+                    [0, true, false],
+                    [0, true, false],
+                    [0, true, false],
+                    [2, false, true],
+                    [1, false, false],
+                ] as const
+            ).map(([currentMode, changed, leftAboveMode], index) => ({
+                organization_id: `org-${index}`,
+                organization_name: `Org ${index}`,
+                team_count: 2,
+                current_mode: currentMode,
+                target_mode: 1,
+                changed,
+                left_above_mode: leftAboveMode,
+            }))
+            useMocks({
+                post: {
+                    [MODE_URL]: async ({ request }: { request: Request }) => {
+                        const body: StaffFlagEvaluationsModeMutationApi = await request.json()
+                        bodies.push(body)
+                        return [200, { flag_evaluations_mode: 1, dry_run: body.dry_run, organizations }]
+                    },
+                },
+            })
+            logic.actions.searchTeams({ query: 'Acme' })
+            await expectLogic(logic).toDispatchActions(['searchTeamsSuccess'])
+            // Team 99 stands in for a deep-linked team whose search result never arrived. The request
+            // must still send it, so the write covers its organization.
+            logic.actions.setSelectedTeamIds([5, 99])
+
+            logic.actions.openFlagEvaluationsModeModal()
+            await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
+            logic.actions.setFlagEvaluationsModeRequest({ mode: 2 })
+            // A preview of the previous request must not stay on screen next to an Apply button
+            // that sends the new one.
+            expect(logic.values.flagEvaluationsModePreview).toBeNull()
+            await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
+            expect(logic.values.flagEvaluationsModePreviewSummary).toMatchObject({
+                organizationsChanged: 3,
+                organizationsLeftAboveMode: 1,
+            })
+
+            // A selection change after the preview must not widen the write past what the preview showed.
+            logic.actions.setSelectedTeamIds([5, 99, 6])
+            logic.actions.applyFlagEvaluationsMode()
+            await expectLogic(logic).toDispatchActions(['applyFlagEvaluationsModeSuccess', 'loadTeamConfig'])
+
+            // The preview fires on every form change, so a preview without dry_run would write the
+            // mode while staff are still choosing it.
+            const request = { flag_evaluations_mode: 2, allow_downgrade: false, team_ids: [5, 99] }
+            expect(bodies).toEqual([
+                { flag_evaluations_mode: 1, allow_downgrade: false, team_ids: [5, 99], dry_run: true },
+                { ...request, dry_run: true },
+                { ...request, dry_run: false },
+            ])
+            expect(logic.values.isFlagEvaluationsModeModalOpen).toBe(false)
+            expect(lemonToast.success).toHaveBeenCalled()
         })
     })
 
