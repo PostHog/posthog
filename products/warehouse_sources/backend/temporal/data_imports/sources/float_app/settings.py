@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -22,7 +23,7 @@ REPORT_LOOKBACK_MONTHS = 12
 PaginationMode = Literal["page", "cursor", "report_window"]
 
 
-@dataclass
+@frozen
 class FloatEndpointConfig:
     name: str
     # Path under the `/v3` base, e.g. "/people". Verified to exist against the live API (401 behind

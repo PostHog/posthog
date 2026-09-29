@@ -2,6 +2,7 @@ import json
 from datetime import date
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from requests import Response
@@ -10,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     DELETE_LOG_LIMIT,
     PER_PAGE,
     FloatAppResumeConfig,
+    ReportWindow,
     _month_windows,
     _public_holiday_window,
     float_app_source,
@@ -280,24 +282,27 @@ class TestPublicHolidayWindow:
 class TestMonthWindows:
     def test_walks_whole_months_oldest_first_ending_with_this_month(self) -> None:
         assert _month_windows(date(2026, 3, 17), 2) == [
-            ("2026-01-01", "2026-01-31"),
-            ("2026-02-01", "2026-02-28"),
-            ("2026-03-01", "2026-03-31"),
+            ReportWindow(start="2026-01-01", end="2026-01-31"),
+            ReportWindow(start="2026-02-01", end="2026-02-28"),
+            ReportWindow(start="2026-03-01", end="2026-03-31"),
         ]
 
     def test_crosses_the_year_boundary(self) -> None:
         assert _month_windows(date(2026, 1, 5), 2) == [
-            ("2025-11-01", "2025-11-30"),
-            ("2025-12-01", "2025-12-31"),
-            ("2026-01-01", "2026-01-31"),
+            ReportWindow(start="2025-11-01", end="2025-11-30"),
+            ReportWindow(start="2025-12-01", end="2025-12-31"),
+            ReportWindow(start="2026-01-01", end="2026-01-31"),
         ]
 
     def test_handles_a_leap_february(self) -> None:
-        assert _month_windows(date(2028, 2, 9), 0) == [("2028-02-01", "2028-02-29")]
+        assert _month_windows(date(2028, 2, 9), 0) == [ReportWindow(start="2028-02-01", end="2028-02-29")]
 
 
 class TestReportWindows:
-    WINDOWS = [("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-28")]
+    WINDOWS = [
+        ReportWindow(start="2026-01-01", end="2026-01-31"),
+        ReportWindow(start="2026-02-01", end="2026-02-28"),
+    ]
     MONTH_WINDOWS_PATCH = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app._month_windows"
     )
@@ -323,7 +328,7 @@ class TestReportWindows:
 
         rows = _rows(_source("reports_people", _make_manager()))
 
-        assert [(p["start_date"], p["end_date"]) for p in params] == self.WINDOWS
+        assert [(p["start_date"], p["end_date"]) for p in params] == [(w.start, w.end) for w in self.WINDOWS]
         # Without the stamp both months carry people_id=1 and collide on the primary key.
         assert [(r["people_id"], r["start_date"], r["billable"]) for r in rows] == [
             (1, "2026-01-01", 10),
@@ -362,3 +367,26 @@ class TestReportWindows:
         assert [r["people_id"] for r in rows] == [2]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [FloatAppResumeConfig(next_window_start="2026-02-01")]
+
+    @mock.patch(FLOAT_SESSION_PATCH)
+    @mock.patch(MONTH_WINDOWS_PATCH, return_value=WINDOWS)
+    def test_clears_the_cursor_after_the_last_window(self, _windows, MockSession) -> None:
+        # A retry after the source finished would otherwise resume from the stale cursor and skip
+        # every earlier month.
+        self._wire_reports(MockSession, [{"people": [{"people_id": 1}]}, {"people": [{"people_id": 2}]}])
+
+        manager = _make_manager()
+        _rows(_source("reports_people", manager))
+
+        manager.clear_state.assert_called_once()
+
+    @pytest.mark.parametrize("body", [{}, {"people": None}, {"people": {"1": {}}}, []])
+    @mock.patch(FLOAT_SESSION_PATCH)
+    @mock.patch(MONTH_WINDOWS_PATCH, return_value=WINDOWS)
+    def test_a_changed_envelope_fails_loud(self, _windows, MockSession, body) -> None:
+        # Silently reading a changed shape as an empty month would drop that month from a table
+        # that is fully replaced every sync.
+        self._wire_reports(MockSession, [body, body])
+
+        with pytest.raises(ValueError, match="people"):
+            _rows(_source("reports_people", _make_manager()))

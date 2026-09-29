@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -31,7 +32,7 @@ FLOAT_BASE_URL = "https://api.float.com/v3"
 USER_AGENT = "PostHog Data Warehouse (hey@posthog.com)"
 
 
-@dataclasses.dataclass
+@frozen
 class FloatAppResumeConfig:
     # Page-number endpoints resume from `next_page` (1-indexed); Delete Log endpoints resume from the
     # opaque `next_cursor`; report endpoints resume from the first day of the next unfetched month.
@@ -169,16 +170,22 @@ def _public_holiday_window(today: date) -> dict[str, Any]:
     return {"start_date": start.isoformat(), "end_date": end.isoformat()}
 
 
-def _month_windows(today: date, lookback_months: int) -> list[tuple[str, str]]:
+@frozen
+class ReportWindow:
+    start: str
+    end: str
+
+
+def _month_windows(today: date, lookback_months: int) -> list[ReportWindow]:
     """Calendar months from `lookback_months` before this month through this month, oldest first."""
     month_index = today.year * 12 + (today.month - 1)
-    windows: list[tuple[str, str]] = []
+    windows: list[ReportWindow] = []
     for offset in range(lookback_months, -1, -1):
         year, month = divmod(month_index - offset, 12)
         start = date(year, month + 1, 1)
         next_year, next_month = divmod(month_index - offset + 1, 12)
         end = date(next_year, next_month + 1, 1) - timedelta(days=1)
-        windows.append((start.isoformat(), end.isoformat()))
+        windows.append(ReportWindow(start=start.isoformat(), end=end.isoformat()))
     return windows
 
 
@@ -197,33 +204,43 @@ def _report_window_pages(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_window_start is not None:
-        windows = [window for window in windows if window[0] >= resume.next_window_start]
+        windows = [window for window in windows if window.start >= resume.next_window_start]
 
     # The envelope key matches the last path segment, e.g. `/reports/people` -> {"people": [...]}.
     envelope_key = config.path.rsplit("/", 1)[-1]
     session = make_tracked_session(redact_values=(api_key,))
     headers = _auth_headers(api_key)
 
-    for index, (start, end) in enumerate(windows):
+    for index, window in enumerate(windows):
         response = session.get(
             f"{FLOAT_BASE_URL}{config.path}",
             headers=headers,
-            params={"start_date": start, "end_date": end},
+            params={"start_date": window.start, "end_date": window.end},
         )
         response.raise_for_status()
-        rows = response.json().get(envelope_key) or []
+        payload = response.json()
+        rows = payload.get(envelope_key) if isinstance(payload, dict) else None
+        # A month with no people is a valid empty list. A missing or non-list envelope is a changed
+        # response shape, and this table is full refresh, so treating it as empty drops the month.
+        if not isinstance(rows, list):
+            raise ValueError(f"Float returned no `{envelope_key}` list for {config.path} {window.start}")
+
         # Stamp the window on every row: the figures are an aggregate over it, so without these the
         # months are indistinguishable and every row collides on the primary key.
         for row in rows:
-            row["start_date"] = start
-            row["end_date"] = end
+            row["start_date"] = window.start
+            row["end_date"] = window.end
 
         if rows:
             yield rows
 
         remaining = windows[index + 1 :]
         if remaining:
-            resumable_source_manager.save_state(FloatAppResumeConfig(next_window_start=remaining[0][0]))
+            resumable_source_manager.save_state(FloatAppResumeConfig(next_window_start=remaining[0].start))
+        else:
+            # A retry after the last window would otherwise resume from the stale cursor and skip
+            # every earlier month.
+            resumable_source_manager.clear_state()
 
 
 def float_app_source(
