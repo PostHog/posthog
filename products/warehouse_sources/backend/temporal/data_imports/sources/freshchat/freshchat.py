@@ -55,7 +55,8 @@ class FreshchatHostNotAllowedError(Exception):
 class FreshchatResumeConfig:
     # The next page number to fetch. Freshchat uses page/items_per_page pagination, so a single
     # integer is enough to pick back up. Endpoints are full refresh (no time window), so re-entering
-    # a page and deduping on the primary key is safe.
+    # a page and deduping on the primary key is safe. Does not cover the chained fan-out, which
+    # `build_chained_resource` cannot checkpoint.
     page: int
 
 
@@ -169,8 +170,7 @@ def _fanout_resource(
     fanout = config.fanout
     assert fanout is not None
     parent_config = FRESHCHAT_ENDPOINTS[fanout.parent_name]
-    # The parent's mandatory filter and page-size params live on its own endpoint config, so reuse
-    # them rather than restating them for the fan-out.
+    # The parent's mandatory filter and page-size params live on its own endpoint config.
     fanout = dataclasses.replace(fanout, parent_params=build_base_params(parent_config))
 
     return build_dependent_resource(
@@ -290,6 +290,8 @@ def freshchat_source(
             resumable_source_manager.save_state(FreshchatResumeConfig(page=int(state["page"])))
 
     if config.chained_fanout is not None:
+        # A two-level chain takes no resume state: one hook consumed at two levels would corrupt
+        # the saved page. The table is full refresh, so a retry restarts it.
         chained = _chained_fanout_resource(config, client_config, team_id, job_id)
         return _source_response(config, lambda: chained)
 

@@ -59,7 +59,7 @@ CONVERSATION_MESSAGES_FANOUT = FreshchatChainedFanoutConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class FreshchatEndpointConfig:
     name: str
     # Path relative to the `/v2` base (e.g. `/agents`).
@@ -77,16 +77,12 @@ class FreshchatEndpointConfig:
     single_object: bool = False
     # Extra static query params (e.g. the mandatory `created_from` filter on users).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Path to the page count in the response body. Most list endpoints report it, which lets the
-    # paginator stop without paying an extra empty request; the per-conversation messages response
-    # carries no pagination envelope, so that endpoint stops on the first empty page instead.
+    # Path to the page count in the response body, which lets the paginator stop without paying
+    # an extra empty request. `None` falls back to stopping on the first empty page.
     total_pages_path: Optional[str] = "pagination.total_pages"
-    # `sort_order` is documented on the top-level list endpoints but not on the per-conversation
-    # messages endpoint, so it is only sent where the API documents it.
+    # Only the top-level list endpoints document `sort_order`.
     accepts_sort_order: bool = True
-    # Stable creation-time field to partition the Delta table on.
     partition_key: Optional[str] = None
-    # One hop down from a top-level list endpoint.
     fanout: Optional[DependentEndpointConfig] = None
     # Two hops down, where the parent is itself a fan-out child.
     chained_fanout: Optional[FreshchatChainedFanoutConfig] = None
@@ -142,8 +138,7 @@ FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
         name="user_conversations",
         path="/users/{user_id}/conversations",
         data_key="conversations",
-        # The endpoint documents no page / items_per_page params and answers with the user's whole
-        # conversation list in one response.
+        # The endpoint documents no page / items_per_page params.
         paginated=False,
         fanout=USER_CONVERSATIONS_FANOUT,
     ),
@@ -160,10 +155,10 @@ FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
 
 ENDPOINTS = tuple(FRESHCHAT_ENDPOINTS.keys())
 
-# `id` is the auto-generated primary key on agents / users / groups / channels / roles. The single
-# account-configuration row is keyed on its stable Freshchat app id. The two fan-out children
-# aggregate rows from every parent, so their keys carry the parent id: a conversation can be listed
-# under more than one user, and Freshchat documents no global uniqueness for message ids.
+# `id` is the auto-generated primary key on the top-level collections; the single
+# account-configuration row is keyed on its stable Freshchat app id. The fan-out children carry the
+# parent id too: a conversation can be listed under more than one user, and Freshchat documents no
+# global uniqueness for message ids.
 PRIMARY_KEYS: dict[str, list[str]] = {
     "agents": ["id"],
     "users": ["id"],

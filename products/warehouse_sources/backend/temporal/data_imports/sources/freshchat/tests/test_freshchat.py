@@ -445,6 +445,25 @@ class TestFanout:
         assert "sort_order" not in message_calls[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversation_messages_skips_a_conversation_deleted_mid_sync(self, MockSession) -> None:
+        # The chain skips a missing parent at both levels, so a conversation removed after the
+        # users fan-out must not sink the messages table either.
+        session = MockSession.return_value
+
+        def handler(path: str, params: dict[str, Any]) -> Response:
+            if path == "/v2/users":
+                return _page("users", [{"id": "u1"}], current=1, total_pages=1)
+            if path == "/v2/users/u1/conversations":
+                return _resp({"conversations": [{"id": "gone"}, {"id": "c2"}]})
+            if path == "/v2/conversations/gone/messages":
+                return _resp({"error": "not found"}, status=404)
+            return _resp({"messages": [{"id": "m2"}]} if params["page"] == 1 else {"messages": []})
+
+        _wire_routed(session, handler)
+
+        assert self._call("conversation_messages", session) == [{"id": "m2", "conversation_id": "c2"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_conversation_messages_key_column_comes_from_the_parent(self, MockSession) -> None:
         # The message object documents `conversation_id`, but projecting it from the parent row
         # keeps the primary-key column populated even when a response omits it.
