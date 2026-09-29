@@ -27,6 +27,15 @@ Use `add_insights` when the user wants to keep the current dashboard and include
 
 Use `update` only when the user defines the complete intended set of dashboard insights, asks to remove or replace insights, or asks to change dashboard metadata.
 
+# Refresh an insight that is already on the dashboard
+
+The user can ask to refresh, rerun, or push a new version of an insight or table that is already on the dashboard (for example, a weekly metrics table).
+Do not create a copy of the insight and call `update` without the old insight ID. That removes the old tile, so the user must approve the change, and the dashboard stays the same until they do.
+Instead, read the saved query of the existing insight first:
+- If the query uses a relative date range (for example, the last 7 days), the tile already shows current data. Do not call this tool. Tell the user that the tile refreshes when they open or refresh the dashboard.
+- If the query must change (for example, a fixed date range must move to the new week), edit the saved insight in place with the insight tool's `insight_id` and `query_patch`. Do not call this tool, because the tile keeps its insight. Suggest a relative date range, so that the insight stays current without more edits.
+- If the user wants to keep the old version and show the new version as a separate tile, use `add_insights` with only the new insight ID.
+
 # Understanding full dashboard update with insight_ids
 
 When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
@@ -59,6 +68,12 @@ User: I want a dashboard of how my business is doing
 Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
 User: I want you to add MRR to that dashboard.
 <reasoning>The user wants to retain the current dashboard and add MRR. Use add_insights with the new MRR insight ID.</reasoning>
+</example>
+
+<example>
+User: refresh the weekly key metrics table on my dashboard with this week's numbers
+Assistant: I'll read the saved query of the table on the dashboard. It uses a fixed date range for the previous week, so I'll move that date range to this week in the same saved insight.
+<reasoning>The table is already on the dashboard. Edit the saved insight in place. Do not replace its tile with a new insight, because that removes a tile and requires approval.</reasoning>
 </example>
 
 <example>
