@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import threading
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -44,6 +45,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     TableWriteLockTimeoutError,
+    _storage_call,
     _table_write_lock,
     get_aws_storage_options,
     get_s3_client,
@@ -1612,6 +1614,40 @@ class TestTableWriteLock:
 
             async with _table_write_lock(table_uri, LOGGER.bind()):
                 pass
+
+    async def test_a_cancelled_writer_keeps_the_lock_until_its_storage_call_returns(self):
+        table_uri = f"s3://test-bucket/team_1_model_{uuid4().hex}/modeling/view"
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocked_storage_call() -> None:
+            started.set()
+            release.wait(timeout=10)
+
+        async def writer() -> None:
+            async with _table_write_lock(table_uri, LOGGER.bind()):
+                await _storage_call(blocked_storage_call)
+
+        task = asyncio.create_task(writer())
+        assert await asyncio.to_thread(started.wait, 10)
+        task.cancel()
+        await asyncio.wait({task}, timeout=0.5)
+
+        try:
+            assert not task.done()
+            with unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.TABLE_WRITE_LOCK_WAIT_SECONDS", 0.2
+            ):
+                with pytest.raises(TableWriteLockTimeoutError):
+                    async with _table_write_lock(table_uri, LOGGER.bind()):
+                        pass
+        finally:
+            release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with _table_write_lock(table_uri, LOGGER.bind()):
+            pass
 
     async def test_writes_without_the_lock_when_redis_is_down(self):
         failing_lock = unittest.mock.MagicMock()
