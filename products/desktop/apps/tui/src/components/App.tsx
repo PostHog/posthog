@@ -442,6 +442,13 @@ export function App({
     if (shortcut === "close") return close();
     // Layout and chats are saved as they change, so quitting loses nothing.
     if (shortcut === "quit") return exit();
+    if (shortcut === "reload") {
+      // Set by cli.mjs, which owns the Vite server; absent when the app runs without it.
+      (
+        globalThis as { __posthogTuiReload?: () => void }
+      ).__posthogTuiReload?.();
+      return;
+    }
     if (shortcut === "newChat") {
       setLayout(newChat);
       return;

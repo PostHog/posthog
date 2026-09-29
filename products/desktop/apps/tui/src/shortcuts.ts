@@ -5,7 +5,8 @@ export type Shortcut =
   | "splitDown"
   | "close"
   | "newChat"
-  | "quit";
+  | "quit"
+  | "reload";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -17,6 +18,7 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
   if (key.ctrl && letter === "n") return "newChat";
   if (key.ctrl && letter === "q") return "quit";
+  if (key.ctrl && letter === "r") return "reload";
   return null;
 }
 
