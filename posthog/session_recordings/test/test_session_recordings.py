@@ -2139,6 +2139,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 {"bucket_session": True, "open_session": True},
                 [],  # must NOT be in results
             ),
+            (
+                "recording_the_list_returns_is_not_flagged_when_the_match_check_rejects_it",
+                # The list ignores the date window for supplied session_ids, but the single-session
+                # match check does not, so the two disagree about old_session.
+                {
+                    "recordings": [
+                        {"session_id": "recent_session", "days_ago": 1},
+                        {"session_id": "old_session", "days_ago": 10},
+                    ],
+                    "date_from": "-3d",
+                    "session_ids": ["recent_session", "old_session"],
+                    "session_recording_id": "old_session",
+                },
+                {"recent_session": True, "old_session": True},
+                [],  # must NOT be in results
+            ),
         ]
     )
     def test_session_recording_id_respects_filters(
