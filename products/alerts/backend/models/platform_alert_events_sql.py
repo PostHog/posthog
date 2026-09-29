@@ -24,7 +24,7 @@ BASE_PLATFORM_ALERT_EVENTS_COLUMNS = f"""
     alert_name String,
     previous_state LowCardinality(String),
     state LowCardinality(String),
-    firing_started_at Nullable(DateTime64(6, 'UTC')),
+    episode_started_at Nullable(DateTime64(6, 'UTC')),
     value Nullable(Float64),
     labels Map(String, String),
     condition_snapshot String,
