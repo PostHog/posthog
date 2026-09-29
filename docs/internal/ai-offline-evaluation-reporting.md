@@ -235,7 +235,9 @@ Different scorer versions retain their pinned configurations and are not average
 Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
 The card summary shows the latest experiment's score and scored-item count; output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
-Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts, including charts with different experiment dates.
+Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
+With a bounded date range, every chart uses that range, so the guide appears on each chart, including charts with different experiment dates.
+With all time, each chart spans only its own results, so a chart shows the guide only when its span contains the hovered time.
 
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
