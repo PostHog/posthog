@@ -1,10 +1,12 @@
 from uuid import UUID
 
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+
 
 def task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str | UUID | None, scope: str, item_id: str | None
 ) -> bool:
-    if scope != "desktop_canvas":
+    if scope not in CANVAS_COMMENT_SCOPES:
         if not task_id:
             return False
         from products.tasks.backend.facade.api import (

@@ -642,7 +642,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         mentioned = User.objects.create_and_join(self.organization, "canvas-mentioned@posthog.com", "password")
         payload: dict[str, Any] = {
             "content": "Review this canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
             "mentions": [mentioned.id],
@@ -652,7 +652,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert created.status_code == status.HTTP_201_CREATED
         with_task = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
         task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
@@ -695,7 +695,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         payload = {
             "content": "Nice canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
@@ -704,7 +704,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert created.status_code == status.HTTP_201_CREATED
         listed = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in listed.json()["results"]] == [created.json()["id"]]
 
@@ -714,19 +714,50 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         canvas.generation_task_id = regenerated_by.id
         canvas.save(update_fields=["generation_task_id"])
         relisted = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
         )
         assert [row["id"] for row in relisted.json()["results"]] == [created.json()["id"]]
         reply = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
                 "content": "Still relevant",
-                "scope": "desktop_canvas",
+                "scope": "canvas",
                 "item_id": str(canvas.id),
                 "source_comment": created.json()["id"],
             },
         )
         assert reply.status_code == status.HTTP_201_CREATED
+
+    def test_legacy_canvas_scope_still_works_for_old_desktop_builds(self) -> None:
+        channel_model = apps.get_model("tasks", "Channel")
+        canvas_model = apps.get_model("canvas", "Canvas")
+        channel = channel_model.objects.unscoped().create(
+            team=self.team, name="legacy-scope-space", channel_type="public", created_by=self.user
+        )
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team, channel=channel, name="Legacy canvas", created_by=self.user
+        )
+        straggler = Comment.objects.create(
+            team=self.team, scope="desktop_canvas", item_id=str(canvas.id), content="Old pod", created_by=self.user
+        )
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Old build",
+                "scope": "desktop_canvas",
+                "item_id": str(canvas.id),
+                "item_context": {"anchor": {"kind": "document"}},
+            },
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["scope"] == "canvas"
+        assert Comment.objects.get(id=created.json()["id"]).scope == "canvas"
+        expected = sorted([(created.json()["id"], "canvas"), (str(straggler.id), "canvas")])
+        for scope in ("canvas", "desktop_canvas"):
+            listed = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={canvas.id}")
+            assert sorted((row["id"], row["scope"]) for row in listed.json()["results"]) == expected
 
     @parameterized.expand([("with_task", True), ("without_task", False)])
     @mock.patch("posthog.api.comments.send_mention_notifications")
@@ -761,7 +792,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         payload = {
             "content": "Review this canvas",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, **({"taskId": str(task.id)} if with_task else {})},
             "mentions": [invited.id, non_member.id],
@@ -797,7 +828,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == status.HTTP_403_FORBIDDEN
         )
         response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
@@ -822,14 +853,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         payload = {
             "content": "Should not land",
-            "scope": "desktop_canvas",
+            "scope": "canvas",
             "item_id": str(canvas.id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
 
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
         response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []

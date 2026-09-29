@@ -30,9 +30,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import (
+    CANVAS_COMMENT_SCOPES,
     COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API,
     TICKET_COMMENT_SCOPES,
     activity_log_scope_for,
+    canonical_comment_scope,
 )
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
@@ -149,7 +151,7 @@ def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Te
     properties: dict[str, Any] = {
         "analytics_version": 1,
         "action_type": action_type,
-        "scope": comment.scope,
+        "scope": canonical_comment_scope(comment.scope),
         "anchor_kind": anchor_kind if anchor_kind in {"text", "region", "document"} else "unknown",
         "task_id": raw_task_id if isinstance(raw_task_id, str) else None,
         "item_id": comment.item_id,
@@ -195,7 +197,7 @@ def _record_task_comment_activity(
             record_comment_activity,
         )
 
-        if comment.scope == "desktop_canvas" and comment.item_id:
+        if comment.scope in CANVAS_COMMENT_SCOPES and comment.item_id:
             from products.canvas.backend.comment_access import canvas_owner_id  # noqa: PLC0415
 
             owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
@@ -234,7 +236,7 @@ def _stored_task_context_id(comment: Comment) -> str | None:
 
 
 def _stored_comment_task_id(comment: Comment) -> str | None:
-    if comment.scope == "desktop_canvas":
+    if comment.scope in CANVAS_COMMENT_SCOPES:
         return None
     if comment.scope == "task":
         return comment.item_id
@@ -246,7 +248,7 @@ def _mentions_allowed_for_comment_target(
 ) -> list[int]:
     if scope not in DESKTOP_COMMENT_SCOPES:
         return mentioned_user_ids
-    if scope == "desktop_canvas":
+    if scope in CANVAS_COMMENT_SCOPES:
         if not item_id:
             return []
         from products.canvas.backend.comment_access import visible_canvas_user_ids
@@ -348,6 +350,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        if "scope" in data:
+            data["scope"] = canonical_comment_scope(data["scope"])
         # Coerce legacy null is_task rows to False so the contract stays non-null.
         if data.get("is_task") is None:
             data["is_task"] = False
@@ -360,6 +364,9 @@ class CommentSerializer(serializers.ModelSerializer):
                 if len(content) == 1 and content[0].get("type") == "text" and content[0].get("text", "") == "":
                     return True
         return False
+
+    def validate_scope(self, value: str) -> str:
+        return canonical_comment_scope(value)
 
     def validate(self, data):
         request = self.context["request"]
@@ -411,7 +418,7 @@ class CommentSerializer(serializers.ModelSerializer):
         if not instance and source_comment is not None:
             root = source_comment.source_comment or source_comment
             data["source_comment"] = root
-            data["scope"] = root.scope
+            data["scope"] = canonical_comment_scope(root.scope)
             data["item_id"] = root.item_id
             reply_context = data.get("item_context") or {}
             root_context = root.item_context if isinstance(root.item_context, dict) else {}
@@ -448,7 +455,7 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in DESKTOP_COMMENT_SCOPES:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if target_scope == "desktop_canvas" and (
+            if target_scope in CANVAS_COMMENT_SCOPES and (
                 source_comment is not None or (instance is not None and task_id == _stored_task_context_id(instance))
             ):
                 task_id = None
@@ -600,7 +607,7 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
     task_id = serializers.UUIDField(
         required=False,
-        help_text="Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.",
+        help_text="Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.",
     )
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
     source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
@@ -825,6 +832,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         # serializer's slack_thread field doesn't do a query per comment. Skipped entirely while
         # the feature flag is off, so unflagged teams don't pay the lookup on a hot endpoint.
         scope = self.request.GET.get("scope")
+        if scope:
+            scope = canonical_comment_scope(scope)
         item_id = self.request.GET.get("item_id")
         pk = self.kwargs.get("pk")
         thread_by_comment: dict[str, CommentSlackThread] = {}
@@ -950,7 +959,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         scope = params.get("scope")
         if scope:
-            queryset = queryset.filter(scope=scope)
+            scope = canonical_comment_scope(scope)
+            queryset = (
+                queryset.filter(scope__in=CANVAS_COMMENT_SCOPES)
+                if scope in CANVAS_COMMENT_SCOPES
+                else queryset.filter(scope=scope)
+            )
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
             elif scope in DESKTOP_COMMENT_SCOPES:
@@ -959,7 +973,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 if not task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
-                    task_id=None if scope == "desktop_canvas" else task_id,
+                    task_id=None if scope in CANVAS_COMMENT_SCOPES else task_id,
                     scope=scope,
                     item_id=item_id,
                 ):
