@@ -176,6 +176,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
@@ -447,18 +448,29 @@ jobs:
                         - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
-                        # The SDK major-version guard (test_sdk_dependency_majors.py) reads
-                        # these manifests and lockfiles. The lockfiles are listed because a
-                        # floor-only or `*` spec can move to a new major through its lock alone.
+                      sdk_manifests:
+                        # Everything the SDK major-version guard reads. Lockfiles are listed
+                        # because a floor-only or `*` spec can move to a new major through
+                        # its lock alone.
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-workspace.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
                         - 'services/llm-gateway/pyproject.toml'
                         - 'services/llm-gateway/uv.lock'
-                        - 'uv.lock'
                         - 'common/ingestion/acceptance_tests/requirements.txt'
                         - 'tools/infra-scripts/clitools/requirements.txt'
                         - 'tools/infra-scripts/clitools/constraints.txt'
-                        - 'pnpm-workspace.yaml'
-                        - 'pnpm-lock.yaml'
-                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'cli/Cargo.toml'
+                        - 'cli/Cargo.lock'
+                        - 'bin/hobby-installer/go.mod'
+                        - 'bin/hobby-installer/go.sum'
+                        - '.github/scripts/check_sdk_majors.py'
                         # The guard scans every package.json for an SDK declaration.
                         - '**/package.json'
                         - 'rust/Cargo.toml'
@@ -1422,6 +1434,20 @@ jobs:
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
+    # Every PostHog SDK this repo installs must stay on its pinned major; the release
+    # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
+    sdk-major-guard:
+        needs: [changes]
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        timeout-minutes: 5
+        permissions: {}
+        name: SDK major-version guard
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check every SDK stays on its pinned major
+              run: python3 .github/scripts/check_sdk_majors.py
+
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
@@ -4225,6 +4251,7 @@ jobs:
                 detect-snapshot-mode,
                 handle-snapshots,
                 repo-checks,
+                sdk-major-guard,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-24.04
@@ -4280,6 +4307,7 @@ jobs:
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| sdk-major-guard | ${{ needs.sdk-major-guard.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| changes | ${{ needs.changes.result }} |"
                     echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
@@ -4409,6 +4437,7 @@ jobs:
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "SDK major guard" "${{ needs.sdk-major-guard.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   # Upstream jobs whose failure would otherwise only cascade into django
                   # being *skipped*, which this gate reads as success — a green gate with
