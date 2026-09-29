@@ -52,7 +52,7 @@ static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_A
 /// data for another TTL cycle.
 async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
     if !state
-        .flag_definitions_limiter
+        .flag_definitions_full_limiter
         .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
     {
         return;
@@ -61,7 +61,10 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
     match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
         Ok(Some(new_allowlist)) => {
             state
-                .flag_definitions_limiter
+                .flag_definitions_conditional_limiter
+                .update_allowlist(new_allowlist.clone());
+            state
+                .flag_definitions_full_limiter
                 .update_allowlist(new_allowlist);
         }
         Ok(None) => {
@@ -181,8 +184,19 @@ pub async fn flags_definitions(
     // Refresh the rate limit allowlist from the database if stale (every ~60s)
     refresh_rate_limit_allowlist_if_stale(&state).await;
 
-    // Check rate limit for this team
-    state.flag_definitions_limiter.check_rate_limit(team.id)?;
+    // This check runs before the ETag read so that a request it refuses costs no Redis
+    // call. The handler cannot tell a 304 from a full response until Redis answers.
+    // Whether If-None-Match carries an ETag therefore picks the budget.
+    let client_etag = extract_etag_from_header(headers.get("if-none-match"));
+    if client_etag.is_some() {
+        state
+            .flag_definitions_conditional_limiter
+            .check_rate_limit(team.id)?;
+    } else {
+        state
+            .flag_definitions_full_limiter
+            .check_rate_limit(team.id)?;
+    }
 
     // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
     if state
@@ -193,7 +207,6 @@ pub async fn flags_definitions(
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
     }
 
-    let client_etag = extract_etag_from_header(headers.get("if-none-match"));
     let team_key = KeyType::team(team.clone());
     let current_etag = match state
         .flags_with_cohorts_hypercache_reader
@@ -237,6 +250,14 @@ pub async fn flags_definitions(
             );
             return Ok(not_modified_response(current_val));
         }
+    }
+
+    // A stale ETag gets a full response, so it spends the full-response budget too. The
+    // conditional limiter already counted this request.
+    if client_etag.is_some() {
+        state
+            .flag_definitions_full_limiter
+            .check_rate_limit_without_request_count(team.id)?;
     }
 
     let etag_result = if client_etag.is_some() {
