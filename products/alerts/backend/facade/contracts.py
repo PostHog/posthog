@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import json
 from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
@@ -84,6 +85,29 @@ class SourceEvaluationInputs:
     batch_key: AlertBatchKey
 
 
+# A grouped configuration holds one runtime row per label set. Past this many the overflow is
+# recorded as an error on the root group, so a cap never reads as "nothing is wrong".
+MAX_GROUPS_PER_CONFIGURATION: Final[int] = 100
+
+
+def grouping_key_for(labels: dict[str, str]) -> str:
+    """The identity of one label set. Empty for an ungrouped result, so an ungrouped source keeps
+    the single row it has today. Sorted, so the key does not depend on label order."""
+    if not labels:
+        return ""
+    return json.dumps(sorted(labels.items()), separators=(",", ":"))
+
+
+@frozen
+class PlatformAlertGroupState:
+    """The runtime state of one label set of a configuration."""
+
+    grouping_key: str
+    state: str
+    last_notified_at: datetime | None
+    snooze_until: datetime | None
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
@@ -110,6 +134,8 @@ class PlatformAlertCheckInput:
     state: str
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    # Every label set's state. The flat fields above are the root group, kept for ungrouped sources.
+    groups: tuple[PlatformAlertGroupState, ...] = ()
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -173,6 +199,7 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    grouping_key: str = ""
 
 
 @frozen
@@ -182,6 +209,8 @@ class GroupTransition:
 
     grouping_key: str
     notification: str
+    labels: dict[str, str] = field(default_factory=dict)
+    value: float | None = None
 
 
 @frozen

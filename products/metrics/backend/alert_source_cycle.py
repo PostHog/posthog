@@ -29,14 +29,17 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
+    MAX_GROUPS_PER_CONFIGURATION,
     AlertDeliveryPreview,
     GroupTransition,
     MuteReason,
     PlatformAlertCheckInput,
+    PlatformAlertGroupState,
     PlatformAlertOutcome,
     SkipReason,
     SourceBatchEvaluation,
     SourceKind,
+    grouping_key_for,
 )
 from products.alerts.backend.facade.lifecycle import (
     PLATFORM_LOGS_ALERT_POLICY,
@@ -223,12 +226,32 @@ def _is_in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: s
         return False
 
 
-def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+def _root_group(check: PlatformAlertCheckInput) -> PlatformAlertGroupState:
+    return PlatformAlertGroupState(
+        grouping_key="", state=check.state, last_notified_at=check.last_notified_at, snooze_until=check.snooze_until
+    )
+
+
+def _group_of(check: PlatformAlertCheckInput, grouping_key: str) -> PlatformAlertGroupState:
+    """The runtime state of one label set. A label set seen for the first time starts not firing."""
+    for group in check.groups:
+        if group.grouping_key == grouping_key:
+            return group
+    if grouping_key == "":
+        return _root_group(check)
+    return PlatformAlertGroupState(
+        grouping_key=grouping_key, state="not_firing", last_notified_at=None, snooze_until=None
+    )
+
+
+def _snapshot(
+    check: PlatformAlertCheckInput, group: PlatformAlertGroupState, prior_breached: tuple[bool, ...]
+) -> AlertSnapshot:
     return AlertSnapshot(
-        state=AlertState(check.state),
+        state=AlertState(group.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
-        last_notified_at=check.last_notified_at,
-        snooze_until=check.snooze_until,
+        last_notified_at=group.last_notified_at,
+        snooze_until=group.snooze_until,
         consecutive_failures=check.consecutive_failures,
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
@@ -236,7 +259,18 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
     )
 
 
-Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+@frozen
+class _GroupDecision:
+    """What one label set of a configuration decided."""
+
+    group: PlatformAlertGroupState
+    labels: dict[str, str]
+    value: float | None
+    outcome: AlertCheckOutcome
+
+
+# Every outcome a configuration produced this cycle, and what delivery would announce for them.
+Decision = tuple[tuple[PlatformAlertOutcome, ...], AlertDeliveryPreview | None]
 
 
 @frozen
@@ -281,6 +315,7 @@ def _classify_error(error: Exception) -> _ClassifiedError:
 
 def _record_check_metrics(
     check: PlatformAlertCheckInput,
+    group: PlatformAlertGroupState,
     *,
     new_state: str,
     notification: NotificationAction,
@@ -296,8 +331,8 @@ def _record_check_metrics(
     if muted_notification != NotificationAction.NONE:
         mute_reason = MuteReason.QUIET_HOURS if muted_by_quiet_hours else MuteReason.SNOOZE
         safe_record(increment_notifications_muted, source, mute_reason.value)
-    if check.state != new_state:
-        safe_record(increment_state_transition, source, check.state, new_state)
+    if group.state != new_state:
+        safe_record(increment_state_transition, source, group.state, new_state)
     if check.next_check_at is not None:
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
@@ -306,15 +341,17 @@ def _record_check_metrics(
 
 def _verdict(
     check: PlatformAlertCheckInput,
+    group: PlatformAlertGroupState,
     check_input: CheckInput,
     prior_breached: tuple[bool, ...],
     *,
     now: datetime,
     skip: SkipReason | None,
 ) -> AlertCheckOutcome:
-    outcome = evaluate_alert_check(_snapshot(check, prior_breached), check_input, now, policy=_POLICY)
+    outcome = evaluate_alert_check(_snapshot(check, group, prior_breached), check_input, now, policy=_POLICY)
     _record_check_metrics(
         check,
+        group,
         new_state=outcome.new_state.value,
         notification=outcome.notification,
         muted_notification=outcome.muted_notification,
@@ -326,7 +363,13 @@ def _verdict(
 
 
 def _recorded(
-    check: PlatformAlertCheckInput, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+    check: PlatformAlertCheckInput,
+    *,
+    grouping_key: str,
+    new_state: str,
+    notified: bool,
+    consecutive_failures: int,
+    disable: bool = False,
 ) -> PlatformAlertOutcome:
     return PlatformAlertOutcome(
         configuration_id=check.id,
@@ -334,20 +377,37 @@ def _recorded(
         notified=notified,
         consecutive_failures=consecutive_failures,
         disable=disable,
+        grouping_key=grouping_key,
     )
 
 
-def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
-    recorded = _recorded(
-        check,
-        new_state=outcome.new_state.value,
-        notified=outcome.update_last_notified_at,
-        consecutive_failures=outcome.consecutive_failures,
-        disable=outcome.disable,
+def _delivery(check: PlatformAlertCheckInput, decisions: Sequence[_GroupDecision], *, window_end: datetime) -> Decision:
+    """What the platform records for every group, and the one preview that announces the groups
+    with a notification. One message per configuration is #1264's default fan-in."""
+    outcomes = tuple(
+        _recorded(
+            check,
+            grouping_key=decision.group.grouping_key,
+            new_state=decision.outcome.new_state.value,
+            notified=decision.outcome.update_last_notified_at,
+            consecutive_failures=decision.outcome.consecutive_failures,
+            disable=decision.outcome.disable,
+        )
+        for decision in decisions
     )
-    if outcome.notification == NotificationAction.NONE:
-        return recorded, None
-    return recorded, AlertDeliveryPreview(
+    transitions = tuple(
+        GroupTransition(
+            grouping_key=decision.group.grouping_key,
+            notification=decision.outcome.notification.value,
+            labels=decision.labels,
+            value=decision.value,
+        )
+        for decision in decisions
+        if decision.outcome.notification != NotificationAction.NONE
+    )
+    if not transitions:
+        return outcomes, None
+    return outcomes, AlertDeliveryPreview(
         source=SourceKind.METRICS,
         alert_id=str(check.id),
         alert_name=check.name,
@@ -355,47 +415,42 @@ def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, win
         # A metrics platform configuration owns no HogFunction destinations yet. Native delivery
         # resolves destinations from the configuration when it lands.
         destination_names=(),
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=transitions,
     )
 
 
-def _select_series(series: Sequence[MetricSeries], source: MetricsAlertSource) -> MetricSeries:
+def _select_series(series: Sequence[MetricSeries], source: MetricsAlertSource) -> list[MetricSeries]:
     wanted = source.evaluated_clause()
     matching = [s for s in series if s.clause == wanted]
     if not matching:
         raise ValueError(f"the query returned no series for clause {wanted!r}")
-    if len(matching) > 1:
-        # One state per configuration until grouped alerts land; a grouped result cannot be
-        # collapsed into it without hiding a breaching series behind a recovering one.
-        raise ValueError("grouped metrics alerts are not supported yet; remove group_by from the clause")
-    return matching[0]
+    return sorted(matching, key=lambda s: grouping_key_for(s.labels))
 
 
-def _evaluate_one(
+def _evaluate_group(
     check: PlatformAlertCheckInput,
-    series: Sequence[MetricSeries],
-    source: MetricsAlertSource,
+    group: PlatformAlertGroupState,
+    values: tuple[float | None, ...],
     *,
     now: datetime,
     muted: bool,
-    window_end: datetime,
 ) -> AlertCheckOutcome:
-    values = _values_newest_first(
-        _select_series(series, source),
-        check.evaluation_periods,
-        window_end=window_end,
-        window=timedelta(minutes=check.window_minutes),
-    )
     flags = tuple(_breached(value, check.threshold_count, check.threshold_operator) for value in values)
     current, *prior = flags
     if current is None:
-        # No value for the current window is not a clear window: the alert keeps its state and
-        # its failure count, and announces nothing.
+        # No value for the current window is not a clear window: the group keeps its state and
+        # announces nothing.
         return _verdict(
-            check, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
+            check,
+            group,
+            CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted),
+            (),
+            now=now,
+            skip=None,
         )
     return _verdict(
         check,
+        group,
         CheckInput(threshold_breached=current, muted=muted),
         tuple(bool(flag) for flag in prior),
         now=now,
@@ -403,10 +458,65 @@ def _evaluate_one(
     )
 
 
-def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, muted: bool) -> AlertCheckOutcome:
+def _inconclusive(
+    check: PlatformAlertCheckInput, group: PlatformAlertGroupState, *, now: datetime, muted: bool
+) -> _GroupDecision:
+    outcome = _verdict(
+        check, group, CheckInput(threshold_breached=False, is_inconclusive=True, muted=muted), (), now=now, skip=None
+    )
+    return _GroupDecision(group=group, labels={}, value=None, outcome=outcome)
+
+
+def _evaluate_groups(
+    check: PlatformAlertCheckInput,
+    series: Sequence[MetricSeries],
+    source: MetricsAlertSource,
+    *,
+    now: datetime,
+    muted: bool,
+    window_end: datetime,
+) -> list[_GroupDecision]:
+    """One decision per label set the query returned, plus one per label set the platform
+    remembers and the query no longer returns. A vanished series is inconclusive for its group
+    rather than dropped, so a group that was firing is not stranded."""
+    selected = _select_series(series, source)
+    grouped = len(selected) > 1 or any(one.labels for one in selected)
+    decisions: list[_GroupDecision] = []
+    seen: set[str] = set()
+    for one in selected[:MAX_GROUPS_PER_CONFIGURATION]:
+        key = grouping_key_for(one.labels)
+        seen.add(key)
+        values = _values_newest_first(
+            one, check.evaluation_periods, window_end=window_end, window=timedelta(minutes=check.window_minutes)
+        )
+        group = _group_of(check, key)
+        outcome = _evaluate_group(check, group, values, now=now, muted=muted)
+        decisions.append(_GroupDecision(group=group, labels=dict(one.labels), value=values[0], outcome=outcome))
+    if len(selected) > MAX_GROUPS_PER_CONFIGURATION:
+        # Visible on the root group. Silently stopping at the cap would read as "nothing is wrong"
+        # for every label set past it.
+        overflow = ValueError(
+            f"Too many groups ({len(selected)} > {MAX_GROUPS_PER_CONFIGURATION}); add filters or group by fewer labels"
+        )
+        decisions.append(_failed(check, _root_group(check), overflow, now=now, muted=muted))
+        seen.add("")
+    for group in check.groups:
+        if group.grouping_key in seen:
+            continue
+        if group.grouping_key == "" and grouped:
+            # The root row of a grouped configuration only carries whole-evaluation failures.
+            continue
+        decisions.append(_inconclusive(check, group, now=now, muted=muted))
+    return decisions
+
+
+def _failed(
+    check: PlatformAlertCheckInput, group: PlatformAlertGroupState, error: Exception, *, now: datetime, muted: bool
+) -> _GroupDecision:
     classified = _classify_error(error)
-    return _verdict(
+    outcome = _verdict(
         check,
+        group,
         CheckInput(
             threshold_breached=False,
             error_message=classified.user_message,
@@ -417,16 +527,26 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
         now=now,
         skip=SkipReason.QUERY_FAILED,
     )
+    return _GroupDecision(group=group, labels={}, value=None, outcome=outcome)
 
 
 def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
     recorded = _recorded(
-        check, new_state=outcome.new_state.value, notified=False, consecutive_failures=outcome.consecutive_failures
+        check,
+        grouping_key="",
+        new_state=outcome.new_state.value,
+        notified=False,
+        consecutive_failures=outcome.consecutive_failures,
     )
     _record_check_metrics(
-        check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
+        check,
+        _root_group(check),
+        new_state=outcome.new_state.value,
+        notification=NotificationAction.NONE,
+        skip=skip,
+        now=now,
     )
-    return recorded, None
+    return (recorded,), None
 
 
 def _evaluate_check(
@@ -457,11 +577,12 @@ def _evaluate_check(
                 timeout_overflow_mode="throw",
             ),
         )
-        outcome = _evaluate_one(check, series, source, now=now, muted=muted, window_end=date_to)
+        decisions = _evaluate_groups(check, series, source, now=now, muted=muted, window_end=date_to)
     except Exception as error:
         logger.exception("Failed to evaluate a metrics alert", check_id=str(check.id), error=str(error))
-        outcome = _failed(check, error, now=now, muted=muted)
-    return _delivery(check, outcome, window_end=date_to)
+        # A failed query fails the whole evaluation, so the root group carries it.
+        decisions = [_failed(check, _root_group(check), error, now=now, muted=muted)]
+    return _delivery(check, decisions, window_end=date_to)
 
 
 def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name: str) -> _Triage:
@@ -482,7 +603,12 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                 reason=broken_reason,
             )
             decided.append(
-                _held(check, apply_broken_config(_snapshot(check, ())), skip=SkipReason.BROKEN_CONFIG, now=now)
+                _held(
+                    check,
+                    apply_broken_config(_snapshot(check, _root_group(check), ())),
+                    skip=SkipReason.BROKEN_CONFIG,
+                    now=now,
+                )
             )
             continue
         if _is_in_quiet_hours(check, now, tz_name):
@@ -495,11 +621,11 @@ def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: f
     outcomes: list[PlatformAlertOutcome] = []
     previews: list[AlertDeliveryPreview] = []
     omitted = 0
-    for outcome, preview in decided:
+    for group_outcomes, preview in decided:
         if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
             omitted += 1
             continue
-        outcomes.append(outcome)
+        outcomes.extend(group_outcomes)
         if preview is not None:
             previews.append(preview)
     if omitted:

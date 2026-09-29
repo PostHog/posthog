@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation
+from products.alerts.backend.facade.contracts import (
+    MAX_GROUPS_PER_CONFIGURATION,
+    SourceBatchEvaluation,
+    grouping_key_for,
+)
 from products.alerts.backend.facade.platform_alerts import record_outcomes
 from products.alerts.backend.models import AlertConfiguration, PlatformAlert, PlatformAlertConfiguration
 from products.metrics.backend.alert_checkpoint import CHECKPOINT_MAX_STALENESS
@@ -233,17 +237,70 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert evaluation.outcomes[0].new_state == "broken"
         query.assert_not_called()
 
-    def test_a_grouped_result_is_a_failed_check_until_grouping_lands(self) -> None:
-        configuration = self._configuration()
-        grouped = [
-            _series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "api"}),
-            _series([1.0], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "web"}),
+    def _grouped(self, api: float | None, web: float | None) -> list[MetricSeries]:
+        return [
+            _series([api], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "api"}),
+            _series([web], end=self.due_at, step=timedelta(minutes=5), labels={"service_name": "web"}),
         ]
 
-        evaluation, _ = self._run(configuration, series=grouped)
+    def test_each_label_set_fires_on_its_own(self) -> None:
+        configuration = self._configuration()
 
-        assert evaluation.outcomes[0].consecutive_failures == 1
-        assert evaluation.outcomes[0].new_state != "firing"
+        evaluation, _ = self._run(configuration, series=self._grouped(api=500.0, web=1.0))
+        self._record(evaluation)
+
+        (preview,) = evaluation.previews
+        assert [(t.labels, t.notification) for t in preview.transitions] == [({"service_name": "api"}, "fire")]
+        with team_scope(self.team.id):
+            states = {a.grouping_key: a.state for a in PlatformAlert.objects.filter(configuration=configuration)}
+        assert states == {
+            grouping_key_for({"service_name": "api"}): "firing",
+            grouping_key_for({"service_name": "web"}): "not_firing",
+        }
+
+    def test_a_recovering_service_resolves_while_another_keeps_firing(self) -> None:
+        configuration = self._configuration()
+        first, _ = self._run(configuration, series=self._grouped(api=500.0, web=500.0))
+        self._record(first)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+
+        second, _ = self._run(configuration, series=self._grouped(api=500.0, web=1.0))
+
+        (preview,) = second.previews
+        assert [(t.labels, t.notification) for t in preview.transitions] == [({"service_name": "web"}, "resolve")]
+        by_key = {o.grouping_key: o.new_state for o in second.outcomes}
+        assert by_key[grouping_key_for({"service_name": "api"})] == "firing"
+        assert by_key[grouping_key_for({"service_name": "web"})] == "not_firing"
+
+    def test_group_overflow_is_recorded_as_an_error_on_the_root_group(self) -> None:
+        configuration = self._configuration()
+        many = [
+            _series([500.0], end=self.due_at, step=timedelta(minutes=5), labels={"pod": f"pod-{i:04d}"})
+            for i in range(MAX_GROUPS_PER_CONFIGURATION + 1)
+        ]
+
+        evaluation, _ = self._run(configuration, series=many)
+
+        by_key = {o.grouping_key: o for o in evaluation.outcomes}
+        assert by_key[""].consecutive_failures == 1
+        assert len(by_key) == MAX_GROUPS_PER_CONFIGURATION + 1
+
+    def test_a_vanished_series_is_inconclusive_for_its_group(self) -> None:
+        configuration = self._configuration()
+        first, _ = self._run(configuration, series=self._grouped(api=500.0, web=500.0))
+        self._record(first)
+        with team_scope(self.team.id):
+            configuration.next_check_at = self.due_at
+            configuration.save(update_fields=["next_check_at"])
+
+        second, _ = self._run(configuration, series=self._grouped(api=500.0, web=None)[:1])
+
+        by_key = {o.grouping_key: o for o in second.outcomes}
+        web = by_key[grouping_key_for({"service_name": "web"})]
+        assert web.new_state == "firing"
+        assert second.previews == ()
 
     def test_a_query_the_user_can_fix_counts_toward_broken_and_advances_the_schedule(self) -> None:
         configuration = self._configuration()
