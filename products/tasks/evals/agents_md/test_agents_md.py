@@ -454,6 +454,33 @@ def test_file_detectors_read_the_changed_file(
     assert observation.violations == expected
 
 
+@parameterized.expand(
+    [
+        ("container query", "surfaces-hold-up-narrow", "a.tsx", '<div className="grid @2xl:grid-cols-2">', 0),
+        ("viewport breakpoint", "surfaces-hold-up-narrow", "a.tsx", '<div className="grid md:grid-cols-2">', 1),
+        (
+            "helper already imported",
+            "github-slack-through-egress",
+            "a.py",
+            'response = github_request("GET", url, source="x")',
+            0,
+        ),
+        (
+            "raw request",
+            "github-slack-through-egress",
+            "a.py",
+            'response = requests.get(f"https://api.github.com/repos/{owner}")',
+            1,
+        ),
+    ]
+)
+def test_claim_detectors_score_the_compliant_answer_as_clean(
+    _name: str, claim_id: str, path: str, line: str, expected: float
+) -> None:
+    [under_test] = [c for c in load_claims() if c.id == claim_id]
+    assert detect(candidate(diff_for(path, [line])), under_test).violations == expected
+
+
 def test_detect_sums_detectors_and_reports_no_number_when_one_cannot_tell():
     two = claim(detectors=({"name": "indented_imports"}, {"name": "count_added_matching", "pattern": "x"}))
     assert detect(candidate(diff_for("a.py", ["    import x", "x = 1"])), two).violations == 3
