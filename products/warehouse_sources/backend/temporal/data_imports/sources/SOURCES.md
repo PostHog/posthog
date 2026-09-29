@@ -731,6 +731,7 @@ the row lists both.
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
 | trunk_io                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trino                            | HTTP (vendor SDK)           | trino                                                           | ✅                          |
+| turso                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
@@ -1451,7 +1452,6 @@ doesn't conflict with concurrent PRs.
 - tremendous
 - triple_whale
 - trustradius
-- turso
 - twitch
 - twitter
 - twitter_ads
