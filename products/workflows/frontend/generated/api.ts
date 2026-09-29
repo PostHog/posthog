@@ -751,10 +751,10 @@ export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationRetrieve = async (
     projectId: string,
@@ -772,10 +772,10 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const hogFlowsOptimizationCreate = async (
     projectId: string,

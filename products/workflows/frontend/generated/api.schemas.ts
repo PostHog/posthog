@@ -1188,7 +1188,7 @@ export interface AppMetricsTotalsResponseApi {
 }
 
 export interface HogFlowOptimizationApi {
-    /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+    /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
 }
 
@@ -1235,7 +1235,7 @@ export interface WorkflowProposalApi {
     readonly step_id: string | null
     /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
     readonly base_version: number
-    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
     readonly is_stale: boolean
     readonly status: WorkflowProposalStatusEnumApi
     /**
@@ -1285,8 +1285,11 @@ export interface WorkflowProposalCreateApi {
     content: WorkflowProposalCreateApiContent
     /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
     evidence?: WorkflowProposalCreateApiEvidence
-    /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-    base_version?: number
+    /**
+     * Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.
+     * @minimum 1
+     */
+    base_version: number
     /**
      * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
      * @maxLength 200
@@ -1311,6 +1314,28 @@ export interface WorkflowProposalApproveRequestApi {
     expected_draft_updated_at?: string | null
 }
 
+export interface WorkflowVersionChangeApi {
+    /**
+     * Step the field belongs to, or null for a workflow field.
+     * @nullable
+     */
+    step_name: string | null
+    /** What changed, as a person reads it, e.g. 'email > subject'. */
+    field: string
+    /**
+     * Value in the version before this one.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * Value this version published.
+     * @nullable
+     */
+    after: string | null
+    /** Whether the suggestion is what changed this field. */
+    from_suggestion: boolean
+}
+
 export interface WorkflowProposalMetricApi {
     /** What was measured, e.g. 'email open rate'. */
     metric: string
@@ -1328,8 +1353,29 @@ export interface WorkflowProposalMetricApi {
 export interface WorkflowProposalVersionOutcomeApi {
     /** Workflow version these numbers belong to. */
     version: number
+    /** Whether the suggestion went live as this version. */
+    applied?: boolean
+    /** Whether the suggestion was written against this version. */
+    proposed_against?: boolean
+    /** Whether this version still holds what the suggestion changed. */
+    carries_change?: boolean
+    /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+    other_changes?: boolean
+    /** What this version changed against the version before it. */
+    changes?: WorkflowVersionChangeApi[]
+    /**
+     * When this version went live.
+     * @nullable
+     */
+    published_at?: string | null
+    /** Who published this version. */
+    published_by?: UserBasicApi | null
+    /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+    versions?: number[]
     /** The metric the suggestion aimed at. */
     target: WorkflowProposalMetricApi
+    /** The rate read beside the target, so a lift in one is visible against the other. */
+    secondary?: WorkflowProposalMetricApi
     /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
     click_through: WorkflowProposalMetricApi
     /** Counter-metrics over the same window, so a harmful win is visible. */
@@ -1337,12 +1383,17 @@ export interface WorkflowProposalVersionOutcomeApi {
 }
 
 export interface WorkflowProposalOutcomeApi {
-    /** Relative window both sides were measured over. */
-    window: string
+    /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+    versions: WorkflowProposalVersionOutcomeApi[]
     /** The version the change was proposed against. */
     before: WorkflowProposalVersionOutcomeApi | null
-    /** The version it went live as. Null until the proposal is applied. */
+    /** The versions that carried the change. Null until the proposal is applied. */
     after: WorkflowProposalVersionOutcomeApi | null
+    /**
+     * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+     * @nullable
+     */
+    change_ended_at_version: number | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
 }
@@ -2219,6 +2270,10 @@ export type HogFlowsMetricsRetrieveParams = {
      * @minLength 1
      */
     name?: string
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version?: number
 }
 
 export type HogFlowsMetricsRetrieveBreakdownBy =
@@ -2281,6 +2336,10 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      * @minLength 1
      */
     name?: string
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version?: number
 }
 
 export type HogFlowsMetricsTotalsRetrieveBreakdownBy =

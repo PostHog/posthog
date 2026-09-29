@@ -42,6 +42,10 @@
             "description": "Comma-separated metric names to filter by.",
             "minLength": 1,
             "type": "string"
+        },
+        "version": {
+            "description": "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.",
+            "type": "number"
         }
     },
     "required": ["id"],

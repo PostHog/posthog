@@ -33,6 +33,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -5342,6 +5343,63 @@ class TestHogFlowAPI(APIBaseTest):
         serializer.is_valid()
 
         assert "type" not in serializer.errors
+
+
+class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.flow = HogFlow.objects.create(team=self.team, name="Versioned flow")
+
+    def _seed(self, app_source: str, app_source_id: str, succeeded: int) -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source=app_source,
+            app_source_id=app_source_id,
+            metric_kind="success",
+            metric_name="succeeded",
+            count=succeeded,
+        )
+
+    def test_a_version_reads_only_its_own_series(self):
+        self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
+        self._seed("hog_flow_version", f"{self.flow.id}/2", succeeded=5)
+        self._seed("hog_flow", str(self.flow.id), succeeded=7)
+        base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/totals"
+
+        version_one = self.client.get(f"{base}?version=1")
+        version_two = self.client.get(f"{base}?version=2")
+        whole = self.client.get(base)
+
+        assert version_one.status_code == 200, version_one.json()
+        assert version_one.json()["totals"] == {"success": 3}
+        assert version_two.json()["totals"] == {"success": 5}
+        assert whole.json()["totals"] == {"success": 7}
+
+    @parameterized.expand([("metrics/totals",), ("metrics",)])
+    def test_a_version_is_refused_where_nothing_records_one(self, path: str):
+        function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/{path}?version=1")
+
+        # Answering it from the empty per-version series would read as "no failures" rather than "not recorded".
+        assert response.status_code == 400, response.json()
+        assert "per version" in str(response.json())
+
+    @parameterized.expand([("metrics/totals",), ("metrics",)])
+    def test_a_hog_function_still_reads_its_own_metrics(self, path: str):
+        function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(function.id),
+            metric_kind="success",
+            metric_name="succeeded",
+            count=3,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/{path}")
+
+        assert response.status_code == 200, response.json()
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):

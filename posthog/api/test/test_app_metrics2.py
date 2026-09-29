@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals
+from posthog.api.app_metrics2 import fetch_app_metric_totals, fetch_app_metric_totals_by_source
 from posthog.test.fixtures import create_app_metric2
 
 
@@ -65,3 +65,48 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
         # for negative offsets it pulls in the earlier row, for positive ones it drops both.
         # `fetch_app_metrics_trends` shares the identical conversion, so this guards it too.
         assert result.totals == {"success": 1}, tz_name
+
+
+class TestAppMetrics2BySource(ClickhouseTestMixin, BaseTest):
+    def _seed(self, app_source_id: str, instance_id: str = "step-1", metric_name: str = "succeeded") -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source="hog_flow_version",
+            app_source_id=app_source_id,
+            instance_id=instance_id,
+            metric_kind="success",
+            metric_name=metric_name,
+            timestamp=datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC),
+        )
+
+    def _read(self, **kwargs) -> dict[str, dict[str, int]]:
+        return fetch_app_metric_totals_by_source(
+            team_id=self.team.pk, app_source="hog_flow_version", name=["succeeded"], **kwargs
+        )
+
+    def test_it_groups_every_source_when_no_ids_are_named(self) -> None:
+        self._seed("flow-a/1")
+        self._seed("flow-b/1")
+
+        assert set(self._read()) == {"flow-a/1", "flow-b/1"}
+
+    def test_named_ids_leave_the_other_sources_out(self) -> None:
+        self._seed("flow-a/1")
+        self._seed("flow-a/2")
+        self._seed("flow-b/1")
+
+        assert set(self._read(app_source_ids=["flow-a/1", "flow-a/2"])) == {"flow-a/1", "flow-a/2"}
+
+    def test_an_empty_id_list_reads_nothing_rather_than_everything(self) -> None:
+        self._seed("flow-a/1")
+        self._seed("flow-b/1")
+
+        # Falling through to the unfiltered query would hand the caller every workflow's counts.
+        assert self._read(app_source_ids=[]) == {}
+
+    def test_an_instance_id_leaves_the_other_steps_out(self) -> None:
+        self._seed("flow-a/1", instance_id="step-1")
+        self._seed("flow-a/1", instance_id="step-2")
+
+        assert self._read(app_source_ids=["flow-a/1"], instance_id="step-1") == {"flow-a/1": {"succeeded": 1}}
+        assert self._read(app_source_ids=["flow-a/1"]) == {"flow-a/1": {"succeeded": 2}}
