@@ -164,6 +164,11 @@ export interface DataHealthIssueApi {
      * @nullable
      */
     source_type?: string | null
+    /**
+     * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+     * @nullable
+     */
+    sync_type?: string | null
     /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
     status: string
     /**
@@ -172,7 +177,7 @@ export interface DataHealthIssueApi {
      */
     error: string | null
     /**
-     * When it last failed.
+     * When a sync issue's table last synced successfully. Null if it never has.
      * @nullable
      */
     failed_at: string | null
@@ -5269,6 +5274,15 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     cutoff_days?: number
     /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind
+    /**
      * Max rows to return. Capped at 50 server-side. Defaults to 20.
      */
     limit?: number
@@ -5285,6 +5299,15 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome
 }
+
+export type DataWarehouseCompletedActivityRetrieveKind =
+    (typeof DataWarehouseCompletedActivityRetrieveKind)[keyof typeof DataWarehouseCompletedActivityRetrieveKind]
+
+export const DataWarehouseCompletedActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
 
 export type DataWarehouseCompletedActivityRetrieveOutcome =
     (typeof DataWarehouseCompletedActivityRetrieveOutcome)[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome]

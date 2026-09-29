@@ -140,7 +140,7 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto">{display}</div>
+                                    <div className="flex-1 max-h-full overflow-auto pb-8">{display}</div>
                                 ) : (
                                     display
                                 )}
