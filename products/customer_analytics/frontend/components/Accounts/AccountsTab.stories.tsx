@@ -420,9 +420,12 @@ export const TagsEditorNarrow: Story = {
             }
         })
         await userEvent.click(within(tagsCell as HTMLElement).getByText('Edit tags'))
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
         await waitFor(() => {
             const editor = tagsCell.querySelector('[data-attr="new-tag-input"]')
-            if (!editor || editor.getBoundingClientRect().right > tableCell.getBoundingClientRect().right) {
+            const editorBounds = editor?.getBoundingClientRect()
+            const cellBounds = tableCell.getBoundingClientRect()
+            if (!editorBounds || editorBounds.left < cellBounds.left || editorBounds.right > cellBounds.right) {
                 throw new Error('The tag editor must fit inside its column')
             }
         })
