@@ -7,6 +7,7 @@ import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { currentRepository, PiChats } from "./chats";
+import { type PiCommand, type PiControl, piControl } from "./models";
 import { CloudRuns } from "./runs";
 
 export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
@@ -69,7 +70,11 @@ const noAnalytics: IAnalytics = {
 export function createCloud(
   auth: TokenSource & { apiHost: string },
   api: PostHogAPIClient,
-): { runs: CloudRuns; chats: PiChats } {
+): {
+  runs: CloudRuns;
+  chats: PiChats;
+  control: (taskId: string, runId: string) => PiControl;
+} {
   let teamId: Promise<number> | null = null;
   const context = async () => {
     teamId ??= api.getCurrentUser().then(
@@ -108,5 +113,11 @@ export function createCloud(
     if (!result.success)
       throw new Error(result.error ?? "Couldn't send the message");
   };
-  return { runs, chats: new PiChats(api, sendMessage, currentRepository()) };
+  const sendPi: PiCommand = async (input) =>
+    engine.sendCommand({ ...input, ...(await context()) });
+  return {
+    runs,
+    chats: new PiChats(api, sendMessage, currentRepository()),
+    control: (taskId, runId) => piControl(sendPi, taskId, runId),
+  };
 }

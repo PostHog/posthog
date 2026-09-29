@@ -3,6 +3,7 @@ import { renderToString } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import { initialLayout, openTask, saveLayout } from "../layout";
+import type { PiControl } from "../models";
 import type { CloudRuns } from "../runs";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
@@ -30,7 +31,12 @@ describe("App", () => {
     } as unknown as WorkList;
     expect(
       renderToString(
-        <App work={work} runs={{} as CloudRuns} chats={{} as PiChats} />,
+        <App
+          work={work}
+          runs={{} as CloudRuns}
+          chats={{} as PiChats}
+          control={() => ({}) as PiControl}
+        />,
       ),
     ).toContain("PostHog");
   });
@@ -49,7 +55,12 @@ describe("App", () => {
     } as unknown as CloudRuns;
 
     const { instance } = renderInTerminal(
-      <App work={work} runs={runs} chats={{} as PiChats} />,
+      <App
+        work={work}
+        runs={runs}
+        chats={{} as PiChats}
+        control={() => ({}) as PiControl}
+      />,
     );
     await vi.waitFor(() => expect(runs.watch).toHaveBeenCalledTimes(1));
     for (let refresh = 0; refresh < 3; refresh++) {

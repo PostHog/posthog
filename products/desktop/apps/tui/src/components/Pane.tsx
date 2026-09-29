@@ -51,6 +51,8 @@ export function Pane({
   onOffer,
   picker,
   modal,
+  model,
+  onRunLive,
   focused,
 }: {
   title: string;
@@ -65,6 +67,10 @@ export function Pane({
   picker: { index: number; dismissed: Set<string> };
   // A sheet the app opened for this pane, such as the model picker.
   modal: { sheet: Sheet; index: number } | null;
+  // The model this chat runs on, when known.
+  model: string | undefined;
+  // Called once the chat's run has a live sandbox.
+  onRunLive: (taskId: string, runId: string) => void;
   focused: boolean;
 }): ReactElement {
   // A split can hand a pane half a row; the title stays on top and the chat on the bottom, so the spare row falls between them.
@@ -130,6 +136,12 @@ export function Pane({
   const shade = (line: string): string => (focused ? line : faint(line));
   const composerLines =
     width > 0 ? composer.render(width, focused).map(shade) : [];
+  const live =
+    (view.status === "queued" || view.status === "in_progress") &&
+    view.entries.some((entry) => entry.type === "pi_run_started");
+  useEffect(() => {
+    if (live && task?.latest_run) onRunLive(task.id, task.latest_run.id);
+  });
   const offer = openActions(lines);
   useEffect(() => {
     onOffer(offer);
@@ -187,6 +199,7 @@ export function Pane({
     >
       <Text bold={focused} dimColor={!focused} wrap="truncate-end">
         {title}
+        {model && <Text dimColor> · {model}</Text>}
       </Text>
       <Box height={height} flexDirection="column" overflow="hidden">
         <Box
