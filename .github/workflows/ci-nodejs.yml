@@ -726,7 +726,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-*.xml
-                  test-collection-id: ugvRjGsw
+                  test-collection-id: ugvRjGsw # nodejs
                   # Worst of the two test steps: the gate must know the run failed even when
                   # only the parity step (shard 1) did. A skipped parity step counts as success.
                   previous-step-outcome: ${{ (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && 'failure' || 'success' }}

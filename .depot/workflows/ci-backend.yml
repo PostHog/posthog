@@ -1437,7 +1437,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
-                  test-collection-id: C0LrorjW
+                  test-collection-id: C0LrorjW # backend-product
                   # A native-JSON leg uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -3911,7 +3911,7 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  test-collection-id: AA6dvTdI
+                  test-collection-id: AA6dvTdI # backend-core
                   # Non-default rows upload under their own variant, so a failure only that mode
                   # hits does not quarantine the default test with the same id.
                   variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
@@ -3930,7 +3930,7 @@ jobs:
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
-                  test-collection-id: smyQjxZ3
+                  test-collection-id: smyQjxZ3 # backend-temporal
                   # A native-JSON row uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}

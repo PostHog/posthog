@@ -1148,7 +1148,7 @@ jobs:
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
-                  test-collection-id: kF88Gx2u
+                  test-collection-id: kF88Gx2u # e2e-playwright
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
