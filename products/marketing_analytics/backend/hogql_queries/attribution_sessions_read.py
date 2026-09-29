@@ -1,6 +1,6 @@
-"""Read cached session dimensions with the same event identity resolution as live attribution.
+"""Share session dimensions and current event identities across attribution calculations.
 
-Stored person IDs can outlive a merge, so only session dimensions come from the cache.
+Stored person IDs can outlive a merge, so identity always comes from events.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -14,6 +14,7 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
@@ -84,6 +85,23 @@ def _session_modifiers_reason(runner: "AttributionQueryRunnerBase") -> Optional[
     return None
 
 
+class _SessionConversionVisitor(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.depends_on_sessions = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        if any(part in {"session", "sessions", "raw_sessions", "raw_sessions_v3"} for part in node.chain):
+            self.depends_on_sessions = True
+        super().visit_field(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        # matchesAction expands after this eligibility check and can introduce session filters.
+        if node.name == "matchesAction":
+            self.depends_on_sessions = True
+        super().visit_call(node)
+
+
 def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[str]:
     """Why this query cannot read from the precompute, or None if it can.
 
@@ -92,6 +110,13 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
     """
     if reason := _session_modifiers_reason(runner):
         return reason
+
+    if runner.config.live_session_resolution_enabled:
+        conversion = _SessionConversionVisitor()
+        conversion.visit(runner.conversion_condition)
+        if conversion.depends_on_sessions:
+            # The separate conversion scan has narrower session-ID bounds than the legacy combined scan.
+            return "session_filtered_conversion_goal"
 
     if not is_integer_timezone(runner.team.timezone):
         # `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's midnight lands
@@ -162,6 +187,8 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
             logger.info("attribution_sessions_precompute_ineligible", team_id=runner.team.pk, reason=reason)
             return None
 
+        if runner.config.live_session_resolution_enabled:
+            return []
         read = window(runner, date_range)
         # Materialize from a session's length before the window: the writer files a session under the
         # chunk holding its start, so a session that opened earlier and ran into the window lives in
@@ -188,10 +215,9 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
     return [str(j) for j in result.job_ids]
 
 
-def _read_sessions(dimensions: ast.SelectQuery, start: datetime, end: datetime) -> ast.SelectQuery:
+def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
     query = parse_select(
         """
-        WITH dimensions AS (SELECT * FROM {dimensions}), identities AS (
             SELECT events.$session_id_uuid AS session_id_v7, events.person_id AS person_id,
                 min(events.timestamp) AS min_event_timestamp,
                 max(events.timestamp) AS max_event_timestamp,
@@ -200,7 +226,19 @@ def _read_sessions(dimensions: ast.SelectQuery, start: datetime, end: datetime) 
             WHERE events.event = '$pageview'
                 AND events.timestamp >= {start} AND events.timestamp <= {end}
             GROUP BY session_id_v7, person_id
-        )
+        """,
+        placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def _read_sessions(
+    dimensions: ast.SelectQuery, start: datetime, end: datetime, *, live: bool = False
+) -> ast.SelectQuery:
+    query = parse_select(
+        """
+        WITH dimensions AS (SELECT * FROM {dimensions}), identities AS ({identities})
         SELECT i.session_id_v7, i.person_id, i.min_event_timestamp, i.max_event_timestamp, i.pageview_count,
             d.latest.1 AS period_bucket, d.latest.2 AS start_timestamp, d.latest.3 AS channel_type,
             d.latest.4 AS utm_source, d.latest.5 AS utm_medium, d.latest.6 AS utm_campaign,
@@ -211,8 +249,11 @@ def _read_sessions(dimensions: ast.SelectQuery, start: datetime, end: datetime) 
         """,
         placeholders={
             "dimensions": dimensions,
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
+            "identities": (
+                parse_select("SELECT * FROM attribution_session_identities")
+                if live
+                else _session_identities(start, end)
+            ),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -390,7 +431,7 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
 
 
 def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> dict[str, ast.CTE]:
-    if not runner.config.sessions_precomputation_enabled:
+    if not (runner.config.sessions_precomputation_enabled or runner.config.live_session_resolution_enabled):
         return {}
     job_ids = _ensure(runner, date_range)
     if job_ids is None:
@@ -401,38 +442,41 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
         columns.add("utm_source")
     if runner.query.excludeDirectTraffic:
         columns.add("channel_type")
+    dimensions = session_dimensions(
+        runner.modifiers or create_default_modifiers_for_team(runner.team),
+        columns,
+        job_ids,
+        read.start,
+        read.end,
+        live=runner.config.live_session_resolution_enabled,
+    )
+    sessions = _read_sessions(dimensions, read.start, read.end, live=runner.config.live_session_resolution_enabled)
+    ctes: dict[str, ast.CTE] = {}
+    if runner.config.live_session_resolution_enabled:
+        ctes["attribution_session_identities"] = ast.CTE(
+            name="attribution_session_identities",
+            expr=_session_identities(read.start, read.end),
+            cte_type="subquery",
+            materialized=True,
+        )
     # Reach and credit share the event scan; conversion bounds share the revenue aggregation.
-    return {
-        _SESSIONS_CTE: ast.CTE(
-            name=_SESSIONS_CTE,
-            expr=_read_sessions(
-                session_dimensions(
-                    runner.modifiers or create_default_modifiers_for_team(runner.team),
-                    columns,
-                    job_ids,
-                    read.start,
-                    read.end,
-                ),
-                read.start,
-                read.end,
-            ),
-            cte_type="subquery",
-            materialized=True,
-        ),
-        _CONVERSIONS_CTE: ast.CTE(
-            name=_CONVERSIONS_CTE,
-            expr=_conversions_per_person(runner, date_range),
-            cte_type="subquery",
-            materialized=True,
-        ),
-    }
+    ctes[_SESSIONS_CTE] = ast.CTE(
+        name=_SESSIONS_CTE,
+        expr=sessions,
+        cte_type="subquery",
+        materialized=True,
+    )
+    ctes[_CONVERSIONS_CTE] = ast.CTE(
+        name=_CONVERSIONS_CTE,
+        expr=_conversions_per_person(runner, date_range),
+        cte_type="subquery",
+        materialized=True,
+    )
+    return ctes
 
 
 def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
-    """One row per converting person: its conversions, plus its touchpoints read from the precompute.
-
-    Session dimensions stay cached while both touchpoints and conversions resolve identity from events.
-    """
+    """One row per converting person, with touchpoints from the shared session resolution."""
     job_ids = _ensure(runner, date_range)
     if job_ids is None:
         return None
@@ -447,6 +491,21 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
     # this person's conversions. In single-conversion mode only the first one is kept, so nothing
     # after it is creditable either.
     upper = "last_conversion" if runner.allows_multiple_conversions_per_visitor else "first_conversion"
+
+    conditions = _scope(read)
+    if runner.config.live_session_resolution_enabled:
+        # Event and session replicas can lag independently; credit still requires a pageview in the person's window.
+        conditions.append(
+            ast.CompareOperation(
+                left=ast.Call(name="toUnixTimestamp", args=[_field("max_event_timestamp")]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.ArithmeticOperation(
+                    left=ast.Field(chain=["conv", "first_conversion"]),
+                    op=ast.ArithmeticOperationOp.Sub,
+                    right=ast.Constant(value=runner.attribution_window_seconds),
+                ),
+            )
+        )
 
     # One conversion-bounds row per person preserves the CTE's unique session/person pairs.
     per_session = ast.SelectQuery(
@@ -481,7 +540,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                 ),
             ),
         ),
-        where=ast.And(exprs=_scope(read)),
+        where=ast.And(exprs=conditions),
     )
 
     # Creditability is judged on the collapsed start, so a superseded row cannot decide it.
