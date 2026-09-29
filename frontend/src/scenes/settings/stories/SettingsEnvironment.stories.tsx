@@ -5,7 +5,7 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -154,6 +154,12 @@ const EXPERIMENTS_CONFIG_MOCK = {
 
 export const SettingsEnvironmentExperiments: Story = {
     args: { sectionId: 'environment-experiments' },
+    parameters: {
+        // STORYBOOK_FEATURE_FLAGS enables every flag, so the flag-off picker needs the exclusion
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter(
+            (f) => f !== FEATURE_FLAGS.EXPERIMENT_MULTIPLE_RECALCULATION_TIMES
+        ),
+    },
     decorators: [
         mswDecorator({
             get: { '/api/projects/:id/experiments_config/': EXPERIMENTS_CONFIG_MOCK },
