@@ -10,4 +10,5 @@ from products.alerts.backend.facade.contracts import SourceKind
 
 SOURCE_EVALUATION_WORKFLOWS: dict[SourceKind, str] = {
     SourceKind.LOGS: "logs-alert-evaluate",
+    SourceKind.METRICS: "metrics-alert-evaluate",
 }
